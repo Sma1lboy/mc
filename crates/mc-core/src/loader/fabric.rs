@@ -59,6 +59,20 @@ pub async fn install_fabric(
     vanilla_entry: &ManifestVersion,
     progress: Option<watch::Sender<Progress>>,
 ) -> Result<String> {
+    install_fabric_version(dl, paths, mc_version, vanilla_entry, None, progress).await
+}
+
+/// Install Fabric with an optional exact loader version. `.mrpack` imports pass
+/// their declared `fabric-loader` dependency here; normal installs leave it as
+/// `None` and use the newest stable loader.
+pub async fn install_fabric_version(
+    dl: &Downloader,
+    paths: &GamePaths,
+    mc_version: &str,
+    vanilla_entry: &ManifestVersion,
+    loader_version: Option<&str>,
+    progress: Option<watch::Sender<Progress>>,
+) -> Result<String> {
     // 1. Ensure vanilla is installed (Fabric's profile inheritsFrom it).
     if !paths.version_json(mc_version).exists() {
         if let Some(tx) = &progress {
@@ -71,7 +85,10 @@ pub async fn install_fabric(
     if let Some(tx) = &progress {
         let _ = tx.send(Progress::new("解析 Fabric loader 版本"));
     }
-    let loader_version = pick_loader_version(dl, mc_version).await?;
+    let loader_version = match loader_version.filter(|v| !v.is_empty()) {
+        Some(v) => v.to_string(),
+        None => pick_loader_version(dl, mc_version).await?,
+    };
     let profile_url =
         format!("{FABRIC_META}/versions/loader/{mc_version}/{loader_version}/profile/json");
     let raw = dl.get_text(&profile_url).await?;

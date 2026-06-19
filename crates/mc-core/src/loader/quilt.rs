@@ -48,6 +48,20 @@ pub async fn install_quilt(
     vanilla_entry: &ManifestVersion,
     progress: Option<watch::Sender<Progress>>,
 ) -> Result<String> {
+    install_quilt_version(dl, paths, mc_version, vanilla_entry, None, progress).await
+}
+
+/// Install Quilt with an optional exact loader version. `.mrpack` imports pass
+/// their declared `quilt-loader` dependency here; normal installs leave it as
+/// `None` and use the newest suitable loader.
+pub async fn install_quilt_version(
+    dl: &Downloader,
+    paths: &GamePaths,
+    mc_version: &str,
+    vanilla_entry: &ManifestVersion,
+    loader_version: Option<&str>,
+    progress: Option<watch::Sender<Progress>>,
+) -> Result<String> {
     if !paths.version_json(mc_version).exists() {
         if let Some(tx) = &progress {
             let _ = tx.send(Progress::new(format!("安装原版 {mc_version}")));
@@ -58,16 +72,19 @@ pub async fn install_quilt(
     if let Some(tx) = &progress {
         let _ = tx.send(Progress::new("解析 Quilt loader 版本"));
     }
-    let loader_version = match pick_loader_version(dl, mc_version).await {
-        Ok(v) => v,
-        Err(_) => {
-            // no stable: take the newest available
-            let url = format!("{QUILT_META}/versions/loader/{mc_version}");
-            let list: Vec<LoaderEntry> = dl.get_json(&url).await?;
-            list.into_iter()
-                .next()
-                .map(|e| e.loader.version)
-                .ok_or_else(|| CoreError::other(format!("Quilt 不支持 Minecraft {mc_version}")))?
+    let loader_version = match loader_version.filter(|v| !v.is_empty()) {
+        Some(v) => v.to_string(),
+        None => match pick_loader_version(dl, mc_version).await {
+            Ok(v) => v,
+            Err(_) => {
+                // no stable: take the newest available
+                let url = format!("{QUILT_META}/versions/loader/{mc_version}");
+                let list: Vec<LoaderEntry> = dl.get_json(&url).await?;
+                list.into_iter()
+                    .next()
+                    .map(|e| e.loader.version)
+                    .ok_or_else(|| CoreError::other(format!("Quilt 不支持 Minecraft {mc_version}")))?
+            }
         }
     };
 

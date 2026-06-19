@@ -113,6 +113,24 @@ export const api = {
     });
   },
 
+  /** 导出实例为 Modrinth .mrpack */
+  exportMrpack(root: string, instanceId: string, destPath: string): Promise<string> {
+    return invoke<string>("export_mrpack", {
+      root,
+      instanceId,
+      destPath,
+    });
+  },
+
+  /** 导入 Modrinth .mrpack 为新实例 */
+  importMrpack(root: string, mrpackPath: string, instanceId: string): Promise<string> {
+    return invoke<string>("import_mrpack", {
+      root,
+      mrpackPath,
+      instanceId,
+    });
+  },
+
   /** 读取持久化的主题配置 */
   getTheme(): Promise<ThemeConfig> {
     return invoke<ThemeConfig>("get_theme");

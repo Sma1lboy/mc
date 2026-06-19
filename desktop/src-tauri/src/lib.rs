@@ -6,6 +6,7 @@ mod commands;
 /// Build and run the Tauri application.
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             commands::list_roots,
@@ -19,6 +20,8 @@ pub fn run() {
             commands::remove_account,
             commands::detect_java,
             commands::modrinth_search,
+            commands::export_mrpack,
+            commands::import_mrpack,
             commands::get_theme,
             commands::set_theme,
             commands::install_version,

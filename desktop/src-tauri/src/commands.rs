@@ -51,6 +51,19 @@ fn root_paths(root: &str) -> paths::GamePaths {
     }
 }
 
+fn validate_instance_id(id: &str) -> CmdResult<String> {
+    let id = id.trim();
+    if id.is_empty()
+        || id == "."
+        || id == ".."
+        || id.contains('/')
+        || id.contains('\\')
+    {
+        return Err("实例 ID 非法".to_string());
+    }
+    Ok(id.to_string())
+}
+
 // --- DTOs that differ from the core types --------------------------------
 
 /// JavaInstall with the version flattened to a string (the core keeps it
@@ -251,6 +264,46 @@ pub async fn modrinth_search(
     api.search(&query, rk, game_version.as_deref(), loader.as_deref(), 30)
         .await
         .map_err(err)
+}
+
+#[tauri::command]
+pub fn export_mrpack(root: String, instance_id: String, dest_path: String) -> CmdResult<String> {
+    let paths = root_paths(&root);
+    let instance_id = validate_instance_id(&instance_id)?;
+    let summary = mc_core::instance::list_instances(&paths)
+        .into_iter()
+        .find(|i| i.id == instance_id)
+        .ok_or_else(|| format!("实例 {instance_id} 不存在"))?;
+
+    let dest = PathBuf::from(dest_path);
+    let inst = Instance::new(&instance_id, paths.root().to_path_buf());
+    mc_core::instance::export_mrpack(&inst, &summary.mc_version, &dest).map_err(err)?;
+    Ok(dest.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub async fn import_mrpack(
+    root: String,
+    mrpack_path: String,
+    instance_id: String,
+) -> CmdResult<String> {
+    let paths = root_paths(&root);
+    let instance_id = validate_instance_id(&instance_id)?;
+    let target = paths.version_dir(&instance_id);
+    if target.exists() {
+        return Err(format!("实例 {instance_id} 已存在"));
+    }
+
+    let dl = Downloader::new(64).map_err(err)?;
+    mc_core::instance::import_mrpack(
+        &paths,
+        &dl,
+        &PathBuf::from(mrpack_path),
+        &instance_id,
+    )
+    .await
+    .map_err(err)?;
+    Ok(instance_id)
 }
 
 // --- theme persistence ----------------------------------------------------

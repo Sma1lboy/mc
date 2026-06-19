@@ -18,6 +18,7 @@ pub mod world;
 
 pub use config::InstanceConfig;
 pub use install_mod::{install_mod, install_mod_version, InstallReport};
+pub use lifecycle::{export_mrpack, import_mrpack};
 pub use mods::{list_mods, ModInfo};
 pub use packs::{list_packs, PackKind};
 pub use world::{list_worlds, WorldInfo};
@@ -122,6 +123,10 @@ fn infer_loader(id: &str, inherits_from: Option<&str>) -> LoaderKind {
         hay.push_str(&parent.to_ascii_lowercase());
     }
 
+    loader_from_text(&hay)
+}
+
+fn loader_from_text(hay: &str) -> LoaderKind {
     if hay.contains("neoforge") {
         LoaderKind::NeoForge
     } else if hay.contains("forge") {
@@ -141,11 +146,64 @@ fn infer_loader(id: &str, inherits_from: Option<&str>) -> LoaderKind {
 
 /// 仅提取 list 视图所需的几个字段,避免对每个实例都做完整 [`crate::version::VersionJson`]
 /// 反序列化(完整结构包含 libraries/arguments 等,代价高且与列表无关)。
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 struct VersionHead {
     id: Option<String>,
     #[serde(rename = "inheritsFrom")]
     inherits_from: Option<String>,
+}
+
+fn read_version_head(paths: &GamePaths, id: &str) -> Option<VersionHead> {
+    let raw = std::fs::read_to_string(paths.version_json(id)).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+/// 沿 `inheritsFrom` 轻量追踪版本链,返回 `(基础 MC 版本, loader 家族, loader profile id)`。
+///
+/// 普通 loader profile 通常是 `fabric-loader-... -> 1.20.1`。整合包导入会再包一层
+/// `my-pack -> fabric-loader-... -> 1.20.1`,所以不能只看当前 json 的一层 parent。
+fn summarize_version_chain(
+    paths: &GamePaths,
+    dir_id: &str,
+    head: VersionHead,
+) -> (String, LoaderKind, Option<String>) {
+    let mut chain_ids: Vec<String> = Vec::new();
+    let mut current_dir_id = dir_id.to_string();
+    let mut current = head;
+
+    for _ in 0..32 {
+        let id = current
+            .id
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| current_dir_id.clone());
+        chain_ids.push(id);
+
+        let Some(parent_id) = current.inherits_from.clone().filter(|s| !s.is_empty()) else {
+            break;
+        };
+        let Some(parent) = read_version_head(paths, &parent_id) else {
+            chain_ids.push(parent_id);
+            break;
+        };
+        current_dir_id = parent_id;
+        current = parent;
+    }
+
+    let mc_version = chain_ids.last().cloned().unwrap_or_else(|| dir_id.to_string());
+    let mut loader = LoaderKind::Vanilla;
+    let mut loader_version = None;
+
+    for id in &chain_ids {
+        let kind = infer_loader(id, None);
+        if kind != LoaderKind::Vanilla {
+            loader = kind;
+            loader_version = Some(id.clone());
+            break;
+        }
+    }
+
+    (mc_version, loader, loader_version)
 }
 
 /// 取目录的最后修改时间(epoch millis),失败返回 0。
@@ -210,12 +268,13 @@ pub fn list_instances(paths: &GamePaths) -> Vec<InstanceSummary> {
         };
 
         // 优先用 json 内的 id,回退到目录名。
-        let id = head.id.filter(|s| !s.is_empty()).unwrap_or_else(|| dir_id.clone());
-        let inherits = head.inherits_from.clone();
-        let loader = infer_loader(&id, inherits.as_deref());
-
-        // 基础 mc 版本:有 inheritsFrom 用之(loader 版本继承自原版),否则用 id 自身。
-        let mc_version = inherits.clone().unwrap_or_else(|| id.clone());
+        let id = head
+            .id
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| dir_id.clone());
+        let (mc_version, loader, loader_version) =
+            summarize_version_chain(paths, &dir_id, head);
 
         // 实例名优先取 instance.json 的 name,缺省用 id。
         let config = InstanceConfig::load(&dir.join(INSTANCE_CONFIG_FILE)).unwrap_or_default();
@@ -226,11 +285,7 @@ pub fn list_instances(paths: &GamePaths) -> Vec<InstanceSummary> {
             name,
             mc_version,
             loader,
-            // 非原版才暴露 loader_version:用整体 id 作为可读标识(精确解析留给 meta 层)。
-            loader_version: match loader {
-                LoaderKind::Vanilla => None,
-                _ => Some(dir_id.clone()),
-            },
+            loader_version,
             icon: None, // 图标当前未在 config 建模,留空(后续可由 icon.png 探测填充)。
             last_played: last_played_for(&dir),
             running: false, // 运行态由上层进程管理器维护,列表层不感知。
@@ -338,6 +393,25 @@ mod tests {
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].name, "Survival World");
         assert_eq!(list[0].id, "1.20.1");
+    }
+
+    #[test]
+    fn pack_proxy_instance_uses_base_minecraft_version() {
+        let root = TempRoot::new("pack-chain");
+        root.add_version("1.20.1", None);
+        root.add_version("fabric-loader-0.15.7-1.20.1", Some("1.20.1"));
+        root.add_version("friends-pack", Some("fabric-loader-0.15.7-1.20.1"));
+
+        let paths = GamePaths::new(root.path.clone());
+        let list = list_instances(&paths);
+        let pack = list.iter().find(|s| s.id == "friends-pack").unwrap();
+
+        assert_eq!(pack.loader, LoaderKind::Fabric);
+        assert_eq!(pack.mc_version, "1.20.1");
+        assert_eq!(
+            pack.loader_version.as_deref(),
+            Some("fabric-loader-0.15.7-1.20.1")
+        );
     }
 
     #[test]

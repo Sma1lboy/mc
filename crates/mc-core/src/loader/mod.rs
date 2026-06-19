@@ -9,7 +9,7 @@ pub mod installer;
 pub mod neoforge;
 pub mod quilt;
 
-pub use fabric::install_fabric;
+pub use fabric::{install_fabric, install_fabric_version};
 pub use forge::install_forge;
 pub use neoforge::install_neoforge;
-pub use quilt::install_quilt;
+pub use quilt::{install_quilt, install_quilt_version};

@@ -9,8 +9,7 @@
 //!   使复制出的实例自洽可启动。
 //! - [`delete_instance`]:把整个实例目录移入回收站(失败回退到不可逆删除)。
 //! - [`import_mrpack`]:解析 Modrinth `.mrpack`(本质是 zip),安装其声明的原版
-//!   Minecraft、覆盖 `overrides/`、下载 `files[]` 到实例目录。loader 的安装不在
-//!   本批做(见函数文档),由上层在导入后另行调用 `loader::install_*`。
+//!   Minecraft / loader、覆盖 `overrides/`、下载 `files[]` 到实例目录。
 //! - [`export_mrpack`]:把实例的本地游戏数据(mods/config/resourcepacks…)打成一个
 //!   最小可用的 `.mrpack`,所有本地文件都放进 `overrides/` 下(无远程 url 时的兜底)。
 //!
@@ -22,6 +21,7 @@
 //! - **保真落盘**:版本 json 用 `serde_json::Value` 只改 `id` 字段后写出,其余字段
 //!   原样保留(避免重新序列化丢失未建模字段)。
 
+use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::path::Path;
 
@@ -209,10 +209,8 @@ const CLIENT_OVERRIDES_PREFIX: &str = "client-overrides/";
 /// 3. 下载 `files[]`(`downloads[0]` 为 url、`hashes.sha1` 校验)到
 ///    `versions/<instance_id>/<file.path>`;跳过 `env.client == "unsupported"` 的文件。
 ///
-/// **loader 不在本批安装**:整合包通常声明 fabric/quilt/forge/neoforge loader,
-/// 安装它需要专门的 loader 元数据流程。本函数只完成"原版 + 文件"层面的导入;调用方
-/// 应在其后根据 `dependencies` 里的 loader 键调用 `loader::install_fabric` /
-/// `loader::install_quilt` 等完成 loader 安装,并把实例切到 loader profile id。
+/// 若包声明 loader,本函数会先安装 loader,再写入一个继承该 loader profile 的
+/// 实例专属版本 json,从而让 `versions/<instance_id>` 既是启动 profile,也是 game_dir。
 pub async fn import_mrpack(
     paths: &GamePaths,
     dl: &Downloader,
@@ -244,27 +242,37 @@ pub async fn import_mrpack(
         );
     }
 
-    // ---- 2) 安装索引声明的原版 Minecraft ----
+    // ---- 2) 安装索引声明的原版 Minecraft / loader ----
     let mc_version = index
         .dependencies
         .get("minecraft")
         .cloned()
         .ok_or_else(|| CoreError::other(".mrpack dependencies 缺少 minecraft 版本"))?;
 
-    // 仅当原版尚未安装时才拉清单 + 安装(避免重复网络往返)。
+    // 取 Mojang 清单条目:原版安装与 loader 安装都需要它。
+    let manifest = crate::meta::fetch_manifest(dl).await?;
+    let vanilla_entry = manifest
+        .iter()
+        .find(|m| m.id == mc_version)
+        .ok_or_else(|| CoreError::other(format!("版本清单中找不到 Minecraft {mc_version}")))?
+        .clone();
+
+    // 仅当原版尚未安装时才安装。
     if !paths.version_json(&mc_version).is_file() {
-        let manifest = crate::meta::fetch_manifest(dl).await?;
-        let entry = manifest
-            .iter()
-            .find(|m| m.id == mc_version)
-            .ok_or_else(|| CoreError::other(format!("版本清单中找不到 Minecraft {mc_version}")))?;
-        crate::launch::install_version(dl, paths, entry, None).await?;
+        crate::launch::install_version(dl, paths, &vanilla_entry, None).await?;
     }
+
+    let base_profile_id =
+        install_declared_loader(&index, dl, paths, &mc_version, &vanilla_entry).await?;
 
     // ---- 3) 准备整合包实例目录(game_dir == versions/<instance_id>/) ----
     let inst = Instance::new(instance_id, paths.root().to_path_buf());
     let game_dir = inst.game_dir();
     ensure_dir(&game_dir)?;
+
+    // 写一个实例专属 profile,让版本即实例模型能用自定义 instance_id 承载整合包。
+    // 这个 profile 继承原版或 loader profile,实际 game_dir 仍指向 versions/<instance_id>/。
+    write_instance_profile(paths, instance_id, &base_profile_id)?;
 
     // 写实例配置:把整合包名记到 instance.json(便于实例列表展示)。
     if !index.name.is_empty() {
@@ -301,6 +309,70 @@ pub async fn import_mrpack(
     }
 
     Ok(())
+}
+
+async fn install_declared_loader(
+    index: &MrpackIndex,
+    dl: &Downloader,
+    paths: &GamePaths,
+    mc_version: &str,
+    vanilla_entry: &mc_types::ManifestVersion,
+) -> Result<String> {
+    if let Some(loader_version) = index.dependencies.get("fabric-loader") {
+        return crate::loader::install_fabric_version(
+            dl,
+            paths,
+            mc_version,
+            vanilla_entry,
+            Some(loader_version.as_str()),
+            None,
+        )
+        .await;
+    }
+
+    if let Some(loader_version) = index.dependencies.get("quilt-loader") {
+        return crate::loader::install_quilt_version(
+            dl,
+            paths,
+            mc_version,
+            vanilla_entry,
+            Some(loader_version.as_str()),
+            None,
+        )
+        .await;
+    }
+
+    if let Some(neo_version) = index.dependencies.get("neoforge") {
+        return crate::loader::install_neoforge(dl, paths, neo_version, vanilla_entry, None, None)
+            .await;
+    }
+
+    if let Some(forge_build) = index.dependencies.get("forge") {
+        return crate::loader::install_forge(
+            dl,
+            paths,
+            mc_version,
+            forge_build,
+            vanilla_entry,
+            None,
+            None,
+        )
+        .await;
+    }
+
+    Ok(mc_version.to_string())
+}
+
+fn write_instance_profile(paths: &GamePaths, instance_id: &str, base_profile_id: &str) -> Result<()> {
+    let profile = serde_json::json!({
+        "id": instance_id,
+        "inheritsFrom": base_profile_id,
+        "type": "release",
+    });
+    let raw = serde_json::to_vec_pretty(&profile)
+        .map_err(|e| CoreError::Parse { what: "instance profile json".into(), source: e })?;
+    ensure_dir(&paths.version_dir(instance_id))?;
+    crate::fs::write_atomic(&paths.version_json(instance_id), &raw)
 }
 
 /// 把 zip 内 `overrides/` 与 `client-overrides/` 下的所有条目解压到 `game_dir`。
@@ -376,8 +448,8 @@ const EXPORT_DIRS: &[&str] = &[
 ///
 /// 生成内容:
 /// - `modrinth.index.json`:`formatVersion=1`、`game="minecraft"`、`name=实例名`、
-///   `dependencies={ "minecraft": mc_version }`、`files=[]`(本地 mod 无远程 url,
-///   故全部以 overrides 形式内联,而不进 `files[]`)。
+///   `dependencies` 包含 Minecraft 与可识别的 loader、`files=[]`(本地 mod 无远程
+///   url,故全部以 overrides 形式内联,而不进 `files[]`)。
 /// - `overrides/<dir>/...`:把实例下 [`EXPORT_DIRS`] 列出的子目录(mods/config/
 ///   resourcepacks…)递归打进 `overrides/` 下。
 ///
@@ -393,6 +465,7 @@ pub fn export_mrpack(inst: &Instance, mc_version: &str, dest: &Path) -> Result<(
         .and_then(|c| c.name)
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| inst.version_id().to_string());
+    let dependencies = mrpack_dependencies(inst, mc_version);
 
     // 构造 modrinth.index.json(files 为空数组:所有本地文件走 overrides)。
     let index = serde_json::json!({
@@ -400,7 +473,7 @@ pub fn export_mrpack(inst: &Instance, mc_version: &str, dest: &Path) -> Result<(
         "game": "minecraft",
         "versionId": inst.version_id(),
         "name": name,
-        "dependencies": { "minecraft": mc_version },
+        "dependencies": dependencies,
         "files": [],
     });
     let index_bytes = serde_json::to_vec_pretty(&index)
@@ -435,6 +508,87 @@ pub fn export_mrpack(inst: &Instance, mc_version: &str, dest: &Path) -> Result<(
 
     writer.finish().map_err(|e| CoreError::Zip(e.to_string()))?;
     Ok(())
+}
+
+fn mrpack_dependencies(inst: &Instance, mc_version: &str) -> BTreeMap<String, String> {
+    let mut dependencies = BTreeMap::new();
+    dependencies.insert("minecraft".to_string(), mc_version.to_string());
+
+    if let Some((key, version)) = detect_mrpack_loader_dependency(inst, mc_version) {
+        dependencies.insert(key.to_string(), version);
+    }
+
+    dependencies
+}
+
+fn detect_mrpack_loader_dependency(
+    inst: &Instance,
+    mc_version: &str,
+) -> Option<(&'static str, String)> {
+    let paths = inst.paths();
+    let profile = match crate::launch::resolve_disk_profile(&paths, inst.version_id()) {
+        Ok(profile) => profile,
+        Err(_) => return detect_loader_dependency_from_id(inst.version_id(), mc_version),
+    };
+
+    let mut fabric = None;
+    let mut quilt = None;
+    let mut neoforge = None;
+    let mut forge = None;
+
+    for lib in &profile.libraries {
+        let Some(spec) = lib.spec() else { continue };
+        match (spec.group.as_str(), spec.artifact.as_str()) {
+            ("net.fabricmc", "fabric-loader") => {
+                fabric.get_or_insert(spec.version.clone());
+            }
+            ("org.quiltmc", "quilt-loader") => {
+                quilt.get_or_insert(spec.version.clone());
+            }
+            ("net.neoforged", "neoforge") => {
+                neoforge.get_or_insert(spec.version.clone());
+            }
+            ("net.minecraftforge", "forge") => {
+                let prefix = format!("{mc_version}-");
+                let build = spec.version.strip_prefix(&prefix).unwrap_or(&spec.version);
+                forge.get_or_insert(build.to_string());
+            }
+            _ => {}
+        }
+    }
+
+    fabric
+        .map(|v| ("fabric-loader", v))
+        .or_else(|| quilt.map(|v| ("quilt-loader", v)))
+        .or_else(|| neoforge.map(|v| ("neoforge", v)))
+        .or_else(|| forge.map(|v| ("forge", v)))
+        .or_else(|| detect_loader_dependency_from_id(&profile.id, mc_version))
+}
+
+fn detect_loader_dependency_from_id(id: &str, mc_version: &str) -> Option<(&'static str, String)> {
+    extract_between_loader_marker(id, "fabric-loader-", mc_version)
+        .map(|v| ("fabric-loader", v))
+        .or_else(|| {
+            extract_between_loader_marker(id, "quilt-loader-", mc_version)
+                .map(|v| ("quilt-loader", v))
+        })
+        .or_else(|| extract_after_loader_marker(id, "neoforge-").map(|v| ("neoforge", v)))
+        .or_else(|| extract_after_loader_marker(id, "-forge-").map(|v| ("forge", v)))
+}
+
+fn extract_between_loader_marker(id: &str, marker: &str, mc_version: &str) -> Option<String> {
+    let lower = id.to_ascii_lowercase();
+    let start = lower.find(marker)? + marker.len();
+    let rest = &id[start..];
+    let suffix = format!("-{mc_version}");
+    Some(rest.strip_suffix(&suffix).unwrap_or(rest).to_string())
+        .filter(|v| !v.is_empty())
+}
+
+fn extract_after_loader_marker(id: &str, marker: &str) -> Option<String> {
+    let lower = id.to_ascii_lowercase();
+    let start = lower.find(marker)? + marker.len();
+    Some(id[start..].to_string()).filter(|v| !v.is_empty())
 }
 
 /// 把 `current` 目录递归写进 zip,内部路径前缀为 `zip_root`(相对 `base` 拼接)。
@@ -500,6 +654,12 @@ mod tests {
 
         fn paths(&self) -> GamePaths {
             GamePaths::new(self.path.clone())
+        }
+
+        fn add_version_json(&self, id: &str, raw: &str) {
+            let paths = self.paths();
+            fs::create_dir_all(paths.version_dir(id)).unwrap();
+            fs::write(paths.version_json(id), raw).unwrap();
         }
     }
 
@@ -708,6 +868,65 @@ mod tests {
         assert_eq!(index.dependencies.get("minecraft").map(String::as_str), Some("1.21"));
         assert!(index.files.is_empty());
         assert!(index.name.is_empty());
+    }
+
+    #[test]
+    fn exported_dependencies_include_fabric_loader_from_proxy_chain() {
+        let root = TempRoot::new("export-fabric-deps");
+        root.add_version_json("1.20.1", r#"{"id":"1.20.1","libraries":[]}"#);
+        root.add_version_json(
+            "fabric-loader-0.15.7-1.20.1",
+            r#"{
+                "id":"fabric-loader-0.15.7-1.20.1",
+                "inheritsFrom":"1.20.1",
+                "libraries":[{"name":"net.fabricmc:fabric-loader:0.15.7"}]
+            }"#,
+        );
+        root.add_version_json(
+            "friends-pack",
+            r#"{"id":"friends-pack","inheritsFrom":"fabric-loader-0.15.7-1.20.1"}"#,
+        );
+
+        let inst = Instance::new("friends-pack", root.path.clone());
+        let deps = mrpack_dependencies(&inst, "1.20.1");
+
+        assert_eq!(deps.get("minecraft").map(String::as_str), Some("1.20.1"));
+        assert_eq!(deps.get("fabric-loader").map(String::as_str), Some("0.15.7"));
+    }
+
+    #[test]
+    fn exported_dependencies_strip_forge_minecraft_prefix() {
+        let root = TempRoot::new("export-forge-deps");
+        root.add_version_json("1.20.1", r#"{"id":"1.20.1","libraries":[]}"#);
+        root.add_version_json(
+            "1.20.1-forge-47.2.0",
+            r#"{
+                "id":"1.20.1-forge-47.2.0",
+                "inheritsFrom":"1.20.1",
+                "libraries":[{"name":"net.minecraftforge:forge:1.20.1-47.2.0"}]
+            }"#,
+        );
+
+        let inst = Instance::new("1.20.1-forge-47.2.0", root.path.clone());
+        let deps = mrpack_dependencies(&inst, "1.20.1");
+
+        assert_eq!(deps.get("forge").map(String::as_str), Some("47.2.0"));
+    }
+
+    #[test]
+    fn loader_dependency_fallback_parses_profile_ids() {
+        assert_eq!(
+            detect_loader_dependency_from_id("fabric-loader-0.15.7-1.20.1", "1.20.1"),
+            Some(("fabric-loader", "0.15.7".to_string()))
+        );
+        assert_eq!(
+            detect_loader_dependency_from_id("1.20.1-forge-47.2.0", "1.20.1"),
+            Some(("forge", "47.2.0".to_string()))
+        );
+        assert_eq!(
+            detect_loader_dependency_from_id("neoforge-20.4.237", "1.20.4"),
+            Some(("neoforge", "20.4.237".to_string()))
+        );
     }
 
     // ---- export / import overrides 往返 ----

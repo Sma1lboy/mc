@@ -1,4 +1,12 @@
-import { Component, createResource, createSignal, For, Show, onCleanup } from "solid-js";
+import {
+  Component,
+  createEffect,
+  createResource,
+  createSignal,
+  For,
+  Show,
+  onCleanup,
+} from "solid-js";
 import {
   InstanceRow,
   Button,
@@ -7,6 +15,7 @@ import {
   toast,
   type InstanceRowData,
 } from "../components";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { api, onInstallProgress } from "../ipc/api";
 import { currentRoot } from "../store";
 import type { InstanceSummary, ManifestVersion } from "../ipc/types";
@@ -38,9 +47,13 @@ const Library: Component = () => {
   const [versions] = createResource(() => api.listVersions(false));
 
   const [showInstall, setShowInstall] = createSignal(false);
+  const [showPackPanel, setShowPackPanel] = createSignal(false);
   const [filter, setFilter] = createSignal("");
   const [installing, setInstalling] = createSignal<string | null>(null);
   const [progress, setProgress] = createSignal("");
+  const [selectedInstanceId, setSelectedInstanceId] = createSignal("");
+  const [importing, setImporting] = createSignal(false);
+  const [exporting, setExporting] = createSignal(false);
 
   const off = onInstallProgress((p) => {
     if (p.total > 0) setProgress(`${p.stage} ${p.current}/${p.total}`);
@@ -52,6 +65,16 @@ const Library: Component = () => {
     const q = filter().toLowerCase();
     return (versions() ?? []).filter((v) => v.id.toLowerCase().includes(q)).slice(0, 60);
   };
+
+  createEffect(() => {
+    const list = instances() ?? [];
+    if (!selectedInstanceId() && list.length > 0) {
+      setSelectedInstanceId(list[0].id);
+    }
+  });
+
+  const selectedInstance = () =>
+    (instances() ?? []).find((inst) => inst.id === selectedInstanceId()) ?? null;
 
   async function install(v: ManifestVersion) {
     setInstalling(v.id);
@@ -69,13 +92,95 @@ const Library: Component = () => {
     }
   }
 
+  function fileStem(path: string) {
+    const name = path.split(/[\\/]/).pop() ?? "imported-pack";
+    return name.replace(/\.mrpack$/i, "");
+  }
+
+  function safeInstanceId(input: string) {
+    const cleaned = input
+      .trim()
+      .replace(/[\\/:*?"<>|]+/g, "-")
+      .replace(/\s+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    return cleaned || "imported-pack";
+  }
+
+  async function exportSelectedMrpack() {
+    const target = selectedInstance();
+    if (!target) {
+      toast({ type: "warn", message: "先选择一个实例" });
+      return;
+    }
+
+    const defaultName = `${safeInstanceId(target.name || target.id)}.mrpack`;
+    const dest = await save({
+      title: "导出整合包",
+      defaultPath: defaultName,
+      filters: [{ name: "Modrinth pack", extensions: ["mrpack"] }],
+    });
+    if (!dest) return;
+
+    setExporting(true);
+    try {
+      const path = await api.exportMrpack(currentRoot() ?? "", target.id, dest);
+      toast({ type: "success", message: `已导出 ${path}` });
+    } catch (e) {
+      toast({ type: "error", message: `导出失败:${e}` });
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function importMrpack() {
+    const picked = await open({
+      title: "导入整合包",
+      multiple: false,
+      filters: [{ name: "Modrinth pack", extensions: ["mrpack"] }],
+    });
+    if (!picked || Array.isArray(picked)) return;
+
+    const suggested = safeInstanceId(fileStem(picked));
+    const entered = window.prompt("实例 ID", suggested);
+    if (entered === null) return;
+    const instanceId = safeInstanceId(entered);
+
+    setImporting(true);
+    try {
+      const id = await api.importMrpack(currentRoot() ?? "", picked, instanceId);
+      toast({ type: "success", message: `已导入 ${id}` });
+      refetch();
+    } catch (e) {
+      toast({ type: "error", message: `导入失败:${e}` });
+    } finally {
+      setImporting(false);
+    }
+  }
+
   return (
     <div class="library">
       <div class="library-head">
         <h1>库</h1>
-        <Button variant="primary" onClick={() => setShowInstall((s) => !s)}>
-          {showInstall() ? "关闭" : "安装新版本"}
-        </Button>
+        <div class="library-actions">
+          <Button
+            variant={showPackPanel() ? "primary" : "ghost"}
+            onClick={() => {
+              setShowPackPanel((s) => !s);
+              setShowInstall(false);
+            }}
+          >
+            整合包
+          </Button>
+          <Button
+            variant={showInstall() ? "ghost" : "primary"}
+            onClick={() => {
+              setShowInstall((s) => !s);
+              setShowPackPanel(false);
+            }}
+          >
+            {showInstall() ? "关闭" : "安装新版本"}
+          </Button>
+        </div>
       </div>
 
       <Show when={showInstall()}>
@@ -109,6 +214,47 @@ const Library: Component = () => {
               </For>
             </div>
           </Show>
+        </div>
+      </Show>
+
+      <Show when={showPackPanel()}>
+        <div class="install-panel mrpack-panel">
+          <div class="mrpack-row">
+            <label class="mrpack-label" for="mrpack-instance">
+              实例
+            </label>
+            <select
+              id="mrpack-instance"
+              class="mrpack-select"
+              value={selectedInstanceId()}
+              disabled={importing() || exporting()}
+              onChange={(e) => setSelectedInstanceId(e.currentTarget.value)}
+            >
+              <For each={instances() ?? []}>
+                {(inst) => (
+                  <option value={inst.id}>
+                    {inst.name || inst.id} · {inst.mc_version} · {inst.loader}
+                  </option>
+                )}
+              </For>
+            </select>
+          </div>
+          <div class="mrpack-actions">
+            <Button
+              variant="primary"
+              disabled={importing() || exporting() || !selectedInstance()}
+              onClick={exportSelectedMrpack}
+            >
+              {exporting() ? "导出中" : "导出 .mrpack"}
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={importing() || exporting()}
+              onClick={importMrpack}
+            >
+              {importing() ? "导入中" : "导入 .mrpack"}
+            </Button>
+          </div>
         </div>
       </Show>
 
