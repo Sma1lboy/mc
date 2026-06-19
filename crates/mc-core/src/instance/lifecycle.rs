@@ -22,15 +22,12 @@
 //! - **保真落盘**:版本 json 用 `serde_json::Value` 只改 `id` 字段后写出,其余字段
 //!   原样保留(避免重新序列化丢失未建模字段)。
 
-use std::io::{Read, Write};
 use std::path::Path;
 
-use serde::Deserialize;
-
-use crate::download::{DownloadItem, Downloader};
+use crate::download::Downloader;
 use crate::error::{CoreError, IoResultExt, Result};
 use crate::instance::Instance;
-use crate::paths::{ensure_dir, GamePaths};
+use crate::paths::GamePaths;
 
 // ===========================================================================
 // 复制 / 删除
@@ -123,238 +120,49 @@ pub fn delete_instance(paths: &GamePaths, id: &str) -> Result<()> {
 }
 
 // ===========================================================================
-// Modrinth .mrpack 索引模型
+// 导入 / 导出
 // ===========================================================================
+//
+// `modrinth.index.json` 的字段级模型已统一到 [`crate::modpack::formats::mrpack`];
+// **导入的格式知识 + 解压 / 下载 / 装核心管线已上移到 [`crate::modpack::import`]**
+// (可插拔架构),本模块的 [`import_mrpack`] 退化为薄包装。导出仍在本模块(把实例本地
+// 游戏数据自包含打成 `.mrpack`)。
 
-/// `modrinth.index.json` 顶层结构。字段名严格对齐 Modrinth modpack 格式
-/// (<https://docs.modrinth.com/modpacks/format/>)。缺省字段一律 `#[serde(default)]`,
-/// 不让单个字段缺失把整次导入打挂。
-#[derive(Debug, Clone, Deserialize)]
-struct MrpackIndex {
-    /// 格式版本,当前应为 1。仅记录,不强校验(向后兼容未来版本)。
-    #[serde(default, rename = "formatVersion")]
-    format_version: u32,
-    /// 整合包名。导入时写入实例 `instance.json` 的 name。
-    #[serde(default)]
-    name: String,
-    /// 依赖:必含 `minecraft`,可含 `fabric-loader`/`quilt-loader`/`forge`/`neoforge`。
-    #[serde(default)]
-    dependencies: std::collections::BTreeMap<String, String>,
-    /// 受管理的远程文件列表(mods / 配置等带下载地址的文件)。
-    #[serde(default)]
-    files: Vec<MrpackFile>,
-}
-
-/// `files[]` 中的单个受管理文件。
-#[derive(Debug, Clone, Deserialize)]
-struct MrpackFile {
-    /// 相对实例根目录的落盘路径,如 `mods/sodium.jar`。
-    #[serde(default)]
-    path: String,
-    /// 下载地址列表,取第 0 个为主源。
-    #[serde(default)]
-    downloads: Vec<String>,
-    /// 校验和;我们用 `sha1`(若有)做下载后校验。
-    #[serde(default)]
-    hashes: MrpackHashes,
-    /// 文件大小(字节),仅用于进度展示。
-    #[serde(default, rename = "fileSize")]
-    file_size: Option<u64>,
-    /// 环境适用性:`{ "client": "required|optional|unsupported", "server": ... }`。
-    /// 客户端导入时跳过 `client == "unsupported"` 的文件。
-    #[serde(default)]
-    env: MrpackEnv,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-struct MrpackHashes {
-    #[serde(default)]
-    sha1: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-struct MrpackEnv {
-    #[serde(default)]
-    client: Option<String>,
-}
-
-impl MrpackFile {
-    /// 该文件在客户端是否受支持(用于跳过纯服务端文件)。
-    fn client_supported(&self) -> bool {
-        // 仅当显式标注 client == "unsupported" 时跳过;缺省 / 其它取值都视为需要。
-        self.env.client.as_deref() != Some("unsupported")
-    }
-}
-
-// ===========================================================================
-// 导入
-// ===========================================================================
-
-/// `modrinth.index.json` 在 `.mrpack` 内的固定路径。
+/// `modrinth.index.json` 在 `.mrpack` 内的固定路径(导出写索引用)。
 const MRPACK_INDEX_ENTRY: &str = "modrinth.index.json";
-/// 通用 overrides 目录前缀(客户端 + 服务端共用)。
+/// 通用 overrides 目录前缀(导出把本地数据铺进它)。
 const OVERRIDES_PREFIX: &str = "overrides/";
-/// 客户端专属 overrides 目录前缀。
-const CLIENT_OVERRIDES_PREFIX: &str = "client-overrides/";
 
-/// 导入一个 Modrinth `.mrpack` 到 `instance_id` 实例。
+/// 导入一个 Modrinth `.mrpack` 到 `instance_id` 实例(**薄包装**)。
 ///
-/// 流程:
-/// 1. 读 `modrinth.index.json`,取 `dependencies.minecraft` 作为原版版本,从
-///    [`crate::meta::fetch_manifest`] 找到对应清单条目并 [`crate::launch::install_version`]
-///    安装原版(版本目录即 `versions/<minecraft>/`)。**整合包实例本身**建在
-///    `versions/<instance_id>/`(= game_dir),其 `instance.json` 写入整合包名。
-/// 2. 解压 zip 里的 `overrides/` 与 `client-overrides/`,经 [`crate::fs::safe_join`]
-///    收口后覆盖到实例 game_dir。
-/// 3. 下载 `files[]`(`downloads[0]` 为 url、`hashes.sha1` 校验)到
-///    `versions/<instance_id>/<file.path>`;跳过 `env.client == "unsupported"` 的文件。
+/// 自整合包导入做成可插拔架构(见 [`crate::modpack::import`])后,本函数不再各自实现
+/// mrpack 解析 / 解压 / 下载,而是**委托给共享引擎** [`crate::modpack::import::ImportEngine`]:
+/// 引擎用注册的 [`crate::modpack::import::modrinth::ModrinthImporter`] 探测 → `plan()` 解析
+/// `modrinth.index.json` → 建实例 `versions/<instance_id>/` → **装原版 + loader**(`plan.loader`
+/// 调现有 `loader::install_*`)→ 多源下载 `files[]`(sha512 强校验)→ 经 [`crate::fs::safe_join`]
+/// 铺 `overrides/` 与 `client-overrides/`。
 ///
-/// **loader 不在本批安装**:整合包通常声明 fabric/quilt/forge/neoforge loader,
-/// 安装它需要专门的 loader 元数据流程。本函数只完成"原版 + 文件"层面的导入;调用方
-/// 应在其后根据 `dependencies` 里的 loader 键调用 `loader::install_fabric` /
-/// `loader::install_quilt` 等完成 loader 安装,并把实例切到 loader profile id。
+/// 与旧实现的差异(改进而非回退):**loader 现在一并安装**(旧版只装原版,把 loader 留给
+/// 调用方),因为引擎对所有格式统一在第 7 步装核心。签名保持不变,既有调用方 / Tauri
+/// 命令无需改动。
 pub async fn import_mrpack(
     paths: &GamePaths,
     dl: &Downloader,
     mrpack_path: &Path,
     instance_id: &str,
 ) -> Result<()> {
-    // ---- 1) 打开 zip 并读取索引 ----
-    let file = std::fs::File::open(mrpack_path).with_path(mrpack_path)?;
-    let mut archive = zip::ZipArchive::new(file).map_err(|e| CoreError::Zip(e.to_string()))?;
+    use crate::modpack::import::{ImportEngine, ImportOptions, ImportSource};
+    use crate::modplatform::provider::ProviderRegistry;
 
-    let index: MrpackIndex = {
-        let mut entry = archive
-            .by_name(MRPACK_INDEX_ENTRY)
-            .map_err(|_| CoreError::other(format!(".mrpack 缺少 {MRPACK_INDEX_ENTRY}")))?;
-        let mut raw = String::new();
-        entry
-            .read_to_string(&mut raw)
-            .map_err(|e| CoreError::Zip(format!("读取 {MRPACK_INDEX_ENTRY} 失败: {e}")))?;
-        serde_json::from_str(&raw)
-            .map_err(|e| CoreError::Parse { what: MRPACK_INDEX_ENTRY.into(), source: e })?
-    };
-
-    // formatVersion 当前规范为 1;遇到未知版本只记日志、不中断(向后兼容,字段语义
-    // 至今未发生破坏性变更)。
-    if index.format_version != 1 {
-        tracing::warn!(
-            format_version = index.format_version,
-            "未知的 mrpack formatVersion,按 v1 语义继续导入"
-        );
-    }
-
-    // ---- 2) 安装索引声明的原版 Minecraft ----
-    let mc_version = index
-        .dependencies
-        .get("minecraft")
-        .cloned()
-        .ok_or_else(|| CoreError::other(".mrpack dependencies 缺少 minecraft 版本"))?;
-
-    // 仅当原版尚未安装时才拉清单 + 安装(避免重复网络往返)。
-    if !paths.version_json(&mc_version).is_file() {
-        let manifest = crate::meta::fetch_manifest(dl).await?;
-        let entry = manifest
-            .iter()
-            .find(|m| m.id == mc_version)
-            .ok_or_else(|| CoreError::other(format!("版本清单中找不到 Minecraft {mc_version}")))?;
-        crate::launch::install_version(dl, paths, entry, None).await?;
-    }
-
-    // ---- 3) 准备整合包实例目录(game_dir == versions/<instance_id>/) ----
-    let inst = Instance::new(instance_id, paths.root().to_path_buf());
-    let game_dir = inst.game_dir();
-    ensure_dir(&game_dir)?;
-
-    // 写实例配置:把整合包名记到 instance.json(便于实例列表展示)。
-    if !index.name.is_empty() {
-        let mut config = inst.load_config().unwrap_or_default();
-        config.name = Some(index.name.clone());
-        inst.save_config(&config)?;
-    }
-
-    // ---- 4) 解压 overrides/ 与 client-overrides/ 到 game_dir ----
-    extract_overrides(&mut archive, &game_dir)?;
-
-    // ---- 5) 下载受管理文件 files[] ----
-    let mut items: Vec<DownloadItem> = Vec::new();
-    for f in &index.files {
-        // 跳过纯服务端文件(客户端不受支持)。
-        if !f.client_supported() {
-            continue;
-        }
-        // 没有任何下载源的条目无法处理,跳过(overrides 已覆盖这类本地文件)。
-        let Some(url) = f.downloads.first() else { continue };
-        // zip-slip 防护:path 必须收口在实例目录内。
-        let Some(dest) = crate::fs::safe_join(&game_dir, &f.path) else {
-            return Err(CoreError::other(format!("非法的整合包文件路径(越权): {}", f.path)));
-        };
-        items.push(DownloadItem {
-            url: url.clone(),
-            path: dest,
-            sha1: f.hashes.sha1.clone(),
-            size: f.file_size,
-        });
-    }
-    if !items.is_empty() {
-        dl.download_all(items, None).await?;
-    }
-
-    Ok(())
-}
-
-/// 把 zip 内 `overrides/` 与 `client-overrides/` 下的所有条目解压到 `game_dir`。
-///
-/// 分两遍写入:先通用 `overrides/`,再 `client-overrides/`。第二遍覆盖第一遍的同名
-/// 文件,从而在两者冲突时由客户端专属版本胜出(符合 Modrinth 约定)。每个条目都经
-/// [`crate::fs::safe_join`] 收口,拒绝越权路径(zip-slip)。
-fn extract_overrides(
-    archive: &mut zip::ZipArchive<std::fs::File>,
-    game_dir: &Path,
-) -> Result<()> {
-    write_override_pass(archive, game_dir, OVERRIDES_PREFIX)?;
-    write_override_pass(archive, game_dir, CLIENT_OVERRIDES_PREFIX)?;
-    Ok(())
-}
-
-/// 解压 zip 内带某个前缀的所有文件条目到 `game_dir`(单遍)。
-fn write_override_pass(
-    archive: &mut zip::ZipArchive<std::fs::File>,
-    game_dir: &Path,
-    prefix: &str,
-) -> Result<()> {
-    // 先扫描出命中前缀的 (index, 相对路径),再逐个写出(避免可变借用冲突)。
-    let mut targets: Vec<(usize, String)> = Vec::new();
-    for i in 0..archive.len() {
-        let entry = archive.by_index(i).map_err(|e| CoreError::Zip(e.to_string()))?;
-        if entry.is_dir() {
-            continue;
-        }
-        let name = entry.name().to_string();
-        if let Some(rel) = name.strip_prefix(prefix) {
-            if !rel.is_empty() {
-                targets.push((i, rel.to_string()));
-            }
-        }
-    }
-
-    for (i, rel) in targets {
-        // zip-slip 防护。
-        let Some(dest) = crate::fs::safe_join(game_dir, &rel) else {
-            return Err(CoreError::other(format!("非法的 overrides 路径(越权): {rel}")));
-        };
-        if let Some(parent) = dest.parent() {
-            ensure_dir(parent)?;
-        }
-        let mut entry = archive.by_index(i).map_err(|e| CoreError::Zip(e.to_string()))?;
-        let mut buf = Vec::with_capacity(entry.size() as usize);
-        entry
-            .read_to_end(&mut buf)
-            .map_err(|e| CoreError::Zip(format!("读取 overrides 条目失败: {e}")))?;
-        // 覆盖写(client-overrides 第二遍会覆盖同名 overrides)。
-        crate::fs::write_atomic(&dest, &buf)?;
-    }
-    Ok(())
+    // mrpack 自带 URL,本身不需要 provider(resolve 为空操作);但用内建默认注册表
+    // (Modrinth + 有 key 时的 CurseForge)以便同一引擎也能处理 curseforge / mcbbs 包。
+    let engine = ImportEngine::with_defaults(dl.clone(), ProviderRegistry::with_defaults());
+    let mut opts = ImportOptions::new(paths.root().to_path_buf());
+    opts.instance_id = Some(instance_id.to_string());
+    engine
+        .import(ImportSource::LocalFile(mrpack_path.to_path_buf()), opts)
+        .await
+        .map(|_outcome| ())
 }
 
 // ===========================================================================
@@ -372,7 +180,7 @@ const EXPORT_DIRS: &[&str] = &[
     "kubejs",
 ];
 
-/// 把一个实例导出成最小可用的 Modrinth `.mrpack`。
+/// 把一个实例导出成最小可用的 Modrinth `.mrpack`(**自包含、无反查**)。
 ///
 /// 生成内容:
 /// - `modrinth.index.json`:`formatVersion=1`、`game="minecraft"`、`name=实例名`、
@@ -381,9 +189,21 @@ const EXPORT_DIRS: &[&str] = &[
 /// - `overrides/<dir>/...`:把实例下 [`EXPORT_DIRS`] 列出的子目录(mods/config/
 ///   resourcepacks…)递归打进 `overrides/` 下。
 ///
+/// **与可插拔导出引擎的关系**:本函数是「不做平台反查」的快捷路径,复用
+/// [`crate::modpack::export`] 的共享底座 —— 用 [`crate::modpack::export::modrinth::build_index`]
+/// 生成索引(传入空的 [`ClassifiedSet`],故 `files` 为空)、用
+/// [`crate::modpack::export::walk::walk_game_root`] 遍历各 `EXPORT_DIRS` 子树、用
+/// [`crate::modpack::export::zip::write_zip`] 打包(排除集为空、注入索引、失败删半成品),
+/// **不再**自带一份 zip 递归逻辑。需要「resolved 反查 → 小包」时改用
+/// [`crate::modpack::export::ModpackExporter`] + [`crate::modpack::export::ModrinthExportTarget`]。
+///
 /// 写出到 `dest`。这是"自包含分发"的导出:接收方解压即得到完整文件,不依赖任何
 /// 远程下载(代价是体积更大)。
 pub fn export_mrpack(inst: &Instance, mc_version: &str, dest: &Path) -> Result<()> {
+    use crate::modpack::export::walk::walk_game_root;
+    use crate::modpack::export::zip::{write_zip, ZipPlan};
+    use crate::modpack::export::{modrinth as export_modrinth, ClassifiedSet, ExportInput};
+
     let game_dir = inst.game_dir();
 
     // 实例名:优先 instance.json 的 name,缺省用版本 id。
@@ -394,94 +214,59 @@ pub fn export_mrpack(inst: &Instance, mc_version: &str, dest: &Path) -> Result<(
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| inst.version_id().to_string());
 
-    // 构造 modrinth.index.json(files 为空数组:所有本地文件走 overrides)。
-    let index = serde_json::json!({
-        "formatVersion": 1,
-        "game": "minecraft",
-        "versionId": inst.version_id(),
-        "name": name,
-        "dependencies": { "minecraft": mc_version },
-        "files": [],
-    });
-    let index_bytes = serde_json::to_vec_pretty(&index)
-        .map_err(|e| CoreError::Parse { what: "modrinth.index.json".into(), source: e })?;
-
-    // 创建目标 .mrpack(zip)。
-    if let Some(parent) = dest.parent() {
-        ensure_dir(parent)?;
-    }
-    let out = std::fs::File::create(dest).with_path(dest)?;
-    let mut writer = zip::ZipWriter::new(out);
-    let options =
-        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
-
-    // 1) 写索引。
-    writer
-        .start_file(MRPACK_INDEX_ENTRY, options)
-        .map_err(|e| CoreError::Zip(e.to_string()))?;
-    writer
-        .write_all(&index_bytes)
-        .map_err(|e| CoreError::Zip(e.to_string()))?;
-
-    // 2) 写 overrides/<dir>/...(仅打包实际存在的目录)。
+    // 遍历 EXPORT_DIRS 各子树,汇成相对 game_dir 的候选文件(套硬忽略 / path-safety)。
+    // 自包含导出无反查:分类集留空(resolved 空 → 索引 files 空 + 无排除键)。
+    let mut files = Vec::new();
     for sub in EXPORT_DIRS {
         let src = game_dir.join(sub);
         if !src.is_dir() {
             continue;
         }
-        let zip_root = format!("{OVERRIDES_PREFIX}{sub}");
-        zip_dir_recursive(&mut writer, &src, &src, &zip_root, options)?;
-    }
-
-    writer.finish().map_err(|e| CoreError::Zip(e.to_string()))?;
-    Ok(())
-}
-
-/// 把 `current` 目录递归写进 zip,内部路径前缀为 `zip_root`(相对 `base` 拼接)。
-///
-/// 例如 `base = .../mods`、`zip_root = "overrides/mods"`,则 `.../mods/a/b.jar`
-/// 会写成 zip 内的 `overrides/mods/a/b.jar`。zip 路径分隔符统一为 `/`。
-fn zip_dir_recursive<W: std::io::Write + std::io::Seek>(
-    writer: &mut zip::ZipWriter<W>,
-    base: &Path,
-    current: &Path,
-    zip_root: &str,
-    options: zip::write::SimpleFileOptions,
-) -> Result<()> {
-    for entry in std::fs::read_dir(current).with_path(current)? {
-        let entry = entry.with_path(current)?;
-        let path = entry.path();
-        // 相对 base 的子路径,拼到 zip_root 之后。
-        let rel = path.strip_prefix(base).unwrap_or(&path);
-        let rel_str = rel.to_string_lossy().replace('\\', "/");
-        let name = if rel_str.is_empty() {
-            zip_root.to_string()
-        } else {
-            format!("{zip_root}/{rel_str}")
-        };
-
-        let ft = entry.file_type().with_path(&path)?;
-        if ft.is_dir() {
-            writer
-                .add_directory(format!("{name}/"), options)
-                .map_err(|e| CoreError::Zip(e.to_string()))?;
-            zip_dir_recursive(writer, base, &path, zip_root, options)?;
-        } else if ft.is_file() {
-            writer
-                .start_file(name, options)
-                .map_err(|e| CoreError::Zip(e.to_string()))?;
-            let data = std::fs::read(&path).with_path(&path)?;
-            writer.write_all(&data).map_err(|e| CoreError::io(&path, e))?;
+        // walk 以 game_dir 为根算相对路径,但只遍历该子树:对整个 game_dir 走一遍再按前缀筛
+        // 会重复扫描;这里直接以 game_dir 为根、把"非该子树"作为用户忽略不便,故按子树遍历后
+        // 用 strip_prefix 拼回 game_dir 相对路径。
+        let sub_files = walk_game_root(&src, &[])?;
+        for mut f in sub_files {
+            f.rel = format!("{sub}/{}", f.rel);
+            files.push(f);
         }
-        // 符号链接等其它类型不打包。
     }
+    files.sort_by(|a, b| a.rel.cmp(&b.rel));
+
+    // 用共享 build_index 生成 modrinth.index.json(空分类集 → files 为空)。
+    let input = ExportInput {
+        game_root: &game_dir,
+        pack_name: name,
+        pack_version: Some(inst.version_id().to_string()),
+        summary: None,
+        author: None,
+        mc_version: mc_version.to_string(),
+        loader: None,
+        user_ignores: Vec::new(),
+    };
+    let empty = ClassifiedSet::default();
+    let index = export_modrinth::build_index(&input, &empty);
+    let index_bytes = serde_json::to_vec_pretty(&index)
+        .map_err(|e| CoreError::Parse { what: MRPACK_INDEX_ENTRY.into(), source: e })?;
+
+    let extra = vec![(MRPACK_INDEX_ENTRY.to_string(), index_bytes)];
+    let exclude = std::collections::HashSet::new();
+    let plan = ZipPlan {
+        overrides_prefix: OVERRIDES_PREFIX,
+        files: &files,
+        exclude: &exclude,
+        extra_files: &extra,
+    };
+    write_zip(dest, &plan)?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::modpack::formats::mrpack::MrpackIndex;
     use std::fs;
+    use std::io::{Read, Write};
     use std::path::PathBuf;
 
     /// 临时 game root,Drop 时自动清理。
@@ -666,8 +451,9 @@ mod tests {
                     "env": { "client": "unsupported", "server": "required" }
                 },
                 {
-                    "path": "config/no-hash.toml",
-                    "downloads": ["https://example.com/cfg.toml"]
+                    "path": "config/only-sha512.toml",
+                    "downloads": ["https://example.com/cfg.toml"],
+                    "hashes": { "sha512": "onlybig" }
                 }
             ]
         }"#;
@@ -675,11 +461,8 @@ mod tests {
         let index: MrpackIndex = serde_json::from_str(sample).unwrap();
         assert_eq!(index.format_version, 1);
         assert_eq!(index.name, "My Modpack");
-        assert_eq!(index.dependencies.get("minecraft").map(String::as_str), Some("1.20.1"));
-        assert_eq!(
-            index.dependencies.get("fabric-loader").map(String::as_str),
-            Some("0.15.7")
-        );
+        assert_eq!(index.dependencies.minecraft.as_deref(), Some("1.20.1"));
+        assert_eq!(index.dependencies.fabric_loader.as_deref(), Some("0.15.7"));
         assert_eq!(index.files.len(), 3);
 
         // 文件 0:client required → 受支持;sha1 / size / downloads 正确。
@@ -693,7 +476,7 @@ mod tests {
         // 文件 1:client unsupported → 应被跳过。
         assert!(!index.files[1].client_supported());
 
-        // 文件 2:无 env、无 hashes → 受支持(缺省)、sha1 None。
+        // 文件 2:无 env → 受支持(缺省)、sha1 None。
         let f2 = &index.files[2];
         assert!(f2.client_supported());
         assert!(f2.hashes.sha1.is_none());
@@ -702,12 +485,13 @@ mod tests {
 
     #[test]
     fn parse_mrpack_index_minimal() {
-        // 仅含 minecraft 依赖的最小索引也应解析成功。
-        let sample = r#"{"formatVersion":1,"dependencies":{"minecraft":"1.21"}}"#;
+        // 仅含必需字段(game/name/dependencies.minecraft)的最小索引也应解析成功。
+        let sample =
+            r#"{"formatVersion":1,"game":"minecraft","name":"Mini","dependencies":{"minecraft":"1.21"}}"#;
         let index: MrpackIndex = serde_json::from_str(sample).unwrap();
-        assert_eq!(index.dependencies.get("minecraft").map(String::as_str), Some("1.21"));
+        assert_eq!(index.dependencies.minecraft.as_deref(), Some("1.21"));
         assert!(index.files.is_empty());
-        assert!(index.name.is_empty());
+        assert_eq!(index.name, "Mini");
     }
 
     // ---- export / import overrides 往返 ----
@@ -745,7 +529,7 @@ mod tests {
         };
         assert_eq!(index.format_version, 1);
         assert_eq!(index.name, "Exported Pack");
-        assert_eq!(index.dependencies.get("minecraft").map(String::as_str), Some("1.20.1"));
+        assert_eq!(index.dependencies.minecraft.as_deref(), Some("1.20.1"));
         assert!(index.files.is_empty(), "本地导出 files 应为空,全部走 overrides");
 
         // overrides 条目存在。
@@ -760,49 +544,42 @@ mod tests {
         assert_eq!(buf2, b"key=1");
         drop(opts);
 
-        // 再用 extract_overrides 解到一个新 game_dir,验证 import 侧解压路径正确。
+        // 再用导入侧的归档解压器(ZipArchiveIndex::extract_prefix)解到一个新 game_dir,
+        // 验证导出的 overrides 能被导入管线正确还原(往返闭环;override 铺设细节的
+        // 单测在 modpack::import::archive::tests)。
+        drop(archive);
         let target = root.path.join("reimport-game-dir");
         fs::create_dir_all(&target).unwrap();
-        extract_overrides(&mut archive, &target).unwrap();
+        let mut idx = crate::modpack::import::archive::ZipArchiveIndex::open(&dest).unwrap();
+        idx.extract_prefix(OVERRIDES_PREFIX, &target).unwrap();
         assert_eq!(fs::read(target.join("mods/cool.jar")).unwrap(), b"COOLMOD");
         assert_eq!(fs::read(target.join("config/sub/opts.toml")).unwrap(), b"key=1");
     }
 
     #[test]
-    fn client_overrides_take_precedence() {
-        let root = TempRoot::new("client-ov");
-        let dest = root.path.join("ov.mrpack");
+    fn export_writes_index_and_overrides_prefix() {
+        // 导出产物的结构契约:索引为 formatVersion=1 且 files 为空,本地数据落在
+        // overrides/ 前缀下(client-overrides 覆盖语义的单测在 import::archive::tests)。
+        let root = TempRoot::new("export-struct");
+        let inst = Instance::new("1.20.1", root.path.clone());
+        let game_dir = inst.game_dir();
+        fs::create_dir_all(game_dir.join("config")).unwrap();
+        fs::write(game_dir.join("config/shared.txt"), b"GENERIC").unwrap();
 
-        // 手工造一个含 overrides 与 client-overrides 同名文件的 zip。
-        {
-            let out = fs::File::create(&dest).unwrap();
-            let mut zw = zip::ZipWriter::new(out);
-            let opt = zip::write::SimpleFileOptions::default();
-            zw.start_file(MRPACK_INDEX_ENTRY, opt).unwrap();
-            zw.write_all(br#"{"formatVersion":1,"dependencies":{"minecraft":"1.20.1"}}"#).unwrap();
-            zw.start_file("overrides/config/shared.txt", opt).unwrap();
-            zw.write_all(b"GENERIC").unwrap();
-            zw.start_file("client-overrides/config/shared.txt", opt).unwrap();
-            zw.write_all(b"CLIENT").unwrap();
-            zw.finish().unwrap();
-        }
+        let dest = root.path.join("ov.mrpack");
+        export_mrpack(&inst, "1.20.1", &dest).unwrap();
 
         let f = fs::File::open(&dest).unwrap();
         let mut archive = zip::ZipArchive::new(f).unwrap();
-        let target = root.path.join("game-dir");
-        fs::create_dir_all(&target).unwrap();
-        extract_overrides(&mut archive, &target).unwrap();
-
-        // client-overrides 第二遍写入,应覆盖 overrides。
-        assert_eq!(
-            fs::read_to_string(target.join("config/shared.txt")).unwrap(),
-            "CLIENT",
-            "client-overrides 应覆盖通用 overrides"
-        );
+        let mut shared = archive.by_name("overrides/config/shared.txt").unwrap();
+        let mut buf = String::new();
+        shared.read_to_string(&mut buf).unwrap();
+        assert_eq!(buf, "GENERIC");
     }
 
     #[test]
-    fn extract_overrides_blocks_zip_slip() {
+    fn import_archive_extract_blocks_zip_slip() {
+        // 导入侧解压同样拒绝 zip-slip(与导出无关的安全闸,经 ZipArchiveIndex)。
         let root = TempRoot::new("slip");
         let dest = root.path.join("evil.mrpack");
         {
@@ -814,11 +591,10 @@ mod tests {
             zw.write_all(b"PWNED").unwrap();
             zw.finish().unwrap();
         }
-        let f = fs::File::open(&dest).unwrap();
-        let mut archive = zip::ZipArchive::new(f).unwrap();
         let target = root.path.join("game-dir");
         fs::create_dir_all(&target).unwrap();
-        let err = extract_overrides(&mut archive, &target).unwrap_err();
+        let mut idx = crate::modpack::import::archive::ZipArchiveIndex::open(&dest).unwrap();
+        let err = idx.extract_prefix(OVERRIDES_PREFIX, &target).unwrap_err();
         assert!(matches!(err, CoreError::Other(_)), "zip-slip 应被拒绝");
     }
 }

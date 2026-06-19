@@ -1,6 +1,13 @@
-# 模块 · Mod / 整合包平台
+# 模块 · Mod / 整合包平台(总览)
 
 > 接入 CurseForge / Modrinth 做 Mod 搜索安装、依赖解析、整合包导入。
+>
+> **本文是总览。深入设计已拆为四篇(均基于对 `ref/` 的逐文件梳理,含可落地的 Rust trait/结构):**
+> - [content-providers.md](./content-providers.md) — 平台 Provider 抽象(`trait ResourceProvider` + registry + 反查 + 依赖解析)。**取代下方 §1/§3 的平台抽象与数据模型。**
+> - [modpack-import.md](./modpack-import.md) — 整合包导入的可插拔架构(`trait ModpackImporter` + 引擎 + 分发)。**取代下方 §5。**
+> - [modpack-formats.md](./modpack-formats.md) — 各格式精确 schema → Rust 结构。
+> - [modpack-export.md](./modpack-export.md) — 整合包导出(resolvable-vs-override)。
+> - [instance-and-components.md](./instance-and-components.md) — 从零建实例 + 多组件 + 加载器核心。
 
 ## 1. 平台抽象(ResourceAPI 模式)
 

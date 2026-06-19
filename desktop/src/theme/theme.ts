@@ -1,23 +1,32 @@
 import { invoke } from "@tauri-apps/api/core";
+import { createSignal, createMemo, createRoot, createEffect } from "solid-js";
+import { generatePalette, type Palette } from "./palette";
+import { toneFor, type ThemeAccent, type ToneMode } from "./tone";
 
 /* ============================================================================
- * theme.ts —— PCL 式主题引擎
+ * theme.ts —— PCL 式主题引擎(感知化 / OKLCH 版)
  *
  * 两个正交维度:
- *   1) 明暗模式 mode: 'dark' | 'light'  —— 只切换 --n-* 那组(由 tokens.css 按
- *      [data-theme] 选择器决定)。
- *   2) 强调色 accent: 由一组 HSL(hue/saturation/lightness)实时生成 --a-1..8
- *      整套色阶并注入 :root,所有引用 --a-* 的组件瞬间换色,无需重渲染。
+ *   1) 明暗模式 mode: 'dark' | 'light' | 'system'
+ *      —— 决定取哪份 ToneProfile(tone.ts);'system' 跟随 prefers-color-scheme。
+ *   2) 强调色 accent: 由一组旋钮(hue/saturation/lightness,向后兼容的扁平形)
+ *      派生出感知化的 ThemeAccent{hue,lightAdjust,chromaAdjust},喂生成器
+ *      (palette.ts)发出整套 --n-1..8 + --a-1..8 + 强调表面令牌并注入 :root。
  *
- * 这正是 PCL「一键全局换肤」的灵魂:组件只引用色阶号,换色只改变量。
+ * 这正是 PCL「一键全局换肤」的灵魂:组件只引用色阶号,换色只改变量;且此版用 OKLCH
+ * 感知锚点 + 非对称 _AdjustLinear,严格优于旧朴素 HSL 偏移数组。docs/modules/ui-polish.md §1。
+ *
+ * 响应式管线(SolidJS,模块级单例,无 Context——对齐 store.ts 约定):
+ *   themeConfig 信号 + systemDark 信号 → createMemo 派生 Palette → createEffect
+ *   把每个 CSS 变量 setProperty 到 document.documentElement。
  * ========================================================================== */
 
-/** 后端 get_theme()/set_theme() 的配置形状,与 Tauri 命令约定一致。 */
+/** 后端 get_theme()/set_theme() 的配置形状,与 Tauri 命令约定一致(向后兼容)。 */
 export interface ThemeConfig {
-  mode: "dark" | "light";
+  mode: "dark" | "light" | "system";
   hue: number; // 0..360
-  saturation: number; // 0..100
-  lightness: number; // 0..100(作为 --a-4 基色的明度锚点)
+  saturation: number; // 0..100(映射到 OKLCH 色度旋钮)
+  lightness: number; // 0..100(映射到 OKLCH 亮度旋钮)
 }
 
 /** 默认主题:深色 + Modrinth 绿(h150 s60 l45)。invoke 失败时的兜底。 */
@@ -28,52 +37,122 @@ export const DEFAULT_THEME: ThemeConfig = {
   lightness: 45,
 };
 
-/** 把数值夹到合法百分比区间 [0,100]。 */
-function clamp(v: number): number {
-  return Math.max(0, Math.min(100, Math.round(v)));
+/* ----------------------------------------------------------------------------
+ * 系统暗色偏好(P2:'system' 模式跟随之)。读一次 matchMedia + 监听变化,
+ * 变化时驱动信号重算调色板(下方响应式管线自动重注入)。
+ * -------------------------------------------------------------------------- */
+
+const DARK_QUERY = "(prefers-color-scheme: dark)";
+
+const colorSchemeMql: MediaQueryList | null =
+  typeof window !== "undefined" && typeof window.matchMedia === "function"
+    ? window.matchMedia(DARK_QUERY)
+    : null;
+
+const [systemDark, setSystemDark] = createSignal<boolean>(colorSchemeMql?.matches ?? true);
+
+if (colorSchemeMql) {
+  const onChange = (e: MediaQueryListEvent): void => {
+    setSystemDark(e.matches);
+  };
+  if (typeof colorSchemeMql.addEventListener === "function") {
+    colorSchemeMql.addEventListener("change", onChange);
+  } else if (typeof (colorSchemeMql as MediaQueryList).addListener === "function") {
+    // 已废弃 API,仅为老内核兜底。
+    (colorSchemeMql as MediaQueryList).addListener(onChange);
+  }
 }
 
+/** 把配置 mode + 系统偏好解析为实际生效的明暗档('system' → 跟随系统)。 */
+function resolveMode(mode: ThemeConfig["mode"], sysDark: boolean): ToneMode {
+  if (mode === "system") return sysDark ? "dark" : "light";
+  return mode;
+}
+
+/* ----------------------------------------------------------------------------
+ * 旋钮映射:扁平 {saturation,lightness}(向后兼容的设置滑块)→ 感知化 ThemeAccent。
+ * hue 直接透传;saturation/lightness 居中线性映射到 [-1,1] 的 _AdjustLinear 旋钮,
+ * 让既有滑块语义(更饱和/更亮)对应「增艳/提亮」,且端点不溢出。
+ * -------------------------------------------------------------------------- */
+
+/** 把扁平 HSL 旋钮换算成感知化的 ThemeAccent(hue/lightAdjust/chromaAdjust)。 */
+export function accentFromHsl(
+  hue: number,
+  saturation: number,
+  lightness: number,
+): ThemeAccent {
+  // saturation 0..100:50 为中性(锚点原色度),>50 增艳、<50 去饱和。
+  const chromaAdjust = clampRange((saturation - 50) / 50, -1, 1);
+  // lightness 20..70(滑块区间):45 为中性,越高越提亮、越低越压暗。
+  const lightAdjust = clampRange((lightness - 45) / 25, -1, 1);
+  return { hue: ((hue % 360) + 360) % 360, lightAdjust, chromaAdjust };
+}
+
+/** 把数值夹到 [lo,hi]。 */
+function clampRange(v: number, lo: number, hi: number): number {
+  if (!Number.isFinite(v)) return lo;
+  return Math.max(lo, Math.min(hi, v));
+}
+
+/* ----------------------------------------------------------------------------
+ * 响应式管线(模块级 createRoot,长生命周期,不随组件卸载销毁)。
+ * -------------------------------------------------------------------------- */
+
+const [themeConfig, setThemeConfigInternal] = createSignal<ThemeConfig>(DEFAULT_THEME);
+
+/** 当前生效的 ThemeConfig(只读 accessor),供设置页/调试读取。 */
+export const currentTheme = themeConfig;
+
+// 在一个独立 root 里装派生 + 注入 effect(避免被组件作用域回收)。
+createRoot(() => {
+  // 派生:配置 + 系统偏好 → 解析档 → ToneProfile + ThemeAccent → Palette。
+  const palette = createMemo<{ mode: ToneMode; vars: Palette }>(() => {
+    const cfg = themeConfig();
+    const mode = resolveMode(cfg.mode, systemDark());
+    const tone = toneFor(mode);
+    const accent = accentFromHsl(cfg.hue, cfg.saturation, cfg.lightness);
+    return { mode, vars: generatePalette(tone, accent) };
+  });
+
+  // 注入:写 data-theme(供 tokens.css 的少量 [data-theme] 选择器兜底)+ 全部 CSS 变量。
+  createEffect(() => {
+    if (typeof document === "undefined") return;
+    const { mode, vars } = palette();
+    const root = document.documentElement;
+    root.dataset.theme = mode;
+    for (const [name, value] of Object.entries(vars)) {
+      root.style.setProperty(name, value);
+    }
+  });
+});
+
+/* ----------------------------------------------------------------------------
+ * 公共命令式 API(向后兼容:Settings/store/App 仍按旧签名调用,内部走响应式管线)。
+ * -------------------------------------------------------------------------- */
+
 /**
- * 从基色 HSL 生成 8 级强调色阶并注入 document.documentElement。
- *
- * 算法参考 docs/05 §4:以 lightness 为 --a-4 基色锚点,沿明度轴向两侧铺开
- * (1 深 → 8 浅),越浅的级数饱和度略降以保持「通透」不糊。
- *
- * 这样无论基色明暗,1~8 都能形成稳定的「深选中底 → 浅区块底」梯度,
- * 供「选中条/主按钮/hover/浅底」等语义直接取用。
+ * 从基色旋钮生成并注入强调色阶(向后兼容签名)。现在它只更新 themeConfig 的强调部分,
+ * 真正的注入由上面的响应式 effect 完成(感知化 OKLCH 生成 + gamut 安全)。
  */
 export function applyThemeColor(
   hue: number,
   saturation: number,
   lightness: number,
 ): void {
-  // 每一级:相对基色明度的偏移 dl,以及相对基色饱和度的偏移 ds。
-  // 基色 (--a-4) 落在第 4 级,故第 4 级偏移为 0。
-  const scale: { dl: number; ds: number }[] = [
-    { dl: -30, ds: 6 }, // a-1 最深:选中底/标记(更深更饱和一点更扎实)
-    { dl: -18, ds: 4 }, // a-2
-    { dl: -9, ds: 2 }, // a-3
-    { dl: 0, ds: 0 }, // a-4 基色:主按钮/选中条
-    { dl: 12, ds: -8 }, // a-5 hover
-    { dl: 26, ds: -20 }, // a-6
-    { dl: 40, ds: -34 }, // a-7
-    { dl: 52, ds: -46 }, // a-8 最浅:浅底
-  ];
-
-  const root = document.documentElement.style;
-  scale.forEach((s, i) => {
-    const l = clamp(lightness + s.dl);
-    const sat = clamp(saturation + s.ds);
-    root.setProperty(`--a-${i + 1}`, `hsl(${hue} ${sat}% ${l}%)`);
-  });
+  setThemeConfigInternal((prev) => ({ ...prev, hue, saturation, lightness }));
 }
 
-/** 切换明暗模式:写到 <html data-theme>,tokens.css 据此切 --n-* 那组。 */
-export function setMode(mode: "dark" | "light"): void {
-  document.documentElement.dataset.theme = mode;
+/** 切换明暗模式(含 'system')。更新 themeConfig.mode,响应式管线据此重算。 */
+export function setMode(mode: "dark" | "light" | "system"): void {
+  setThemeConfigInternal((prev) => ({ ...prev, mode }));
 }
 
-/** 预设主题色(绿/蓝/粉/紫/橙)。lightness 作为基色明度锚点。 */
+/** 同时应用一份完整 ThemeConfig(模式 + 强调色)。 */
+export function applyTheme(cfg: ThemeConfig): void {
+  setThemeConfigInternal(cfg);
+}
+
+/** 预设主题色(绿/蓝/粉/紫/橙)。lightness 作为基色明度锚点(滑块语义保持)。 */
 export const PRESETS: {
   name: string;
   hue: number;
@@ -87,12 +166,6 @@ export const PRESETS: {
   { name: "橙", hue: 28, saturation: 85, lightness: 54 },
 ];
 
-/** 同时应用一份完整 ThemeConfig(模式 + 强调色)。 */
-export function applyTheme(cfg: ThemeConfig): void {
-  setMode(cfg.mode);
-  applyThemeColor(cfg.hue, cfg.saturation, cfg.lightness);
-}
-
 /**
  * 启动时初始化主题:向后端取持久化配置并应用。
  * 后端不可用(开发期未起 Tauri / 命令未实现)时,回落默认主题,保证 UI 可用。
@@ -101,9 +174,10 @@ export function applyTheme(cfg: ThemeConfig): void {
 export async function initTheme(): Promise<ThemeConfig> {
   try {
     const cfg = await invoke<ThemeConfig>("get_theme");
-    // 防御:后端字段缺失时逐项回落默认值,避免注入 NaN。
+    // 防御:后端字段缺失时逐项回落默认值,避免注入 NaN / 非法 mode。
     const safe: ThemeConfig = {
-      mode: cfg?.mode === "light" ? "light" : "dark",
+      mode:
+        cfg?.mode === "light" || cfg?.mode === "system" ? cfg.mode : "dark",
       hue: Number.isFinite(cfg?.hue) ? cfg.hue : DEFAULT_THEME.hue,
       saturation: Number.isFinite(cfg?.saturation)
         ? cfg.saturation

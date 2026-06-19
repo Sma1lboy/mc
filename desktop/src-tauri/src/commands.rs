@@ -374,3 +374,149 @@ struct GameLog {
 pub fn log_boot(msg: String) {
     eprintln!("[webview] {msg}");
 }
+
+// --- modpack import / export (thin glue over mc_core::modpack) ---------------
+
+/// 一个 blocked 文件(CurseForge 作者禁第三方分发)的 UI 视图:需用户手动下载。
+#[derive(Serialize)]
+pub struct BlockedFileDto {
+    pub name: String,
+    pub website_url: String,
+    pub target_dir: String,
+    pub required: bool,
+}
+
+/// `import_modpack` 的返回:建好的实例 id + 需手动处理的 blocked 文件 + 跳过的可选文件。
+#[derive(Serialize)]
+pub struct ImportOutcomeDto {
+    pub instance_id: String,
+    pub blocked: Vec<BlockedFileDto>,
+    pub skipped_optional: Vec<String>,
+}
+
+/// 导入一个整合包(`.mrpack` / CurseForge zip / MultiMC / MCBBS,自动识别格式),
+/// 建好实例并返回其 id。`blocked` 列出需用户手动下载的 CurseForge 文件。
+#[tauri::command]
+pub async fn import_modpack(
+    root: String,
+    path: String,
+    instance_id: Option<String>,
+) -> CmdResult<ImportOutcomeDto> {
+    use mc_core::download::MirrorResolver;
+    use mc_core::modpack::import::{ImportEngine, ImportOptions, ImportSource};
+    use mc_core::modplatform::provider::ProviderRegistry;
+
+    let paths = root_paths(&root);
+    let dl = Downloader::new(16).map_err(err)?.with_mirror(MirrorResolver::china());
+    let engine = ImportEngine::with_defaults(dl, ProviderRegistry::with_defaults());
+
+    let mut opts = ImportOptions::new(paths.root().to_path_buf());
+    opts.instance_id = instance_id;
+
+    let outcome = engine
+        .import(ImportSource::LocalFile(PathBuf::from(path)), opts)
+        .await
+        .map_err(err)?;
+
+    Ok(ImportOutcomeDto {
+        instance_id: outcome.instance_id,
+        blocked: outcome
+            .blocked
+            .into_iter()
+            .map(|b| BlockedFileDto {
+                name: b.name,
+                website_url: b.website_url,
+                target_dir: b.target_dir,
+                required: b.required,
+            })
+            .collect(),
+        skipped_optional: outcome.skipped_optional,
+    })
+}
+
+/// 把字符串解析成 loader 家族(导出时把 loader 依赖写进索引)。
+fn parse_loader_kind(s: &str) -> Option<mc_core::types::LoaderKind> {
+    use mc_core::types::LoaderKind;
+    Some(match s.to_ascii_lowercase().as_str() {
+        "forge" => LoaderKind::Forge,
+        "neoforge" => LoaderKind::NeoForge,
+        "fabric" => LoaderKind::Fabric,
+        "quilt" => LoaderKind::Quilt,
+        "liteloader" => LoaderKind::LiteLoader,
+        "optifine" => LoaderKind::OptiFine,
+        "vanilla" => LoaderKind::Vanilla,
+        _ => return None,
+    })
+}
+
+/// 把实例导出为整合包。`target` ∈ `modrinth` | `curseforge` | `modlist`
+/// (后者可 `modlist:md|json|csv|txt|html` 选子格式)。`dest` 非空时把产物移到该路径。
+/// 返回最终文件路径。
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn export_modpack(
+    root: String,
+    instance_id: String,
+    target: String,
+    dest: Option<String>,
+    pack_name: String,
+    pack_version: Option<String>,
+    mc_version: String,
+    loader: Option<String>,
+    loader_version: Option<String>,
+) -> CmdResult<String> {
+    use mc_core::modpack::export::{
+        CurseForgeExportTarget, ExportInput, ExportTarget, ModListExportTarget, ModListFormat,
+        ModpackExporter, ModrinthExportTarget,
+    };
+
+    let paths = root_paths(&root);
+    let inst = Instance::new(instance_id.as_str(), paths.root().to_path_buf());
+    let game_root = inst.game_dir();
+
+    // 选目标(局部变量延长生命周期,再取 &dyn)。
+    let (kind, sub) = target.split_once(':').unwrap_or((target.as_str(), ""));
+    let mr = ModrinthExportTarget::new();
+    let cf = CurseForgeExportTarget::new();
+    let ml = ModListExportTarget::new(match sub {
+        "html" => ModListFormat::Html,
+        "json" => ModListFormat::Json,
+        "csv" => ModListFormat::Csv,
+        "txt" => ModListFormat::PlainText,
+        _ => ModListFormat::Markdown,
+    });
+    let target_ref: &dyn ExportTarget = match kind {
+        "modrinth" => &mr,
+        "curseforge" => &cf,
+        "modlist" => &ml,
+        other => return Err(format!("未知导出目标: {other}")),
+    };
+
+    let mut input = ExportInput::new(&game_root, pack_name, mc_version);
+    input.pack_version = pack_version;
+    if let (Some(k), Some(v)) = (loader.as_deref(), loader_version) {
+        if let Some(lk) = parse_loader_kind(k) {
+            input.loader = Some((lk, v));
+        }
+    }
+
+    let exporter = ModpackExporter::with_defaults();
+    let out = exporter
+        .export(target_ref, input, &mut |_, _, _| {})
+        .await
+        .map_err(err)?;
+
+    // 用户指定了目标路径就把产物移过去(跨盘则拷贝后删原件)。
+    let final_path = match dest {
+        Some(d) if !d.trim().is_empty() => {
+            let d = PathBuf::from(d);
+            if std::fs::rename(&out, &d).is_err() {
+                std::fs::copy(&out, &d).map_err(err)?;
+                let _ = std::fs::remove_file(&out);
+            }
+            d
+        }
+        _ => out,
+    };
+    Ok(final_path.to_string_lossy().into_owned())
+}

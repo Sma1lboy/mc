@@ -15,9 +15,12 @@
 
 pub mod checksum;
 pub mod mirror;
+pub mod murmur2;
 
+pub use checksum::Checksum;
 pub use mirror::MirrorResolver;
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -25,7 +28,6 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use serde::de::DeserializeOwned;
-use sha1::{Digest, Sha1};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{watch, Semaphore};
@@ -34,21 +36,82 @@ use mc_types::Progress;
 
 use crate::error::{CoreError, Result};
 
-/// 单个待下载文件的描述。`sha1`/`size` 来自版本 json,可选;提供 sha1 时下载后会强制校验。
-#[derive(Debug, Clone)]
+/// 单个待下载文件的描述。
+///
+/// - **多源**:`url` 是主源,`mirrors` 是有序的额外候选(如 `.mrpack` 的 `downloads[1..]`)。
+///   下载时主源失败会依次回退到镜像改写变体与各候选,任一成功即止。
+/// - **多哈希**:`sha1`/`sha512`/`md5` 可选,下载后用"最强可用"的一个强校验
+///   (sha512 > sha1 > md5);全缺时只保证下载成功。镜像返回坏文件会触发换源。
+#[derive(Debug, Clone, Default)]
 pub struct DownloadItem {
-    /// 源 URL(尚未经过镜像改写)。
+    /// 主源 URL(尚未经过镜像改写)。
     pub url: String,
+    /// 额外候选源(manifest 提供的镜像),按序在主源之后尝试。
+    pub mirrors: Vec<String>,
     /// 目标落盘绝对路径。
     pub path: PathBuf,
-    /// 期望的 sha1(小写或大写十六进制)。`None` 表示无法校验,只保证下载成功。
+    /// 期望 sha1(大小写不敏感十六进制)。
     pub sha1: Option<String>,
+    /// 期望 sha512(Modrinth `.mrpack` 以此为准)。
+    pub sha512: Option<String>,
+    /// 期望 md5(CurseForge / ATLauncher / Technic 常用)。
+    pub md5: Option<String>,
     /// 期望大小(字节),仅用于进度展示,不参与校验。
     pub size: Option<u64>,
 }
 
-/// 网络重试次数(首试 + 重试)。校验失败不计入此处。
+impl DownloadItem {
+    /// 便捷构造:单源 + 可选 sha1(覆盖最常见的"版本 json 给 sha1"场景)。
+    pub fn new(
+        url: impl Into<String>,
+        path: PathBuf,
+        sha1: Option<String>,
+        size: Option<u64>,
+    ) -> Self {
+        Self { url: url.into(), path, sha1, size, ..Default::default() }
+    }
+
+    /// 下载后用于强校验的"最强可用"摘要;全缺返回 `None`(无法校验)。
+    pub fn checksum(&self) -> Option<Checksum> {
+        Checksum::strongest(self.sha512.as_deref(), self.sha1.as_deref(), self.md5.as_deref())
+    }
+}
+
+/// 一批下载的结果。`failed` 非空表示有项在所有候选源 + 跨趟重投后仍失败。
+#[derive(Debug)]
+pub struct DownloadOutcome {
+    /// 提交的总项数。
+    pub total: u64,
+    /// 成功项数。
+    pub succeeded: usize,
+    /// 最终失败的项及其最后一个错误。
+    pub failed: Vec<(DownloadItem, CoreError)>,
+}
+
+impl DownloadOutcome {
+    /// 是否全部成功。
+    pub fn all_ok(&self) -> bool {
+        self.failed.is_empty()
+    }
+
+    /// 失败项数。
+    pub fn failed_count(&self) -> usize {
+        self.failed.len()
+    }
+
+    /// 折叠为 `Result<()>`:有失败则返回第一个错误,否则 `Ok`。
+    pub fn into_result(self) -> Result<()> {
+        match self.failed.into_iter().next() {
+            None => Ok(()),
+            Some((_item, e)) => Err(e),
+        }
+    }
+}
+
+/// 单源内的网络重试次数(首试 + 重试)。校验失败 / 404 不在此重试,直接换源。
 const MAX_ATTEMPTS: usize = 3;
+/// 整批失败项的最大重投趟数(含首趟)。对齐 Prism `NetJob` 的 3 趟。
+const MAX_JOB_PASSES: usize = 3;
 /// 指数退避基准:第 n 次失败后等待 `BASE * 2^n`。
 const BACKOFF_BASE: Duration = Duration::from_millis(300);
 
@@ -95,16 +158,20 @@ impl Downloader {
         &self.client
     }
 
-    /// 下载单个文件:镜像改写 -> 幂等跳过 -> 流式下载 + 增量 sha1 -> 校验 -> 原子落盘。
+    /// 下载单个文件:幂等跳过 -> 候选源失败转移(每源带重试)-> 强校验 -> 原子落盘。
+    ///
+    /// 候选源 = 主源 + 各镜像,经镜像改写展开去重(见 [`Self::candidate_urls`])。任一候选
+    /// 成功且校验通过即返回;某候选 404 / 校验不符 / 重试耗尽则换下一候选(坏镜像最常见,
+    /// 故校验不符也换源而非直接失败)。全部候选用尽才返回最后一个错误。
     pub async fn download_one(&self, item: &DownloadItem) -> Result<()> {
-        // 1) 已存在且 sha1 匹配则直接跳过,使重试整批时不重复下载已完成项。
-        if let Some(expected) = &item.sha1 {
-            if checksum::verify_sha1(&item.path, expected) {
+        let check = item.checksum();
+
+        // 1) 已存在且校验通过则跳过,使重试整批时不重复下载已完成项。
+        if let Some(c) = &check {
+            if c.verify(&item.path) {
                 return Ok(());
             }
         }
-
-        let url = self.mirror.rewrite(&item.url);
 
         // 2) 确保父目录存在。
         if let Some(parent) = item.path.parent() {
@@ -114,67 +181,87 @@ impl Downloader {
         }
 
         let part_path = part_path(&item.path);
-
-        // 3) 带重试地执行下载到 .part 并返回算出的 sha1。
+        let candidates = self.candidate_urls(item);
         let mut last_err: Option<CoreError> = None;
-        for attempt in 0..MAX_ATTEMPTS {
-            match self.fetch_to_part(&url, &part_path).await {
-                Ok(actual_sha1) => {
-                    // 4) 校验 sha1(如提供)。不匹配 -> 删 .part,返回 Checksum 错误(不重试)。
-                    if let Some(expected) = &item.sha1 {
-                        if !actual_sha1.eq_ignore_ascii_case(expected.trim()) {
-                            let _ = fs::remove_file(&part_path).await;
-                            return Err(CoreError::Checksum {
-                                path: item.path.clone(),
-                                expected: expected.clone(),
-                                actual: actual_sha1,
-                            });
+
+        for url in &candidates {
+            // 每个候选源内部带指数退避重试;404 / 非可重试错误立刻换源。
+            for attempt in 0..MAX_ATTEMPTS {
+                match self.fetch_to_part(url, &part_path).await {
+                    Ok(()) => {
+                        // 强校验(如有)。不匹配 -> 删 .part,记错并换下一候选。
+                        if let Some(c) = &check {
+                            if !c.verify(&part_path) {
+                                let _ = fs::remove_file(&part_path).await;
+                                last_err = Some(CoreError::Checksum {
+                                    path: item.path.clone(),
+                                    expected: c.expected().to_string(),
+                                    actual: "(mismatch)".into(),
+                                });
+                                tracing::debug!(url = %url, "checksum mismatch, trying next source");
+                                break;
+                            }
                         }
+                        fs::rename(&part_path, &item.path)
+                            .await
+                            .map_err(|e| CoreError::io(item.path.clone(), e))?;
+                        return Ok(());
                     }
-                    // 5) 原子 rename 到最终路径。
-                    fs::rename(&part_path, &item.path)
-                        .await
-                        .map_err(|e| CoreError::io(item.path.clone(), e))?;
-                    return Ok(());
-                }
-                Err(e) => {
-                    // 网络/IO 错误:清理半成品后指数退避重试。
-                    let _ = fs::remove_file(&part_path).await;
-                    let retriable = is_retriable(&e);
-                    last_err = Some(e);
-                    if retriable && attempt + 1 < MAX_ATTEMPTS {
-                        let backoff = BACKOFF_BASE * (1u32 << attempt);
-                        tracing::debug!(url = %url, attempt, ?backoff, "download retry");
-                        tokio::time::sleep(backoff).await;
-                        continue;
+                    Err(e) => {
+                        let _ = fs::remove_file(&part_path).await;
+                        let retriable = is_retriable(&e) && !is_not_found(&e);
+                        last_err = Some(e);
+                        if retriable && attempt + 1 < MAX_ATTEMPTS {
+                            let backoff = BACKOFF_BASE * (1u32 << attempt);
+                            tracing::debug!(url = %url, attempt, ?backoff, "download retry");
+                            tokio::time::sleep(backoff).await;
+                            continue;
+                        }
+                        break; // 换下一候选源
                     }
-                    break;
                 }
             }
         }
 
         Err(last_err.unwrap_or_else(|| CoreError::Download {
-            url: url.clone(),
-            reason: "exhausted retries".into(),
+            url: item.url.clone(),
+            reason: "no download sources".into(),
         }))
     }
 
-    /// 把 `url` 流式写入 `part_path`,同时增量计算并返回 sha1。
-    ///
-    /// 不做重试、不做校验、不做 rename —— 这些由 [`Self::download_one`] 编排,
-    /// 本函数只负责"一次成功的字节搬运"。
-    async fn fetch_to_part(&self, url: &str, part_path: &PathBuf) -> Result<String> {
+    /// 计算一个下载项的有序候选 URL 列表:主源 + 各 manifest 镜像,每个再经
+    /// [`MirrorResolver::candidates`] 展开成(镜像变体 + 官方回退),最后整体去重保序。
+    fn candidate_urls(&self, item: &DownloadItem) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        let mut seen: HashSet<String> = HashSet::new();
+        for base in std::iter::once(&item.url).chain(item.mirrors.iter()) {
+            if base.is_empty() {
+                continue;
+            }
+            for c in self.mirror.candidates(base) {
+                if seen.insert(c.clone()) {
+                    out.push(c);
+                }
+            }
+        }
+        if out.is_empty() {
+            out.push(item.url.clone());
+        }
+        out
+    }
+
+    /// 把 `url` 流式写入 `part_path`(不校验、不 rename)。一次成功的字节搬运;
+    /// 重试 / 校验 / 落盘由 [`Self::download_one`] 编排。
+    async fn fetch_to_part(&self, url: &str, part_path: &PathBuf) -> Result<()> {
         let resp = self.client.get(url).send().await?.error_for_status()?;
 
         let mut file = fs::File::create(part_path)
             .await
             .map_err(|e| CoreError::io(part_path.clone(), e))?;
 
-        let mut hasher = Sha1::new();
         let mut stream = resp.bytes_stream();
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?; // reqwest::Error -> CoreError::Network
-            hasher.update(&chunk);
             file.write_all(&chunk)
                 .await
                 .map_err(|e| CoreError::io(part_path.clone(), e))?;
@@ -185,63 +272,96 @@ impl Downloader {
             .map_err(|e| CoreError::io(part_path.clone(), e))?;
         drop(file);
 
-        Ok(hex::encode(hasher.finalize()))
+        Ok(())
     }
 
-    /// 并发下载整批文件。
+    /// 并发下载整批文件,**尽力而为**:逐项独立失败不中止全批,失败项跨趟重投
+    /// (排除 404 / 校验不符这类确定性错误)最多 [`MAX_JOB_PASSES`] 趟。
     ///
     /// - 用 `Semaphore` 限制同时在飞的请求数(并发度即 `new` 时设定的值)。
     /// - 可选 `progress` 通道按"已完成项数 / 总项数"上报;每完成一项推送一次。
-    /// - 任一项失败立即返回第一个错误(其余 in-flight 任务随 stream drop 自然取消)。
+    /// - 返回 [`DownloadOutcome`],调用方据此决定"必备文件缺失即失败"还是"尽量补"。
+    pub async fn download_batch(
+        &self,
+        items: Vec<DownloadItem>,
+        progress: Option<watch::Sender<Progress>>,
+    ) -> Result<DownloadOutcome> {
+        let total = items.len() as u64;
+        let mut outcome = DownloadOutcome { total, succeeded: 0, failed: Vec::new() };
+
+        // 进度以"完成的文件数"为单位(而非字节),对一批小文件更直观且无需估速。
+        let stage = "下载文件";
+        if let Some(tx) = &progress {
+            let _ = tx.send(Progress { stage: stage.into(), current: 0, total, speed_bps: 0 });
+        }
+        if total == 0 {
+            return Ok(outcome);
+        }
+
+        let done = Arc::new(AtomicU64::new(0));
+        let concurrency = self.sem.available_permits().max(1);
+        let mut pending = items;
+
+        for pass in 0..MAX_JOB_PASSES {
+            if pending.is_empty() {
+                break;
+            }
+            // 跑完本趟全部 pending 并收集 (item, 结果),不因首个错误中止。
+            let results: Vec<(DownloadItem, Result<()>)> =
+                futures::stream::iter(pending.into_iter().map(|item| {
+                    let this = self.clone();
+                    let sem = self.sem.clone();
+                    let done = done.clone();
+                    let progress = progress.clone();
+                    async move {
+                        let _permit = sem.acquire().await.expect("semaphore not closed");
+                        let r = this.download_one(&item).await;
+                        if r.is_ok() {
+                            let n = done.fetch_add(1, Ordering::Relaxed) + 1;
+                            if let Some(tx) = &progress {
+                                let _ = tx.send(Progress {
+                                    stage: stage.into(),
+                                    current: n,
+                                    total,
+                                    speed_bps: 0,
+                                });
+                            }
+                        }
+                        (item, r)
+                    }
+                }))
+                .buffer_unordered(concurrency)
+                .collect()
+                .await;
+
+            let mut next: Vec<DownloadItem> = Vec::new();
+            for (item, r) in results {
+                match r {
+                    Ok(()) => outcome.succeeded += 1,
+                    Err(e) => {
+                        // 非确定性错误且还有重投机会 -> 下一趟重试;否则计入失败。
+                        if pass + 1 < MAX_JOB_PASSES && !is_permanent(&e) {
+                            next.push(item);
+                        } else {
+                            outcome.failed.push((item, e));
+                        }
+                    }
+                }
+            }
+            pending = next;
+        }
+
+        Ok(outcome)
+    }
+
+    /// 并发下载整批文件;**任一项最终失败即返回该错误**(在 [`Self::download_batch`]
+    /// 的尽力而为 + 跨趟重投之上,末尾汇总判定)。适用于"必备文件必须全部到位"的场景。
     pub async fn download_all(
         &self,
         items: Vec<DownloadItem>,
         progress: Option<watch::Sender<Progress>>,
     ) -> Result<()> {
-        let total = items.len() as u64;
-        if total == 0 {
-            return Ok(());
-        }
-
-        // 进度以"完成的文件数"为单位(而非字节),对一批小文件更直观且无需估速。
-        let done = Arc::new(AtomicU64::new(0));
-        let stage = "下载文件";
-        if let Some(tx) = &progress {
-            let _ = tx.send(Progress { stage: stage.into(), current: 0, total, speed_bps: 0 });
-        }
-
-        let concurrency = self.sem.available_permits().max(1);
-
-        // 为每个 item 生成一个受信号量约束的下载 future,用 buffer_unordered 跑满并发。
-        let mut stream = futures::stream::iter(items.into_iter().map(|item| {
-            let this = self.clone();
-            let sem = self.sem.clone();
-            let done = done.clone();
-            let progress = progress.clone();
-            async move {
-                // acquire 失败仅在信号量被关闭时发生,这里永不关闭,unwrap 安全。
-                let _permit = sem.acquire().await.expect("semaphore not closed");
-                this.download_one(&item).await?;
-                // 完成计数自增并上报。Relaxed 足够:我们只需要单调递增的近似进度。
-                let n = done.fetch_add(1, Ordering::Relaxed) + 1;
-                if let Some(tx) = &progress {
-                    let _ = tx.send(Progress {
-                        stage: stage.into(),
-                        current: n,
-                        total,
-                        speed_bps: 0,
-                    });
-                }
-                Ok::<(), CoreError>(())
-            }
-        }))
-        .buffer_unordered(concurrency);
-
-        // 收集结果:遇到第一个错误立即返回,提前结束整批。
-        while let Some(res) = stream.next().await {
-            res?;
-        }
-        Ok(())
+        self.download_batch(items, progress).await?.into_result()
     }
 
     /// GET 原始字节(镜像改写 + 重试)。用于版本 json、清单等小文件。
@@ -308,6 +428,16 @@ fn is_retriable(err: &CoreError) -> bool {
         CoreError::Download { .. } => true,
         _ => false,
     }
+}
+
+/// 是否为 HTTP 404(资源不存在):该源不该重试,直接换下一候选。
+fn is_not_found(err: &CoreError) -> bool {
+    matches!(err, CoreError::Network(e) if e.status().map(|s| s.as_u16()) == Some(404))
+}
+
+/// 是否为"确定性"错误(重投也不会变好):校验不符 / 404。用于决定是否跨趟重投。
+fn is_permanent(err: &CoreError) -> bool {
+    matches!(err, CoreError::Checksum { .. }) || is_not_found(err)
 }
 
 #[cfg(test)]

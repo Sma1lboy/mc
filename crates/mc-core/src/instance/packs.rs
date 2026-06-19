@@ -281,6 +281,7 @@ pub async fn install_pack_version(
         path: path.clone(),
         sha1: file.sha1.clone(),
         size: file.size,
+        ..Default::default()
     };
     dl.download_one(&item).await?;
 

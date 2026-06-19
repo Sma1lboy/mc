@@ -3,6 +3,7 @@
 
 use super::format::{Argument, Arguments, AssetIndexRef, Logging, VersionJson};
 use super::library::{Artifact, Library};
+use super::pack::Component;
 
 /// The flattened result of merging a version json chain (vanilla + loaders).
 #[derive(Debug, Clone, Default)]
@@ -26,45 +27,75 @@ pub struct LaunchProfile {
 
 impl LaunchProfile {
     /// Merge a chain ordered from the base ancestor (index 0) to the leaf (last).
+    ///
+    /// 排序来源是父指针(`inheritsFrom`):base→leaf。合并数学(库 upsert、mainClass
+    /// 末者胜、args 追加)与 [`LaunchProfile::from_components`] 完全共享 [`merge_one`]。
     pub fn from_chain(chain: &[VersionJson]) -> LaunchProfile {
         let mut p = LaunchProfile::default();
         if let Some(leaf) = chain.last() {
             p.id = leaf.id.clone();
         }
-
         for v in chain {
-            if let Some(mc) = &v.main_class {
-                p.main_class = mc.clone();
-            }
-            for lib in &v.libraries {
-                upsert_library(&mut p.libraries, lib.clone());
-            }
-            if let Some(args) = &v.arguments {
-                let Arguments { game, jvm } = args.clone();
-                p.game_args.extend(game);
-                p.jvm_args.extend(jvm);
-            }
-            if let Some(legacy) = &v.minecraft_arguments {
-                p.legacy_arguments = Some(legacy.clone());
-            }
-            if v.asset_index.is_some() {
-                p.asset_index = v.asset_index.clone();
-            }
-            if v.assets.is_some() {
-                p.assets_id = v.assets.clone();
-            }
-            if v.downloads.client.is_some() {
-                p.client_download = v.downloads.client.clone();
-            }
-            if let Some(jv) = &v.java_version {
-                p.java_major = Some(jv.major_version);
-            }
-            if v.logging.client.is_some() {
-                p.logging = v.logging.clone();
-            }
+            merge_one(&mut p, v);
         }
-
         p
+    }
+
+    /// 按**显式组件列表顺序**合并(MultiMC/Prism 组件模型),复用与 [`from_chain`]
+    /// 完全相同的合并逻辑([`merge_one`]),只把排序来源从父指针换成列表顺序。
+    ///
+    /// 见 `docs/modules/instance-and-components.md` §2.5。每项为 `(组件, 它解析到的
+    /// 版本文件)`,顺序即合并优先级(后盖前)。`disabled` 的组件被跳过(参与列表但
+    /// 不参与合并)。`id` 取**最后一个 active 组件**的版本文件 id(末者胜,即 leaf)。
+    ///
+    /// IO 像 `load_chain` 那样由调用方注入:调用方按列表顺序为每个组件读出其版本文件
+    /// (`patches/<uid>.json` 覆盖或 meta 缓存),再传入这里做纯合并。
+    pub fn from_components(components: &[(Component, VersionJson)]) -> LaunchProfile {
+        let mut p = LaunchProfile::default();
+        for (comp, vj) in components {
+            if !comp.is_active() {
+                continue;
+            }
+            // id 取最后一个参与合并的组件(末者胜),与 from_chain 的 leaf 语义一致。
+            p.id = vj.id.clone();
+            merge_one(&mut p, vj);
+        }
+        p
+    }
+}
+
+/// 把单个版本文件合并进 `p`(库 upsert、mainClass/assetIndex/client/java/logging 末者胜、
+/// args 追加)。`from_chain` 与 `from_components` 共用,保证两种排序来源得到同样的合并
+/// 数学。
+fn merge_one(p: &mut LaunchProfile, v: &VersionJson) {
+    if let Some(mc) = &v.main_class {
+        p.main_class = mc.clone();
+    }
+    for lib in &v.libraries {
+        upsert_library(&mut p.libraries, lib.clone());
+    }
+    if let Some(args) = &v.arguments {
+        let Arguments { game, jvm } = args.clone();
+        p.game_args.extend(game);
+        p.jvm_args.extend(jvm);
+    }
+    if let Some(legacy) = &v.minecraft_arguments {
+        p.legacy_arguments = Some(legacy.clone());
+    }
+    if v.asset_index.is_some() {
+        p.asset_index = v.asset_index.clone();
+    }
+    if v.assets.is_some() {
+        p.assets_id = v.assets.clone();
+    }
+    if v.downloads.client.is_some() {
+        p.client_download = v.downloads.client.clone();
+    }
+    if let Some(jv) = &v.java_version {
+        p.java_major = Some(jv.major_version);
+    }
+    if v.logging.client.is_some() {
+        p.logging = v.logging.clone();
     }
 }
 
@@ -122,5 +153,70 @@ mod tests {
         let p = LaunchProfile::from_chain(&[base, child]);
         assert_eq!(p.assets_id.as_deref(), Some("5"));
         assert!(p.asset_index.is_some());
+    }
+
+    // ---- from_components:与 from_chain 同样的合并数学,排序来源换成显式列表 ----
+
+    #[test]
+    fn from_components_merges_in_list_order() {
+        // vanilla → intermediary(夹中间)→ fabric-loader,顺序即合并序。
+        let vanilla = Component::important(super::super::pack::UID_MINECRAFT, Some("1.20.1".into()));
+        let inter = Component::dependency(super::super::pack::UID_FABRIC_INTERMEDIARY, Some("1.20.1".into()));
+        let loader = Component::important("net.fabricmc.fabric-loader", Some("0.15.7".into()));
+
+        let comps = vec![
+            (vanilla, vj(r#"{"id":"1.20.1","mainClass":"net.minecraft.client.main.Main","assets":"5","libraries":[{"name":"com.x:y:1.0"}]}"#)),
+            (inter, vj(r#"{"id":"intermediary","libraries":[{"name":"net.fabricmc:intermediary:1.20.1"}]}"#)),
+            (loader, vj(r#"{"id":"fabric-loader-0.15.7","mainClass":"net.fabricmc.loader.impl.launch.knot.KnotClient","libraries":[{"name":"com.x:y:2.0"}]}"#)),
+        ];
+
+        let p = LaunchProfile::from_components(&comps);
+        // mainClass 末者胜(loader 覆盖 vanilla)。
+        assert_eq!(p.main_class, "net.fabricmc.loader.impl.launch.knot.KnotClient");
+        // assets 来自 vanilla(loader 未覆盖)。
+        assert_eq!(p.assets_id.as_deref(), Some("5"));
+        // 库 upsert:com.x:y 被 loader 的 2.0 覆盖,intermediary 库新增。
+        assert!(p.libraries.iter().any(|l| l.name == "com.x:y:2.0"));
+        assert!(!p.libraries.iter().any(|l| l.name == "com.x:y:1.0"));
+        assert!(p.libraries.iter().any(|l| l.name == "net.fabricmc:intermediary:1.20.1"));
+        // id 取最后一个 active 组件(loader)的版本文件 id。
+        assert_eq!(p.id, "fabric-loader-0.15.7");
+    }
+
+    #[test]
+    fn from_components_skips_disabled() {
+        let vanilla = Component::important(super::super::pack::UID_MINECRAFT, Some("1.20.1".into()));
+        let mut loader = Component::important("net.fabricmc.fabric-loader", Some("0.15.7".into()));
+        loader.disabled = true; // 禁用的 loader 不参与合并。
+
+        let comps = vec![
+            (vanilla, vj(r#"{"id":"1.20.1","mainClass":"VANILLA","libraries":[]}"#)),
+            (loader, vj(r#"{"id":"fabric","mainClass":"LOADER","libraries":[]}"#)),
+        ];
+        let p = LaunchProfile::from_components(&comps);
+        // loader 被跳过 → mainClass 仍是 vanilla 的;id 也是 vanilla 的。
+        assert_eq!(p.main_class, "VANILLA");
+        assert_eq!(p.id, "1.20.1");
+    }
+
+    #[test]
+    fn from_components_matches_from_chain_for_equivalent_order() {
+        // 同样两层,from_components(列表序)应与 from_chain(父指针)得到一致结果。
+        let base_json = r#"{"id":"1.20.1","mainClass":"M","assets":"5","libraries":[{"name":"a:b:1.0"}]}"#;
+        let leaf_json = r#"{"id":"loader","inheritsFrom":"1.20.1","mainClass":"K","libraries":[{"name":"a:b:2.0"}]}"#;
+
+        let chain = LaunchProfile::from_chain(&[vj(base_json), vj(leaf_json)]);
+
+        let comps = vec![
+            (Component::important(super::super::pack::UID_MINECRAFT, Some("1.20.1".into())), vj(base_json)),
+            (Component::important("net.fabricmc.fabric-loader", Some("0.15.7".into())), vj(leaf_json)),
+        ];
+        let components = LaunchProfile::from_components(&comps);
+
+        assert_eq!(chain.main_class, components.main_class);
+        assert_eq!(chain.id, components.id);
+        assert_eq!(chain.libraries.len(), components.libraries.len());
+        assert_eq!(chain.libraries[0].name, components.libraries[0].name);
+        assert_eq!(chain.assets_id, components.assets_id);
     }
 }

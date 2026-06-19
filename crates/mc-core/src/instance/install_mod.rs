@@ -103,6 +103,7 @@ pub async fn install_mod_version(
         path: dest,
         sha1: file.sha1.clone(),
         size: file.size,
+        ..Default::default()
     })
     .await?;
 
@@ -251,9 +252,8 @@ mod tests {
         VersionFile {
             url: format!("https://example.com/{name}"),
             filename: name.into(),
-            sha1: None,
-            size: None,
             primary,
+            ..Default::default()
         }
     }
 

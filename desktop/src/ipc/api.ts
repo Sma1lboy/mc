@@ -21,6 +21,7 @@ import type {
   InstallProgress,
   LaunchProgress,
   GameLog,
+  ImportOutcome,
 } from "./types";
 
 // ===== 命令封装 =====
@@ -110,6 +111,46 @@ export const api = {
       kind,
       gameVersion,
       loader,
+    });
+  },
+
+  /**
+   * 导入一个整合包(.mrpack / CurseForge zip / MultiMC / MCBBS,自动识别格式)。
+   * 返回建好的实例 id + 需手动下载的 CurseForge blocked 文件。
+   */
+  importModpack(
+    root: string,
+    path: string,
+    instanceId: string | null,
+  ): Promise<ImportOutcome> {
+    return invoke<ImportOutcome>("import_modpack", { root, path, instanceId });
+  },
+
+  /**
+   * 把实例导出为整合包。target = "modrinth" | "curseforge" |
+   * "modlist[:md|json|csv|txt|html]"。返回写出的文件路径。
+   */
+  exportModpack(opts: {
+    root: string;
+    instanceId: string;
+    target: string;
+    dest?: string | null;
+    packName: string;
+    packVersion?: string | null;
+    mcVersion: string;
+    loader?: string | null;
+    loaderVersion?: string | null;
+  }): Promise<string> {
+    return invoke<string>("export_modpack", {
+      root: opts.root,
+      instanceId: opts.instanceId,
+      target: opts.target,
+      dest: opts.dest ?? null,
+      packName: opts.packName,
+      packVersion: opts.packVersion ?? null,
+      mcVersion: opts.mcVersion,
+      loader: opts.loader ?? null,
+      loaderVersion: opts.loaderVersion ?? null,
     });
   },
 

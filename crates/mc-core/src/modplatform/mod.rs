@@ -12,7 +12,10 @@
 //!   `Deserialize` 以便测试/缓存,但**不**直接对平台原始 json 反序列化——
 //!   平台字段名各异,映射在各后端模块里手写完成。
 
+pub mod curseforge;
+pub mod dependency;
 pub mod modrinth;
+pub mod provider;
 
 use serde::{Deserialize, Serialize};
 
@@ -89,11 +92,14 @@ impl ProjectVersion {
 }
 
 /// 版本下的一个可下载文件。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VersionFile {
     pub url: String,
     pub filename: String,
     pub sha1: Option<String>,
+    /// sha512(Modrinth 提供;整合包导入/导出反查需要)。
+    #[serde(default)]
+    pub sha512: Option<String>,
     pub size: Option<u64>,
     pub primary: bool,
 }
@@ -105,4 +111,87 @@ pub struct Dependency {
     pub version_id: Option<String>,
     /// 取值如 `required` / `optional` / `incompatible` / `embedded`。
     pub dependency_type: String,
+}
+
+// ===========================================================================
+// Provider 抽象的共享类型(见 provider.rs / curseforge.rs / dependency.rs)
+// ===========================================================================
+
+/// 内容平台标识。跨平台统一身份 = `(ProviderId, project_id, version_id)`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProviderId {
+    Modrinth,
+    CurseForge,
+}
+
+/// 平台支持的哈希算法(声明在 [`ProviderCaps::hash_algos`],按反查偏好序)。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HashAlgo {
+    Sha1,
+    Sha512,
+    Md5,
+    Murmur2,
+}
+
+/// 平台能力声明。引擎据此选取反查算法、决定是否需要 API key。
+#[derive(Debug, Clone)]
+pub struct ProviderCaps {
+    pub id: ProviderId,
+    pub readable_name: &'static str,
+    /// 可反查的哈希算法,按偏好序(Modrinth `[Sha512,Sha1]`;CurseForge `[Sha1,Md5,Murmur2]`)。
+    pub hash_algos: &'static [HashAlgo],
+    /// 是否需要 API key(CurseForge 需要,Modrinth 不需要)。
+    pub needs_api_key: bool,
+}
+
+/// 排序方式(统一枚举,各平台映射到自家参数)。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SortMethod {
+    #[default]
+    Relevance,
+    Downloads,
+    Newest,
+    Updated,
+}
+
+/// 统一搜索查询参数。
+#[derive(Debug, Clone)]
+pub struct SearchQuery {
+    pub text: String,
+    pub kind: ResourceKind,
+    pub game_version: Option<String>,
+    pub loader: Option<String>,
+    pub offset: u32,
+    pub limit: u32,
+    pub sort: SortMethod,
+}
+
+impl SearchQuery {
+    /// 便捷构造:仅文本 + 类型,其余默认(offset 0、limit 20、按相关度)。
+    pub fn new(text: impl Into<String>, kind: ResourceKind) -> Self {
+        Self {
+            text: text.into(),
+            kind,
+            game_version: None,
+            loader: None,
+            offset: 0,
+            limit: 20,
+            sort: SortMethod::default(),
+        }
+    }
+}
+
+/// 一个"本地文件 -> 远程 project/version"的解析结果。整合包导入(id→URL)与
+/// 导出(hash→引用)都产出它;`(provider, project_id, version_id)` 是去重键。
+#[derive(Debug, Clone)]
+pub struct ResolvedFile {
+    pub provider: ProviderId,
+    pub project_id: String,
+    pub version_id: String,
+    /// 可下载文件(复用 [`VersionFile`]:url/filename/sha1/sha512/size/primary)。
+    pub file: VersionFile,
+    pub project_name: Option<String>,
+    pub project_slug: Option<String>,
+    pub authors: Vec<String>,
 }

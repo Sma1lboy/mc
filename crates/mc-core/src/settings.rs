@@ -155,11 +155,12 @@ impl GlobalSettings {
     /// 根据 `download_source` / `use_mirror` 推导镜像改写器。
     ///
     /// 只要二者任一指向镜像(`download_source == "bmclapi"` 或 `use_mirror == true`),
-    /// 就返回 BMCLAPI 改写器;否则返回直连官方源的空改写器。
+    /// 就返回国内全套改写器(BMCLAPI 游戏资源 + McIM 社区 mod 资源,覆盖整合包场景);
+    /// 否则返回直连官方源的空改写器。
     pub fn mirror_resolver(&self) -> MirrorResolver {
         let wants_mirror = self.use_mirror || self.download_source.eq_ignore_ascii_case(SOURCE_BMCLAPI);
         if wants_mirror {
-            MirrorResolver::bmclapi()
+            MirrorResolver::china()
         } else {
             MirrorResolver::none()
         }

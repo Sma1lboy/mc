@@ -1,5 +1,6 @@
 import { Component, For, Switch, Match, type JSX } from "solid-js";
 import { currentPage, setCurrentPage, switchLayout, type Page } from "../../store";
+import { Icon, type IconName } from "../../components";
 import PclLaunch from "../../pages/PclLaunch";
 import PclMore from "../../pages/PclMore";
 import Discover from "../../pages/Discover";
@@ -17,38 +18,7 @@ import "./PclShell.css";
  * 见 docs/05-ui-design-pcl.md。
  */
 
-// 顶栏图标:线性 24x24、currentColor,与 Rail 的 SVG 风格统一。
-const PowerIcon = (): JSX.Element => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
-       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-    <path d="M12 3v9" />
-    <path d="M7.4 6.6a7 7 0 1 0 9.2 0" />
-  </svg>
-);
-const DownloadIcon = (): JSX.Element => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
-       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-    <path d="M12 3v11" />
-    <path d="m7.5 9.5 4.5 4.5 4.5-4.5" />
-    <path d="M5 19.5h14" />
-  </svg>
-);
-const GearIcon = (): JSX.Element => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
-       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-    <circle cx="12" cy="12" r="3" />
-    <path d="M19.4 13a7.8 7.8 0 0 0 0-2l1.8-1.4-1.9-3.3-2.2.9a7.6 7.6 0 0 0-1.7-1l-.3-2.3H10.5l-.3 2.3a7.6 7.6 0 0 0-1.7 1l-2.2-.9-1.9 3.3L6.2 11a7.8 7.8 0 0 0 0 2l-1.8 1.4 1.9 3.3 2.2-.9a7.6 7.6 0 0 0 1.7 1l.3 2.3h3.9l.3-2.3a7.6 7.6 0 0 0 1.7-1l2.2.9 1.9-3.3Z" />
-  </svg>
-);
-const GridIcon = (): JSX.Element => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
-       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-    <rect x="4" y="4" width="6.5" height="6.5" rx="1.4" />
-    <rect x="13.5" y="4" width="6.5" height="6.5" rx="1.4" />
-    <rect x="4" y="13.5" width="6.5" height="6.5" rx="1.4" />
-    <rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.4" />
-  </svg>
-);
+// 顶栏图标已收口到统一 Icon 注册表(components/Icon.tsx),此处只引名。
 
 // 品牌 Logo:白底圆角方块(app icon 风)+ 蓝色等距 Minecraft 方块,在蓝标题栏上醒目。
 const PclLogo = (): JSX.Element => (
@@ -61,12 +31,12 @@ const PclLogo = (): JSX.Element => (
   </svg>
 );
 
-// PCL 顶部 Tab → 页面(带图标,照抄 PCL CE)。
-const TABS: { page: Page; label: string; icon: () => JSX.Element }[] = [
-  { page: "launch", label: "启动", icon: PowerIcon },
-  { page: "discover", label: "下载", icon: DownloadIcon },
-  { page: "settings", label: "设置", icon: GearIcon },
-  { page: "more", label: "更多", icon: GridIcon },
+// PCL 顶部 Tab → 页面(图标走统一 Icon 注册表,照抄 PCL CE 的图标语义)。
+const TABS: { page: Page; label: string; icon: IconName }[] = [
+  { page: "launch", label: "启动", icon: "power" },
+  { page: "discover", label: "下载", icon: "download" },
+  { page: "settings", label: "设置", icon: "gear" },
+  { page: "more", label: "更多", icon: "grid" },
 ];
 
 const PclShell: Component = () => {
@@ -88,7 +58,7 @@ const PclShell: Component = () => {
                 classList={{ active: currentPage() === t.page }}
                 onClick={() => setCurrentPage(t.page)}
               >
-                <span class="pcl-tab-icon">{t.icon()}</span>
+                <span class="pcl-tab-icon"><Icon name={t.icon} size={24} /></span>
                 {t.label}
               </button>
             )}

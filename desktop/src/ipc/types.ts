@@ -119,8 +119,8 @@ export interface SearchHit {
   project_type: ProjectKind;
 }
 
-/** 主题模式 */
-export type ThemeMode = "dark" | "light";
+/** 主题模式('system' 跟随系统 prefers-color-scheme) */
+export type ThemeMode = "dark" | "light" | "system";
 
 /** 主题配置(后端持久化 + 前端注入色阶) */
 export interface ThemeConfig {
@@ -132,6 +132,21 @@ export interface ThemeConfig {
   saturation: number;
   /** accent 明度 0-100 */
   lightness: number;
+}
+
+/** 一个 CurseForge blocked 文件(作者禁第三方分发,需用户手动下载) */
+export interface BlockedFile {
+  name: string;
+  website_url: string;
+  target_dir: string;
+  required: boolean;
+}
+
+/** import_modpack 的返回:建好的实例 + 需手动处理的 blocked / 跳过项 */
+export interface ImportOutcome {
+  instance_id: string;
+  blocked: BlockedFile[];
+  skipped_optional: string[];
 }
 
 // ===== 事件 payload(由 Tauri event 推送)=====

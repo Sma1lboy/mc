@@ -148,6 +148,7 @@ pub fn asset_download_items(index: &AssetIndexJson, paths: &GamePaths) -> Vec<Do
                 path: paths.asset_object(&obj.hash),
                 sha1: Some(obj.hash.clone()),
                 size: Some(obj.size),
+                ..Default::default()
             }
         })
         .collect()
@@ -185,6 +186,7 @@ pub fn library_download_items(
                 path: libraries_dir.join(&resolved.path),
                 sha1: resolved.sha1,
                 size: resolved.size,
+                ..Default::default()
             });
         }
         // Old-style natives (pre-1.19) carried by a regular library via its map.
@@ -194,6 +196,7 @@ pub fn library_download_items(
                 path: libraries_dir.join(&native.path),
                 sha1: native.sha1,
                 size: native.size,
+                ..Default::default()
             });
         }
     }
@@ -206,6 +209,7 @@ pub fn library_download_items(
                 path: libraries_dir.join(&resolved.path),
                 sha1: resolved.sha1,
                 size: resolved.size,
+                ..Default::default()
             });
         }
     }
@@ -224,6 +228,7 @@ pub fn client_jar_item(profile: &LaunchProfile, paths: &GamePaths) -> Option<Dow
         path: paths.version_jar(&profile.id),
         sha1: art.sha1.clone(),
         size: art.size,
+        ..Default::default()
     })
 }
 

@@ -5,6 +5,7 @@
 pub mod format;
 pub mod gradle;
 pub mod library;
+pub mod pack;
 pub mod profile;
 pub mod rule;
 
@@ -12,6 +13,10 @@ pub use format::{Argument, Arguments, AssetIndexRef, StringOrList, VersionJson};
 pub use gradle::GradleSpec;
 pub use library::{
     classpath_libraries, select_native_libraries, Artifact, Library, ResolvedFile,
+};
+pub use pack::{
+    known_loader, loader_uid, Component, KnownLoader, PackProfile, Require, KNOWN_LOADERS,
+    PACK_FILE, UID_FABRIC_INTERMEDIARY, UID_MINECRAFT, UID_QUILT_HASHED,
 };
 pub use profile::LaunchProfile;
 pub use rule::{rules_allow, FeatureSet, Rule, RuntimeContext};

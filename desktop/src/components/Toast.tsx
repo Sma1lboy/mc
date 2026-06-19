@@ -1,6 +1,10 @@
-import { JSX, For, Switch, Match } from "solid-js";
+import { JSX, For, Show, Switch, Match } from "solid-js";
 import { createStore, produce } from "solid-js/store";
+import { Presence, motion } from "../motion";
 import "./Toast.css";
+
+// use:motion 指令在编译后按名字引用 `motion`;显式触达避免被打包器摇掉。
+void motion;
 
 // Toast 类型与配色:
 //   info    —— 中性提示 (accent 蓝/绿)
@@ -21,7 +25,8 @@ interface ToastItem {
   type: ToastType;
   message: string;
   duration: number;
-  leaving: boolean; // 退出动画中
+  /** 是否仍在场;置 false 触发 <Presence> 退场动画,播完才从 store 删除。 */
+  open: boolean;
 }
 
 // ---- 全局单例 store ----
@@ -41,24 +46,22 @@ function clearTimer(id: number) {
   }
 }
 
-// 真正从 store 移除 (退出动画播完后调用)。
+// 真正从 store 移除 (<Presence> 退场动画播完后由 onExited 调用)。
 function removeToast(id: number) {
   clearTimer(id);
   setItems((arr) => arr.filter((it) => it.id !== id));
 }
 
-// 触发退出动画, 动画结束再移除。
+// 触发退场:置 open=false,由每个 toast 外层的 <Presence> 播放退场动画,
+// 播完后经 onExited→removeToast 从 store 删除。不再手写 setTimeout 与 CSS 时长对齐。
 function dismissToast(id: number) {
   clearTimer(id);
-  // 标记 leaving → CSS 播放退出动画。
   setItems(
     produce((arr) => {
       const it = arr.find((x) => x.id === id);
-      if (it) it.leaving = true;
+      if (it) it.open = false;
     })
   );
-  // 与 ui-toast-out 动画时长 (200ms) 对齐。
-  setTimeout(() => removeToast(id), 220);
 }
 
 /**
@@ -73,7 +76,7 @@ export function toast(opts: ToastOptions): number {
     type: opts.type ?? "info",
     message: opts.message,
     duration,
-    leaving: false,
+    open: true,
   };
   setItems((arr) => [...arr, item]);
 
@@ -160,30 +163,41 @@ export function ToastContainer(): JSX.Element {
     <div class="ui-toast-container" aria-live="polite">
       <For each={items}>
         {(item) => (
-          <div
-            class={`ui-toast ui-toast--${item.type}${
-              item.leaving ? " ui-toast--leaving" : ""
-            }`}
-            role="status"
-          >
-            <ToastIcon type={item.type} />
-            <span class="ui-toast__msg">{item.message}</span>
-            <button
-              type="button"
-              class="ui-toast__close"
-              aria-label="Dismiss"
-              onClick={() => dismissToast(item.id)}
-            >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                <path
-                  d="M3 3l6 6M9 3l-6 6"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                  stroke-linecap="round"
-                />
-              </svg>
-            </button>
-          </div>
+          // 每个 toast 自带 <Presence>:open=false 时播 toast 退场预设(微缩+淡出),
+          // 播完 onExited 才把条目从 store 删除——取代旧的 setTimeout(220) 对齐 hack。
+          <Presence exitPreset="toast" onExited={() => removeToast(item.id)}>
+            <Show when={item.open}>
+              <div
+                use:motion={{ preset: "toast" }}
+                class={`ui-toast ui-toast--${item.type}`}
+                role="status"
+              >
+                <ToastIcon type={item.type} />
+                <span class="ui-toast__msg">{item.message}</span>
+                <button
+                  type="button"
+                  class="ui-toast__close"
+                  aria-label="Dismiss"
+                  onClick={() => dismissToast(item.id)}
+                >
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 12 12"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M3 3l6 6M9 3l-6 6"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      stroke-linecap="round"
+                    />
+                  </svg>
+                </button>
+              </div>
+            </Show>
+          </Presence>
         )}
       </For>
     </div>

@@ -25,11 +25,18 @@
 | [08-data-layer-and-lite-server.md](./08-data-layer-and-lite-server.md) | **路线图**:数据层 feature 清单(是否值得做)+ lite 服务器设计 + 本地测试环境 |
 | [09-engineering-reference.md](./09-engineering-reference.md) | **工程参考**:框架/库清单、46 模块地图、**存储层每处怎么存** + 优化清单(P0-P3) |
 | [modules/version-system.md](./modules/version-system.md) | 版本/组件系统:json 解析、多 loader 合并、库与 native、规则过滤 |
-| [modules/download.md](./modules/download.md) | 下载系统:任务框架、多源镜像、并发、校验、缓存、补全 |
+| [modules/download.md](./modules/download.md) | **下载系统(深)**:引擎(并发/重试/续传/校验)、多源镜像(BMCLAPI/McIM/故障转移)、缓存、去重、现状-差距-路线图 |
 | [modules/auth.md](./modules/auth.md) | 账号认证:微软 OAuth、离线、外置登录(Yggdrasil) |
 | [modules/java.md](./modules/java.md) | Java 管理:检测、版本匹配、自动下载 |
-| [modules/mod-platform.md](./modules/mod-platform.md) | Mod/整合包:CurseForge/Modrinth、依赖解析、整合包导入 |
+| [modules/mod-platform.md](./modules/mod-platform.md) | Mod/整合包(总览,详见下方四篇深入) |
+| [modules/modpack-import.md](./modules/modpack-import.md) | **整合包导入(可插拔架构)**:trait ModpackImporter + 共享引擎 + 探测分发;从别人的包配实例 ⭐ |
+| [modules/modpack-formats.md](./modules/modpack-formats.md) | **格式参考**:.mrpack/CurseForge/MultiMC/MCBBS/packwiz/ATL/Technic 的精确 Rust 结构 + 安全清单 |
+| [modules/modpack-export.md](./modules/modpack-export.md) | **整合包导出**:resolvable-vs-override 分类 + trait ExportTarget;让别人能下载你的包 |
+| [modules/content-providers.md](./modules/content-providers.md) | **平台 Provider 抽象**:trait ResourceProvider + registry + 反查 + 依赖解析(导入/导出/浏览共用) |
+| [modules/instance-and-components.md](./modules/instance-and-components.md) | **从零建实例 + 多组件版本模型 + 加载器核心**(from scratch + 下载不同的核心) |
 | [modules/instance.md](./modules/instance.md) | 实例管理:版本隔离、目录结构、世界/资源管理 |
+| [modules/ui-animation.md](./modules/ui-animation.md) | **GUI 动画层**:把 PCL 动画系统抽象到 Web(rAF 引擎 vs CSS/WAAPI 切分、动机令牌、缓动库、PCL 手感预设、SolidJS API) |
+| [modules/ui-polish.md](./modules/ui-polish.md) | **GUI 细节打磨**:感知化主题色引擎(OKLCH)、亚克力、瀑布流、Icon 组件 |
 | [refs/prismlauncher.md](./refs/prismlauncher.md) | PrismLauncher 架构笔记(含文件速查表) |
 | [refs/pcl-ce.md](./refs/pcl-ce.md) | PCL-CE 架构笔记 |
 | [refs/pcl2.md](./refs/pcl2.md) | PCL2 架构笔记 |

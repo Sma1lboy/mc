@@ -164,6 +164,106 @@ impl ModrinthApi {
             .map_err(|e| CoreError::Parse { what: "modrinth project".into(), source: e })?;
         Ok(map_project(raw))
     }
+
+    /// 取**单个版本**的元信息(`GET /v2/version/{id}`)。导入时把 manifest 里的
+    /// version id 变成可下载文件,逐个走这个端点。映射复用 [`map_version`]。
+    pub async fn get_version(&self, version_id: &str) -> Result<ProjectVersion> {
+        let url = format!("{}/version/{}", self.base, version_id);
+        let raw: RawVersion = self
+            .client
+            .get(&url)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        Ok(map_version(raw))
+    }
+
+    /// 按文件哈希批量反查版本(`POST /v2/version_files`)。
+    ///
+    /// 请求体形如 `{"hashes":["<h1>","<h2>"],"algorithm":"sha512"}`,
+    /// `algorithm` 取 `"sha1"` 或 `"sha512"`。响应是一个 **json 对象**,键为
+    /// *请求时传入的哈希*、值为对应的版本对象(同 `/version/{id}` 形状)。未命中
+    /// 的哈希直接从对象里缺席——因此返回的 [`HashMap`] 可能比输入短。
+    pub async fn versions_from_hashes(
+        &self,
+        hashes: &[String],
+        algorithm: &str,
+    ) -> Result<std::collections::HashMap<String, ProjectVersion>> {
+        let raw = self.raw_versions_from_hashes(hashes, algorithm).await?;
+        Ok(raw.into_iter().map(|(k, v)| (k, map_version(v))).collect())
+    }
+
+    /// 批量取项目元信息(`GET /v2/projects?ids=["a","b"]`)。`ids` 参数是 json 编码
+    /// 的字符串数组。响应是项目对象数组(同 `/project/{id}` 形状),逐个走 [`map_project`]。
+    pub async fn get_projects(&self, ids: &[String]) -> Result<Vec<SearchHit>> {
+        let url = format!("{}/projects", self.base);
+        let id_refs: Vec<&str> = ids.iter().map(|s| s.as_str()).collect();
+        let ids_param = json_string_array(&id_refs);
+        let bytes = self
+            .client
+            .get(&url)
+            .query(&[("ids", ids_param.as_str())])
+            .send()
+            .await?
+            .error_for_status()?
+            .bytes()
+            .await?;
+        Self::parse_projects(&bytes)
+    }
+
+    /// 便捷方法:解析 `/version_files` 的响应对象(hash → 版本)字节。
+    /// 失败映射成 [`CoreError::Parse`]。
+    pub fn parse_versions_from_hashes(
+        bytes: &[u8],
+    ) -> Result<std::collections::HashMap<String, ProjectVersion>> {
+        let raw = Self::parse_raw_versions_from_hashes(bytes)?;
+        Ok(raw.into_iter().map(|(k, v)| (k, map_version(v))).collect())
+    }
+
+    /// 同 [`Self::parse_versions_from_hashes`],但保留 [`RawVersion`](含 `project_id`),
+    /// 供哈希反查(`resolve_by_hashes`)构造 [`ResolvedFile`] 时取得项目 id。
+    /// 仅模块内可见([`RawVersion`] 是私有承接类型,不外泄)。
+    fn parse_raw_versions_from_hashes(
+        bytes: &[u8],
+    ) -> Result<std::collections::HashMap<String, RawVersion>> {
+        serde_json::from_slice(bytes).map_err(|e| CoreError::Parse {
+            what: "modrinth version_files response".into(),
+            source: e,
+        })
+    }
+
+    /// 同 [`Self::versions_from_hashes`],但返回保留 `project_id` 的原始版本对象。
+    /// 哈希反查内部用——公开方法返回的统一 [`ProjectVersion`] 不带 project_id。
+    async fn raw_versions_from_hashes(
+        &self,
+        hashes: &[String],
+        algorithm: &str,
+    ) -> Result<std::collections::HashMap<String, RawVersion>> {
+        let url = format!("{}/version_files", self.base);
+        let body = serde_json::json!({
+            "hashes": hashes,
+            "algorithm": algorithm,
+        });
+        let bytes = self
+            .client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await?
+            .error_for_status()?
+            .bytes()
+            .await?;
+        Self::parse_raw_versions_from_hashes(&bytes)
+    }
+
+    /// 便捷方法:解析 `/projects` 的项目对象数组字节。失败映射成 [`CoreError::Parse`]。
+    pub fn parse_projects(bytes: &[u8]) -> Result<Vec<SearchHit>> {
+        let raws: Vec<RawProject> = serde_json::from_slice(bytes)
+            .map_err(|e| CoreError::Parse { what: "modrinth projects".into(), source: e })?;
+        Ok(raws.into_iter().map(map_project).collect())
+    }
 }
 
 // ============================ facets / query 构造 ============================
@@ -275,6 +375,10 @@ struct RawProject {
 struct RawVersion {
     #[serde(default)]
     id: String,
+    /// 该版本所属项目 id。`/version/{id}` 与 `/version_files` 的版本对象都带它,
+    /// 用于哈希反查时构造 [`ResolvedFile::project_id`]。
+    #[serde(default)]
+    project_id: String,
     #[serde(default)]
     name: String,
     #[serde(default)]
@@ -308,6 +412,8 @@ struct RawFile {
 struct RawHashes {
     #[serde(default)]
     sha1: Option<String>,
+    #[serde(default)]
+    sha512: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -369,6 +475,7 @@ fn map_file(r: RawFile) -> VersionFile {
         url: r.url,
         filename: r.filename,
         sha1: r.hashes.sha1,
+        sha512: r.hashes.sha512,
         size: r.size,
         primary: r.primary,
     }
@@ -380,6 +487,188 @@ fn map_dependency(r: RawDependency) -> Dependency {
         version_id: r.version_id,
         // 缺省给 "required",这是 Modrinth 最常见且语义最保守的取值。
         dependency_type: r.dependency_type.unwrap_or_else(|| "required".to_string()),
+    }
+}
+
+// ============================ ResourceProvider 适配 ============================
+
+use std::collections::HashMap;
+
+use futures::future::{try_join_all, BoxFuture};
+
+use super::provider::ResourceProvider;
+use super::{HashAlgo, ProviderCaps, ProviderId, ResolvedFile, SearchQuery};
+
+/// Modrinth 支持反查的哈希算法,按偏好序(sha512 优先,sha1 兜底)。
+/// `&'static [HashAlgo]` 需要一个 `'static` 数组,故声明为 const。
+const MODRINTH_HASH_ALGOS: &[HashAlgo] = &[HashAlgo::Sha512, HashAlgo::Sha1];
+
+/// Modrinth 的能力声明(`const`,无运行时输入)。
+const MODRINTH_CAPS: ProviderCaps = ProviderCaps {
+    id: ProviderId::Modrinth,
+    readable_name: "Modrinth",
+    hash_algos: MODRINTH_HASH_ALGOS,
+    needs_api_key: false,
+};
+
+/// 把统一 [`SearchQuery`] 适配到 [`ModrinthApi`] 的 [`ResourceProvider`] 实现。
+/// 持有一个 [`ModrinthApi`](内含配好 UA 的 `reqwest::Client`)。
+#[derive(Debug, Clone, Default)]
+pub struct ModrinthProvider {
+    api: ModrinthApi,
+}
+
+impl ModrinthProvider {
+    /// 默认 base url(`https://api.modrinth.com/v2`)的 provider。
+    pub fn new() -> Self {
+        Self { api: ModrinthApi::new() }
+    }
+
+    /// 用自定义 base url 构造(测试 / 镜像)。
+    pub fn with_base(base: impl Into<String>) -> Self {
+        Self { api: ModrinthApi::with_base(base) }
+    }
+}
+
+/// 把统一 [`HashAlgo`] 映射到 Modrinth `/version_files` 的 `algorithm` 字符串。
+/// Modrinth 只支持 sha1 / sha512;其余算法不可反查。
+fn modrinth_algo_str(algo: HashAlgo) -> Result<&'static str> {
+    match algo {
+        HashAlgo::Sha512 => Ok("sha512"),
+        HashAlgo::Sha1 => Ok("sha1"),
+        HashAlgo::Md5 | HashAlgo::Murmur2 => {
+            Err(CoreError::other("unsupported hash algo for Modrinth"))
+        }
+    }
+}
+
+/// 在一个版本的文件里找出哈希(sha1/sha512)等于 `wanted` 的那一个。
+/// 一个版本可能有多文件(主 jar、sources 等),反查命中的是某一个具体文件,
+/// 必须按算法逐个比对哈希,而不能假定是主文件。
+fn find_file_by_hash(version: &RawVersion, algo: HashAlgo, wanted: &str) -> Option<VersionFile> {
+    version.files.iter().find_map(|f| {
+        let h = match algo {
+            HashAlgo::Sha512 => f.hashes.sha512.as_deref(),
+            HashAlgo::Sha1 => f.hashes.sha1.as_deref(),
+            _ => None,
+        }?;
+        // Modrinth 哈希是十六进制小写;大小写无关地比一次更稳。
+        if h.eq_ignore_ascii_case(wanted) {
+            Some(map_file_ref(f))
+        } else {
+            None
+        }
+    })
+}
+
+/// 借引用把 [`RawFile`] 映射到 [`VersionFile`](`map_file` 是消费式,这里给反查用)。
+fn map_file_ref(r: &RawFile) -> VersionFile {
+    VersionFile {
+        url: r.url.clone(),
+        filename: r.filename.clone(),
+        sha1: r.hashes.sha1.clone(),
+        sha512: r.hashes.sha512.clone(),
+        size: r.size,
+        primary: r.primary,
+    }
+}
+
+impl ResourceProvider for ModrinthProvider {
+    fn caps(&self) -> &ProviderCaps {
+        &MODRINTH_CAPS
+    }
+
+    fn search<'a>(&'a self, q: &'a SearchQuery) -> BoxFuture<'a, Result<Vec<SearchHit>>> {
+        Box::pin(async move {
+            self.api
+                .search(
+                    &q.text,
+                    q.kind,
+                    q.game_version.as_deref(),
+                    q.loader.as_deref(),
+                    q.limit,
+                )
+                .await
+        })
+    }
+
+    fn get_project<'a>(&'a self, project_id: &'a str) -> BoxFuture<'a, Result<SearchHit>> {
+        Box::pin(async move { self.api.get_project(project_id).await })
+    }
+
+    fn get_projects<'a>(
+        &'a self,
+        project_ids: &'a [String],
+    ) -> BoxFuture<'a, Result<Vec<SearchHit>>> {
+        Box::pin(async move { self.api.get_projects(project_ids).await })
+    }
+
+    fn list_versions<'a>(
+        &'a self,
+        project_id: &'a str,
+        game_version: Option<&'a str>,
+        loader: Option<&'a str>,
+    ) -> BoxFuture<'a, Result<Vec<ProjectVersion>>> {
+        Box::pin(async move { self.api.get_versions(project_id, game_version, loader).await })
+    }
+
+    fn resolve_by_hashes<'a>(
+        &'a self,
+        algo: HashAlgo,
+        hashes: &'a [String],
+    ) -> BoxFuture<'a, Result<Vec<Option<ResolvedFile>>>> {
+        Box::pin(async move {
+            let algorithm = modrinth_algo_str(algo)?;
+            let by_hash: HashMap<String, RawVersion> =
+                self.api.raw_versions_from_hashes(hashes, algorithm).await?;
+
+            // 输出严格与输入 `hashes` 对齐:逐个查表,命中后再在版本的文件里按算法
+            // 找到哈希恰好相等的那个文件(一个版本可能挂多个文件)。
+            let out = hashes
+                .iter()
+                .map(|h| {
+                    let version = by_hash.get(h)?;
+                    let file = find_file_by_hash(version, algo, h)?;
+                    Some(ResolvedFile {
+                        provider: ProviderId::Modrinth,
+                        project_id: version.project_id.clone(),
+                        version_id: version.id.clone(),
+                        file,
+                        project_name: None,
+                        project_slug: None,
+                        authors: Vec::new(),
+                    })
+                })
+                .collect();
+            Ok(out)
+        })
+    }
+
+    fn get_files_bulk<'a>(
+        &'a self,
+        refs: &'a [(String, String)],
+    ) -> BoxFuture<'a, Result<Vec<ResolvedFile>>> {
+        Box::pin(async move {
+            // Modrinth 无批量 version 端点,逐个 `/version/{id}` 并发取。`refs` 是
+            // (project_id, version_id);项目 id 直接用作 ResolvedFile.project_id。
+            let futures = refs.iter().map(|(project_id, version_id)| async move {
+                let version = self.api.get_version(version_id).await?;
+                // 主文件即下载目标;没有文件的版本视为无法解析。
+                let file = version.primary_file().cloned().ok_or_else(|| {
+                    CoreError::other(format!("Modrinth version {version_id} has no files"))
+                })?;
+                Ok::<ResolvedFile, CoreError>(ResolvedFile {
+                    provider: ProviderId::Modrinth,
+                    project_id: project_id.clone(),
+                    version_id: version.id.clone(),
+                    file,
+                    project_name: None,
+                    project_slug: None,
+                    authors: Vec::new(),
+                })
+            });
+            try_join_all(futures).await
+        })
     }
 }
 
@@ -545,8 +834,8 @@ mod tests {
             game_versions: vec![],
             loaders: vec![],
             files: vec![
-                VersionFile { url: "a".into(), filename: "a".into(), sha1: None, size: None, primary: false },
-                VersionFile { url: "b".into(), filename: "b".into(), sha1: None, size: None, primary: false },
+                VersionFile { url: "a".into(), filename: "a".into(), primary: false, ..Default::default() },
+                VersionFile { url: "b".into(), filename: "b".into(), primary: false, ..Default::default() },
             ],
             dependencies: vec![],
         };
@@ -564,5 +853,228 @@ mod tests {
     fn malformed_json_yields_parse_error() {
         let err = ModrinthApi::parse_versions(b"not json").unwrap_err();
         assert!(matches!(err, CoreError::Parse { .. }));
+    }
+
+    // -------------------- /version_files (hash → version) --------------------
+
+    #[test]
+    fn parse_versions_from_hashes_maps_object_keyed_by_hash() {
+        // 响应是对象:键=请求时传入的哈希,值=版本对象。覆盖 project_id 字段、
+        // 缺席哈希(只回了一个键)、以及多文件版本。
+        let sample = r#"{
+            "abc123sha512": {
+                "id": "VER_A",
+                "project_id": "PROJ_A",
+                "name": "Sodium 0.5.3",
+                "version_number": "0.5.3",
+                "game_versions": ["1.20.1"],
+                "loaders": ["fabric"],
+                "files": [
+                    {
+                        "url": "https://cdn.modrinth.com/data/a/sodium.jar",
+                        "filename": "sodium.jar",
+                        "hashes": { "sha1": "aaa", "sha512": "abc123sha512" },
+                        "size": 100,
+                        "primary": true
+                    }
+                ],
+                "dependencies": []
+            }
+        }"#;
+        let map = ModrinthApi::parse_versions_from_hashes(sample.as_bytes()).unwrap();
+        assert_eq!(map.len(), 1);
+        let v = map.get("abc123sha512").expect("hash key present");
+        assert_eq!(v.id, "VER_A");
+        assert_eq!(v.version_number, "0.5.3");
+        assert_eq!(v.files.len(), 1);
+        assert_eq!(v.files[0].sha512.as_deref(), Some("abc123sha512"));
+        // 请求里多传一个未命中的哈希时,它就是不在 map 里——这里模拟"只回一个键"。
+        assert!(map.get("missinghash").is_none());
+    }
+
+    #[test]
+    fn parse_versions_from_hashes_empty_object() {
+        // 全部未命中 → 空对象 → 空 map。
+        let map = ModrinthApi::parse_versions_from_hashes(b"{}").unwrap();
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn parse_versions_from_hashes_malformed_is_parse_error() {
+        let err = ModrinthApi::parse_versions_from_hashes(b"[not an object]").unwrap_err();
+        assert!(matches!(err, CoreError::Parse { .. }));
+    }
+
+    #[test]
+    fn raw_versions_from_hashes_keeps_project_id() {
+        // 内部 raw 解析必须保留 project_id(统一 ProjectVersion 不带它)。
+        let sample = r#"{
+            "h1": {
+                "id": "VER_X",
+                "project_id": "PROJ_X",
+                "files": [
+                    { "url": "u", "filename": "f.jar", "hashes": { "sha1": "h1" }, "primary": true }
+                ]
+            }
+        }"#;
+        let raw = ModrinthApi::parse_raw_versions_from_hashes(sample.as_bytes()).unwrap();
+        let v = raw.get("h1").unwrap();
+        assert_eq!(v.project_id, "PROJ_X");
+        assert_eq!(v.id, "VER_X");
+    }
+
+    // ------------------------------ /projects --------------------------------
+
+    #[test]
+    fn parse_projects_maps_array_of_projects() {
+        // 数组形状,字段同 /project/{id}(id 字段叫 `id`,无 author)。
+        let sample = r#"[
+            {
+                "id": "PROJ1",
+                "slug": "fabric-api",
+                "title": "Fabric API",
+                "description": "Core library",
+                "downloads": 50000000,
+                "icon_url": "https://cdn.modrinth.com/icon.png",
+                "categories": ["library", "fabric"]
+            },
+            {
+                "id": "PROJ2",
+                "slug": "sodium",
+                "title": "Sodium",
+                "description": "Rendering engine",
+                "downloads": 12345,
+                "categories": ["optimization"]
+            }
+        ]"#;
+        let hits = ModrinthApi::parse_projects(sample.as_bytes()).unwrap();
+        assert_eq!(hits.len(), 2);
+        assert_eq!(hits[0].id, "PROJ1");
+        assert_eq!(hits[0].slug, "fabric-api");
+        assert_eq!(hits[0].author, ""); // /projects 端点不带 author
+        assert_eq!(hits[0].downloads, 50_000_000);
+        assert_eq!(hits[1].id, "PROJ2");
+        assert_eq!(hits[1].title, "Sodium");
+    }
+
+    #[test]
+    fn parse_projects_empty_array() {
+        let hits = ModrinthApi::parse_projects(b"[]").unwrap();
+        assert!(hits.is_empty());
+    }
+
+    #[test]
+    fn parse_projects_malformed_is_parse_error() {
+        let err = ModrinthApi::parse_projects(b"{}").unwrap_err();
+        assert!(matches!(err, CoreError::Parse { .. }));
+    }
+
+    // ------------------- provider: caps / algo / hash match -------------------
+
+    #[test]
+    fn provider_caps_are_modrinth() {
+        let p = ModrinthProvider::new();
+        let caps = p.caps();
+        assert_eq!(caps.id, ProviderId::Modrinth);
+        assert_eq!(caps.readable_name, "Modrinth");
+        assert!(!caps.needs_api_key);
+        assert_eq!(caps.hash_algos, &[HashAlgo::Sha512, HashAlgo::Sha1]);
+        assert_eq!(p.id(), ProviderId::Modrinth);
+    }
+
+    #[test]
+    fn algo_str_maps_supported_and_rejects_others() {
+        assert_eq!(modrinth_algo_str(HashAlgo::Sha512).unwrap(), "sha512");
+        assert_eq!(modrinth_algo_str(HashAlgo::Sha1).unwrap(), "sha1");
+        assert!(matches!(
+            modrinth_algo_str(HashAlgo::Md5),
+            Err(CoreError::Other(_))
+        ));
+        assert!(matches!(
+            modrinth_algo_str(HashAlgo::Murmur2),
+            Err(CoreError::Other(_))
+        ));
+    }
+
+    #[test]
+    fn find_file_by_hash_picks_the_matching_file_not_the_primary() {
+        // 一个版本两文件:primary 是主 jar(sha512=primaryhash),另一个 sources
+        // (sha512=wanted)。按哈希反查时应命中 sources,而非主文件。
+        let sample = r#"{
+            "id": "VER",
+            "project_id": "PROJ",
+            "files": [
+                {
+                    "url": "https://cdn/main.jar",
+                    "filename": "main.jar",
+                    "hashes": { "sha1": "p1", "sha512": "PRIMARYHASH" },
+                    "primary": true
+                },
+                {
+                    "url": "https://cdn/sources.jar",
+                    "filename": "sources.jar",
+                    "hashes": { "sha1": "s1", "sha512": "WANTEDHASH" },
+                    "primary": false
+                }
+            ]
+        }"#;
+        let v: RawVersion = serde_json::from_str(sample).unwrap();
+
+        let matched = find_file_by_hash(&v, HashAlgo::Sha512, "WANTEDHASH").unwrap();
+        assert_eq!(matched.filename, "sources.jar");
+        assert!(!matched.primary);
+
+        // 大小写无关比对。
+        let matched_ci = find_file_by_hash(&v, HashAlgo::Sha512, "wantedhash").unwrap();
+        assert_eq!(matched_ci.filename, "sources.jar");
+
+        // sha1 维度命中主文件。
+        let by_sha1 = find_file_by_hash(&v, HashAlgo::Sha1, "p1").unwrap();
+        assert_eq!(by_sha1.filename, "main.jar");
+
+        // 不存在的哈希 → None。
+        assert!(find_file_by_hash(&v, HashAlgo::Sha512, "nope").is_none());
+    }
+
+    #[test]
+    fn resolve_alignment_pure_logic() {
+        // 不打网络:直接验证"输出与输入 hashes 严格对齐、未命中为 None"的纯逻辑,
+        // 复用 resolve_by_hashes 内部用到的同一组函数(parse + find_file_by_hash)。
+        let sample = r#"{
+            "HASH_A": {
+                "id": "VER_A",
+                "project_id": "PROJ_A",
+                "files": [
+                    { "url": "uA", "filename": "a.jar", "hashes": { "sha512": "HASH_A" }, "primary": true }
+                ]
+            }
+        }"#;
+        let by_hash = ModrinthApi::parse_raw_versions_from_hashes(sample.as_bytes()).unwrap();
+
+        let inputs = vec!["HASH_A".to_string(), "HASH_MISSING".to_string()];
+        let out: Vec<Option<ResolvedFile>> = inputs
+            .iter()
+            .map(|h| {
+                let version = by_hash.get(h)?;
+                let file = find_file_by_hash(version, HashAlgo::Sha512, h)?;
+                Some(ResolvedFile {
+                    provider: ProviderId::Modrinth,
+                    project_id: version.project_id.clone(),
+                    version_id: version.id.clone(),
+                    file,
+                    project_name: None,
+                    project_slug: None,
+                    authors: Vec::new(),
+                })
+            })
+            .collect();
+
+        assert_eq!(out.len(), 2);
+        let r0 = out[0].as_ref().expect("HASH_A resolves");
+        assert_eq!(r0.provider, ProviderId::Modrinth);
+        assert_eq!(r0.project_id, "PROJ_A");
+        assert_eq!(r0.version_id, "VER_A");
+        assert_eq!(r0.file.filename, "a.jar");
+        assert!(out[1].is_none()); // 未命中保持 None,下标对齐
     }
 }

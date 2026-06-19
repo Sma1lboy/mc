@@ -28,34 +28,10 @@
   border-left: 4px solid var(--n-6);
   font-size: 13px;
   line-height: 1.4;
-  /* 滑入动画: 从左下方滑入 + 淡入。 */
-  animation: ui-toast-in var(--dur) var(--ease);
-}
-
-/* 退出动画类 (移除前加上)。 */
-.ui-toast--leaving {
-  animation: ui-toast-out 200ms var(--ease) forwards;
-}
-
-@keyframes ui-toast-in {
-  from {
-    opacity: 0;
-    transform: translateX(-16px) translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0) translateY(0);
-  }
-}
-@keyframes ui-toast-out {
-  from {
-    opacity: 1;
-    transform: translateX(0);
-  }
-  to {
-    opacity: 0;
-    transform: translateX(-16px);
-  }
+  /* 进/退场动画现由 motion 层接管(use:motion={{preset:'toast'}} 入场 +
+   * <Presence exitPreset='toast'> 退场,见 components/Toast.tsx),CSS 不再自带
+   * @keyframes,避免与 WAAPI 双重触发 / 时长手动对齐(docs/modules/ui-animation.md §8)。 */
+  transform-origin: center;
 }
 
 /* ---- 类型配色 (左色条 + 图标色)。---- */

@@ -71,8 +71,38 @@
   --fs-base: 14px; /* 比 PCL 略大,Modrinth 偏舒展 */
   --font: "Inter", "Microsoft YaHei UI", system-ui, -apple-system, sans-serif;
   --shadow: 0 2px 12px rgba(0, 0, 0, 0.35); /* 深色阴影更重 */
-  --ease: cubic-bezier(0.4, 0, 0.2, 1);
-  --dur: 240ms;
+
+  /* ===== 动机令牌(--mo-*):CSS 与 JS(motion/tokens.ts)同名同值的单一真相源。
+   * 见 docs/modules/ui-animation.md §4。改 PCL「手感」只需同步改这两处之一。
+   * cubic-bezier 表达不了的 overshoot/elastic 走 motion/easings.ts(JS rAF)。 */
+  --mo-dur-instant: 80ms; /* 瞬时反馈(按下挤压) */
+  --mo-dur-fast: 150ms; /* 快(勾选/小过渡) */
+  --mo-dur-base: 200ms; /* 基准(hover/颜色淡入) */
+  --mo-dur-page: 320ms; /* 页面级切换(淡+移) */
+  --mo-dur-slow: 400ms; /* 慢(入场沉降,PCL 默认) */
+  --mo-dur-spring: 700ms; /* 弹簧/漂移(二段沉降) */
+
+  --mo-ease-standard: cubic-bezier(0.4, 0, 0.2, 1); /* 通用属性变化 */
+  --mo-ease-out: cubic-bezier(0.22, 1, 0.36, 1); /* = Fluent p3,PCL 默认手感基线 */
+  --mo-ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1); /* 强 ease-out,入场/沉降 */
+  --mo-ease-accel: cubic-bezier(0.4, 0, 1, 1); /* 退场 */
+  --mo-ease-back: cubic-bezier(0.34, 1.56, 0.64, 1); /* 回弹 */
+
+  --mo-stagger: 28ms; /* 列表错峰步进 */
+
+  /* 旧令牌别名为新令牌,保留既有 18 个 .css 的 var(--dur)/var(--ease) 引用不破。
+   * --dur 旧值 240ms ≈ 介于 base 与 page 之间,统一对齐到 base(200ms)更利落;
+   * 如需逐项细调,各 .css 后续改用具体的 --mo-dur-* / --mo-ease-*。 */
+  --ease: var(--mo-ease-standard);
+  --dur: var(--mo-dur-base);
+
+  /* ===== 亚克力 / 毛玻璃令牌(docs/modules/ui-polish.md §2)=====
+   * Web 上「亚克力」= backdrop-filter,GPU 合成、免费;不移植任何采样模糊算法。
+   * --blur-r 半径,--surface-translucent 半透明底(用强调白叠层,随主题变)。 */
+  --blur-r: 18px;
+  --surface-translucent: var(--n-white-half, rgba(255, 255, 255, 0.35));
+  /* 性能逃生口的扁平兜底:无模糊时改用更实的半透明填充,避免「透到看不清」。 */
+  --surface-translucent-flat: var(--n-white-semi, rgba(255, 255, 255, 0.72));
 }
 
 /* ===== 全局重置 ===== */
@@ -154,5 +184,40 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* ===== 亚克力 / 毛玻璃复用类(docs/modules/ui-polish.md §2)=====
+ * 全平台塌缩成一行 backdrop-filter:GPU 合成、免费,圆角交给 border-radius。
+ * 不移植任何采样数学。颜色过渡读 --mo-* 动机令牌(与动画层同源)。 */
+.surface-acrylic {
+  background: var(--surface-translucent);
+  backdrop-filter: blur(var(--blur-r)) saturate(1.2);
+  -webkit-backdrop-filter: blur(var(--blur-r)) saturate(1.2);
+  border-radius: var(--radius-card);
+  transition: background var(--mo-dur-base) var(--mo-ease-standard);
+}
+
+/* 性能逃生口(= PCL SamplingRate 的精神,非算法):弱 GPU / 显式关模糊
+ * / 系统要求减少透明 时,把最贵的 backdrop-filter 换成扁平半透明填充。 */
+[data-blur="off"] .surface-acrylic,
+.surface-acrylic[data-blur="off"] {
+  background: var(--surface-translucent-flat);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .surface-acrylic {
+    background: var(--surface-translucent-flat);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+/* 不支持 backdrop-filter 的内核:同样退化为扁平填充(避免「全透」)。 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .surface-acrylic {
+    background: var(--surface-translucent-flat);
   }
 }

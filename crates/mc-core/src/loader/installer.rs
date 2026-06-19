@@ -50,12 +50,12 @@ pub async fn run_installer(
     crate::fs::ensure_launcher_profiles(paths.root())?;
 
     let installer_path = paths.root().join("loader-installer.jar");
-    dl.download_one(&DownloadItem {
-        url: installer_url.to_string(),
-        path: installer_path.clone(),
-        sha1: None,
-        size: None,
-    })
+    dl.download_one(&DownloadItem::new(
+        installer_url.to_string(),
+        installer_path.clone(),
+        None,
+        None,
+    ))
     .await?;
 
     let before = version_dirs(paths);

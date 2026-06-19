@@ -1,0 +1,19 @@
+/* ============================================================================
+ * Icon.css —— 统一图标的着色与过渡(docs/modules/ui-polish.md §3/§5)
+ *
+ * 图标用 currentColor,故「换色」= 改父级 CSS `color`。颜色过渡读 --mo-* 动机令牌
+ * (= PCL SvgIcon.AnimateIconBrushTo 的 120ms ease-out),纯 CSS,无需 JS 引擎。
+ * 120ms 介于 instant(80)与 fast(150)之间,这里直取最贴近的 --mo-dur-fast。
+ * ========================================================================== */
+
+.ui-icon {
+  display: inline-block;
+  flex-shrink: 0;
+  /* 跟随文本基线垂直对齐,避免图标在按钮/标签里下沉。 */
+  vertical-align: middle;
+  color: currentColor;
+  /* 着色过渡:PCL 120ms CubicEaseOut ≈ --mo-dur-fast + --mo-ease-out。 */
+  transition: color var(--mo-dur-fast) var(--mo-ease-out),
+    fill var(--mo-dur-fast) var(--mo-ease-out),
+    stroke var(--mo-dur-fast) var(--mo-ease-out);
+}

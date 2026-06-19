@@ -23,6 +23,8 @@ pub fn run() {
             commands::set_theme,
             commands::install_version,
             commands::launch_instance,
+            commands::import_modpack,
+            commands::export_modpack,
             commands::log_boot,
         ])
         .run(tauri::generate_context!())
