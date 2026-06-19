@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    /* SolidJS 要求把 JSX 交给它自己的编译器处理:preserve + jsxImportSource。 */
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js",
+
+    /* 现代 ES 目标,配合 Vite 的 esnext 产物。 */
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+
+    /* 严格类型检查(production-ready 前提)。 */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+
+    /* Vite 客户端类型(import.meta.env 等)。 */
+    "types": ["vite/client"],
+
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "allowJs": false,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src"]
+}

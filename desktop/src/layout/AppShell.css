@@ -1,0 +1,43 @@
+/* AppShell —— 三区 Grid 骨架。所有颜色走 tokens.css 变量,不写死。 */
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  grid-template-rows: 48px 1fr;
+  grid-template-areas:
+    "rail topbar"
+    "rail body";
+  width: 100vw;
+  height: 100vh;
+  /* 窗口最底色,Rail/TopBar 比它亮一阶(--n-2) */
+  background: var(--n-1);
+  color: var(--text);
+  font-size: var(--fs-base);
+  /* 圆角/裁切由原生窗口(titleBarStyle Overlay)处理,内容铺满即可 */
+  overflow: hidden;
+}
+
+/* body:主内容 + 右侧 ContextBar。默认单列(无右栏页面铺满)。 */
+.app-body {
+  grid-area: body;
+  display: grid;
+  grid-template-columns: 1fr;
+  min-height: 0; /* 让内部可滚动区域正确收缩 */
+  min-width: 0;
+}
+
+/* 需要右栏的页面:主内容 + 340px 右栏 */
+.app-body.with-context {
+  grid-template-columns: 1fr 340px;
+}
+
+/* 主内容区:主内容底色 --n-3,内部自行滚动 */
+.app-main {
+  grid-row: 1;
+  grid-column: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--n-3);
+}

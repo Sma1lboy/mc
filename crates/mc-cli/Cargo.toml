@@ -1,0 +1,18 @@
+[package]
+name = "mc-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "mc"
+path = "src/main.rs"
+
+[dependencies]
+mc-core = { path = "../mc-core" }
+mc-types = { path = "../mc-types" }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+clap = { workspace = true }

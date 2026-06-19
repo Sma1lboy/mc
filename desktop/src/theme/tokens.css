@@ -1,0 +1,158 @@
+/* ============================================================================
+ * tokens.css —— 设计令牌(CSS 变量)单一真相来源
+ *
+ * 体系来自 docs/06(Modrinth 骨 + PCL 皮):
+ *   - 中性/背景阶 --n-1..8(1=最暗底 → 8=最亮主文字),深/浅两套。
+ *   - 强调色阶 --a-1..8 由 theme.ts 的 applyThemeColor() 运行时注入(PCL 引擎),
+ *     这里只给一份默认绿 h150 兜底,保证主题脚本未跑前也有可用色。
+ *   - 共用形状/字体/动效令牌(深浅通用)。
+ *
+ * 铁律:所有组件只引用变量,不写死颜色。换肤(深浅 + accent)因此零成本。
+ * ========================================================================== */
+
+/* ===== 深色(默认,对标 Modrinth)===== */
+:root,
+[data-theme="dark"] {
+  /* 中性/背景阶:1=最暗底 → 8=最亮前景 */
+  --n-1: #0e0f11; /* 窗口最底 */
+  --n-2: #16181c; /* rail / topbar */
+  --n-3: #1b1e23; /* 主内容底 */
+  --n-4: #23272e; /* 卡片 */
+  --n-5: #2c313a; /* 卡片 hover / 输入框 */
+  --n-6: #3a414c; /* 边框 */
+  --n-7: #8b929e; /* 次要文字 */
+  --n-8: #e8eaed; /* 主文字 */
+
+  /* accent 色阶默认值(绿 h150);运行时由 theme.ts 覆盖。1=深 → 8=浅 */
+  --a-1: #0f3d2a; /* 最深:选中底/标记 */
+  --a-2: #155f3a;
+  --a-3: #1f7a4d;
+  --a-4: #28a062; /* 基色:主按钮/选中条 */
+  --a-5: #3fbf78; /* hover */
+  --a-6: #6fd79b;
+  --a-7: #a8e8c4;
+  --a-8: #d9f6e6; /* 最浅:浅底 */
+
+  --bg-card: var(--n-4);
+  --text: var(--n-8);
+  --text-dim: var(--n-7);
+
+  /* 滚动条配色(随主题切换),供下方自定义滚动条引用 */
+  --scrollbar-thumb: rgba(255, 255, 255, 0.12);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.22);
+}
+
+/* ===== 浅色(PCL 风,可切换)===== */
+[data-theme="light"] {
+  --n-1: #ffffff;
+  --n-2: #f5f5f5;
+  --n-3: #fafafa;
+  --n-4: #ffffff;
+  --n-5: #f0f0f0;
+  --n-6: #e0e0e0;
+  --n-7: #737373;
+  --n-8: #343d4a;
+
+  /* accent 同样由引擎生成,浅色默认仍给绿色兜底,保证未注入前可用 */
+
+  --bg-card: var(--n-4);
+  --text: var(--n-8);
+  --text-dim: var(--n-7);
+
+  --scrollbar-thumb: rgba(0, 0, 0, 0.18);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.32);
+}
+
+/* ===== 共用形状/字体/动效(深浅通用)===== */
+:root {
+  --radius-card: 8px; /* 卡片(偏 Modrinth) */
+  --radius: 6px; /* 控件 */
+  --radius-sm: 4px; /* 小元素 */
+  --fs-base: 14px; /* 比 PCL 略大,Modrinth 偏舒展 */
+  --font: "Inter", "Microsoft YaHei UI", system-ui, -apple-system, sans-serif;
+  --shadow: 0 2px 12px rgba(0, 0, 0, 0.35); /* 深色阴影更重 */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur: 240ms;
+}
+
+/* ===== 全局重置 ===== */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  font-family: var(--font);
+  font-size: var(--fs-base);
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--n-1);
+  /* 禁止文字选中拖蓝在桌面应用里的「网页感」,需要选中处由组件单独开启 */
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden; /* 外层不滚动,滚动交给内容区,避免整窗弹性滚动 */
+}
+
+#root {
+  height: 100%;
+}
+
+/* ===== 自定义滚动条(美化,随主题变色)===== */
+/* WebKit(Tauri webview 即 WebKit/WebView2)*/
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background var(--dur) var(--ease);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+/* Firefox 兜底(若用其它内核调试)*/
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+/* ===== 工具类 ===== */
+/* 标记可拖拽窗口的区域(无边框窗口拖拽)。顶栏等处加 class="drag"。 */
+.drag {
+  -webkit-app-region: drag;
+  /* 拖拽区里的可点击控件需各自加 .no-drag 取消,避免点不到 */
+  user-select: none;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* 尊重系统的减弱动画偏好:全局关闭过渡/动画 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

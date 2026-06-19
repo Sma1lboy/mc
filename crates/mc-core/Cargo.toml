@@ -1,0 +1,33 @@
+[package]
+name = "mc-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Pure, UI-free Minecraft launcher core: versions, downloads, auth, Java, launch."
+
+[dependencies]
+mc-types = { path = "../mc-types" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+futures = { workspace = true }
+tokio-util = { workspace = true }
+sha1 = { workspace = true }
+sha2 = { workspace = true }
+md-5 = { workspace = true }
+hex = { workspace = true }
+rayon = { workspace = true }
+zip = { workspace = true }
+tar = { workspace = true }
+flate2 = { workspace = true }
+fastnbt = { workspace = true }
+trash = { workspace = true }
+reflink-copy = { workspace = true }
+fs4 = { workspace = true }
+tracing = { workspace = true }
+dirs = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

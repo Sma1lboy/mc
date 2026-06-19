@@ -1,0 +1,30 @@
+[package]
+name = "mc-launcher-desktop"
+version = "0.1.0"
+edition = "2021"
+description = "Tauri v2 desktop shell for mc-launcher: thin glue over mc-core."
+license = "MIT"
+
+# crate-type 同时给出 staticlib/cdylib(移动端与桌面端 Tauri 需要)与 rlib
+# (供 main.rs 这个二进制 crate 通过 mc_launcher_desktop_lib::run() 调用)。
+[lib]
+name = "mc_launcher_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Tauri v2 外壳本体 + shell 插件(允许在系统中打开链接/文件)。
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+# 纯逻辑内核与共享 DTO,经 path 依赖引入(不走父 workspace)。
+mc-core = { path = "../../crates/mc-core" }
+mc-types = { path = "../../crates/mc-types" }
+
+# 让本包脱离父级 mc-launcher workspace 独立成一个 cargo 包。
+# 空 [workspace] 表声明"这里就是 workspace 根",从而不会被 ../../Cargo.toml 收编。
+[workspace]

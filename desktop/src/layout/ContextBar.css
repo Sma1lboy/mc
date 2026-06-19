@@ -1,0 +1,240 @@
+/* ContextBar —— 340px 右栏。背景 --n-2,左侧分隔线。 */
+
+.ctxbar {
+  grid-row: 1;
+  grid-column: 2;
+  width: 340px;
+  height: 100%;
+  box-sizing: border-box;
+  background: var(--n-2);
+  border-left: 1px solid var(--n-6);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  overflow-y: auto;
+}
+
+.ctx-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ctx-heading {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: none;
+  letter-spacing: 0.2px;
+}
+
+/* ===== 账号选择器 ===== */
+
+.account-trigger {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--n-6);
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.account-trigger:hover {
+  background: var(--n-5);
+  border-color: var(--a-4);
+}
+.account-trigger.open {
+  border-color: var(--a-4);
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* 头像占位:accent 渐变 + 首字母 */
+.account-avatar {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(135deg, var(--a-3), var(--a-5));
+}
+.account-avatar.sm {
+  width: 30px;
+  height: 30px;
+  font-size: 13px;
+}
+
+.account-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.account-name {
+  font-size: var(--fs-base);
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.account-kind {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.account-chevron {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  display: grid;
+  place-items: center;
+  transition: transform var(--dur) var(--ease);
+}
+.account-chevron svg {
+  width: 16px;
+  height: 16px;
+}
+.account-trigger.open .account-chevron {
+  transform: rotate(180deg);
+}
+
+/* 下拉列表:贴在 trigger 下方 */
+.account-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--a-4);
+  border-top: none;
+  border-bottom-left-radius: var(--radius);
+  border-bottom-right-radius: var(--radius);
+  background: var(--bg-card);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  box-shadow: var(--shadow);
+}
+
+.account-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.account-option:hover {
+  background: var(--n-5);
+}
+.account-option.selected {
+  background: color-mix(in srgb, var(--a-4) 14%, transparent);
+}
+.account-check {
+  color: var(--a-5);
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.account-switch-err {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #e5848a;
+}
+
+/* 账号空态 */
+.account-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px;
+  border: 1px dashed var(--n-6);
+  border-radius: var(--radius);
+  background: var(--n-3);
+}
+.account-empty-text {
+  font-size: var(--fs-base);
+  color: var(--text);
+}
+.account-empty-hint {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* 账号错误态 */
+.ctx-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--n-6);
+  border-radius: var(--radius);
+  background: var(--n-3);
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.ctx-retry {
+  border: 1px solid var(--n-6);
+  background: var(--n-4);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.ctx-retry:hover {
+  background: var(--n-5);
+}
+
+/* 账号骨架 */
+.account-card.skeleton {
+  height: 56px;
+  border-radius: var(--radius);
+  background: var(--n-5);
+  animation: ctx-pulse 1.2s ease-in-out infinite;
+}
+
+/* ===== Friends / News 通用空态 ===== */
+.ctx-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 16px 12px;
+  border: 1px dashed var(--n-6);
+  border-radius: var(--radius);
+  background: var(--n-3);
+  text-align: center;
+}
+.ctx-empty-text {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.ctx-empty-hint {
+  font-size: 11px;
+  color: var(--n-7);
+}
+
+@keyframes ctx-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .account-card.skeleton { animation: none; }
+  .account-trigger,
+  .account-chevron,
+  .account-option,
+  .ctx-retry { transition: none; }
+}

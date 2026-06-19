@@ -1,0 +1,26 @@
+# Rust
+/target
+**/target
+Cargo.lock
+
+# Node / frontend
+node_modules
+desktop/dist
+desktop/node_modules
+
+# Tauri build artifacts
+desktop/src-tauri/target
+desktop/src-tauri/gen
+
+# Secrets / local env
+.env
+**/.env
+!**/.env.example
+
+# Supabase CLI scaffolding
+supabase/.temp
+supabase/.branches
+
+# OS / editor
+.DS_Store
+*.log

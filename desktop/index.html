@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>mc-launcher</title>
+    <!-- 在首帧前就用深色底,避免主题注入前的白屏闪烁(FOUC)。原生窗口负责圆角裁切。 -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: var(--n-1, #0e0f11);
+      }
+    </style>
+  </head>
+  <body>
+    <!-- SolidJS 挂载点 -->
+    <div id="root"></div>
+    <script type="module" src="/src/index.tsx"></script>
+  </body>
+</html>

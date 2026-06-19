@@ -1,0 +1,76 @@
+.library {
+  padding: 24px 28px;
+  overflow-y: auto;
+  height: 100%;
+}
+.library-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+.library-head h1 {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0;
+}
+.install-panel {
+  background: var(--n-3);
+  border-radius: var(--radius-card);
+  padding: 16px;
+  margin-bottom: 20px;
+}
+.install-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--a-5);
+  margin: 10px 0;
+  font-size: 13px;
+}
+.version-list {
+  max-height: 320px;
+  overflow-y: auto;
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.version-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+}
+.version-row:hover {
+  background: var(--n-5);
+}
+.version-id {
+  font-weight: 600;
+  color: var(--text);
+  min-width: 120px;
+}
+.version-kind {
+  color: var(--text-dim);
+  font-size: 12px;
+  flex: 1;
+}
+.library-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.library-loading {
+  display: flex;
+  justify-content: center;
+  padding: 32px;
+}
+.library-empty {
+  padding: 24px;
+  border-radius: var(--radius-card);
+  background: var(--n-3);
+  color: var(--text-dim);
+  text-align: center;
+}

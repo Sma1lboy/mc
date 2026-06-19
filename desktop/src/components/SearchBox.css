@@ -1,0 +1,61 @@
+/* SearchBox.css —— 圆角搜索输入框, 带放大镜图标。 */
+
+.ui-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background-color: var(--n-5);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  padding: 0 12px;
+  height: 36px;
+  transition:
+    border-color var(--dur) var(--ease),
+    background-color var(--dur) var(--ease);
+}
+
+/* 聚焦时 accent 描边高亮。 */
+.ui-search:focus-within {
+  border-color: var(--a-4);
+  background-color: var(--n-5);
+}
+
+.ui-search__icon {
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+
+.ui-search__input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--fs-base);
+  font-family: inherit;
+}
+.ui-search__input::placeholder {
+  color: var(--text-dim);
+}
+
+/* 清除按钮 (有内容时显示)。 */
+.ui-search__clear {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: color var(--dur) var(--ease), background-color var(--dur) var(--ease);
+}
+.ui-search__clear:hover {
+  color: var(--text);
+  background-color: var(--n-6);
+}

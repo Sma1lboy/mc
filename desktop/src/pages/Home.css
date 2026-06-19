@@ -1,0 +1,49 @@
+.home {
+  padding: 24px 28px;
+  overflow-y: auto;
+  height: 100%;
+}
+.home-head h1 {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 4px;
+}
+.home-head h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 12px 0;
+}
+.home-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.home-loading {
+  display: flex;
+  justify-content: center;
+  padding: 32px;
+}
+.home-empty {
+  padding: 24px;
+  border-radius: var(--radius-card);
+  background: var(--n-3);
+  color: var(--text-dim);
+  text-align: center;
+}
+.home-discover {
+  margin-top: 28px;
+}
+.home-discover-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 14px;
+  cursor: pointer;
+}
+.home-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}

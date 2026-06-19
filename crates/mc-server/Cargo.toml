@@ -1,0 +1,28 @@
+[package]
+name = "mc-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Lite backend for mc-launcher: loader/version meta aggregation, news, instance sharing."
+
+[[bin]]
+name = "mc-server"
+path = "src/main.rs"
+
+[dependencies]
+axum = { workspace = true }
+tower-http = { workspace = true }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+# 登录走 better-auth-rs(@better-auth 的 Rust 移植,最完整的全家桶 auth 框架):
+# 内置密码/会话/社交/passkey/2FA/组织/API key/设备码等,插件式按需启用。
+# 共享我们的 Supabase PgPool(SqlxAdapter::from_pool),axum 路由一行挂载。
+better-auth = { version = "0.10", default-features = false, features = ["axum", "derive", "sqlx-postgres", "rustls"] }
+# 持久化:Supabase(Postgres),TLS 用 rustls。share/db 仍直接用 sqlx 运行时查询。
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "macros"] }
+dotenvy = "0.15"

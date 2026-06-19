@@ -1,0 +1,172 @@
+import { Component, JSX, For, Show, createResource } from "solid-js";
+import { invoke } from "@tauri-apps/api/core";
+import { currentPage, setCurrentPage } from "../store";
+import type { AccountSummary } from "../ipc/types";
+import "./Rail.css";
+
+/**
+ * Rail —— 64px 竖直图标栏(Modrinth 主导航形态)。
+ *
+ * 结构(自上而下):
+ *   - App Logo
+ *   - 主导航:home / discover / library(内联 SVG 图标)
+ *   - 分隔线
+ *   - 中部:固定实例占位(未来可拖入置顶实例)
+ *   - 底部:settings 图标 + 账号头像
+ *
+ * 选中态:左侧 4px accent 竖条 + 图标变 accent 色;
+ * Hover:半透明 accent 底。背景 --n-2。
+ */
+
+// 主导航项。id 必须与 store 的 Page 联合类型一致(home/discover/library/settings)。
+type NavId = "home" | "discover" | "library" | "settings";
+
+interface NavItem {
+  id: NavId;
+  label: string;
+  icon: () => JSX.Element;
+}
+
+// 内联 SVG 图标(线性、24x24、currentColor 描边),与 PCL 的 path 风格统一。
+const HomeIcon = (): JSX.Element => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M3 10.5 12 3l9 7.5" />
+    <path d="M5 9.5V20a1 1 0 0 0 1 1h3v-6h6v6h3a1 1 0 0 0 1-1V9.5" />
+  </svg>
+);
+
+const DiscoverIcon = (): JSX.Element => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="9" />
+    <path d="m15.5 8.5-2 5-5 2 2-5 5-2Z" />
+  </svg>
+);
+
+const LibraryIcon = (): JSX.Element => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <rect x="3" y="4" width="6" height="16" rx="1" />
+    <rect x="11" y="4" width="6" height="16" rx="1" />
+    <path d="M19.5 5.2 21 19" />
+  </svg>
+);
+
+const SettingsIcon = (): JSX.Element => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 13a7.8 7.8 0 0 0 0-2l1.8-1.4-1.9-3.3-2.2.9a7.6 7.6 0 0 0-1.7-1l-.3-2.3H10.5l-.3 2.3a7.6 7.6 0 0 0-1.7 1l-2.2-.9-1.9 3.3L6.2 11a7.8 7.8 0 0 0 0 2l-1.8 1.4 1.9 3.3 2.2-.9a7.6 7.6 0 0 0 1.7 1l.3 2.3h3.9l.3-2.3a7.6 7.6 0 0 0 1.7-1l2.2.9 1.9-3.3Z" />
+  </svg>
+);
+
+// App Logo:简单的方块「方块世界」标记,accent 填充。
+const LogoMark = (): JSX.Element => (
+  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M12 2 3 7v10l9 5 9-5V7l-9-5Z" fill="var(--a-1)" stroke="var(--a-4)" stroke-width="1.4" stroke-linejoin="round" />
+    <path d="M12 7 7.5 9.5v5L12 17l4.5-2.5v-5L12 7Z" fill="var(--a-4)" />
+  </svg>
+);
+
+const TOP_NAV: NavItem[] = [
+  { id: "home", label: "主页", icon: HomeIcon },
+  { id: "discover", label: "发现", icon: DiscoverIcon },
+  { id: "library", label: "库", icon: LibraryIcon },
+];
+
+const Rail: Component = () => {
+  // 拉取账号用于底部头像。失败/空态都要稳:取 selected 账号,否则取第一个。
+  const [accounts] = createResource<AccountSummary[]>(async () => {
+    return await invoke<AccountSummary[]>("list_accounts");
+  });
+
+  // 当前账号(用于头像首字母)。无数据时返回 undefined,渲染占位。
+  const activeAccount = (): AccountSummary | undefined => {
+    const list = accounts();
+    if (!list || list.length === 0) return undefined;
+    return list.find((a) => a.selected) ?? list[0];
+  };
+
+  // 头像首字母占位(真实头像未接入皮肤渲染前用首字母 + accent 底)。
+  const avatarInitial = (): string => {
+    const name = activeAccount()?.username;
+    return name && name.length > 0 ? name[0].toUpperCase() : "?";
+  };
+
+  return (
+    <nav class="rail" aria-label="主导航">
+      {/* 顶部 Logo */}
+      <button
+        class="rail-logo"
+        title="MC Launcher"
+        onClick={() => setCurrentPage("home")}
+      >
+        <LogoMark />
+      </button>
+
+      {/* 主导航图标 */}
+      <div class="rail-nav">
+        <For each={TOP_NAV}>
+          {(item) => {
+            const selected = () => currentPage() === item.id;
+            return (
+              <button
+                class="rail-item"
+                classList={{ selected: selected() }}
+                title={item.label}
+                aria-current={selected() ? "page" : undefined}
+                onClick={() => setCurrentPage(item.id)}
+              >
+                <span class="rail-bar" aria-hidden="true" />
+                <span class="rail-icon">{item.icon()}</span>
+              </button>
+            );
+          }}
+        </For>
+      </div>
+
+      <div class="rail-divider" aria-hidden="true" />
+
+      {/* 中部:固定实例占位区(未来拖入置顶实例,可滚动) */}
+      <div class="rail-pinned" aria-label="固定实例">
+        {/* 暂无固定实例:留空。此区随产品演进填充实例图标按钮。 */}
+      </div>
+
+      {/* 底部:设置 + 账号头像。flex 把它推到底。 */}
+      <div class="rail-bottom">
+        {(() => {
+          const selected = () => currentPage() === "settings";
+          return (
+            <button
+              class="rail-item"
+              classList={{ selected: selected() }}
+              title="设置"
+              aria-current={selected() ? "page" : undefined}
+              onClick={() => setCurrentPage("settings")}
+            >
+              <span class="rail-bar" aria-hidden="true" />
+              <span class="rail-icon"><SettingsIcon /></span>
+            </button>
+          );
+        })()}
+
+        {/* 账号头像:点击进设置(账号管理也在设置/右栏)。加载中显示占位环。 */}
+        <button
+          class="rail-avatar"
+          title={activeAccount()?.username ?? "账号"}
+          onClick={() => setCurrentPage("settings")}
+        >
+          <Show
+            when={!accounts.loading}
+            fallback={<span class="rail-avatar-skel" aria-hidden="true" />}
+          >
+            <span class="rail-avatar-fallback">{avatarInitial()}</span>
+          </Show>
+        </button>
+      </div>
+    </nav>
+  );
+};
+
+export default Rail;

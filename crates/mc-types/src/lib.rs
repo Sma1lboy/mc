@@ -1,0 +1,189 @@
+//! `mc-types` — plain, logic-free data types shared between `mc-core`, the CLI and
+//! the desktop UI. Everything here is `serde`-serializable so it can cross the
+//! Tauri IPC boundary unchanged. No behaviour lives in this crate.
+
+use serde::{Deserialize, Serialize};
+
+pub mod platform;
+
+pub use platform::{Arch, Os, Platform};
+
+/// Progress report emitted by long-running tasks (download, verify, launch).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Progress {
+    /// Human-readable description of the current stage, e.g. "下载 libraries".
+    pub stage: String,
+    /// Units completed so far.
+    pub current: u64,
+    /// Total units (0 if unknown).
+    pub total: u64,
+    /// Instantaneous speed in bytes/sec (0 if not applicable).
+    pub speed_bps: u64,
+}
+
+impl Progress {
+    pub fn new(stage: impl Into<String>) -> Self {
+        Self { stage: stage.into(), current: 0, total: 0, speed_bps: 0 }
+    }
+
+    pub fn fraction(&self) -> f64 {
+        if self.total == 0 {
+            0.0
+        } else {
+            (self.current as f64 / self.total as f64).clamp(0.0, 1.0)
+        }
+    }
+}
+
+/// How a game-root directory was discovered. See `docs/07-directory-model-portability.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RootKind {
+    /// Detected next to / inside the launcher executable directory (portable).
+    Portable,
+    /// The OS's official `.minecraft` location.
+    Official,
+    /// A directory the user added manually.
+    Custom,
+    /// Auto-created fallback under the launcher data directory.
+    Default,
+}
+
+/// A `.minecraft`-style game directory that holds versions / libraries / assets.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GameRoot {
+    pub name: String,
+    pub path: String,
+    pub kind: RootKind,
+}
+
+/// The three kinds of account the launcher supports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AccountKind {
+    Offline,
+    Microsoft,
+    Yggdrasil,
+}
+
+/// The authenticated identity handed to the launch pipeline. This is the single
+/// exit point all account kinds funnel into — the launch code never branches on
+/// account type.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AuthSession {
+    pub username: String,
+    pub uuid: String,
+    pub access_token: String,
+    /// `msa` or `legacy`, passed to the game as `${user_type}`.
+    pub user_type: String,
+    /// Xbox user id (`${auth_xuid}`), empty for non-Microsoft accounts.
+    #[serde(default)]
+    pub xuid: String,
+}
+
+/// A persisted account as shown in the account switcher.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AccountSummary {
+    pub kind: AccountKind,
+    pub username: String,
+    pub uuid: String,
+    /// True for the currently selected account.
+    #[serde(default)]
+    pub selected: bool,
+    /// Whether the account owns Minecraft (Microsoft accounts only).
+    #[serde(default)]
+    pub owns_game: bool,
+}
+
+/// Mod loader families.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LoaderKind {
+    Vanilla,
+    Forge,
+    NeoForge,
+    Fabric,
+    Quilt,
+    LiteLoader,
+    OptiFine,
+}
+
+impl LoaderKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LoaderKind::Vanilla => "vanilla",
+            LoaderKind::Forge => "forge",
+            LoaderKind::NeoForge => "neoforge",
+            LoaderKind::Fabric => "fabric",
+            LoaderKind::Quilt => "quilt",
+            LoaderKind::LiteLoader => "liteloader",
+            LoaderKind::OptiFine => "optifine",
+        }
+    }
+}
+
+/// The release channel of a Minecraft version.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReleaseKind {
+    Release,
+    Snapshot,
+    OldBeta,
+    OldAlpha,
+}
+
+/// One entry from Mojang's version manifest.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ManifestVersion {
+    pub id: String,
+    pub kind: ReleaseKind,
+    pub url: String,
+    /// SHA1 of the version json (Mojang manifest_v2 provides this).
+    #[serde(default)]
+    pub sha1: String,
+    /// ISO-8601 release time.
+    #[serde(default)]
+    pub release_time: String,
+}
+
+/// A summary of an installed instance for list views.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct InstanceSummary {
+    pub id: String,
+    pub name: String,
+    /// The base Minecraft version, e.g. "1.20.1".
+    pub mc_version: String,
+    pub loader: LoaderKind,
+    /// Loader version if applicable.
+    #[serde(default)]
+    pub loader_version: Option<String>,
+    /// Relative icon path or builtin icon key.
+    #[serde(default)]
+    pub icon: Option<String>,
+    /// Epoch millis of last launch, 0 if never.
+    #[serde(default)]
+    pub last_played: u64,
+    /// Whether the instance is currently running.
+    #[serde(default)]
+    pub running: bool,
+}
+
+/// UI theme preference.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ThemeConfig {
+    /// "dark" or "light".
+    pub mode: String,
+    /// Accent hue 0-360.
+    pub hue: f64,
+    /// Accent saturation 0-100.
+    pub saturation: f64,
+    /// Accent lightness 0-100.
+    pub lightness: f64,
+}
+
+impl Default for ThemeConfig {
+    fn default() -> Self {
+        // Modrinth-ish green default, see docs/06.
+        Self { mode: "dark".into(), hue: 150.0, saturation: 60.0, lightness: 45.0 }
+    }
+}

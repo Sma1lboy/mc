@@ -1,0 +1,192 @@
+/* Rail —— 64px 竖直图标栏。背景 --n-2,选中态 accent 竖条。 */
+
+.rail {
+  grid-area: rail;
+  width: 64px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--n-2);
+  /* Rail 右侧细分隔,和主内容分层 */
+  border-right: 1px solid var(--n-6);
+  /* 顶部留白避开原生交通灯按钮(titleBarStyle Overlay 时位于左上角) */
+  padding: 36px 0 8px;
+  gap: 4px;
+  box-sizing: border-box;
+}
+
+/* Logo:顶部方块标记 */
+.rail-logo {
+  width: 40px;
+  height: 40px;
+  margin-bottom: 6px;
+  padding: 6px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background var(--dur) var(--ease), transform 120ms var(--ease);
+}
+.rail-logo:hover {
+  background: color-mix(in srgb, var(--a-4) 14%, transparent);
+}
+.rail-logo:active {
+  transform: scale(0.94);
+}
+.rail-logo svg {
+  width: 26px;
+  height: 26px;
+}
+
+.rail-nav {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 主导航 / 设置按钮通用 */
+.rail-item {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  color: var(--n-7); /* 默认中性图标色 */
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+/* Hover:半透明 accent 底 */
+.rail-item:hover {
+  background: color-mix(in srgb, var(--a-4) 16%, transparent);
+  color: var(--n-8);
+}
+
+/* 选中态:图标变 accent 色 + 左侧竖条显现 */
+.rail-item.selected {
+  color: var(--a-5);
+  background: color-mix(in srgb, var(--a-4) 12%, transparent);
+}
+
+.rail-icon {
+  display: grid;
+  place-items: center;
+}
+.rail-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+/* 左侧 4px accent 竖条:默认隐藏(scaleY 0),选中时展开 */
+.rail-bar {
+  position: absolute;
+  left: -8px; /* 顶到 Rail 左边缘:padding 之外 */
+  top: 50%;
+  width: 4px;
+  height: 24px;
+  border-radius: 0 2px 2px 0;
+  background: var(--a-4);
+  transform: translateY(-50%) scaleY(0);
+  opacity: 0;
+  transition: transform var(--dur) var(--ease), opacity var(--dur) var(--ease);
+}
+.rail-item.selected .rail-bar {
+  transform: translateY(-50%) scaleY(1);
+  opacity: 1;
+}
+
+/* 分隔线 */
+.rail-divider {
+  width: 32px;
+  height: 1px;
+  background: var(--n-6);
+  margin: 6px 0;
+  flex-shrink: 0;
+}
+
+/* 中部固定实例区:占据剩余空间,可滚动,把底部推到下方 */
+.rail-pinned {
+  flex: 1 1 auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+}
+/* 隐藏 Rail 内滚动条,保持窄栏整洁 */
+.rail-pinned::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* 底部:设置 + 头像 */
+.rail-bottom {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+/* 账号头像 */
+.rail-avatar {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--n-6);
+  background: var(--n-4);
+  border-radius: 50%;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  transition: border-color var(--dur) var(--ease), transform 120ms var(--ease);
+}
+.rail-avatar:hover {
+  border-color: var(--a-4);
+}
+.rail-avatar:active {
+  transform: scale(0.94);
+}
+
+/* 首字母占位头像:accent 渐变底 + 白字 */
+.rail-avatar-fallback {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(135deg, var(--a-3), var(--a-5));
+}
+
+/* 加载中骨架:脉冲灰底 */
+.rail-avatar-skel {
+  width: 100%;
+  height: 100%;
+  background: var(--n-5);
+  animation: rail-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes rail-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail-avatar-skel { animation: none; }
+  .rail-bar,
+  .rail-item,
+  .rail-logo { transition: none; }
+}
