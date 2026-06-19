@@ -15,9 +15,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-# Tauri v2 外壳本体 + shell 插件(允许在系统中打开链接/文件)。
+# Tauri v2 外壳本体 + shell 插件(打开链接/文件)+ dialog 插件(整合包导入/导出的文件选择)。
 tauri = { version = "2", features = [] }
 tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }

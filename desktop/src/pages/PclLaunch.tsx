@@ -2,6 +2,7 @@ import { Component, createResource, createSignal, For, Show, onCleanup } from "s
 import { Spinner, toast } from "../components";
 import { api, onGameLog, onLaunchProgress } from "../ipc/api";
 import { currentRoot } from "../store";
+import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import type { AccountSummary, InstanceSummary } from "../ipc/types";
 import PclAccountDialog from "./PclAccountDialog";
 import "./PclLaunch.css";
@@ -23,7 +24,7 @@ type RightView = "news" | "versions" | "log";
  *     切到版本列表;启动后切到实时日志。版本列表不再常驻铺在启动页。
  */
 const PclLaunch: Component = () => {
-  const [instances] = createResource(
+  const [instances, { refetch: refetchInstances }] = createResource(
     () => currentRoot() ?? "",
     (root) => api.listInstances(root),
   );
@@ -37,6 +38,8 @@ const PclLaunch: Component = () => {
   const [rightView, setRightView] = createSignal<RightView>("news");
   const [newsOpen, setNewsOpen] = createSignal<Record<string, boolean>>({ snapshot: true });
   const [showLogin, setShowLogin] = createSignal(false);
+  // 整合包导入/导出的进行态(禁用按钮 + 文案)。
+  const [busy, setBusy] = createSignal<"" | "import" | "export">("");
 
   // 默认选中第一个版本(供启动按钮的副标题与启动用)。
   const pickDefault = (list: InstanceSummary[]) => {
@@ -87,6 +90,70 @@ const PclLaunch: Component = () => {
       setLogs((p) => [...p, `启动失败:${e}`]);
     } finally {
       setLaunching(false);
+    }
+  }
+
+  // 导入整合包:选文件(.mrpack/.zip,自动识别格式)→ 建实例 → 刷新版本列表。
+  async function importModpack() {
+    if (busy()) return;
+    const picked = await openDialog({
+      title: "选择整合包",
+      multiple: false,
+      filters: [{ name: "整合包", extensions: ["mrpack", "zip"] }],
+    });
+    if (!picked || typeof picked !== "string") return;
+    setBusy("import");
+    try {
+      const out = await api.importModpack(currentRoot() ?? "", picked, null);
+      const blocked = out.blocked.length;
+      toast({
+        type: blocked > 0 ? "info" : "success",
+        message:
+          blocked > 0
+            ? `已导入「${out.instance_id}」(${blocked} 个文件需手动下载)`
+            : `已导入整合包「${out.instance_id}」`,
+      });
+      await refetchInstances();
+      setRightView("versions");
+    } catch (e) {
+      toast({ type: "error", message: `导入失败:${e}` });
+    } finally {
+      setBusy("");
+    }
+  }
+
+  // 导出当前选中版本为 .mrpack(本地未能反查到的文件落入 overrides/)。
+  async function exportSelected() {
+    if (busy()) return;
+    const inst = selected();
+    if (!inst) {
+      toast({ type: "error", message: "请先在「版本选择」里选一个版本再导出" });
+      setRightView("versions");
+      return;
+    }
+    const dest = await saveDialog({
+      title: "导出整合包",
+      defaultPath: `${inst.name || inst.id}.mrpack`,
+      filters: [{ name: "Modrinth 整合包", extensions: ["mrpack"] }],
+    });
+    if (!dest) return;
+    setBusy("export");
+    try {
+      const out = await api.exportModpack({
+        root: currentRoot() ?? "",
+        instanceId: inst.id,
+        target: "modrinth",
+        dest,
+        packName: inst.name || inst.id,
+        mcVersion: inst.mc_version,
+        loader: inst.loader,
+        loaderVersion: inst.loader_version || null,
+      });
+      toast({ type: "success", message: `已导出:${out}` });
+    } catch (e) {
+      toast({ type: "error", message: `导出失败:${e}` });
+    } finally {
+      setBusy("");
     }
   }
 
@@ -192,7 +259,21 @@ const PclLaunch: Component = () => {
         {/* --- 版本选择(点「版本选择」进入) --- */}
         <Show when={rightView() === "versions"}>
           <div class="pcl-vpane">
-            <div class="pcl-vpane-head">版本选择</div>
+            <div class="pcl-vpane-head">
+              <span>版本选择</span>
+              <span class="pcl-vpane-actions">
+                <button class="pcl-vaction" disabled={busy() !== ""} onClick={importModpack}>
+                  {busy() === "import" ? "导入中…" : "导入整合包"}
+                </button>
+                <button
+                  class="pcl-vaction"
+                  disabled={busy() !== "" || !selected()}
+                  onClick={exportSelected}
+                >
+                  {busy() === "export" ? "导出中…" : "导出整合包"}
+                </button>
+              </span>
+            </div>
             <div class="pcl-vlist">
               <Show when={!instances.loading} fallback={<div class="pcl-vloading"><Spinner /></div>}>
                 <Show
