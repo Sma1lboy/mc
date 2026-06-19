@@ -55,8 +55,8 @@ export interface ManifestVersion {
   release_time: string;
 }
 
-/** 账号种类 */
-export type AccountKind = "offline" | "msa" | "yggdrasil";
+/** 账号种类(与 Rust AccountKind 的 serde 小写一致:microsoft 而非 msa) */
+export type AccountKind = "offline" | "microsoft" | "yggdrasil";
 
 /** 账号摘要(右侧栏账号切换器使用) */
 export interface AccountSummary {
@@ -67,6 +67,15 @@ export interface AccountSummary {
   selected: boolean;
   /** 是否拥有正版(影响在线启动可用性) */
   owns_game: boolean;
+}
+
+/** 微软设备码登录:展示给用户的提示信息(device_code 仅用于轮询,不展示) */
+export interface DeviceCode {
+  user_code: string;
+  verification_uri: string;
+  device_code: string;
+  interval: number;
+  expires_in: number;
 }
 
 /** 检测到的一个 Java 安装 */

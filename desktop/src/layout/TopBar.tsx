@@ -2,7 +2,7 @@ import { Component, Show, createResource, createMemo, onCleanup, onMount } from 
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { currentPage, currentRoot } from "../store";
+import { currentPage, currentRoot, switchLayout } from "../store";
 import type { InstanceSummary } from "../ipc/types";
 import "./TopBar.css";
 
@@ -114,8 +114,12 @@ const TopBar: Component = () => {
         <span class="topbar-title" data-tauri-drag-region>{title()}</span>
       </div>
 
-      {/* 右侧:运行状态 + 窗口控制 */}
+      {/* 右侧:布局切换 + 运行状态 + 窗口控制 */}
       <div class="topbar-right">
+        {/* 一键切到 PCL 风(对比两套界面) */}
+        <button class="topbar-layout-switch no-drag" onClick={() => switchLayout("pcl")}>
+          切到 PCL 风 ⇄
+        </button>
         {/* 运行状态指示:有实例运行时绿点 + 计数,否则灰点 + 无运行 */}
         <div class="topbar-status" data-tauri-drag-region>
           <Show

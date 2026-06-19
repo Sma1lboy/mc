@@ -1,0 +1,133 @@
+/* 账号登录弹窗:遮罩 + 居中卡片。配色/圆角沿用 PCL 规格。 */
+.pcl-dlg-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(52, 61, 74, 0.32);
+  backdrop-filter: blur(2px);
+}
+.pcl-dlg {
+  width: 380px;
+  max-width: calc(100vw - 48px);
+  background: var(--pcl-card);
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(52, 61, 74, 0.35);
+  overflow: hidden;
+}
+.pcl-dlg-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(90deg, var(--pcl-blue-hover), var(--pcl-blue));
+}
+.pcl-dlg-x {
+  border: none;
+  background: transparent;
+  color: #fff;
+  font-size: 15px;
+  cursor: pointer;
+  opacity: 0.85;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.pcl-dlg-x:hover { background: rgba(255, 255, 255, 0.2); opacity: 1; }
+
+.pcl-dlg-body { padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+
+/* 登录方式选择 */
+.pcl-dlg-choice {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--pcl-line);
+  border-radius: 6px;
+  background: var(--pcl-card);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+.pcl-dlg-choice:hover { background: var(--pcl-blue-lightest); border-color: var(--pcl-blue-soft); transform: translateY(-1px); }
+.pcl-dlg-choice-msa:hover { border-color: var(--pcl-blue); }
+.pcl-dlg-choice-ico { font-size: 26px; }
+.pcl-dlg-choice-text { display: flex; flex-direction: column; gap: 2px; }
+.pcl-dlg-choice-text b { font-size: 14px; color: var(--pcl-text); }
+.pcl-dlg-choice-text small { font-size: 12px; color: var(--pcl-text3); }
+
+/* 微软设备码 */
+.pcl-dlg-tip { margin: 0; font-size: 13px; color: var(--pcl-text2); line-height: 1.6; }
+.pcl-dlg-code {
+  align-self: center;
+  padding: 12px 28px;
+  border-radius: 6px;
+  background: var(--pcl-blue-bg);
+  color: var(--pcl-blue-dark);
+  font: 700 28px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 4px;
+  user-select: all;
+}
+.pcl-dlg-sub { margin: 0; font-size: 12px; color: var(--pcl-text3); text-align: center; }
+.pcl-dlg-sub a { color: var(--pcl-blue); cursor: pointer; }
+.pcl-dlg-center { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 16px; color: var(--pcl-text3); font-size: 13px; }
+.pcl-dlg-wait { padding-top: 6px; }
+
+/* 离线输入 */
+.pcl-dlg-input {
+  height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--pcl-line);
+  border-radius: 5px;
+  font-size: 14px;
+  color: var(--pcl-text);
+  background: var(--pcl-gray-bg);
+  outline: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.pcl-dlg-input:focus { border-color: var(--pcl-blue); background: var(--pcl-card); }
+.pcl-dlg-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.pcl-dlg-btn {
+  height: 36px;
+  padding: 0 18px;
+  border: 1px solid var(--pcl-line);
+  border-radius: 4px;
+  background: var(--pcl-card);
+  color: var(--pcl-text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.pcl-dlg-btn:hover { background: var(--pcl-blue-lightest); border-color: var(--pcl-blue-soft); }
+.pcl-dlg-btn.primary { background: var(--pcl-blue); color: #fff; border-color: var(--pcl-blue); }
+.pcl-dlg-btn.primary:hover:not(:disabled) { background: var(--pcl-blue-hover); }
+.pcl-dlg-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.pcl-dlg-err {
+  margin: 0 18px 16px;
+  padding: 10px 12px;
+  border-radius: 5px;
+  background: #fdecec;
+  color: #c0392b;
+  font-size: 12px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+.pcl-dlg-err code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: rgba(192, 57, 43, 0.12);
+  padding: 0 4px;
+  border-radius: 3px;
+}
+.pcl-dlg-err-raw {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(192, 57, 43, 0.25);
+  font-size: 11px;
+  opacity: 0.75;
+}

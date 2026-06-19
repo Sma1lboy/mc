@@ -13,6 +13,7 @@ import type {
   InstanceSummary,
   ManifestVersion,
   AccountSummary,
+  DeviceCode,
   JavaInstall,
   SearchHit,
   ThemeConfig,
@@ -46,6 +47,31 @@ export const api = {
   /** 列出本地账号 */
   listAccounts(): Promise<AccountSummary[]> {
     return invoke<AccountSummary[]>("list_accounts");
+  },
+
+  /** 微软登录①:启动设备码流,返回 user_code/验证地址 + 轮询用 device_code */
+  msaLoginStart(): Promise<DeviceCode> {
+    return invoke<DeviceCode>("msa_login_start");
+  },
+
+  /** 微软登录②:阻塞轮询直到用户在浏览器完成,走完认证链并落库,返回新账号 */
+  msaLoginPoll(deviceCode: string, interval: number): Promise<AccountSummary> {
+    return invoke<AccountSummary>("msa_login_poll", { deviceCode, interval });
+  },
+
+  /** 添加离线账号(用户名 → 稳定 UUID),并设为当前账号 */
+  addOfflineAccount(name: string): Promise<AccountSummary> {
+    return invoke<AccountSummary>("add_offline_account", { name });
+  },
+
+  /** 切换当前账号 */
+  selectAccount(uuid: string): Promise<void> {
+    return invoke<void>("select_account", { uuid });
+  },
+
+  /** 移除账号 */
+  removeAccount(uuid: string): Promise<void> {
+    return invoke<void>("remove_account", { uuid });
   },
 
   /** 检测系统中可用的 Java */

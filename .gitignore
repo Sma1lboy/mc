@@ -24,3 +24,7 @@ supabase/.branches
 # OS / editor
 .DS_Store
 *.log
+.gstack/
+
+# Reference launchers (study only, not part of this project)
+ref/

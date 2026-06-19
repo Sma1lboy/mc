@@ -149,3 +149,21 @@
   .topbar-navbtn,
   .win-btn { transition: none; }
 }
+
+/* 布局切换按钮(切到 PCL 风) */
+.topbar-layout-switch {
+  border: 1px solid var(--n-6);
+  background: var(--n-4);
+  color: var(--text-dim);
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  margin-right: 12px;
+  transition: all var(--dur) var(--ease);
+}
+.topbar-layout-switch:hover {
+  background: var(--a-4);
+  color: #fff;
+  border-color: var(--a-4);
+}

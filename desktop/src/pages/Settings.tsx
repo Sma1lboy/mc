@@ -2,6 +2,7 @@ import { Component, createResource, createSignal, For, Show, onMount } from "sol
 import { Button, Spinner, toast } from "../components";
 import { applyThemeColor, setMode, saveTheme, PRESETS } from "../theme/theme";
 import { api } from "../ipc/api";
+import { layoutMode, switchLayout } from "../store";
 import type { ThemeConfig, ThemeMode } from "../ipc/types";
 import "./Settings.css";
 
@@ -57,6 +58,27 @@ const Settings: Component = () => {
   return (
     <div class="settings">
       <h1>设置</h1>
+
+      <section class="settings-section">
+        <h2>界面布局</h2>
+        <div class="settings-row">
+          <span>风格</span>
+          <div class="preset-row">
+            <Button
+              variant={layoutMode() === "modrinth" ? "primary" : "ghost"}
+              onClick={() => switchLayout("modrinth")}
+            >
+              Modrinth(深色三区)
+            </Button>
+            <Button
+              variant={layoutMode() === "pcl" ? "primary" : "ghost"}
+              onClick={() => switchLayout("pcl")}
+            >
+              PCL(浅色顶栏 Tab)
+            </Button>
+          </div>
+        </div>
+      </section>
 
       <section class="settings-section">
         <h2>外观</h2>

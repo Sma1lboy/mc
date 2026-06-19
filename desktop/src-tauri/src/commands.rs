@@ -4,14 +4,14 @@
 
 use std::path::{Path, PathBuf};
 
-use mc_core::auth::AccountStore;
+use mc_core::auth::{AccountStore, MsaClient, StoredAccount};
 use mc_core::download::Downloader;
 use mc_core::instance::Instance;
 use mc_core::launch::{self, LaunchSpec};
 use mc_core::modplatform::modrinth::ModrinthApi;
 use mc_core::modplatform::ResourceKind;
 use mc_core::types::{
-    AccountSummary, GameRoot, InstanceSummary, ManifestVersion, Progress, ThemeConfig,
+    AccountKind, AccountSummary, GameRoot, InstanceSummary, ManifestVersion, Progress, ThemeConfig,
 };
 use mc_core::{auth, java, meta, paths, LAUNCHER_NAME, LAUNCHER_VERSION};
 use serde::Serialize;
@@ -92,6 +92,131 @@ pub async fn list_versions(snapshot: bool) -> CmdResult<Vec<ManifestVersion>> {
 pub fn list_accounts() -> CmdResult<Vec<AccountSummary>> {
     let store = AccountStore::load(data_dir().join("accounts.json")).map_err(err)?;
     Ok(store.list())
+}
+
+// --- accounts: Microsoft login + management ------------------------------
+
+fn accounts_path() -> PathBuf {
+    data_dir().join("accounts.json")
+}
+
+/// Persist a freshly built account, make it the selected one, and return its
+/// summary. Shared by Microsoft and offline login.
+fn store_and_select(account: StoredAccount) -> CmdResult<AccountSummary> {
+    let _ = paths::ensure_dir(&data_dir());
+    let mut store = AccountStore::load(accounts_path()).map_err(err)?;
+    let uuid = account.uuid.clone();
+    store.add(account);
+    store.select(&uuid).map_err(err)?;
+    store.save().map_err(err)?;
+    store
+        .list()
+        .into_iter()
+        .find(|a| a.uuid == uuid)
+        .ok_or_else(|| "登录成功但未能读回账号".to_string())
+}
+
+/// Build the Microsoft auth client.
+///
+/// The Application (client) ID is a **public** identifier, not a secret — it is
+/// meant to be shipped baked into the binary (device-code / public-client flow
+/// uses no client secret). Resolution order:
+///   1. runtime env `MC_MSA_CLIENT_ID` — dev override (`src-tauri/.env`);
+///   2. compile-time `MC_MSA_CLIENT_ID` — baked into release builds
+///      (`MC_MSA_CLIENT_ID=… cargo build --release`), so end users need no setup;
+///   3. the vanilla legacy id — last resort (rejected by device-code: AADSTS700016).
+fn msa_client() -> MsaClient {
+    let runtime = std::env::var("MC_MSA_CLIENT_ID").ok();
+    let baked = option_env!("MC_MSA_CLIENT_ID").map(str::to_string);
+    match runtime
+        .or(baked)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+    {
+        Some(id) => MsaClient::with_client_id(id),
+        None => MsaClient::new(),
+    }
+}
+
+/// The device-code prompt shown to the user. `device_code` is the opaque handle
+/// passed back to [`msa_login_poll`]; everything else is for display.
+#[derive(Serialize)]
+pub struct DeviceCodeDto {
+    pub user_code: String,
+    pub verification_uri: String,
+    pub device_code: String,
+    pub interval: u64,
+    pub expires_in: u64,
+}
+
+/// Step ① of Microsoft login: start the device-code flow. The UI shows
+/// `user_code` and opens `verification_uri`, then calls [`msa_login_poll`].
+#[tauri::command]
+pub async fn msa_login_start() -> CmdResult<DeviceCodeDto> {
+    let info = msa_client().device_code_start().await.map_err(err)?;
+    Ok(DeviceCodeDto {
+        user_code: info.user_code,
+        verification_uri: info.verification_uri,
+        device_code: info.device_code,
+        interval: info.interval,
+        expires_in: info.expires_in,
+    })
+}
+
+/// Step ② of Microsoft login: block until the user finishes in the browser,
+/// run the full Xbox → XSTS → Minecraft → profile chain, then persist and
+/// select the resulting account.
+#[tauri::command]
+pub async fn msa_login_poll(device_code: String, interval: u64) -> CmdResult<AccountSummary> {
+    let client = msa_client();
+    let token = client.poll_token(&device_code, interval).await.map_err(err)?;
+    let session = client.authenticate(&token.access_token).await.map_err(err)?;
+    store_and_select(StoredAccount {
+        kind: AccountKind::Microsoft,
+        username: session.username,
+        uuid: session.uuid,
+        access_token: session.access_token,
+        refresh_token: Some(token.refresh_token),
+        xuid: session.xuid,
+        user_type: session.user_type,
+        owns_game: true,
+    })
+}
+
+/// Add (or update) an offline account from a username and select it.
+#[tauri::command]
+pub fn add_offline_account(name: String) -> CmdResult<AccountSummary> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("用户名不能为空".to_string());
+    }
+    let session = auth::offline_session(name);
+    store_and_select(StoredAccount {
+        kind: AccountKind::Offline,
+        username: session.username,
+        uuid: session.uuid,
+        access_token: session.access_token,
+        refresh_token: None,
+        xuid: session.xuid,
+        user_type: session.user_type,
+        owns_game: false,
+    })
+}
+
+/// Switch the active account.
+#[tauri::command]
+pub fn select_account(uuid: String) -> CmdResult<()> {
+    let mut store = AccountStore::load(accounts_path()).map_err(err)?;
+    store.select(&uuid).map_err(err)?;
+    store.save().map_err(err)
+}
+
+/// Remove an account by uuid.
+#[tauri::command]
+pub fn remove_account(uuid: String) -> CmdResult<()> {
+    let mut store = AccountStore::load(accounts_path()).map_err(err)?;
+    store.remove(&uuid);
+    store.save().map_err(err)
 }
 
 #[tauri::command]
