@@ -23,12 +23,15 @@ verification loop.
 
 ## Decided NOT to do without more input (load-bearing)
 
-- **`RuntimeContext.os_version` is intentionally left empty — do not "fix" it by populating it.**
-  It looks like a one-line bug. It is not. There is no OS-version detector anywhere in the tree, and
-  making `os.version` library/argument rules actually fire changes which libraries and args land on the
-  classpath — an untestable change to launch filtering. A correct fix needs a real cross-platform
-  OS-version source **plus** tests first. `RuntimeContext.features` likewise stays `default` until the
-  launcher actually exposes demo-mode / custom-resolution options to feed it.
+- **`RuntimeContext.os_version` is still intentionally left empty — do not populate it casually.**
+  The *matcher* is now fixed and tested (`os_version_prefix` unescapes `\.`; previously a populated
+  version could never match) — but that change is inert at runtime because `os_version` stays empty.
+  Actually populating it (a) needs a real cross-platform OS-version detector, which does not exist in
+  the tree, and (b) makes `os.version` library/argument rules start firing, changing which libraries
+  and args land on the classpath — a launch-filtering change that can only be trusted after verifying a
+  real game launch on each OS. Do that piece with a human who can launch the game.
+  `RuntimeContext.features` likewise stays `default` until the launcher exposes demo-mode /
+  custom-resolution options to feed it.
 - **Frontend load/error *surfacing* is not yet standardized.** The `activeRoot()` threading is done, but
   unifying how each page shows loading/empty/error (today some `.catch(()=>[])` silently, some toast)
   would change per-page visual behavior that can only be verified by watching the app — do it with a
