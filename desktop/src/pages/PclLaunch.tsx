@@ -1,7 +1,7 @@
 import { Component, createResource, createSignal, For, Show, onCleanup } from "solid-js";
 import { Avatar, Spinner, toast } from "../components";
 import { api, onGameLog, onLaunchProgress } from "../ipc/api";
-import { currentRoot } from "../store";
+import { activeRoot } from "../store";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import type { AccountSummary, InstanceSummary } from "../ipc/types";
 import PclAccountDialog from "./PclAccountDialog";
@@ -25,7 +25,7 @@ type RightView = "news" | "versions" | "log";
  */
 const PclLaunch: Component = () => {
   const [instances, { refetch: refetchInstances }] = createResource(
-    () => currentRoot() ?? "",
+    () => activeRoot(),
     (root) => api.listInstances(root),
   );
   const [accounts, { refetch: refetchAccounts }] = createResource(() => api.listAccounts());
@@ -82,7 +82,7 @@ const PclLaunch: Component = () => {
     setRightView("log");
     setLogs([`正在启动 ${inst.name || inst.id} …`]);
     try {
-      await api.launchInstance(currentRoot() ?? "", inst.id, name, online);
+      await api.launchInstance(activeRoot(), inst.id, name, online);
       toast({ type: "success", message: `已启动 ${inst.name}` });
     } catch (e) {
       toast({ type: "error", message: `启动失败:${e}` });
@@ -103,7 +103,7 @@ const PclLaunch: Component = () => {
     if (!picked || typeof picked !== "string") return;
     setBusy("import");
     try {
-      const out = await api.importModpack(currentRoot() ?? "", picked, null);
+      const out = await api.importModpack(activeRoot(), picked, null);
       const blocked = out.blocked.length;
       toast({
         type: blocked > 0 ? "info" : "success",
@@ -139,7 +139,7 @@ const PclLaunch: Component = () => {
     setBusy("export");
     try {
       const out = await api.exportModpack({
-        root: currentRoot() ?? "",
+        root: activeRoot(),
         instanceId: inst.id,
         target: "modrinth",
         dest,

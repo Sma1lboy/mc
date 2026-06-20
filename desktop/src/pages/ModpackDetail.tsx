@@ -3,7 +3,7 @@ import { createVirtualizer } from "@tanstack/solid-virtual";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { Spinner, toast, Lightbox, type ModpackHit, type LightboxImage } from "../components";
 import { api } from "../ipc/api";
-import { currentRoot } from "../store";
+import { activeRoot } from "../store";
 import type { ModrinthVersion, ModrinthProject } from "../ipc/types";
 import { renderMarkdown } from "../util/markdown";
 import "./ModpackDetail.css"; // 残留:.md ... (innerHTML markdown 标记)
@@ -106,7 +106,7 @@ const ModpackDetail: Component<{
       message: `开始安装「${props.hit.title} ${v.version_number}」…首次会下载原版与依赖,可能需要几分钟`,
     });
     try {
-      const out = await api.installModpackUrl(currentRoot() ?? "", v.mrpack_url, null);
+      const out = await api.installModpackUrl(activeRoot(), v.mrpack_url, null);
       const blocked = out.blocked.length;
       toast({
         type: blocked > 0 ? "info" : "success",

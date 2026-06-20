@@ -18,6 +18,12 @@ export const [currentPage, setCurrentPage] = createSignal<Page>("home");
 /** 当前选中的游戏根目录(GameRoot.path);null = 未选/未加载。 */
 export const [currentRoot, setCurrentRoot] = createSignal<string | null>(null);
 
+/**
+ * 传给后端的「当前根」:未选时落到 ""(后端据此用默认根)。所有 IPC 调用与
+ * createResource 的 root 源都经此取根,把这个「空根 → 默认根」的约定收敛到一处。
+ */
+export const activeRoot = (): string => currentRoot() ?? "";
+
 /** 界面布局,默认 Modrinth 风。 */
 export const [layoutMode, setLayoutMode] = createSignal<LayoutMode>("pcl");
 

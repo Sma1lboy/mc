@@ -8,7 +8,7 @@ import {
   type ModpackHit,
 } from "../components";
 import { api, onGameLog, onLaunchProgress } from "../ipc/api";
-import { currentRoot } from "../store";
+import { activeRoot } from "../store";
 import { openInstanceDir, exportInstanceMrpack, deleteInstance } from "../util/instanceActions";
 import type { InstanceSummary, SearchHit } from "../ipc/types";
 
@@ -49,7 +49,7 @@ function toHit(h: SearchHit): ModpackHit {
 const Home: Component = () => {
   // 实例列表:依赖 currentRoot,空根目录用 "" 让后端落到默认根。
   const [instances, { refetch: refetchInstances }] = createResource(
-    () => currentRoot() ?? "",
+    () => activeRoot(),
     (root) => api.listInstances(root),
   );
 
@@ -82,7 +82,7 @@ const Home: Component = () => {
   async function play(id: string) {
     try {
       firstLog = true;
-      await api.launchInstance(currentRoot() ?? "", id, "Player", false);
+      await api.launchInstance(activeRoot(), id, "Player", false);
     } catch (e) {
       toast({ type: "error", message: `启动失败:${e}` });
     }
@@ -113,10 +113,10 @@ const Home: Component = () => {
                 <InstanceRow
                   instance={toRowData(inst)}
                   onPlay={play}
-                  onOpenDir={(id) => void openInstanceDir(currentRoot() ?? "", id)}
-                  onExport={() => void exportInstanceMrpack(currentRoot() ?? "", toRowData(inst))}
+                  onOpenDir={(id) => void openInstanceDir(activeRoot(), id)}
+                  onExport={() => void exportInstanceMrpack(activeRoot(), toRowData(inst))}
                   onDelete={async (id) => {
-                    if (await deleteInstance(currentRoot() ?? "", { id, name: toRowData(inst).name }))
+                    if (await deleteInstance(activeRoot(), { id, name: toRowData(inst).name }))
                       refetchInstances();
                   }}
                 />

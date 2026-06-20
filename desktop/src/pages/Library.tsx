@@ -8,7 +8,7 @@ import {
   type InstanceRowData,
 } from "../components";
 import { api, onInstallProgress } from "../ipc/api";
-import { currentRoot } from "../store";
+import { activeRoot } from "../store";
 import { openInstanceDir, exportInstanceMrpack, deleteInstance } from "../util/instanceActions";
 import type { InstanceSummary, ManifestVersion } from "../ipc/types";
 
@@ -32,7 +32,7 @@ function toRowData(i: InstanceSummary): InstanceRowData {
 
 const Library: Component = () => {
   const [instances, { refetch }] = createResource(
-    () => currentRoot() ?? "",
+    () => activeRoot(),
     (root) => api.listInstances(root),
   );
   const [versions] = createResource(() => api.listVersions(false));
@@ -57,7 +57,7 @@ const Library: Component = () => {
     setInstalling(v.id);
     setProgress("准备…");
     try {
-      await api.installVersion(currentRoot() ?? "", v.id);
+      await api.installVersion(activeRoot(), v.id);
       toast({ type: "success", message: `已安装 ${v.id}` });
       setShowInstall(false);
       refetch();
@@ -124,14 +124,14 @@ const Library: Component = () => {
                   instance={toRowData(inst)}
                   onPlay={(id) =>
                     api
-                      .launchInstance(currentRoot() ?? "", id, "Player", false)
+                      .launchInstance(activeRoot(), id, "Player", false)
                       .then(() => toast({ type: "info", message: `启动 ${id}` }))
                       .catch((e) => toast({ type: "error", message: `${e}` }))
                   }
-                  onOpenDir={(id) => void openInstanceDir(currentRoot() ?? "", id)}
-                  onExport={() => void exportInstanceMrpack(currentRoot() ?? "", toRowData(inst))}
+                  onOpenDir={(id) => void openInstanceDir(activeRoot(), id)}
+                  onExport={() => void exportInstanceMrpack(activeRoot(), toRowData(inst))}
                   onDelete={async (id) => {
-                    if (await deleteInstance(currentRoot() ?? "", { id, name: toRowData(inst).name }))
+                    if (await deleteInstance(activeRoot(), { id, name: toRowData(inst).name }))
                       refetch();
                   }}
                 />
