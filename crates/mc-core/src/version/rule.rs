@@ -87,10 +87,15 @@ impl Rule {
                 }
             }
             if let Some(version) = &os.version {
-                // Lightweight prefix/substring match instead of full regex to avoid
-                // a regex dependency; Mojang's os.version patterns are simple.
-                if !ctx.os_version.is_empty() && !ctx.os_version.contains(version.trim_start_matches('^').trim_end_matches(".*").trim_end_matches('$')) {
-                    return false;
+                // Lightweight prefix match instead of a full regex (no regex dep;
+                // Mojang's os.version patterns are simple, `^`-anchored, escaped-dot).
+                // Only consulted once os_version is populated — it is empty today, so
+                // this branch is inert at runtime (see ADR-0001).
+                if !ctx.os_version.is_empty() {
+                    let prefix = os_version_prefix(version);
+                    if !prefix.is_empty() && !ctx.os_version.starts_with(&prefix) {
+                        return false;
+                    }
                 }
             }
         }
@@ -103,6 +108,22 @@ impl Rule {
         }
         true
     }
+}
+
+/// 把 Mojang 的简单 os.version 正则化简成可前缀匹配的纯文本前缀。
+///
+/// Mojang 的模式形态很窄:`^` 锚点 + 转义点(`\.`)+ 可选 `.*` / `\d+` 尾部通配,
+/// 例如 `^10\.`、`^6\.2`、`^10\.0\.`。这里去掉锚点与尾部通配、把 `\.` 反转义成 `.`,
+/// 得到一个用于 `starts_with` 的前缀。**先前的实现忘了反转义 `\.`**,导致即便
+/// 填了 os_version 也永远匹配不上;此函数修正之(并加测试覆盖)。
+fn os_version_prefix(pattern: &str) -> String {
+    let mut s = pattern.trim();
+    s = s.strip_prefix('^').unwrap_or(s);
+    s = s.strip_suffix('$').unwrap_or(s);
+    for suffix in ["\\d+", "\\d*", ".*", ".+"] {
+        s = s.strip_suffix(suffix).unwrap_or(s);
+    }
+    s.replace("\\.", ".").trim_end_matches('\\').to_string()
 }
 
 fn arch_matches(spec: &str, arch: Arch) -> bool {
@@ -170,6 +191,38 @@ mod tests {
         .unwrap();
         assert!(rules_allow(&rules, &ctx(Os::Linux, Arch::X64)));
         assert!(!rules_allow(&rules, &ctx(Os::MacOs, Arch::Arm64)));
+    }
+
+    #[test]
+    fn os_version_prefix_unescapes_and_strips() {
+        assert_eq!(os_version_prefix(r"^10\."), "10.");
+        assert_eq!(os_version_prefix(r"^6\.2"), "6.2");
+        assert_eq!(os_version_prefix(r"^10\.0\."), "10.0.");
+        assert_eq!(os_version_prefix(r"^10\.\d+$"), "10.");
+    }
+
+    #[test]
+    fn os_version_rule_matches_only_when_prefix_agrees() {
+        // JSON 里点是双反斜杠转义;serde 解出来是 `^10\.`。
+        let rules: Vec<Rule> = serde_json::from_str(
+            r#"[{"action":"allow","os":{"name":"windows","version":"^10\\."}}]"#,
+        )
+        .unwrap();
+        let mut c = ctx(Os::Windows, Arch::X64);
+        c.os_version = "10.0.19045".into();
+        assert!(rules_allow(&rules, &c)); // Win10 → 命中(旧实现因没反转义会误判为不命中)
+        c.os_version = "6.2.9200".into();
+        assert!(!rules_allow(&rules, &c)); // Win8.1 → 不命中 → 默认 disallow
+    }
+
+    #[test]
+    fn empty_os_version_ignores_the_version_clause() {
+        // os_version 为空(运行时现状)时跳过 version 子句,仅按 name 匹配 —— 行为不变。
+        let rules: Vec<Rule> = serde_json::from_str(
+            r#"[{"action":"allow","os":{"name":"windows","version":"^10\\."}}]"#,
+        )
+        .unwrap();
+        assert!(rules_allow(&rules, &ctx(Os::Windows, Arch::X64)));
     }
 
     #[test]
