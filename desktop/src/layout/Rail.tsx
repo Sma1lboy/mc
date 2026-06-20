@@ -1,5 +1,6 @@
 import { Component, JSX, For, Show, createResource } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
+import { Avatar } from "../components";
 import { currentPage, setCurrentPage } from "../store";
 import type { AccountSummary } from "../ipc/types";
 import "./Rail.css";
@@ -88,12 +89,6 @@ const Rail: Component = () => {
     return list.find((a) => a.selected) ?? list[0];
   };
 
-  // 头像首字母占位(真实头像未接入皮肤渲染前用首字母 + accent 底)。
-  const avatarInitial = (): string => {
-    const name = activeAccount()?.username;
-    return name && name.length > 0 ? name[0].toUpperCase() : "?";
-  };
-
   return (
     <nav class="rail" aria-label="主导航">
       {/* 顶部 Logo */}
@@ -161,7 +156,11 @@ const Rail: Component = () => {
             when={!accounts.loading}
             fallback={<span class="rail-avatar-skel" aria-hidden="true" />}
           >
-            <span class="rail-avatar-fallback">{avatarInitial()}</span>
+            <Avatar
+              class="rail-avatar-img"
+              kind={activeAccount()?.kind}
+              uuid={activeAccount()?.uuid}
+            />
           </Show>
         </button>
       </div>

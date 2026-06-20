@@ -1,5 +1,5 @@
 import { Component, createResource, createSignal, For, Show, onCleanup } from "solid-js";
-import { Spinner, toast } from "../components";
+import { Avatar, Spinner, toast } from "../components";
 import { api, onGameLog, onLaunchProgress } from "../ipc/api";
 import { currentRoot } from "../store";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
@@ -53,7 +53,6 @@ const PclLaunch: Component = () => {
     if (!list || list.length === 0) return undefined;
     return list.find((a) => a.selected) ?? list[0];
   };
-  const avatarInitial = () => (activeAccount()?.username?.[0] ?? "?").toUpperCase();
 
   // 最新快照(版本清单第一个 kind=snapshot;退而求其次取第一个)。
   const latestSnapshot = () => {
@@ -167,7 +166,9 @@ const PclLaunch: Component = () => {
             when={!accounts.loading}
             fallback={<div class="pcl-avatar pcl-avatar-skel" />}
           >
-            <div class="pcl-avatar">{avatarInitial()}</div>
+            <div class="pcl-avatar">
+              <Avatar kind={activeAccount()?.kind} uuid={activeAccount()?.uuid} />
+            </div>
             <div class="pcl-account-name">{activeAccount()?.username ?? "未登录"}</div>
             <div class="pcl-account-kind">
               {activeAccount() ? kindLabel(activeAccount()!.kind) : "点击登录账号"}

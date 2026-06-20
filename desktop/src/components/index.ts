@@ -24,6 +24,8 @@ export type { SearchBoxProps } from "./SearchBox";
 export { Icon } from "./Icon";
 export type { IconProps, IconName } from "./Icon";
 
+export { Avatar, STEVE_AVATAR, headUrl } from "./Avatar";
+
 // 复合行/卡片 (Modrinth 风格)
 export { InstanceRow } from "./InstanceRow";
 export type { InstanceRowProps, InstanceRowData } from "./InstanceRow";

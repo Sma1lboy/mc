@@ -6,6 +6,7 @@ import {
   createSignal,
 } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
+import { Avatar } from "../components";
 import type { AccountSummary, AccountKind } from "../ipc/types";
 import "./ContextBar.css";
 
@@ -53,9 +54,6 @@ const ContextBar: Component = () => {
     return list.find((a) => a.selected) ?? list[0];
   };
 
-  // 头像首字母占位(皮肤头像渲染未接入前)。
-  const initialOf = (name: string | undefined): string =>
-    name && name.length > 0 ? name[0].toUpperCase() : "?";
 
   // 切换到指定账号:调后端 select_account(对应 core 的 AccountStore::select),
   // 成功后收起下拉并刷新列表。命令不存在/失败时记录错误、不阻塞 UI。
@@ -114,7 +112,7 @@ const ContextBar: Component = () => {
                 aria-haspopup="listbox"
               >
                 <span class="account-avatar">
-                  {initialOf(current()?.username)}
+                  <Avatar kind={current()?.kind} uuid={current()?.uuid} />
                 </span>
                 <span class="account-meta">
                   <span class="account-name">{current()?.username}</span>
@@ -145,7 +143,7 @@ const ContextBar: Component = () => {
                         onClick={() => pick(acc)}
                       >
                         <span class="account-avatar sm">
-                          {initialOf(acc.username)}
+                          <Avatar kind={acc.kind} uuid={acc.uuid} />
                         </span>
                         <span class="account-meta">
                           <span class="account-name">{acc.username}</span>

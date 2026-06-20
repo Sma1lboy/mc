@@ -221,3 +221,13 @@ body {
     background: var(--surface-translucent-flat);
   }
 }
+
+/* 玩家头像 <img>(Avatar 组件):填满父级头像方框,像素风放大保持锐利。 */
+.mc-avatar-img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  border-radius: inherit;
+  image-rendering: pixelated;
+}
