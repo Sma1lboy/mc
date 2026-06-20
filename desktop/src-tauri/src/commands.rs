@@ -87,6 +87,21 @@ pub fn list_instances(root: String) -> CmdResult<Vec<InstanceSummary>> {
     Ok(mc_core::instance::list_instances(&root_paths(&root)))
 }
 
+/// 取实例的游戏目录绝对路径(供「打开游戏目录」用前端 shell.open 打开)。
+#[tauri::command]
+pub fn instance_dir(root: String, id: String) -> CmdResult<String> {
+    let paths = root_paths(&root);
+    let dir = Instance::new(&id, paths.root().to_path_buf()).dir();
+    Ok(dir.to_string_lossy().to_string())
+}
+
+/// 删除一个实例(移除整个版本目录,含 mods/saves/worlds)。破坏性:前端须先确认。
+#[tauri::command]
+pub fn delete_instance(root: String, id: String) -> CmdResult<()> {
+    let paths = root_paths(&root);
+    Instance::new(&id, paths.root().to_path_buf()).delete().map_err(err)
+}
+
 #[tauri::command]
 pub async fn list_versions(snapshot: bool) -> CmdResult<Vec<ManifestVersion>> {
     let dl = make_downloader()?;

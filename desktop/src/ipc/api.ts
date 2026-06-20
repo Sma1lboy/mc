@@ -43,6 +43,16 @@ export const api = {
     return invoke<InstanceSummary[]>("list_instances", { root });
   },
 
+  /** 取实例的游戏目录绝对路径(用于「打开游戏目录」) */
+  instanceDir(root: string, id: string): Promise<string> {
+    return invoke<string>("instance_dir", { root, id });
+  },
+
+  /** 删除实例(移除整个版本目录,含 mods/saves;破坏性,调用方需先确认) */
+  deleteInstance(root: string, id: string): Promise<void> {
+    return invoke<void>("delete_instance", { root, id });
+  },
+
   /** 列出官方版本清单;snapshot=true 时包含快照 */
   listVersions(snapshot: boolean): Promise<ManifestVersion[]> {
     return invoke<ManifestVersion[]>("list_versions", { snapshot });

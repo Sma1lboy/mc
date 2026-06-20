@@ -11,6 +11,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::list_roots,
             commands::list_instances,
+            commands::instance_dir,
+            commands::delete_instance,
             commands::list_versions,
             commands::list_accounts,
             commands::msa_login_start,
