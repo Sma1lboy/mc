@@ -1,10 +1,8 @@
-import { Component, For, Switch, Match, type JSX } from "solid-js";
+import { Component, For, type JSX } from "solid-js";
+import { Dynamic } from "solid-js/web";
 import { currentPage, setCurrentPage, switchLayout, type Page } from "../../store";
 import { Icon, type IconName } from "../../components";
-import PclLaunch from "../../pages/PclLaunch";
-import PclMore from "../../pages/PclMore";
-import Discover from "../../pages/Discover";
-import Settings from "../../pages/Settings";
+import { PCL_ROUTES, routeFor } from "../../routes";
 import "./PclShell.css";
 
 /**
@@ -84,20 +82,8 @@ const PclShell: Component = () => {
       </header>
 
       <main class="overflow-hidden min-h-0 bg-pcl-gray-bg">
-        <Switch fallback={<PclLaunch />}>
-          <Match when={currentPage() === "launch"}>
-            <PclLaunch />
-          </Match>
-          <Match when={currentPage() === "discover"}>
-            <Discover />
-          </Match>
-          <Match when={currentPage() === "settings"}>
-            <Settings />
-          </Match>
-          <Match when={currentPage() === "more"}>
-            <PclMore />
-          </Match>
-        </Switch>
+        {/* 从路由表取当前页组件渲染。 */}
+        <Dynamic component={routeFor(PCL_ROUTES, currentPage()).component} />
       </main>
     </div>
   );

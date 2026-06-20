@@ -1,9 +1,7 @@
-import { Component, Show, Switch, Match } from "solid-js";
+import { Component, Show } from "solid-js";
+import { Dynamic } from "solid-js/web";
 import { currentPage } from "../store";
-import Home from "../pages/Home";
-import Library from "../pages/Library";
-import Discover from "../pages/Discover";
-import Settings from "../pages/Settings";
+import { MODRINTH_ROUTES, routeFor } from "../routes";
 import Rail from "./Rail";
 import TopBar from "./TopBar";
 import ContextBar from "./ContextBar";
@@ -25,12 +23,10 @@ import "./AppShell.css";
  * library / discover / settings 让主内容铺满(此时 body 变成单列 1fr)。
  */
 
-// 哪些页面需要右侧 ContextBar。Home 显示账号/好友/新闻;其余页面右栏让位给主内容。
-const PAGES_WITH_CONTEXT = new Set(["home"]);
-
 const AppShell: Component = () => {
-  // 是否渲染右栏。currentPage 是 store 里的 signal accessor,这里读它即建立响应依赖。
-  const showContext = () => PAGES_WITH_CONTEXT.has(currentPage());
+  // 当前页对应的路由(组件 + 是否需要右栏)。currentPage 是 signal,读它即建立响应依赖。
+  const route = () => routeFor(MODRINTH_ROUTES, currentPage());
+  const showContext = () => route().showContext ?? false;
 
   return (
     <div class="app-shell grid w-screen h-screen bg-n-1 text-fg text-[length:var(--fs-base)] overflow-hidden">
@@ -45,21 +41,8 @@ const AppShell: Component = () => {
         }}
       >
         <main class="[grid-row:1] [grid-column:1] min-w-0 min-h-0 overflow-y-auto overflow-x-hidden bg-n-3">
-          {/* 根据 currentPage 切换页面组件。Switch/Match 保证同一时刻只挂一个页面。 */}
-          <Switch fallback={<Home />}>
-            <Match when={currentPage() === "home"}>
-              <Home />
-            </Match>
-            <Match when={currentPage() === "discover"}>
-              <Discover />
-            </Match>
-            <Match when={currentPage() === "library"}>
-              <Library />
-            </Match>
-            <Match when={currentPage() === "settings"}>
-              <Settings />
-            </Match>
-          </Switch>
+          {/* 根据 currentPage 从路由表取组件渲染(同一时刻只挂一个页面)。 */}
+          <Dynamic component={route().component} />
         </main>
         {/* 右栏按页面显隐。Show 卸载时整列从 grid 消失,主内容自然铺满。 */}
         <Show when={showContext()}>
