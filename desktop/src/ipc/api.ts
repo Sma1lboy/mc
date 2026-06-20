@@ -22,6 +22,7 @@ import type {
   LaunchProgress,
   GameLog,
   ImportOutcome,
+  ModrinthVersion,
 } from "./types";
 
 // ===== 命令封装 =====
@@ -166,6 +167,24 @@ export const api = {
     return invoke<ImportOutcome>("install_modrinth_modpack", {
       root,
       projectId,
+      instanceId: instanceId ?? null,
+    });
+  },
+
+  /** 列出一个整合包项目的所有版本详情(详情页用) */
+  modrinthVersions(projectId: string): Promise<ModrinthVersion[]> {
+    return invoke<ModrinthVersion[]>("modrinth_versions", { projectId });
+  },
+
+  /** 从指定 .mrpack 直链安装(详情页「安装此版本」) */
+  installModpackUrl(
+    root: string,
+    url: string,
+    instanceId?: string | null,
+  ): Promise<ImportOutcome> {
+    return invoke<ImportOutcome>("install_modpack_url", {
+      root,
+      url,
       instanceId: instanceId ?? null,
     });
   },

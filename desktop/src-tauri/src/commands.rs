@@ -572,3 +572,51 @@ pub async fn install_modrinth_modpack(
         skipped_optional: outcome.skipped_optional,
     })
 }
+
+impl From<mc_core::modpack::import::ImportOutcome> for ImportOutcomeDto {
+    fn from(o: mc_core::modpack::import::ImportOutcome) -> Self {
+        ImportOutcomeDto {
+            instance_id: o.instance_id,
+            blocked: o
+                .blocked
+                .into_iter()
+                .map(|b| BlockedFileDto {
+                    name: b.name,
+                    website_url: b.website_url,
+                    target_dir: b.target_dir,
+                    required: b.required,
+                })
+                .collect(),
+            skipped_optional: o.skipped_optional,
+        }
+    }
+}
+
+/// 列出一个 Modrinth 整合包项目的所有版本详情(详情页用:版本号/类型/MC/loader/
+/// 发布时间/下载数/changelog + 该版本 .mrpack 地址)。
+#[tauri::command]
+pub async fn modrinth_versions(
+    project_id: String,
+) -> CmdResult<Vec<mc_core::modplatform::modrinth::VersionDetail>> {
+    ModrinthApi::new().version_details(&project_id).await.map_err(err)
+}
+
+/// 从一个 `.mrpack` 直链安装整合包(详情页「安装此版本」用)。
+#[tauri::command]
+pub async fn install_modpack_url(
+    root: String,
+    url: String,
+    instance_id: Option<String>,
+) -> CmdResult<ImportOutcomeDto> {
+    use mc_core::download::MirrorResolver;
+    use mc_core::modpack::import::{ImportEngine, ImportOptions, ImportSource};
+    use mc_core::modplatform::provider::ProviderRegistry;
+
+    let paths = root_paths(&root);
+    let dl = Downloader::new(16).map_err(err)?.with_mirror(MirrorResolver::china());
+    let engine = ImportEngine::with_defaults(dl, ProviderRegistry::with_defaults());
+    let mut opts = ImportOptions::new(paths.root().to_path_buf());
+    opts.instance_id = instance_id;
+    let outcome = engine.import(ImportSource::Url(url), opts).await.map_err(err)?;
+    Ok(outcome.into())
+}

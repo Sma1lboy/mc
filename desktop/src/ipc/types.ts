@@ -134,6 +134,26 @@ export interface ThemeConfig {
   lightness: number;
 }
 
+/** 一个整合包版本的详情(详情页用;对应后端 VersionDetail) */
+export interface ModrinthVersion {
+  id: string;
+  version_number: string;
+  name: string;
+  /** release / beta / alpha */
+  version_type: string;
+  game_versions: string[];
+  loaders: string[];
+  /** ISO 8601 发布时间 */
+  date_published: string;
+  downloads: number;
+  /** 更新日志(markdown 原文) */
+  changelog: string;
+  /** 该版本 .mrpack 下载地址;无则 null(安装按钮禁用) */
+  mrpack_url: string | null;
+  mrpack_filename: string | null;
+  file_size: number | null;
+}
+
 /** 一个 CurseForge blocked 文件(作者禁第三方分发,需用户手动下载) */
 export interface BlockedFile {
   name: string;

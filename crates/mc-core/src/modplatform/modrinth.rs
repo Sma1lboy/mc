@@ -391,6 +391,15 @@ struct RawVersion {
     files: Vec<RawFile>,
     #[serde(default)]
     dependencies: Vec<RawDependency>,
+    // —— 详情页额外字段(map_version 不消费,version_details 用)——
+    #[serde(default)]
+    version_type: String,
+    #[serde(default)]
+    date_published: String,
+    #[serde(default)]
+    downloads: u64,
+    #[serde(default)]
+    changelog: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -467,6 +476,67 @@ fn map_version(r: RawVersion) -> ProjectVersion {
         loaders: r.loaders,
         files: r.files.into_iter().map(map_file).collect(),
         dependencies: r.dependencies.into_iter().map(map_dependency).collect(),
+    }
+}
+
+/// 一个版本的展示用详情(整合包详情页:含 changelog / 发布时间 / 类型 / 下载数,
+/// 以及该版本的 `.mrpack` 文件地址)。比统一的 [`ProjectVersion`] 多带 UI 信息。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct VersionDetail {
+    pub id: String,
+    pub version_number: String,
+    pub name: String,
+    /// `release` / `beta` / `alpha`。
+    pub version_type: String,
+    pub game_versions: Vec<String>,
+    pub loaders: Vec<String>,
+    /// ISO 8601 发布时间。
+    pub date_published: String,
+    pub downloads: u64,
+    /// 该版本的更新日志(markdown 原文)。
+    pub changelog: String,
+    /// 该版本的 `.mrpack` 下载地址(供「安装此版本」用);无则 `None`。
+    pub mrpack_url: Option<String>,
+    pub mrpack_filename: Option<String>,
+    pub file_size: Option<u64>,
+}
+
+fn map_version_detail(r: RawVersion) -> VersionDetail {
+    // 优先 .mrpack 文件,其次 primary,其次第一个。
+    let file = r
+        .files
+        .iter()
+        .find(|f| f.filename.to_ascii_lowercase().ends_with(".mrpack"))
+        .or_else(|| r.files.iter().find(|f| f.primary))
+        .or_else(|| r.files.first());
+    let (mrpack_url, mrpack_filename, file_size) = match file {
+        Some(f) => (Some(f.url.clone()), Some(f.filename.clone()), f.size),
+        None => (None, None, None),
+    };
+    VersionDetail {
+        id: r.id,
+        version_number: r.version_number,
+        name: r.name,
+        version_type: r.version_type,
+        game_versions: r.game_versions,
+        loaders: r.loaders,
+        date_published: r.date_published,
+        downloads: r.downloads,
+        changelog: r.changelog,
+        mrpack_url,
+        mrpack_filename,
+        file_size,
+    }
+}
+
+impl ModrinthApi {
+    /// 列出某项目所有版本的展示详情(含 changelog / 类型 / 发布时间 + `.mrpack` 地址)。
+    /// 整合包详情页用。
+    pub async fn version_details(&self, project_id: &str) -> Result<Vec<VersionDetail>> {
+        let url = format!("{}/project/{}/version", self.base, project_id);
+        let raws: Vec<RawVersion> =
+            self.client.get(&url).send().await?.error_for_status()?.json().await?;
+        Ok(raws.into_iter().map(map_version_detail).collect())
     }
 }
 

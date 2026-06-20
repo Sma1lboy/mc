@@ -1,8 +1,8 @@
 import { Component, createResource, createSignal, For, Show } from "solid-js";
 import { ModpackCard, SearchBox, Spinner, toast, type ModpackHit } from "../components";
 import { api } from "../ipc/api";
-import { currentRoot } from "../store";
 import type { ProjectKind, SearchHit } from "../ipc/types";
+import ModpackDetail from "./ModpackDetail";
 import "./Discover.css";
 
 /**
@@ -52,40 +52,25 @@ const Discover: Component = () => {
       }),
   );
 
-  // 正在安装的整合包 project id(防重复点击)。
-  const [installing, setInstalling] = createSignal<string | null>(null);
+  // 当前打开详情的整合包(null = 显示搜索网格)。点击卡片进入详情页,而非直接下载。
+  const [selected, setSelected] = createSignal<ModpackHit | null>(null);
 
-  async function openHit(h: ModpackHit) {
-    // 模组/光影/资源包暂只提示(安装入口在版本详情,后续接入);整合包则直接安装。
-    if (kind() !== "modpack") {
-      toast({ type: "info", message: `${h.title}:在「整合包」标签可一键安装;单资源安装入口待接入` });
-      return;
-    }
-    if (installing()) {
-      toast({ type: "info", message: "已有整合包正在安装,请稍候…" });
-      return;
-    }
-    setInstalling(h.id);
-    toast({ type: "info", message: `开始安装「${h.title}」…首次会下载原版与依赖,可能需要几分钟` });
-    try {
-      const out = await api.installModrinthModpack(currentRoot() ?? "", h.id, null);
-      const blocked = out.blocked.length;
-      toast({
-        type: blocked > 0 ? "info" : "success",
-        message:
-          blocked > 0
-            ? `已安装「${out.instance_id}」(${blocked} 个文件需手动下载),去启动页选择它`
-            : `已安装整合包「${out.instance_id}」,去启动页选择它即可开玩`,
-      });
-    } catch (e) {
-      toast({ type: "error", message: `安装失败:${e}` });
-    } finally {
-      setInstalling(null);
+  function openHit(h: ModpackHit) {
+    if (kind() === "modpack") {
+      setSelected(h);
+    } else {
+      // 模组/光影/资源包的详情/安装入口后续接入。
+      toast({ type: "info", message: `${h.title}:单资源详情页待接入` });
     }
   }
 
   return (
     <div class="discover">
+      <Show when={selected()}>
+        <ModpackDetail hit={selected()!} onBack={() => setSelected(null)} />
+      </Show>
+
+      <Show when={!selected()}>
       <div class="discover-head">
         <h1>Discover</h1>
         <SearchBox value={query()} onInput={onInput} placeholder="搜索 Modrinth…" />
@@ -118,6 +103,7 @@ const Discover: Component = () => {
             </For>
           </div>
         </Show>
+      </Show>
       </Show>
     </div>
   );
