@@ -1,6 +1,6 @@
 import { Component, createSignal, Show, onCleanup } from "solid-js";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
-import { Spinner, toast } from "../components";
+import { Spinner, Dialog, toast } from "../components";
 import { api } from "../ipc/api";
 import type { AccountSummary, DeviceCode } from "../ipc/types";
 import "./PclAccountDialog.css";
@@ -80,19 +80,21 @@ const PclAccountDialog: Component<{
     }
   }
 
+  const title = () =>
+    step() === "offline" ? "离线登录" : step() === "msa" ? "微软登录" : "添加账号";
+
   return (
-    // 遮罩:fixed 全屏 + flex 居中。背景冷灰罩 + 亚克力模糊保留为残留 CSS
-    // (依赖祖先 [data-blur=off] 与 prefers-reduced-transparency 覆盖,无法纯内联)。
-    <div
-      class="pcl-dlg-mask fixed inset-0 z-50 flex items-center justify-center"
-      onClick={props.onClose}
+    // Ark Dialog 负责焦点陷阱 / Esc / 点遮罩关闭 / 滚动锁;遮罩复用 pcl-dlg-mask
+    // 的亚克力模糊 + [data-blur=off] / prefers-reduced-transparency 逃生口。
+    <Dialog
+      open
+      onClose={props.onClose}
+      label={title()}
+      backdropClass="pcl-dlg-mask"
+      contentClass="w-[380px] max-w-[calc(100vw-48px)] bg-pcl-card rounded-[8px] shadow-[0_12px_40px_rgba(52,61,74,0.35)] overflow-hidden focus:outline-none"
     >
-      <div
-        class="w-[380px] max-w-[calc(100vw-48px)] bg-pcl-card rounded-[8px] shadow-[0_12px_40px_rgba(52,61,74,0.35)] overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
         <div class="flex items-center justify-between px-[18px] py-[14px] text-[15px] font-bold text-white bg-[linear-gradient(90deg,var(--pcl-blue-hover),var(--pcl-blue))]">
-          <span>{step() === "offline" ? "离线登录" : step() === "msa" ? "微软登录" : "添加账号"}</span>
+          <span>{title()}</span>
           <button
             class="border-none bg-transparent text-white text-[15px] cursor-pointer opacity-85 px-[6px] py-[2px] rounded-[4px] hover:bg-white/20 hover:opacity-100"
             onClick={props.onClose}
@@ -188,8 +190,7 @@ const PclAccountDialog: Component<{
             </Show>
           </div>
         </Show>
-      </div>
-    </div>
+    </Dialog>
   );
 };
 

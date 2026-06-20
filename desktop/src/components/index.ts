@@ -34,6 +34,8 @@ export { Select } from "./Select";
 export type { SelectProps, SelectOption } from "./Select";
 export { Tooltip } from "./Tooltip";
 export type { TooltipProps } from "./Tooltip";
+export { Dialog } from "./Dialog";
+export type { DialogProps } from "./Dialog";
 
 // 复合行/卡片 (Modrinth 风格)
 export { InstanceRow } from "./InstanceRow";
