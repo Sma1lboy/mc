@@ -173,21 +173,29 @@ fn last_played_for(dir: &Path) -> u64 {
 /// (实例 → loader → 原版),后者若只取一层会把 loader id 当成 mc 版本。带深度上限防御
 /// 异常循环;父 json 读不到时停在当前已知最深的 id(它就是要找的根)。
 fn resolve_base_mc_version(paths: &GamePaths, id: &str, inherits: Option<&str>) -> String {
-    let mut base = id.to_string();
-    let mut next = inherits.map(|s| s.to_string());
-    let mut depth = 0;
-    while let Some(parent) = next {
-        if depth >= 16 {
-            break;
-        }
-        base = parent.clone();
-        next = std::fs::read_to_string(paths.version_json(&parent))
-            .ok()
-            .and_then(|raw| serde_json::from_str::<VersionHead>(&raw).ok())
-            .and_then(|h| h.inherits_from);
-        depth += 1;
+    // 复用 version::walk_inherits 的守护遍历(环检测 + 深度上限),只遍历 id 链。
+    // 容错策略放在闭包里:父 json 读不到/解析失败 → 视为到根(parent = None),
+    // 遍历停在当前层。leaf 用调用方已知的 `inherits` 以免重读 leaf json。
+    let start_inherits = inherits.map(|s| s.to_string());
+    let chain = crate::version::walk_inherits(id, |cur| {
+        let parent = if cur == id {
+            start_inherits.clone()
+        } else {
+            std::fs::read_to_string(paths.version_json(cur))
+                .ok()
+                .and_then(|raw| serde_json::from_str::<VersionHead>(&raw).ok())
+                .and_then(|h| h.inherits_from)
+        };
+        Ok::<_, crate::error::CoreError>(crate::version::InheritNode {
+            payload: cur.to_string(),
+            parent,
+        })
+    });
+    // 走到的最深 id 即基础 mc 版本;环/异常时回退到 leaf id。
+    match chain {
+        Ok(ids) => ids.into_iter().last().unwrap_or_else(|| id.to_string()),
+        Err(_) => id.to_string(),
     }
-    base
 }
 
 /// 扫描一个 game root,列出其中所有实例。
