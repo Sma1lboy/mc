@@ -166,8 +166,14 @@ impl ImportEngine {
             }
         }
 
-        // ---- 7) 装核心:loader → 调现有 loader::install_*;原版 → launch::install_version ----
-        self.install_core(&paths, &plan).await?;
+        // ---- 7) 装核心:loader(或原版)→ 得到实例应继承的版本 id ----
+        let core_id = self.install_core(&paths, &plan).await?;
+        // 让整合包实例本身成为**可启动版本**:写一个 inheritsFrom 核心版本的最小 version json,
+        // 使 versions/<instance_id>/ 既是版本定义(继承 loader → 原版)又是游戏目录(mods 在此)。
+        // 仅当实例 id 与核心 id 不同时才写(原版包且 id==mc_version 时核心 json 已就位)。
+        if core_id != instance_id {
+            self.write_instance_version_json(&paths, &instance_id, &core_id)?;
+        }
 
         // ---- 8) 下文件:PlannedFile → DownloadItem → 多源下载(并发 + 校验)----
         let skipped_optional = self.download_files(&game_dir, &plan).await?;
@@ -251,9 +257,13 @@ impl ImportEngine {
     }
 
     /// 装核心:按 `plan.loader` 调现有 loader 安装器;原版调 `launch::install_version`。
+    /// **返回实例应继承(`inheritsFrom`)的版本 id**:有 loader 时为 loader 版本 id,
+    /// 原版时为 `mc_version`。
     ///
     /// 各 loader 安装器内部都会「缺原版则先装原版」,故原版安装只在无 loader 时显式触发。
-    async fn install_core(&self, paths: &GamePaths, plan: &ImportPlan) -> Result<()> {
+    /// 注:Forge/NeoForge 使用 manifest 钉死的版本;Fabric/Quilt 现取最新稳定 loader
+    /// (loader 向后兼容,通常无碍),钉版安装是后续增强。
+    async fn install_core(&self, paths: &GamePaths, plan: &ImportPlan) -> Result<String> {
         let manifest = crate::meta::fetch_manifest(&self.dl).await?;
         let vanilla_entry = manifest
             .iter()
@@ -262,19 +272,20 @@ impl ImportEngine {
                 CoreError::other(format!("版本清单中找不到 Minecraft {}", plan.mc_version))
             })?;
 
-        match &plan.loader {
+        let core_id = match &plan.loader {
             None => {
                 if !paths.version_json(&plan.mc_version).is_file() {
                     crate::launch::install_version(&self.dl, paths, vanilla_entry, None).await?;
                 }
+                plan.mc_version.clone()
             }
             Some((LoaderKind::Fabric, _)) => {
                 crate::loader::install_fabric(&self.dl, paths, &plan.mc_version, vanilla_entry, None)
-                    .await?;
+                    .await?
             }
             Some((LoaderKind::Quilt, _)) => {
                 crate::loader::install_quilt(&self.dl, paths, &plan.mc_version, vanilla_entry, None)
-                    .await?;
+                    .await?
             }
             Some((LoaderKind::Forge, build)) => {
                 crate::loader::install_forge(
@@ -286,7 +297,7 @@ impl ImportEngine {
                     None,
                     None,
                 )
-                .await?;
+                .await?
             }
             Some((LoaderKind::NeoForge, neo_version)) => {
                 crate::loader::install_neoforge(
@@ -297,7 +308,7 @@ impl ImportEngine {
                     None,
                     None,
                 )
-                .await?;
+                .await?
             }
             Some((other, _)) => {
                 // LiteLoader / OptiFine 无独立安装器入口:至少把原版装好,loader 由后续叠加。
@@ -305,9 +316,25 @@ impl ImportEngine {
                 if !paths.version_json(&plan.mc_version).is_file() {
                     crate::launch::install_version(&self.dl, paths, vanilla_entry, None).await?;
                 }
+                plan.mc_version.clone()
             }
-        }
-        Ok(())
+        };
+        Ok(core_id)
+    }
+
+    /// 为整合包实例写一个最小 version json(`{id, inheritsFrom: core_id}`),使其成为
+    /// **可启动版本**:启动时解析 inheritsFrom 链(实例 → loader → 原版)合成 profile,
+    /// 而 mods/config 等位于 `versions/<instance_id>/`(= game_dir)。
+    fn write_instance_version_json(
+        &self,
+        paths: &GamePaths,
+        instance_id: &str,
+        core_id: &str,
+    ) -> Result<()> {
+        let json = serde_json::json!({ "id": instance_id, "inheritsFrom": core_id });
+        let raw = serde_json::to_string_pretty(&json)
+            .map_err(|e| CoreError::Parse { what: "instance version json".into(), source: e })?;
+        crate::fs::write_atomic(&paths.version_json(instance_id), raw.as_bytes())
     }
 
     /// 下载 `plan.files` 到 game_dir;**必备文件**任一失败即整体失败,**可选文件**失败仅记录

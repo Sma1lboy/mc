@@ -167,6 +167,29 @@ fn last_played_for(dir: &Path) -> u64 {
     dir_mtime_millis(dir)
 }
 
+/// 沿 `inheritsFrom` 链解析到根(无 inheritsFrom 的原版版本),返回其 id 作为基础 mc 版本。
+///
+/// 普通 loader 实例只继承一层(loader → 原版);整合包实例可能多层
+/// (实例 → loader → 原版),后者若只取一层会把 loader id 当成 mc 版本。带深度上限防御
+/// 异常循环;父 json 读不到时停在当前已知最深的 id(它就是要找的根)。
+fn resolve_base_mc_version(paths: &GamePaths, id: &str, inherits: Option<&str>) -> String {
+    let mut base = id.to_string();
+    let mut next = inherits.map(|s| s.to_string());
+    let mut depth = 0;
+    while let Some(parent) = next {
+        if depth >= 16 {
+            break;
+        }
+        base = parent.clone();
+        next = std::fs::read_to_string(paths.version_json(&parent))
+            .ok()
+            .and_then(|raw| serde_json::from_str::<VersionHead>(&raw).ok())
+            .and_then(|h| h.inherits_from);
+        depth += 1;
+    }
+    base
+}
+
 /// 扫描一个 game root,列出其中所有实例。
 ///
 /// 规则:遍历 `versions/` 下每个子目录,若存在 `versions/<id>/<id>.json` 则视为实例。
@@ -214,8 +237,8 @@ pub fn list_instances(paths: &GamePaths) -> Vec<InstanceSummary> {
         let inherits = head.inherits_from.clone();
         let loader = infer_loader(&id, inherits.as_deref());
 
-        // 基础 mc 版本:有 inheritsFrom 用之(loader 版本继承自原版),否则用 id 自身。
-        let mc_version = inherits.clone().unwrap_or_else(|| id.clone());
+        // 基础 mc 版本:沿 inheritsFrom 链解析到根原版(整合包实例可能多层继承)。
+        let mc_version = resolve_base_mc_version(paths, &id, inherits.as_deref());
 
         // 实例名优先取 instance.json 的 name,缺省用 id。
         let config = InstanceConfig::load(&dir.join(INSTANCE_CONFIG_FILE)).unwrap_or_default();
