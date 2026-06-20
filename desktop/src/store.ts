@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import { applyTheme } from "./theme/theme";
+import { applyTheme, themeForLayout } from "./theme/theme";
 
 // 页面标识。Modrinth 布局用 home/library/discover/settings;
 // PCL 布局用 launch/discover/settings/more(顶部 Tab,带图标)。
@@ -29,11 +29,6 @@ export const [layoutMode, setLayoutMode] = createSignal<LayoutMode>("pcl");
  */
 export function switchLayout(mode: LayoutMode) {
   setLayoutMode(mode);
-  if (mode === "pcl") {
-    applyTheme({ mode: "light", hue: 214, saturation: 88, lightness: 52 });
-    setCurrentPage("launch");
-  } else {
-    applyTheme({ mode: "dark", hue: 150, saturation: 60, lightness: 45 });
-    setCurrentPage("home");
-  }
+  applyTheme(themeForLayout(mode));
+  setCurrentPage(mode === "pcl" ? "launch" : "home");
 }

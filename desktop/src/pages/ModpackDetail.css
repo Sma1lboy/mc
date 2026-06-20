@@ -1,199 +1,92 @@
-.mpd {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding: 4px 2px 24px;
-  overflow-y: auto;
-}
+/* ModpackDetail.css —— 残留样式:只保留 `.md ...` 规则。
+ * 这些规则作用于 renderMarkdown 经 innerHTML 注入的 HTML(h/p/a/ul/li/code/…),
+ * 那些元素没有可挂工具类的 class,所以必须留在 CSS 里。页面其余 chrome 已迁到
+ * ModpackDetail.tsx 的 Tailwind 工具类。
+ * 注意:Tailwind preflight 会清空列表符号,所以下面的 ul/ol 显式 list-style。 */
 
-.mpd-back {
-  align-self: flex-start;
-  background: transparent;
-  border: none;
-  color: var(--a-6, #4890f5);
-  font-size: 14px;
-  cursor: pointer;
-  padding: 4px 0;
-  transition: opacity var(--mo-dur-fast, 150ms) var(--mo-ease-out, ease);
-}
-.mpd-back:hover {
-  opacity: 0.7;
-}
-
-/* ---- header ---- */
-.mpd-header {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.mpd-banner {
-  width: 100%;
-  max-height: 240px;
-  object-fit: cover;
-  border-radius: var(--radius-card, 8px);
-}
-.mpd-head-row {
-  display: flex;
-  gap: 14px;
-  align-items: center;
-}
-.mpd-icon {
-  width: 72px;
-  height: 72px;
-  border-radius: 14px;
-  object-fit: cover;
-  flex: 0 0 auto;
-}
-.mpd-icon-ph {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 32px;
-  font-weight: 700;
-  color: #fff;
-  background: linear-gradient(135deg, var(--a-5, #1370f3), var(--a-7, #4890f5));
-}
-.mpd-head-meta {
-  min-width: 0;
-}
-.mpd-title {
-  margin: 0;
-  font-size: 24px;
-  font-weight: 800;
+/* ---- markdown body (.md) ---- */
+.md h1.md-h,
+.md h2.md-h,
+.md h3.md-h,
+.md h4.md-h,
+.md h5.md-h,
+.md h6.md-h {
   color: var(--n-8, var(--pcl-text, #222));
-}
-.mpd-sub {
-  margin-top: 4px;
-  font-size: 13px;
-  color: var(--n-6, #888);
-}
-.mpd-cats {
-  margin-top: 8px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.mpd-cat {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--a-1, rgba(19, 112, 243, 0.12));
-  color: var(--a-6, #1370f3);
-}
-.mpd-desc {
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.7;
-  color: var(--n-7, #555);
-}
-
-/* ---- versions ---- */
-.mpd-versions {
-  display: flex;
-  flex-direction: column;
-}
-.mpd-vh {
-  font-size: 15px;
   font-weight: 700;
-  color: var(--n-8, var(--pcl-text, #222));
-  padding: 4px 0 10px;
+  line-height: 1.3;
+  margin: 1.1em 0 0.5em;
+}
+.md h1.md-h {
+  font-size: 1.5em;
+}
+.md h2.md-h {
+  font-size: 1.3em;
+  padding-bottom: 0.25em;
   border-bottom: 1px solid var(--n-3, rgba(0, 0, 0, 0.08));
 }
-.mpd-loading,
-.mpd-empty {
-  padding: 28px;
-  text-align: center;
-  color: var(--n-6, #888);
+.md h3.md-h {
+  font-size: 1.12em;
 }
-.mpd-vrow {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 12px 2px;
-  border-bottom: 1px solid var(--n-2, rgba(0, 0, 0, 0.05));
+.md p {
+  margin: 0.6em 0;
 }
-.mpd-vmain {
-  flex: 1;
-  min-width: 0;
-}
-.mpd-vtop {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.mpd-vnum {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--n-8, var(--pcl-text, #222));
-}
-.mpd-vtype {
-  font-size: 11px;
-  padding: 1px 7px;
-  border-radius: 3px;
-  background: var(--n-2, rgba(0, 0, 0, 0.06));
-  color: var(--n-6, #777);
-}
-.mpd-vtype[data-type="release"] {
-  background: rgba(40, 167, 69, 0.14);
-  color: #1f9d4d;
-}
-.mpd-vtype[data-type="beta"] {
-  background: rgba(255, 159, 10, 0.16);
-  color: #c77800;
-}
-.mpd-vtype[data-type="alpha"] {
-  background: rgba(255, 59, 48, 0.14);
-  color: #d23b30;
-}
-.mpd-vmeta {
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--n-6, #888);
-}
-.mpd-cl-toggle {
-  margin-top: 8px;
-  background: transparent;
-  border: none;
-  padding: 0;
-  font-size: 12px;
+.md a {
   color: var(--a-6, #1370f3);
-  cursor: pointer;
+  text-decoration: none;
 }
-.mpd-cl-toggle:hover {
+.md a:hover {
   text-decoration: underline;
 }
-.mpd-cl {
-  margin: 8px 0 0;
-  padding: 10px 12px;
-  max-height: 260px;
-  overflow-y: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-size: 12px;
-  line-height: 1.6;
-  font-family: inherit;
-  color: var(--n-7, #555);
-  background: var(--n-1, rgba(0, 0, 0, 0.03));
+.md ul.md-list {
+  margin: 0.6em 0;
+  padding-left: 1.6em;
+  list-style: disc;
+}
+.md ol.md-list {
+  margin: 0.6em 0;
+  padding-left: 1.6em;
+  list-style: decimal;
+}
+.md li {
+  margin: 0.25em 0;
+}
+.md img {
+  max-width: 100%;
+  height: auto;
   border-radius: 6px;
+  margin: 0.4em 0;
 }
-.mpd-install {
-  flex: 0 0 auto;
-  padding: 8px 16px;
-  border: none;
+.md code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.88em;
+  padding: 1px 5px;
   border-radius: 4px;
-  background: var(--a-5, #1370f3);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition:
-    background var(--mo-dur-fast, 150ms) var(--mo-ease-out, ease),
-    opacity var(--mo-dur-fast, 150ms) var(--mo-ease-out, ease);
+  background: var(--n-2, rgba(0, 0, 0, 0.06));
 }
-.mpd-install:hover:not(:disabled) {
-  background: var(--a-6, #4890f5);
+.md pre.md-code {
+  margin: 0.7em 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  border-radius: 8px;
+  background: var(--n-2, rgba(0, 0, 0, 0.06));
 }
-.mpd-install:disabled {
-  opacity: 0.5;
-  cursor: default;
+.md pre.md-code code {
+  padding: 0;
+  background: transparent;
+  font-size: 0.85em;
+  line-height: 1.55;
+  white-space: pre;
+}
+.md blockquote.md-quote {
+  margin: 0.7em 0;
+  padding: 4px 14px;
+  border-left: 3px solid var(--a-4, #4890f5);
+  color: var(--n-6, #777);
+  background: var(--n-1, rgba(0, 0, 0, 0.02));
+  border-radius: 0 6px 6px 0;
+}
+.md hr.md-hr {
+  border: none;
+  border-top: 1px solid var(--n-3, rgba(0, 0, 0, 0.1));
+  margin: 1.2em 0;
 }

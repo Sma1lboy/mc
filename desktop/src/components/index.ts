@@ -26,12 +26,24 @@ export type { IconProps, IconName } from "./Icon";
 
 export { Avatar, STEVE_AVATAR, headUrl } from "./Avatar";
 
+export { default as Lightbox } from "./Lightbox";
+export type { LightboxImage } from "./Lightbox";
+
+// Ark UI 封装(headless 原语 + 我们的 Tailwind 令牌着色)
+export { Select } from "./Select";
+export type { SelectProps, SelectOption } from "./Select";
+export { Tooltip } from "./Tooltip";
+export type { TooltipProps } from "./Tooltip";
+
 // 复合行/卡片 (Modrinth 风格)
 export { InstanceRow } from "./InstanceRow";
 export type { InstanceRowProps, InstanceRowData } from "./InstanceRow";
 
 export { ModpackCard } from "./ModpackCard";
 export type { ModpackCardProps, ModpackHit } from "./ModpackCard";
+
+export { ModpackListItem } from "./ModpackListItem";
+export type { ModpackListItemProps } from "./ModpackListItem";
 
 // Toast 通道
 export { toast, ToastContainer } from "./Toast";

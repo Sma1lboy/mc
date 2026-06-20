@@ -37,6 +37,24 @@ export const DEFAULT_THEME: ThemeConfig = {
   lightness: 45,
 };
 
+/**
+ * 各布局「对味」的默认主题。布局与主题是耦合的:Modrinth 配深色+绿,
+ * PCL 配浅色+蓝。switchLayout / 启动注入 / 设置页「重置」都走这同一份,避免
+ * 三处各写一份魔法数导致跑偏(例如 PCL 布局却套深色,出现顶栏浅、正文深的诡异组合)。
+ */
+export const MODRINTH_THEME: ThemeConfig = DEFAULT_THEME;
+export const PCL_THEME: ThemeConfig = {
+  mode: "light",
+  hue: 214,
+  saturation: 88,
+  lightness: 52,
+};
+
+/** 取某布局相称的默认主题。 */
+export function themeForLayout(layout: "modrinth" | "pcl"): ThemeConfig {
+  return layout === "pcl" ? PCL_THEME : MODRINTH_THEME;
+}
+
 /* ----------------------------------------------------------------------------
  * 系统暗色偏好(P2:'system' 模式跟随之)。读一次 matchMedia + 监听变化,
  * 变化时驱动信号重算调色板(下方响应式管线自动重注入)。

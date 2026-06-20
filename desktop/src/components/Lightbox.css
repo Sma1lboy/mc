@@ -1,0 +1,31 @@
+/* Lightbox.css —— 残留样式:只保留无法用 Tailwind 工具类表达的 @keyframes
+ * 自定义动画(淡入遮罩、弹入图片)及承载它们的最小 .lb-mask / .lb-img 钩子类。
+ * 其余视觉(定位/尺寸/颜色/圆角/阴影/过渡/hover)已迁到 Lightbox.tsx 的工具类。 */
+
+/* 遮罩淡入 */
+.lb-mask {
+  animation: lb-fade 160ms ease-out;
+}
+@keyframes lb-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 当前图弹入 */
+.lb-img {
+  animation: lb-pop 180ms cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+@keyframes lb-pop {
+  from {
+    transform: scale(0.97);
+    opacity: 0.6;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}

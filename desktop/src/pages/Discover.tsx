@@ -1,9 +1,8 @@
 import { Component, createResource, createSignal, For, Show } from "solid-js";
-import { ModpackCard, SearchBox, Spinner, toast, type ModpackHit } from "../components";
+import { ModpackListItem, SearchBox, Spinner, toast, type ModpackHit } from "../components";
 import { api } from "../ipc/api";
 import type { ProjectKind, SearchHit } from "../ipc/types";
 import ModpackDetail from "./ModpackDetail";
-import "./Discover.css";
 
 /**
  * Discover —— Modrinth 搜索页。类型切换 + 防抖搜索 + 卡片网格。
@@ -65,23 +64,26 @@ const Discover: Component = () => {
   }
 
   return (
-    <div class="discover">
+    <div class="px-[28px] py-[24px] overflow-y-auto h-full">
       <Show when={selected()}>
         <ModpackDetail hit={selected()!} onBack={() => setSelected(null)} />
       </Show>
 
       <Show when={!selected()}>
-      <div class="discover-head">
-        <h1>Discover</h1>
+      <div class="flex items-center justify-between gap-[16px] mb-[16px]">
+        <h1 class="text-[24px] font-bold text-fg m-0">Discover</h1>
         <SearchBox value={query()} onInput={onInput} placeholder="搜索 Modrinth…" />
       </div>
 
-      <div class="discover-tabs">
+      <div class="flex gap-[8px] mb-[20px]">
         <For each={KINDS}>
           {(k) => (
             <button
-              class="discover-tab"
-              classList={{ active: kind() === k.key }}
+              class="px-[14px] py-[6px] border-none rounded-ctl text-[13px] cursor-pointer transition-all duration-[var(--dur)] ease-app"
+              classList={{
+                "bg-a-4 text-white": kind() === k.key,
+                "bg-n-4 text-dim hover:bg-n-5 hover:text-fg": kind() !== k.key,
+              }}
               onClick={() => setKind(k.key)}
             >
               {k.label}
@@ -90,15 +92,15 @@ const Discover: Component = () => {
         </For>
       </div>
 
-      <Show when={!results.loading} fallback={<div class="discover-loading"><Spinner /></div>}>
+      <Show when={!results.loading} fallback={<div class="flex justify-center p-[40px]"><Spinner /></div>}>
         <Show
           when={(results() ?? []).length > 0}
-          fallback={<div class="discover-empty">没有结果,换个关键词试试。</div>}
+          fallback={<div class="p-[32px] text-dim text-center">没有结果,换个关键词试试。</div>}
         >
-          <div class="discover-grid">
+          <div class="flex flex-col gap-[8px]">
             <For each={results()}>
               {(hit) => (
-                <ModpackCard hit={toHit(hit)} onClick={openHit} />
+                <ModpackListItem hit={toHit(hit)} onClick={openHit} />
               )}
             </For>
           </div>

@@ -222,12 +222,15 @@ body {
   }
 }
 
-/* 玩家头像 <img>(Avatar 组件):填满父级头像方框,像素风放大保持锐利。 */
+/* 玩家头像 <img>(Avatar 组件):填满父级头像方框。
+ * 头像始终是「缩小」显示(mc-heads 取 128px 头,显示框 36~84px),用 pixelated
+ * 做最近邻缩小会不均匀丢像素,导致 Steve 脸歪斜/发虚——这里用 auto 让浏览器做
+ * 高质量平滑缩小,小头像才干净周正。 */
 .mc-avatar-img {
   width: 100%;
   height: 100%;
   display: block;
   object-fit: cover;
   border-radius: inherit;
-  image-rendering: pixelated;
+  image-rendering: auto;
 }

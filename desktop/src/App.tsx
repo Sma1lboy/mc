@@ -1,5 +1,5 @@
 import { onMount, Show, type Component } from "solid-js";
-import { initTheme, applyTheme } from "./theme/theme";
+import { initTheme, applyTheme, PCL_THEME } from "./theme/theme";
 import AppShell from "./layout/AppShell";
 import PclShell from "./layout/pcl/PclShell";
 import { ToastContainer } from "./components";
@@ -23,7 +23,7 @@ const App: Component = () => {
     // 启动后让主题与当前布局相称:PCL 布局 → 浅色+蓝。
     initTheme().then(() => {
       if (layoutMode() === "pcl") {
-        applyTheme({ mode: "light", hue: 214, saturation: 88, lightness: 52 });
+        applyTheme(PCL_THEME);
       }
     });
     // 选定默认游戏根目录(发现的第一个),供各页面作为查询参数。
