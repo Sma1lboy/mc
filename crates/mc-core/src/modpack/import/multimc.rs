@@ -18,7 +18,9 @@ use std::path::Path;
 use crate::error::{CoreError, Result};
 use crate::modpack::formats::multimc::{parse_instance_cfg, MmcLoaderKind, MmcPack};
 
-use super::{ArchiveIndex, DetectMatch, ImportPlan, ManagedPack, ModpackImporter};
+use super::{
+    depth, shallowest_marker, ArchiveIndex, DetectMatch, ImportPlan, ManagedPack, ModpackImporter,
+};
 
 /// 组件图标记 basename。
 const MARK_PACK: &str = "mmc-pack.json";
@@ -136,16 +138,6 @@ fn mmc_loader_to_core(kind: MmcLoaderKind) -> mc_types::LoaderKind {
     }
 }
 
-/// 找 basename 恰为 `name` 的最浅命中条目(`/` 段数最少)。
-fn shallowest_marker(archive: &dyn ArchiveIndex, name: &str) -> Option<String> {
-    archive
-        .entries()
-        .iter()
-        .filter(|e| basename(e) == name)
-        .min_by_key(|e| depth(e))
-        .cloned()
-}
-
 /// 在两个可选命中里取根更浅者。
 fn shallower(a: Option<String>, b: Option<String>) -> Option<String> {
     match (a, b) {
@@ -154,14 +146,4 @@ fn shallower(a: Option<String>, b: Option<String>) -> Option<String> {
         (None, Some(y)) => Some(y),
         (None, None) => None,
     }
-}
-
-/// 条目 basename(最后一个 `/` 之后)。
-fn basename(entry: &str) -> &str {
-    entry.rsplit('/').next().unwrap_or(entry)
-}
-
-/// 路径深度(`/` 段数)。
-fn depth(entry: &str) -> usize {
-    entry.split('/').filter(|s| !s.is_empty()).count()
 }

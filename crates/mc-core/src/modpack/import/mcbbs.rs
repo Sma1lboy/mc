@@ -25,7 +25,8 @@ use crate::modplatform::provider::ProviderRegistry;
 
 use super::curseforge::{loader_kind_from_family, resolve_curseforge_refs};
 use super::{
-    ArchiveIndex, BlockedFile, DetectMatch, ImportPlan, ManagedPack, ModpackImporter, UnresolvedRef,
+    shallowest_marker, ArchiveIndex, BlockedFile, DetectMatch, ImportPlan, ManagedPack,
+    ModpackImporter, UnresolvedRef,
 };
 
 /// MCBBS 唯一命名标记 basename。
@@ -157,22 +158,3 @@ pub(crate) fn plan_from_packmeta(meta: &McbbsPackMeta) -> Result<ImportPlan> {
     Ok(plan)
 }
 
-/// 找 basename 恰为 `name` 的最浅命中条目。
-fn shallowest_marker(archive: &dyn ArchiveIndex, name: &str) -> Option<String> {
-    archive
-        .entries()
-        .iter()
-        .filter(|e| basename(e) == name)
-        .min_by_key(|e| depth(e))
-        .cloned()
-}
-
-/// 条目 basename(最后一个 `/` 之后)。
-fn basename(entry: &str) -> &str {
-    entry.rsplit('/').next().unwrap_or(entry)
-}
-
-/// 路径深度(`/` 段数)。
-fn depth(entry: &str) -> usize {
-    entry.split('/').filter(|s| !s.is_empty()).count()
-}

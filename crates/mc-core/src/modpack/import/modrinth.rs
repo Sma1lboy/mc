@@ -20,7 +20,10 @@ use mc_types::LoaderKind;
 use crate::error::{CoreError, Result};
 use crate::modpack::formats::mrpack::{EnvSupport, MrpackIndex};
 
-use super::{ArchiveIndex, DetectMatch, ImportPlan, ManagedPack, ModpackImporter, PlannedFile};
+use super::{
+    basename, depth, ArchiveIndex, DetectMatch, ImportPlan, ManagedPack, ModpackImporter,
+    PlannedFile,
+};
 
 /// `modrinth.index.json` 的标记 basename。
 const MARK: &str = "modrinth.index.json";
@@ -130,14 +133,4 @@ fn loader_from_dependencies(
         return Some((LoaderKind::Quilt, v.clone()));
     }
     None
-}
-
-/// 条目 basename(最后一个 `/` 之后)。
-fn basename(entry: &str) -> &str {
-    entry.rsplit('/').next().unwrap_or(entry)
-}
-
-/// 路径深度(`/` 段数);用于在多命中里取最浅根。
-fn depth(entry: &str) -> usize {
-    entry.split('/').filter(|s| !s.is_empty()).count()
 }

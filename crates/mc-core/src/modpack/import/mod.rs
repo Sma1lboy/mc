@@ -90,6 +90,33 @@ pub trait ArchiveIndex {
 }
 
 // ===========================================================================
+// 归档路径小工具
+// ---------------------------------------------------------------------------
+// 四个 importer adapter 此前各自重定义了一份 basename/depth(字节级相同),
+// mcbbs/multimc 还各重定义了 shallowest_marker。统一到这里,改一处全生效。
+// ===========================================================================
+
+/// 条目的 basename(最后一个 `/` 之后;无 `/` 时即原串)。
+pub(crate) fn basename(entry: &str) -> &str {
+    entry.rsplit('/').next().unwrap_or(entry)
+}
+
+/// 条目的路径深度(非空路径段数)。
+pub(crate) fn depth(entry: &str) -> usize {
+    entry.split('/').filter(|s| !s.is_empty()).count()
+}
+
+/// 在归档里找 basename == `name` 的**最浅**条目(在嵌套包里定位标记文件)。
+pub(crate) fn shallowest_marker(archive: &dyn ArchiveIndex, name: &str) -> Option<String> {
+    archive
+        .entries()
+        .iter()
+        .filter(|e| basename(e) == name)
+        .min_by_key(|e| depth(e))
+        .cloned()
+}
+
+// ===========================================================================
 // 与来源无关的中间模型
 // ===========================================================================
 
@@ -115,7 +142,7 @@ impl DetectMatch {
     pub fn from_marker(format: &str, marker_path: &str) -> Self {
         let root = parent_dir(marker_path);
         // 根越浅置信度越高(深度 0 → 1000,每深一层 -1)。
-        let depth = root.split('/').filter(|s| !s.is_empty()).count() as u32;
+        let depth = depth(&root) as u32;
         DetectMatch {
             format: format.to_string(),
             archive_root: root,

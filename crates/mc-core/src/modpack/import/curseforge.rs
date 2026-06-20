@@ -30,8 +30,8 @@ use crate::modplatform::provider::ProviderRegistry;
 use crate::modplatform::ProviderId;
 
 use super::{
-    ArchiveIndex, BlockedFile, DetectMatch, ImportPlan, ManagedPack, ModpackImporter, PlannedFile,
-    UnresolvedRef,
+    basename, depth, ArchiveIndex, BlockedFile, DetectMatch, ImportPlan, ManagedPack,
+    ModpackImporter, PlannedFile, UnresolvedRef,
 };
 
 /// CurseForge manifest 的标记 basename。
@@ -286,12 +286,3 @@ fn sanitize_filename(name: &str) -> String {
         .replace('\0', "")
 }
 
-/// 条目 basename(最后一个 `/` 之后)。
-fn basename(entry: &str) -> &str {
-    entry.rsplit('/').next().unwrap_or(entry)
-}
-
-/// 路径深度(`/` 段数);用于在多命中里取最浅根。
-fn depth(entry: &str) -> usize {
-    entry.split('/').filter(|s| !s.is_empty()).count()
-}
