@@ -6,6 +6,8 @@ import {
   createSignal,
 } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
+import { Portal } from "solid-js/web";
+import { Menu } from "@ark-ui/solid/menu";
 import { Avatar } from "../components";
 import type { AccountSummary, AccountKind } from "../ipc/types";
 import "./ContextBar.css"; // 残留:@keyframes ctx-pulse(骨架脉冲)
@@ -57,8 +59,6 @@ const ContextBar: Component = () => {
     return await invoke<AccountSummary[]>("list_accounts");
   });
 
-  // 选择器展开态
-  const [open, setOpen] = createSignal(false);
   // 切换账号时的错误提示(后端命令缺失/失败时显示,不崩 UI)
   const [switchErr, setSwitchErr] = createSignal<string | null>(null);
 
@@ -74,17 +74,12 @@ const ContextBar: Component = () => {
   // 成功后收起下拉并刷新列表。命令不存在/失败时记录错误、不阻塞 UI。
   const pick = async (acc: AccountSummary) => {
     setSwitchErr(null);
-    if (acc.selected) {
-      setOpen(false);
-      return;
-    }
+    if (acc.selected) return;
     try {
       await invoke("select_account", { uuid: acc.uuid });
       await refetch();
     } catch (e) {
       setSwitchErr(typeof e === "string" ? e : "切换账号失败");
-    } finally {
-      setOpen(false);
     }
   };
 
@@ -131,72 +126,66 @@ const ContextBar: Component = () => {
                 </div>
               }
             >
-              {/* 选择器触发器 */}
-              <button
-                class="group flex items-center gap-[10px] w-full p-[10px] border bg-card cursor-pointer text-left transition-[background-color,border-color] duration-[var(--dur)] ease-app hover:bg-n-5 hover:border-a-4 motion-reduce:transition-none"
-                classList={{
-                  open: open(),
-                  "border-n-6 rounded-ctl": !open(),
-                  "border-a-4 rounded-ctl rounded-bl-none rounded-br-none": open(),
+              {/* 账号切换:Ark Menu(键盘可达 + 点外部/Esc 自动收起) */}
+              <Menu.Root
+                positioning={{ placement: "bottom", sameWidth: true }}
+                onSelect={(d: { value: string }) => {
+                  const acc = accounts()?.find((a) => a.uuid === d.value);
+                  if (acc) void pick(acc);
                 }}
-                onClick={() => setOpen((v) => !v)}
-                aria-expanded={open()}
-                aria-haspopup="listbox"
               >
-                <span class="w-[36px] h-[36px] flex-shrink-0 rounded-xs grid place-items-center text-[15px] font-semibold text-white bg-[linear-gradient(135deg,var(--a-3),var(--a-5))]">
-                  <Avatar kind={current()?.kind} uuid={current()?.uuid} />
-                </span>
-                <span class={META}>
-                  <span class={NAME}>{current()?.username}</span>
-                  <span class={KIND}>
-                    {current() ? KIND_LABEL[current()!.kind] : ""}
-                  </span>
-                </span>
-                <span
-                  class="flex-shrink-0 text-dim grid place-items-center transition-transform duration-[var(--dur)] ease-app group-[.open]:rotate-180 motion-reduce:transition-none"
-                  aria-hidden="true"
+                <Menu.Trigger
+                  class="group flex items-center gap-[10px] w-full p-[10px] border border-n-6 rounded-ctl bg-card cursor-pointer text-left transition-[background-color,border-color] duration-[var(--dur)] ease-app hover:bg-n-5 hover:border-a-4 data-[state=open]:border-a-4 motion-reduce:transition-none"
+                  aria-label="切换账号"
                 >
-                  <ChevronDown />
-                </span>
-              </button>
+                  <span class="w-[36px] h-[36px] flex-shrink-0 rounded-xs grid place-items-center text-[15px] font-semibold text-white bg-[linear-gradient(135deg,var(--a-3),var(--a-5))]">
+                    <Avatar kind={current()?.kind} uuid={current()?.uuid} />
+                  </span>
+                  <span class={META}>
+                    <span class={NAME}>{current()?.username}</span>
+                    <span class={KIND}>{current() ? KIND_LABEL[current()!.kind] : ""}</span>
+                  </span>
+                  <span
+                    class="flex-shrink-0 text-dim grid place-items-center transition-transform duration-[var(--dur)] ease-app group-data-[state=open]:rotate-180 motion-reduce:transition-none"
+                    aria-hidden="true"
+                  >
+                    <ChevronDown />
+                  </span>
+                </Menu.Trigger>
+
+                <Portal>
+                  <Menu.Positioner>
+                    <Menu.Content class="z-[300] mt-[2px] m-0 p-[4px] border border-n-6 rounded-ctl bg-card flex flex-col gap-[2px] shadow-card focus:outline-none">
+                      <For each={accounts()}>
+                        {(acc) => (
+                          <Menu.Item
+                            value={acc.uuid}
+                            class="flex items-center gap-[10px] p-[8px] rounded-xs cursor-pointer select-none transition-[background] duration-[var(--dur)] ease-app data-[highlighted]:bg-n-5 motion-reduce:transition-none"
+                            classList={{
+                              "bg-[color-mix(in_srgb,var(--a-4)_14%,transparent)]": acc.selected,
+                            }}
+                          >
+                            <span class="w-[30px] h-[30px] flex-shrink-0 rounded-xs grid place-items-center text-[13px] font-semibold text-white bg-[linear-gradient(135deg,var(--a-3),var(--a-5))]">
+                              <Avatar kind={acc.kind} uuid={acc.uuid} />
+                            </span>
+                            <span class={META}>
+                              <span class={NAME}>{acc.username}</span>
+                              <span class={KIND}>{KIND_LABEL[acc.kind]}</span>
+                            </span>
+                            <Show when={acc.selected}>
+                              <span class="text-a-5 text-[14px] flex-shrink-0" aria-hidden="true">✓</span>
+                            </Show>
+                          </Menu.Item>
+                        )}
+                      </For>
+                    </Menu.Content>
+                  </Menu.Positioner>
+                </Portal>
+              </Menu.Root>
 
               {/* 切换错误提示 */}
               <Show when={switchErr()}>
                 <div class="mt-[6px] text-[12px] text-[#e5848a]">{switchErr()}</div>
-              </Show>
-
-              {/* 下拉:全部账号 */}
-              <Show when={open()}>
-                <ul
-                  class="list-none m-0 p-[4px] border border-a-4 border-t-0 rounded-bl-ctl rounded-br-ctl bg-card flex flex-col gap-[2px] shadow-card"
-                  role="listbox"
-                >
-                  <For each={accounts()}>
-                    {(acc) => (
-                      <li
-                        role="option"
-                        aria-selected={acc.selected}
-                        class="flex items-center gap-[10px] p-[8px] rounded-xs cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-n-5 motion-reduce:transition-none"
-                        classList={{
-                          "bg-[color-mix(in_srgb,var(--a-4)_14%,transparent)]":
-                            acc.selected,
-                        }}
-                        onClick={() => pick(acc)}
-                      >
-                        <span class="w-[30px] h-[30px] flex-shrink-0 rounded-xs grid place-items-center text-[13px] font-semibold text-white bg-[linear-gradient(135deg,var(--a-3),var(--a-5))]">
-                          <Avatar kind={acc.kind} uuid={acc.uuid} />
-                        </span>
-                        <span class={META}>
-                          <span class={NAME}>{acc.username}</span>
-                          <span class={KIND}>{KIND_LABEL[acc.kind]}</span>
-                        </span>
-                        <Show when={acc.selected}>
-                          <span class="text-a-5 text-[14px] flex-shrink-0" aria-hidden="true">✓</span>
-                        </Show>
-                      </li>
-                    )}
-                  </For>
-                </ul>
               </Show>
             </Show>
           </Show>
