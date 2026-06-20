@@ -9,6 +9,7 @@ import {
 } from "../components";
 import { api, onGameLog, onLaunchProgress } from "../ipc/api";
 import { currentRoot } from "../store";
+import { openInstanceDir, exportInstanceMrpack, deleteInstance } from "../util/instanceActions";
 import type { InstanceSummary, SearchHit } from "../ipc/types";
 
 /**
@@ -47,7 +48,7 @@ function toHit(h: SearchHit): ModpackHit {
 
 const Home: Component = () => {
   // 实例列表:依赖 currentRoot,空根目录用 "" 让后端落到默认根。
-  const [instances] = createResource(
+  const [instances, { refetch: refetchInstances }] = createResource(
     () => currentRoot() ?? "",
     (root) => api.listInstances(root),
   );
@@ -112,7 +113,12 @@ const Home: Component = () => {
                 <InstanceRow
                   instance={toRowData(inst)}
                   onPlay={play}
-                  onMenu={() => {}}
+                  onOpenDir={(id) => void openInstanceDir(currentRoot() ?? "", id)}
+                  onExport={() => void exportInstanceMrpack(currentRoot() ?? "", toRowData(inst))}
+                  onDelete={async (id) => {
+                    if (await deleteInstance(currentRoot() ?? "", { id, name: toRowData(inst).name }))
+                      refetchInstances();
+                  }}
                 />
               )}
             </For>

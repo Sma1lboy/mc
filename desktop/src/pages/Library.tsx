@@ -9,6 +9,7 @@ import {
 } from "../components";
 import { api, onInstallProgress } from "../ipc/api";
 import { currentRoot } from "../store";
+import { openInstanceDir, exportInstanceMrpack, deleteInstance } from "../util/instanceActions";
 import type { InstanceSummary, ManifestVersion } from "../ipc/types";
 
 /**
@@ -127,6 +128,12 @@ const Library: Component = () => {
                       .then(() => toast({ type: "info", message: `启动 ${id}` }))
                       .catch((e) => toast({ type: "error", message: `${e}` }))
                   }
+                  onOpenDir={(id) => void openInstanceDir(currentRoot() ?? "", id)}
+                  onExport={() => void exportInstanceMrpack(currentRoot() ?? "", toRowData(inst))}
+                  onDelete={async (id) => {
+                    if (await deleteInstance(currentRoot() ?? "", { id, name: toRowData(inst).name }))
+                      refetch();
+                  }}
                 />
               )}
             </For>
