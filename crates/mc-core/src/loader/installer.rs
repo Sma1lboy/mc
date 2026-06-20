@@ -145,7 +145,7 @@ pub async fn finalize(
     progress: Option<watch::Sender<Progress>>,
 ) -> Result<()> {
     let profile = launch::resolve_disk_profile(paths, id)?;
-    let ctx = RuntimeContext::default();
+    let ctx = RuntimeContext::for_launch();
     launch::ensure_files(dl, paths, &profile, &ctx, progress).await
 }
 

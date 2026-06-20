@@ -2,6 +2,7 @@
 //! `docs/modules/version-system.md` §4.
 
 use std::collections::BTreeMap;
+use std::sync::OnceLock;
 
 use serde::Deserialize;
 
@@ -46,6 +47,74 @@ impl Default for RuntimeContext {
     fn default() -> Self {
         Self { platform: Platform::current(), os_version: String::new(), features: FeatureSet::default() }
     }
+}
+
+impl RuntimeContext {
+    /// 真正启动/装库时用的上下文:在 [`Default`] 基础上**填上探测到的 OS 版本**,
+    /// 让 `os.version` 库规则真正生效。探测失败回退空串 = 退化成 [`Default`] 行为(规则跳过)。
+    ///
+    /// 与 `default()` 分开:`default()` 保持空版本、零 IO、确定性,供单测使用;
+    /// 只有真实安装/启动路径才走这个会做子进程探测的构造器。
+    pub fn for_launch() -> Self {
+        Self {
+            platform: Platform::current(),
+            os_version: detected_os_version().to_string(),
+            features: FeatureSet::default(),
+        }
+    }
+}
+
+/// 进程内缓存探测到的 OS 版本(整个进程生命周期不变,探测一次即可)。
+fn detected_os_version() -> &'static str {
+    static CACHE: OnceLock<String> = OnceLock::new();
+    CACHE.get_or_init(detect_os_version)
+}
+
+/// 探测当前操作系统的版本号,失败一律返回空串(调用方据此跳过 os.version 规则,
+/// 即维持「未填版本」的旧行为,绝不因探测失败而破坏启动)。
+///
+/// - macOS:`sw_vers -productVersion` → 如 `14.1.2`。
+/// - Windows:`cmd /C ver` → 抽出 `10.0.19045.3803`。Mojang 的 os.version 规则几乎只针对 Windows。
+/// - Linux / 其它:返回空串——Mojang 不对其用 os.version 规则,保持旧行为最稳。
+fn detect_os_version() -> String {
+    #[cfg(target_os = "macos")]
+    {
+        run_trimmed("sw_vers", &["-productVersion"])
+    }
+    #[cfg(target_os = "windows")]
+    {
+        parse_windows_ver(&run_trimmed("cmd", &["/C", "ver"]))
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        String::new()
+    }
+}
+
+/// 跑一个命令并返回 trim 过的 stdout;任何失败返回空串。
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn run_trimmed(program: &str, args: &[&str]) -> String {
+    std::process::Command::new(program)
+        .args(args)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default()
+}
+
+/// 从 `cmd /C ver` 的输出里抽版本号:
+/// `Microsoft Windows [Version 10.0.19045.3803]` → `10.0.19045.3803`。
+/// 纯函数,各平台都编译以便测试(非 Windows 的 lib 构建里它不被调用,故允许 dead_code)。
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn parse_windows_ver(output: &str) -> String {
+    output
+        .find("Version ")
+        .map(|i| &output[i + "Version ".len()..])
+        .and_then(|rest| rest.split(']').next())
+        .map(|v| v.trim().to_string())
+        .unwrap_or_default()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -217,12 +286,40 @@ mod tests {
 
     #[test]
     fn empty_os_version_ignores_the_version_clause() {
-        // os_version 为空(运行时现状)时跳过 version 子句,仅按 name 匹配 —— 行为不变。
+        // os_version 为空时跳过 version 子句,仅按 name 匹配 —— default() 的行为。
         let rules: Vec<Rule> = serde_json::from_str(
             r#"[{"action":"allow","os":{"name":"windows","version":"^10\\."}}]"#,
         )
         .unwrap();
         assert!(rules_allow(&rules, &ctx(Os::Windows, Arch::X64)));
+    }
+
+    #[test]
+    fn parses_windows_ver_output() {
+        assert_eq!(
+            parse_windows_ver("Microsoft Windows [Version 10.0.19045.3803]"),
+            "10.0.19045.3803"
+        );
+        assert_eq!(parse_windows_ver("\r\nMicrosoft Windows [Version 6.3.9600]\r\n"), "6.3.9600");
+        assert_eq!(parse_windows_ver("no version here"), "");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn detects_a_plausible_macos_version() {
+        let v = detect_os_version();
+        assert!(!v.is_empty(), "expected a non-empty macOS version");
+        assert!(
+            v.chars().next().unwrap().is_ascii_digit(),
+            "version should start with a digit, got {v:?}"
+        );
+    }
+
+    #[test]
+    fn for_launch_does_not_panic_and_matches_platform() {
+        // 真实探测随机器而定;只断言构造成功且 platform 与 default 一致。
+        let c = RuntimeContext::for_launch();
+        assert_eq!(c.platform.os, RuntimeContext::default().platform.os);
     }
 
     #[test]

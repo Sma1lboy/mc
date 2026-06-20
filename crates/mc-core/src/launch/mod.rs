@@ -183,7 +183,7 @@ pub async fn install_version(
     let _ = crate::fs::ensure_launcher_profiles(paths.root());
 
     let profile = resolve_disk_profile(paths, &entry.id)?;
-    let ctx = RuntimeContext::default();
+    let ctx = RuntimeContext::for_launch();
     ensure_files(dl, paths, &profile, &ctx, progress).await
 }
 
@@ -216,7 +216,7 @@ pub async fn launch(
     progress: Option<watch::Sender<Progress>>,
 ) -> Result<tokio::process::Child> {
     let paths = spec.instance.paths();
-    let ctx = RuntimeContext::default();
+    let ctx = RuntimeContext::for_launch();
     let version_id = spec.instance.version_id().to_string();
 
     // 0. guard against paths that silently break Java (the infamous '!').
