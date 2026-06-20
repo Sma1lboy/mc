@@ -26,6 +26,7 @@ pub fn run() {
             commands::launch_instance,
             commands::import_modpack,
             commands::export_modpack,
+            commands::install_modrinth_modpack,
             commands::log_boot,
         ])
         .run(tauri::generate_context!())

@@ -154,6 +154,22 @@ export const api = {
     });
   },
 
+  /**
+   * 从 Modrinth 安装一个整合包(取最新版 .mrpack → 下载 + 安装成可启动实例)。
+   * 首次会下载原版 Minecraft 与依赖,可能耗时数分钟。
+   */
+  installModrinthModpack(
+    root: string,
+    projectId: string,
+    instanceId?: string | null,
+  ): Promise<ImportOutcome> {
+    return invoke<ImportOutcome>("install_modrinth_modpack", {
+      root,
+      projectId,
+      instanceId: instanceId ?? null,
+    });
+  },
+
   /** 读取持久化的主题配置 */
   getTheme(): Promise<ThemeConfig> {
     return invoke<ThemeConfig>("get_theme");

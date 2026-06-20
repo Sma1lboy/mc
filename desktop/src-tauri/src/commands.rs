@@ -520,3 +520,55 @@ pub async fn export_modpack(
     };
     Ok(final_path.to_string_lossy().into_owned())
 }
+
+/// 从 Modrinth 安装一个整合包:取该项目最新版本的 `.mrpack` 下载地址,经导入引擎
+/// 下载 + 识别 + 安装(原版 + loader + mods + overrides)成一个可启动实例。
+#[tauri::command]
+pub async fn install_modrinth_modpack(
+    root: String,
+    project_id: String,
+    instance_id: Option<String>,
+) -> CmdResult<ImportOutcomeDto> {
+    use mc_core::download::MirrorResolver;
+    use mc_core::modpack::import::{ImportEngine, ImportOptions, ImportSource};
+    use mc_core::modplatform::provider::ProviderRegistry;
+
+    // 1) 取最新版本的 .mrpack 下载地址。
+    let api = ModrinthApi::new();
+    let versions = api.get_versions(&project_id, None, None).await.map_err(err)?;
+    let version = versions
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("整合包 {project_id} 没有可用版本"))?;
+    let url = version
+        .files
+        .iter()
+        .find(|f| f.filename.ends_with(".mrpack"))
+        .or_else(|| version.primary_file())
+        .ok_or_else(|| "该整合包版本没有可下载的 .mrpack 文件".to_string())?
+        .url
+        .clone();
+
+    // 2) 从 URL 导入(引擎先下到临时文件,再识别格式 + 安装)。
+    let paths = root_paths(&root);
+    let dl = Downloader::new(16).map_err(err)?.with_mirror(MirrorResolver::china());
+    let engine = ImportEngine::with_defaults(dl, ProviderRegistry::with_defaults());
+    let mut opts = ImportOptions::new(paths.root().to_path_buf());
+    opts.instance_id = instance_id;
+    let outcome = engine.import(ImportSource::Url(url), opts).await.map_err(err)?;
+
+    Ok(ImportOutcomeDto {
+        instance_id: outcome.instance_id,
+        blocked: outcome
+            .blocked
+            .into_iter()
+            .map(|b| BlockedFileDto {
+                name: b.name,
+                website_url: b.website_url,
+                target_dir: b.target_dir,
+                required: b.required,
+            })
+            .collect(),
+        skipped_optional: outcome.skipped_optional,
+    })
+}
