@@ -1,5 +1,13 @@
 import { JSX, splitProps } from "solid-js";
-import "./Card.css";
+
+// 基础卡片样式(Tailwind 内联):背景/圆角/阴影/内距 + 颜色过渡。
+const CARD_BASE =
+  "bg-card rounded-card shadow-card p-4 border border-transparent " +
+  "transition-[transform,box-shadow,background-color,border-color] duration-200 ease-app";
+// hover 卡片:上移 + 阴影加深 + 轻边框,active 回落一点。
+const CARD_HOVER =
+  "cursor-pointer hover:-translate-y-[3px] " +
+  "hover:shadow-[0_8px_24px_rgba(0,0,0,0.45)] hover:border-n-6 active:-translate-y-px";
 
 // Card —— 通用卡片容器。
 // props 契约:
@@ -29,7 +37,7 @@ export function Card(props: CardProps): JSX.Element {
   return (
     <div
       {...rest}
-      class={`ui-card${local.hover ? " ui-card--hover" : ""}${
+      class={`${CARD_BASE}${local.hover ? " " + CARD_HOVER : ""}${
         local.class ? " " + local.class : ""
       }`}
       style={local.style}

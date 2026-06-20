@@ -1,5 +1,4 @@
 import { JSX, mergeProps } from "solid-js";
-import "./Icon.css";
 
 /* ============================================================================
  * components/Icon.tsx —— 统一图标组件(docs/modules/ui-polish.md §3 / §5)
@@ -152,9 +151,15 @@ export function Icon(props: IconProps): JSX.Element {
   const def = (): IconDef => REGISTRY[merged.name];
   const decorative = (): boolean => merged.label === undefined;
 
+  // .ui-icon 的等价 Tailwind:inline-block + shrink-0 + 垂直居中,color 走 currentColor,
+  // 颜色/填充/描边过渡读 --mo-dur-fast(120ms,fast 档)+ --mo-ease-out(= ease-emph)。
+  const ICON_BASE =
+    "inline-block shrink-0 align-middle text-current " +
+    "transition-[color,fill,stroke] duration-[var(--mo-dur-fast)] ease-emph";
+
   return (
     <svg
-      class={`ui-icon${merged.class ? " " + merged.class : ""}`}
+      class={`${ICON_BASE}${merged.class ? " " + merged.class : ""}`}
       width={merged.size}
       height={merged.size}
       viewBox={def().viewBox}

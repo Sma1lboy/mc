@@ -1,5 +1,20 @@
 import { JSX, Show } from "solid-js";
-import "./PlayButton.css";
+import "./PlayButton.css"; // 残留 @keyframes(旋转环动画 ui-play-spin)
+
+// 按钮基础样式(Tailwind 内联):accent 主操作按钮。
+//   - 数值严格对齐原 CSS: gap 7px / padding 9px 18px / font 600 / line-height 1。
+//   - 颜色/圆角/缓动走令牌桥接;--fs-base / --dur 不在桥接表 -> 引用原变量。
+//   - 白字 #ffffff 直接字面量。
+const PLAY_BASE =
+  "inline-flex items-center justify-center gap-[7px] " +
+  "text-[var(--fs-base)] font-sans font-semibold leading-none " +
+  "py-[9px] px-[18px] border-none rounded-ctl text-[#ffffff] " +
+  "cursor-pointer select-none whitespace-nowrap bg-a-4 " +
+  "transition-[background-color,transform,opacity] duration-[var(--dur)] ease-app " +
+  "hover:not-disabled:bg-a-5 active:not-disabled:bg-a-3 active:not-disabled:translate-y-px " +
+  "disabled:opacity-50 disabled:cursor-not-allowed";
+// running 态:更深 accent 区分"正在运行";hover 偏红警示可点击停止。
+const PLAY_RUNNING = "bg-a-2 hover:not-disabled:bg-[#c0463f]";
 
 // PlayButton —— 启动游戏的主操作按钮 (accent 色)。
 // props 契约:
@@ -20,7 +35,7 @@ export function PlayButton(props: PlayButtonProps): JSX.Element {
   return (
     <button
       type="button"
-      class={`ui-play${props.running ? " ui-play--running" : ""}`}
+      class={`${PLAY_BASE}${props.running ? " " + PLAY_RUNNING : ""}`}
       disabled={props.disabled}
       onClick={(e) => {
         if (props.disabled) return;
@@ -33,7 +48,7 @@ export function PlayButton(props: PlayButtonProps): JSX.Element {
         fallback={
           // ▶ 播放三角 (内联 SVG, 用 currentColor 跟随文字色)。
           <svg
-            class="ui-play__icon"
+            class="block shrink-0"
             width="13"
             height="13"
             viewBox="0 0 12 12"
@@ -46,7 +61,7 @@ export function PlayButton(props: PlayButtonProps): JSX.Element {
       >
         {/* running 态: 旋转环 + 中心 ■ 方块, 表达"运行中且可停止"。 */}
         <svg
-          class="ui-play__icon ui-play__spin"
+          class="block shrink-0 ui-play__spin"
           width="14"
           height="14"
           viewBox="0 0 16 16"

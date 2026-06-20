@@ -1,7 +1,6 @@
 import { JSX, Show } from "solid-js";
 import { PlayButton } from "./PlayButton";
 import { formatRelativeTime } from "./format";
-import "./InstanceRow.css";
 
 // InstanceRow 接收的实例形状。与后端 InstanceSummary 字段对齐
 // (id,name,mc_version,loader,loader_version,icon,last_played,running)。
@@ -53,39 +52,45 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
   };
 
   return (
-    <div class="ui-irow">
+    <div class="flex items-center gap-[14px] bg-card rounded-card shadow-card border border-transparent px-[14px] py-[12px] transition-[transform,box-shadow,border-color,background-color] duration-[var(--dur)] ease-app hover:-translate-y-[2px] hover:shadow-[0_6px_20px_rgba(0,0,0,0.42)] hover:border-n-6">
       {/* 左: 图标 (有 icon 显示图片, 否则渐变 + 首字母)。 */}
-      <div class="ui-irow__icon">
+      <div class="relative shrink-0 w-[48px] h-[48px] rounded-ctl overflow-hidden flex items-center justify-center bg-gradient-to-br from-a-3 to-a-5 text-white font-bold text-[20px] uppercase select-none">
         <Show when={inst().icon} fallback={<span>{initial()}</span>}>
-          <img src={inst().icon} alt="" loading="lazy" />
+          <img src={inst().icon} alt="" loading="lazy" class="w-full h-full object-cover block" />
         </Show>
         {/* 运行中绿点。 */}
         <Show when={inst().running}>
-          <span class="ui-irow__running-dot" title="Running" />
+          <span
+            class="absolute right-[2px] bottom-[2px] w-[11px] h-[11px] rounded-full bg-a-5 shadow-[0_0_0_2px_var(--bg-card)]"
+            title="Running"
+          />
         </Show>
       </div>
 
       {/* 中: 名称 + 元信息。 */}
-      <div class="ui-irow__main">
-        <div class="ui-irow__name" title={inst().name}>
+      <div class="flex-1 min-w-0 flex flex-col gap-[3px]">
+        <div
+          class="text-[length:var(--fs-base)] font-semibold text-fg whitespace-nowrap overflow-hidden text-ellipsis"
+          title={inst().name}
+        >
           {inst().name}
         </div>
-        <div class="ui-irow__meta">
+        <div class="text-[12px] text-dim whitespace-nowrap overflow-hidden text-ellipsis flex items-center gap-[6px]">
           <span>{loaderLabel()}</span>
-          <span class="ui-irow__sep">·</span>
+          <span class="opacity-50">·</span>
           <span>{playedLabel()}</span>
         </div>
       </div>
 
       {/* 右: Play + ⋮ 菜单。 */}
-      <div class="ui-irow__actions">
+      <div class="shrink-0 flex items-center gap-[6px]">
         <PlayButton
           running={inst().running}
           onClick={() => props.onPlay?.(inst().id)}
         />
         <button
           type="button"
-          class="ui-irow__menu"
+          class="inline-flex items-center justify-center w-[34px] h-[34px] border-none bg-transparent text-dim rounded-ctl cursor-pointer transition-[background-color,color] duration-[var(--dur)] ease-app hover:bg-n-5 hover:text-fg"
           aria-label="More options"
           onClick={(e) => props.onMenu?.(inst().id, e)}
         >

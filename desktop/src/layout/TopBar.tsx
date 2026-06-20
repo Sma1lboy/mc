@@ -4,7 +4,6 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { currentPage, currentRoot, switchLayout } from "../store";
 import type { InstanceSummary } from "../ipc/types";
-import "./TopBar.css";
 
 /**
  * TopBar —— 48px 顶栏(无边框窗口的自绘标题栏)。
@@ -26,27 +25,27 @@ const PAGE_TITLES: Record<string, string> = {
 };
 
 const MinimizeIcon = () => (
-  <svg viewBox="0 0 12 12" aria-hidden="true">
+  <svg class="w-[12px] h-[12px]" viewBox="0 0 12 12" aria-hidden="true">
     <line x1="2.5" y1="6" x2="9.5" y2="6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" />
   </svg>
 );
 
 const CloseIcon = () => (
-  <svg viewBox="0 0 12 12" aria-hidden="true">
+  <svg class="w-[12px] h-[12px]" viewBox="0 0 12 12" aria-hidden="true">
     <line x1="3" y1="3" x2="9" y2="9" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" />
     <line x1="9" y1="3" x2="3" y2="9" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" />
   </svg>
 );
 
 const ArrowLeft = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+  <svg class="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <path d="m14 6-6 6 6 6" />
   </svg>
 );
 
 const ArrowRight = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+  <svg class="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <path d="m10 6 6 6-6 6" />
   </svg>
@@ -96,55 +95,84 @@ const TopBar: Component = () => {
 
   return (
     // data-tauri-drag-region:让顶栏空白处可拖动窗口
-    <header class="topbar" data-tauri-drag-region>
+    <header
+      class="[grid-area:topbar] h-[48px] flex items-center justify-between bg-n-2 border-b border-n-6 pl-[14px] pr-[8px] box-border select-none"
+      data-tauri-drag-region
+    >
       {/* 左侧:Logo 名 + 导航箭头 + 标题 */}
-      <div class="topbar-left" data-tauri-drag-region>
-        <span class="topbar-brand" data-tauri-drag-region>MC Launcher</span>
+      <div class="flex items-center gap-[10px] min-w-0" data-tauri-drag-region>
+        <span
+          class="text-[13px] font-semibold text-fg tracking-[0.2px] whitespace-nowrap"
+          data-tauri-drag-region
+        >
+          MC Launcher
+        </span>
 
         {/* 后退/前进:当前无页面历史栈,渲染为禁用占位(no-drag 避免吞点击) */}
-        <div class="topbar-nav no-drag">
-          <button class="topbar-navbtn" disabled title="后退" aria-label="后退">
+        <div class="flex items-center gap-[2px] [-webkit-app-region:no-drag]">
+          <button
+            class="w-[28px] h-[28px] border-none bg-transparent rounded-ctl text-n-7 cursor-pointer grid place-items-center transition-[background-color,color] duration-[var(--dur)] ease-app motion-reduce:transition-none not-disabled:hover:bg-n-5 not-disabled:hover:text-fg disabled:opacity-35 disabled:cursor-default"
+            disabled
+            title="后退"
+            aria-label="后退"
+          >
             <ArrowLeft />
           </button>
-          <button class="topbar-navbtn" disabled title="前进" aria-label="前进">
+          <button
+            class="w-[28px] h-[28px] border-none bg-transparent rounded-ctl text-n-7 cursor-pointer grid place-items-center transition-[background-color,color] duration-[var(--dur)] ease-app motion-reduce:transition-none not-disabled:hover:bg-n-5 not-disabled:hover:text-fg disabled:opacity-35 disabled:cursor-default"
+            disabled
+            title="前进"
+            aria-label="前进"
+          >
             <ArrowRight />
           </button>
         </div>
 
-        <span class="topbar-title" data-tauri-drag-region>{title()}</span>
+        <span
+          class="text-[var(--fs-base)] font-medium text-fg whitespace-nowrap overflow-hidden text-ellipsis"
+          data-tauri-drag-region
+        >
+          {title()}
+        </span>
       </div>
 
       {/* 右侧:布局切换 + 运行状态 + 窗口控制 */}
-      <div class="topbar-right">
+      <div class="flex items-center gap-[12px]">
         {/* 一键切到 PCL 风(对比两套界面) */}
-        <button class="topbar-layout-switch no-drag" onClick={() => switchLayout("pcl")}>
+        <button
+          class="[-webkit-app-region:no-drag] border border-n-6 bg-n-4 text-dim text-[12px] px-[10px] py-[5px] rounded-ctl cursor-pointer mr-[12px] transition-all duration-[var(--dur)] ease-app hover:bg-a-4 hover:text-white hover:border-a-4"
+          onClick={() => switchLayout("pcl")}
+        >
           切到 PCL 风 ⇄
         </button>
         {/* 运行状态指示:有实例运行时绿点 + 计数,否则灰点 + 无运行 */}
-        <div class="topbar-status" data-tauri-drag-region>
+        <div class="flex items-center gap-[6px]" data-tauri-drag-region>
           <Show
             when={!instances.loading}
-            fallback={<span class="topbar-status-text dim">载入中…</span>}
+            fallback={<span class="text-[12px] text-dim whitespace-nowrap">载入中…</span>}
           >
             <Show
               when={runningCount() > 0}
               fallback={
                 <>
-                  <span class="status-dot idle" aria-hidden="true" />
-                  <span class="topbar-status-text dim">无实例运行</span>
+                  <span class="w-[8px] h-[8px] rounded-full shrink-0 bg-n-6" aria-hidden="true" />
+                  <span class="text-[12px] text-dim whitespace-nowrap">无实例运行</span>
                 </>
               }
             >
-              <span class="status-dot running" aria-hidden="true" />
-              <span class="topbar-status-text">{runningCount()} 个实例运行中</span>
+              <span
+                class="w-[8px] h-[8px] rounded-full shrink-0 bg-a-5 shadow-[0_0_0_3px_color-mix(in_srgb,var(--a-4)_25%,transparent)]"
+                aria-hidden="true"
+              />
+              <span class="text-[12px] text-fg whitespace-nowrap">{runningCount()} 个实例运行中</span>
             </Show>
           </Show>
         </div>
 
-        {/* 窗口控制:no-drag,调 Tauri window API */}
-        <div class="topbar-window no-drag">
+        {/* 窗口控制:no-drag,调 Tauri window API。原生交通灯按钮已提供,这里隐藏自绘控制以免重复。 */}
+        <div class="hidden items-center gap-[2px] [-webkit-app-region:no-drag]">
           <button
-            class="win-btn"
+            class="w-[30px] h-[30px] border-none bg-transparent rounded-ctl text-n-7 cursor-pointer grid place-items-center transition-[background-color,color] duration-[var(--dur)] ease-app motion-reduce:transition-none hover:bg-n-5 hover:text-fg"
             title="最小化"
             aria-label="最小化"
             onClick={() => windowAction((w) => w.minimize())}
@@ -152,7 +180,7 @@ const TopBar: Component = () => {
             <MinimizeIcon />
           </button>
           <button
-            class="win-btn win-close"
+            class="w-[30px] h-[30px] border-none bg-transparent rounded-ctl text-n-7 cursor-pointer grid place-items-center transition-[background-color,color] duration-[var(--dur)] ease-app motion-reduce:transition-none hover:bg-[#e5484d] hover:text-white"
             title="关闭"
             aria-label="关闭"
             onClick={() => windowAction((w) => w.close())}

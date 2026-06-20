@@ -157,44 +157,64 @@ const PclLaunch: Component = () => {
   }
 
   return (
-    <div class="pcl-launch">
+    <div class="grid grid-cols-[300px_1fr] h-full min-h-0 bg-pcl-gray-bg">
       {/* ===== 左栏:账号卡 + 启动区(PCL 固定窄栏) ===== */}
-      <aside class="pcl-side">
+      <aside class="grid grid-rows-[1fr_auto] min-h-0 bg-pcl-card border-r border-pcl-line">
         {/* 账号卡:皮肤头像 + 用户名 + 验证方式,点击打开登录/切换弹窗 */}
-        <button class="pcl-account" onClick={() => setShowLogin(true)} title="点击登录 / 切换账号">
+        <button
+          class="flex flex-col items-center justify-center gap-[10px] p-[24px] text-center w-full border-none bg-transparent cursor-pointer transition-[background] duration-150 ease-[ease] hover:bg-pcl-blue-lightest"
+          onClick={() => setShowLogin(true)}
+          title="点击登录 / 切换账号"
+        >
           <Show
             when={!accounts.loading}
-            fallback={<div class="pcl-avatar pcl-avatar-skel" />}
+            fallback={
+              <div class="w-[84px] h-[84px] rounded-[10px] flex items-center justify-center text-[34px] font-extrabold text-white shadow-pcl [image-rendering:pixelated] bg-pcl-blue-bg2 animate-[pcl-pulse_1.3s_ease-in-out_infinite]" />
+            }
           >
-            <div class="pcl-avatar">
+            <div class="w-[84px] h-[84px] rounded-[10px] flex items-center justify-center text-[34px] font-extrabold text-white shadow-pcl [image-rendering:pixelated] bg-[linear-gradient(135deg,var(--pcl-blue-hover),var(--pcl-blue))]">
               <Avatar kind={activeAccount()?.kind} uuid={activeAccount()?.uuid} />
             </div>
-            <div class="pcl-account-name">{activeAccount()?.username ?? "未登录"}</div>
-            <div class="pcl-account-kind">
+            <div class="text-[18px] font-bold text-pcl-text max-w-full whitespace-nowrap overflow-hidden text-ellipsis">
+              {activeAccount()?.username ?? "未登录"}
+            </div>
+            <div class="text-[12px] text-pcl-text3">
               {activeAccount() ? kindLabel(activeAccount()!.kind) : "点击登录账号"}
             </div>
           </Show>
         </button>
 
         {/* 启动区:招牌按钮(描边 + 版本副标题)+ 版本选择/版本设置 */}
-        <div class="pcl-launchbar">
-          <button class="pcl-launchbtn" disabled={launching()} onClick={launch}>
-            <span class="pcl-launchbtn-main">{launching() ? "启动中…" : "启动游戏"}</span>
-            <span class="pcl-launchbtn-sub">
+        <div class="pt-[14px] px-[20px] pb-[18px]">
+          <button
+            class="w-full h-[54px] flex flex-col items-center justify-center gap-px border-[1.5px] border-pcl-blue rounded-[3px] bg-pcl-blue-lightest cursor-pointer transition-[background,box-shadow,transform] duration-150 ease-[ease] enabled:hover:bg-pcl-blue-bg enabled:hover:shadow-[0_3px_10px_rgba(19,112,243,0.2)] enabled:active:scale-[0.99] disabled:opacity-[0.55] disabled:cursor-not-allowed"
+            disabled={launching()}
+            onClick={launch}
+          >
+            <span class="text-[16px] font-bold tracking-[1px] text-pcl-blue">{launching() ? "启动中…" : "启动游戏"}</span>
+            <span class="text-[11px] text-pcl-text3 max-w-full whitespace-nowrap overflow-hidden text-ellipsis">
               <Show when={selected()} fallback={"未选择版本"}>
                 {selected()!.name || selected()!.id}
               </Show>
             </span>
           </button>
-          <div class="pcl-subbtns">
+          <div class="grid grid-cols-2 gap-[10px] mt-[10px]">
             <button
-              class="pcl-subbtn"
-              classList={{ active: rightView() === "versions" }}
+              class="h-[36px] border border-pcl-line rounded-[3px] bg-pcl-card text-pcl-text text-[13px] cursor-pointer transition-[background,border-color,color] duration-150 ease-[ease] hover:bg-pcl-blue-lightest hover:border-pcl-blue-soft"
+              classList={{
+                "bg-pcl-blue-bg": rightView() === "versions",
+                "border-pcl-blue": rightView() === "versions",
+                "text-pcl-blue": rightView() === "versions",
+                "font-semibold": rightView() === "versions",
+              }}
               onClick={() => setRightView(rightView() === "versions" ? "news" : "versions")}
             >
               版本选择
             </button>
-            <button class="pcl-subbtn" onClick={() => toast({ type: "info", message: "版本设置:待接入" })}>
+            <button
+              class="h-[36px] border border-pcl-line rounded-[3px] bg-pcl-card text-pcl-text text-[13px] cursor-pointer transition-[background,border-color,color] duration-150 ease-[ease] hover:bg-pcl-blue-lightest hover:border-pcl-blue-soft"
+              onClick={() => toast({ type: "info", message: "版本设置:待接入" })}
+            >
               版本设置
             </button>
           </div>
@@ -202,51 +222,61 @@ const PclLaunch: Component = () => {
       </aside>
 
       {/* ===== 右栏:新闻主页 / 版本选择 / 启动日志 ===== */}
-      <section class="pcl-main">
+      <section class="flex flex-col min-h-0 py-[18px] px-[22px] gap-[12px] overflow-auto">
         {/* --- 新闻主页(默认) --- */}
         <Show when={rightView() === "news"}>
-          <div class="pcl-news">
-            <div class="pcl-news-card pcl-news-welcome">
-              <span class="pcl-news-ico">📰</span>
+          <div class="flex flex-col gap-[12px]">
+            <div class="bg-pcl-card rounded-[5px] shadow-pcl py-[14px] px-[16px] flex items-center gap-[12px] bg-[linear-gradient(90deg,var(--pcl-blue-lightest),var(--pcl-card))] border-l-[3px] border-pcl-blue">
+              <span class="text-[22px]">📰</span>
               <div>
-                <div class="pcl-news-h">欢迎使用 PCL 启动器</div>
-                <div class="pcl-news-p">左侧选择账号与版本,点「启动游戏」即可开玩。</div>
+                <div class="text-[14px] font-bold text-pcl-text">欢迎使用 PCL 启动器</div>
+                <div class="text-[12px] text-pcl-text3 mt-[3px]">左侧选择账号与版本,点「启动游戏」即可开玩。</div>
               </div>
             </div>
 
             <button
-              class="pcl-news-card pcl-news-collapse"
+              class="bg-pcl-card rounded-[5px] shadow-pcl py-[14px] px-[16px] flex items-center justify-between w-full border-none cursor-pointer text-left transition-[box-shadow] duration-150 ease-[ease] hover:shadow-pcl-strong"
               onClick={() => setNewsOpen((o) => ({ ...o, cape: !o.cape }))}
             >
-              <span class="pcl-news-h">新披风与披风迁移</span>
-              <span class="pcl-chev" classList={{ open: !!newsOpen().cape }}>⌄</span>
+              <span class="text-[14px] font-bold text-pcl-text">新披风与披风迁移</span>
+              <span
+                class="text-pcl-text3 text-[16px] transition-transform duration-200 ease-[ease]"
+                classList={{ "rotate-180": !!newsOpen().cape }}
+              >
+                ⌄
+              </span>
             </button>
             <Show when={newsOpen().cape}>
-              <div class="pcl-news-card pcl-news-body">
-                <p>Mojang 已开放披风迁移。绑定正版账号后可在游戏内更换披风。</p>
+              <div class="bg-pcl-card rounded-[5px] shadow-pcl py-[14px] px-[16px] text-[13px] text-pcl-text2">
+                <p class="m-0 leading-[1.7]">Mojang 已开放披风迁移。绑定正版账号后可在游戏内更换披风。</p>
               </div>
             </Show>
 
             <button
-              class="pcl-news-card pcl-news-collapse"
+              class="bg-pcl-card rounded-[5px] shadow-pcl py-[14px] px-[16px] flex items-center justify-between w-full border-none cursor-pointer text-left transition-[box-shadow] duration-150 ease-[ease] hover:shadow-pcl-strong"
               onClick={() => setNewsOpen((o) => ({ ...o, snapshot: !o.snapshot }))}
             >
-              <span class="pcl-news-h">
+              <span class="text-[14px] font-bold text-pcl-text">
                 最新快照版
                 <Show when={latestSnapshot()}>{` - ${latestSnapshot()!.id}`}</Show>
               </span>
-              <span class="pcl-chev" classList={{ open: !!newsOpen().snapshot }}>⌄</span>
+              <span
+                class="text-pcl-text3 text-[16px] transition-transform duration-200 ease-[ease]"
+                classList={{ "rotate-180": !!newsOpen().snapshot }}
+              >
+                ⌄
+              </span>
             </button>
             <Show when={newsOpen().snapshot}>
-              <div class="pcl-news-card pcl-news-body">
-                <div class="pcl-news-banner">
+              <div class="bg-pcl-card rounded-[5px] shadow-pcl py-[14px] px-[16px] text-[13px] text-pcl-text2">
+                <div class="h-[150px] rounded-[5px] bg-[linear-gradient(135deg,#7fb0f7_0%,#4890f5_45%,#1370f3_100%)] flex items-center justify-center">
                   <Show when={latestSnapshot()} fallback={<Spinner />}>
-                    <span class="pcl-news-chip">{latestSnapshot()!.id}</span>
+                    <span class="py-[8px] px-[22px] rounded-[6px] bg-[rgba(11,91,203,0.85)] text-white text-[22px] font-bold tracking-[1px]">{latestSnapshot()!.id}</span>
                   </Show>
                 </div>
-                <div class="pcl-news-h" style={{ "margin-top": "12px", color: "var(--pcl-blue)" }}>新特性</div>
+                <div class="text-[14px] font-bold mt-[12px] text-pcl-blue">新特性</div>
                 <Show when={latestSnapshot()}>
-                  <ul class="pcl-news-list">
+                  <ul class="list-disc mt-[6px] mb-0 pl-[18px] text-pcl-text2 text-[13px] leading-[1.9]">
                     <li>发布时间:{new Date(latestSnapshot()!.release_time).toLocaleDateString()}</li>
                     <li>到「下载」标签页可一键安装该快照</li>
                     <li>快照为开发版,建议另建实例体验</li>
@@ -259,15 +289,19 @@ const PclLaunch: Component = () => {
 
         {/* --- 版本选择(点「版本选择」进入) --- */}
         <Show when={rightView() === "versions"}>
-          <div class="pcl-vpane">
-            <div class="pcl-vpane-head">
+          <div class="bg-pcl-card rounded-[5px] shadow-pcl flex flex-col min-h-0 overflow-hidden flex-1">
+            <div class="flex items-center justify-between gap-[8px] py-[10px] px-[16px] text-[13px] font-bold text-pcl-text border-b border-pcl-line">
               <span>版本选择</span>
-              <span class="pcl-vpane-actions">
-                <button class="pcl-vaction" disabled={busy() !== ""} onClick={importModpack}>
+              <span class="flex gap-[6px]">
+                <button
+                  class="border border-pcl-blue text-pcl-blue bg-transparent rounded-[3px] py-[4px] px-[10px] text-[12px] font-semibold cursor-pointer transition-[background,color] duration-[var(--mo-dur-fast,150ms)] ease-[var(--mo-ease-out,ease)] enabled:hover:bg-pcl-blue enabled:hover:text-white disabled:opacity-50 disabled:cursor-default"
+                  disabled={busy() !== ""}
+                  onClick={importModpack}
+                >
                   {busy() === "import" ? "导入中…" : "导入整合包"}
                 </button>
                 <button
-                  class="pcl-vaction"
+                  class="border border-pcl-blue text-pcl-blue bg-transparent rounded-[3px] py-[4px] px-[10px] text-[12px] font-semibold cursor-pointer transition-[background,color] duration-[var(--mo-dur-fast,150ms)] ease-[var(--mo-ease-out,ease)] enabled:hover:bg-pcl-blue enabled:hover:text-white disabled:opacity-50 disabled:cursor-default"
                   disabled={busy() !== "" || !selected()}
                   onClick={exportSelected}
                 >
@@ -275,28 +309,34 @@ const PclLaunch: Component = () => {
                 </button>
               </span>
             </div>
-            <div class="pcl-vlist">
-              <Show when={!instances.loading} fallback={<div class="pcl-vloading"><Spinner /></div>}>
+            <div class="overflow-y-auto py-[4px]">
+              <Show when={!instances.loading} fallback={<div class="flex justify-center p-[28px]"><Spinner /></div>}>
                 <Show
                   when={(instances() ?? []).length > 0}
-                  fallback={<div class="pcl-vempty">还没有版本<br />去「下载」装一个</div>}
+                  fallback={<div class="py-[28px] px-[16px] text-pcl-text3 text-[13px] text-center leading-[1.9]">还没有版本<br />去「下载」装一个</div>}
                 >
                   <For each={pickDefault(instances() ?? [])}>
                     {(inst) => (
                       <button
-                        class="pcl-vrow"
-                        classList={{ active: selected()?.id === inst.id }}
+                        class="relative flex items-center gap-[10px] w-full h-[46px] pl-[16px] pr-[18px] border-none bg-transparent cursor-pointer text-left transition-[background] duration-150 ease-[ease] hover:bg-pcl-blue-bg2 before:content-[''] before:absolute before:left-0 before:top-[7px] before:bottom-[7px] before:w-[3px] before:rounded-[0_2px_2px_0] before:bg-transparent before:transition-[background] before:duration-150 before:ease-[ease] hover:before:bg-pcl-blue-soft"
+                        classList={{
+                          "bg-pcl-blue-bg": selected()?.id === inst.id,
+                          "before:bg-pcl-blue": selected()?.id === inst.id,
+                        }}
                         onClick={() => {
                           setSelected(inst);
                           setRightView("news");
                         }}
                       >
-                        <span class="pcl-vicon" data-loader={inst.loader}>
+                        <span
+                          class="w-[30px] h-[30px] flex-[0_0_30px] rounded-[4px] flex items-center justify-center font-bold text-[14px] text-white bg-pcl-blue data-[loader=forge]:bg-[#c96a1c] data-[loader=neoforge]:bg-[#c96a1c] data-[loader=fabric]:bg-[#a87b3f] data-[loader=quilt]:bg-[#a87b3f]"
+                          data-loader={inst.loader}
+                        >
                           {(inst.name || inst.id)[0]?.toUpperCase()}
                         </span>
-                        <span class="pcl-vtext">
-                          <span class="pcl-vname">{inst.name || inst.id}</span>
-                          <span class="pcl-vmeta">{inst.mc_version} · {loaderLabel(inst.loader)}</span>
+                        <span class="flex flex-col min-w-0">
+                          <span class="text-pcl-text text-[13px] whitespace-nowrap overflow-hidden text-ellipsis">{inst.name || inst.id}</span>
+                          <span class="text-pcl-text3 text-[11px]">{inst.mc_version} · {loaderLabel(inst.loader)}</span>
                         </span>
                       </button>
                     )}
@@ -309,18 +349,18 @@ const PclLaunch: Component = () => {
 
         {/* --- 启动日志(启动后) --- */}
         <Show when={rightView() === "log"}>
-          <div class="pcl-detail">
-            <h1>{selected()?.name || selected()?.id || "游戏日志"}</h1>
+          <div>
+            <h1 class="text-[20px] font-bold text-pcl-text mt-0 mb-[3px] mx-0">{selected()?.name || selected()?.id || "游戏日志"}</h1>
             <Show when={selected()}>
-              <p>
+              <p class="text-pcl-text3 text-[13px] m-0">
                 Minecraft {selected()!.mc_version} · {loaderLabel(selected()!.loader)}
                 <Show when={selected()!.loader_version}>{` ${selected()!.loader_version}`}</Show>
               </p>
             </Show>
           </div>
-          <div class="pcl-card pcl-logcard">
-            <div class="pcl-card-title">游戏日志</div>
-            <pre class="pcl-log-body">
+          <div class="bg-pcl-card rounded-[5px] shadow-pcl flex-1 min-h-0 flex flex-col overflow-hidden">
+            <div class="py-[12px] px-[16px] text-[13px] font-bold text-pcl-text border-b border-pcl-line">游戏日志</div>
+            <pre class="flex-1 min-h-0 overflow-auto m-0 py-[12px] px-[16px] text-[12px]/[1.6] font-[ui-monospace,SFMono-Regular,Menlo,monospace] text-pcl-text2 whitespace-pre-wrap [word-break:break-word]">
               <Show when={logs().length > 0} fallback={"启动后这里显示实时日志…"}>{logs().join("\n")}</Show>
             </pre>
           </div>

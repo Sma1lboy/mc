@@ -10,7 +10,6 @@ import {
 import { api, onInstallProgress } from "../ipc/api";
 import { currentRoot } from "../store";
 import type { InstanceSummary, ManifestVersion } from "../ipc/types";
-import "./Library.css";
 
 /**
  * Library —— 当前根目录的全部实例 + "安装新版本" 抽屉。
@@ -70,33 +69,33 @@ const Library: Component = () => {
   }
 
   return (
-    <div class="library">
-      <div class="library-head">
-        <h1>库</h1>
+    <div class="p-[24px_28px] overflow-y-auto h-full">
+      <div class="flex items-center justify-between mb-[18px]">
+        <h1 class="text-[24px] font-bold text-fg m-0">库</h1>
         <Button variant="primary" onClick={() => setShowInstall((s) => !s)}>
           {showInstall() ? "关闭" : "安装新版本"}
         </Button>
       </div>
 
       <Show when={showInstall()}>
-        <div class="install-panel">
+        <div class="bg-n-3 rounded-card p-[16px] mb-[20px]">
           <SearchBox
             value={filter()}
             onInput={setFilter}
             placeholder="搜索版本号,如 1.20.1"
           />
           <Show when={installing()}>
-            <div class="install-status">
+            <div class="flex items-center gap-[8px] text-a-5 my-[10px] text-[13px]">
               <Spinner /> 安装 {installing()} · {progress()}
             </div>
           </Show>
           <Show when={!versions.loading} fallback={<Spinner />}>
-            <div class="version-list">
+            <div class="max-h-[320px] overflow-y-auto mt-[12px] flex flex-col gap-[4px]">
               <For each={filtered()}>
                 {(v) => (
-                  <div class="version-row">
-                    <span class="version-id">{v.id}</span>
-                    <span class="version-kind">{v.kind}</span>
+                  <div class="flex items-center gap-[12px] px-[10px] py-[6px] rounded-ctl hover:bg-n-5">
+                    <span class="font-semibold text-fg min-w-[120px]">{v.id}</span>
+                    <span class="text-dim text-[12px] flex-1">{v.kind}</span>
                     <Button
                       variant="ghost"
                       disabled={!!installing()}
@@ -112,12 +111,12 @@ const Library: Component = () => {
         </div>
       </Show>
 
-      <Show when={!instances.loading} fallback={<div class="library-loading"><Spinner /></div>}>
+      <Show when={!instances.loading} fallback={<div class="flex justify-center p-[32px]"><Spinner /></div>}>
         <Show
           when={(instances() ?? []).length > 0}
-          fallback={<div class="library-empty">这个根目录还没有实例,点「安装新版本」开始。</div>}
+          fallback={<div class="p-[24px] rounded-card bg-n-3 text-dim text-center">这个根目录还没有实例,点「安装新版本」开始。</div>}
         >
-          <div class="library-rows">
+          <div class="flex flex-col gap-[10px]">
             <For each={instances()}>
               {(inst) => (
                 <InstanceRow

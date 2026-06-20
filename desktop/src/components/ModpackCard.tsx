@@ -1,6 +1,5 @@
 import { JSX, Show, For } from "solid-js";
 import { formatCount } from "./format";
-import "./ModpackCard.css";
 
 // ModpackCard 接收的搜索命中形状。与后端 SearchHit 字段对齐。
 export interface ModpackHit {
@@ -41,7 +40,12 @@ export function ModpackCard(props: ModpackCardProps): JSX.Element {
 
   return (
     <div
-      class="ui-mpcard"
+      class={
+        "flex flex-col bg-card rounded-card shadow-card border border-transparent " +
+        "overflow-hidden cursor-pointer " +
+        "transition-[transform,box-shadow,border-color] duration-[var(--dur)] ease-app " +
+        "hover:-translate-y-[3px] hover:shadow-[0_8px_24px_rgba(0,0,0,0.45)] hover:border-n-6"
+      }
       role={props.onClick ? "button" : undefined}
       tabindex={props.onClick ? 0 : undefined}
       onClick={() => props.onClick?.(hit())}
@@ -52,42 +56,70 @@ export function ModpackCard(props: ModpackCardProps): JSX.Element {
         }
       }}
     >
-      {/* 顶部封面: 有 icon_url 显示, 否则渐变 + 大首字母占位。 */}
-      <div class="ui-mpcard__cover">
+      {/* 顶部封面 16:9: 有 icon_url 显示, 否则渐变 + 大首字母占位。 */}
+      <div class="relative w-full aspect-[16/9] overflow-hidden bg-[linear-gradient(135deg,var(--a-2),var(--a-4)_60%,var(--a-5))]">
         <Show
           when={cover()}
-          fallback={<span class="ui-mpcard__cover-letter">{initial()}</span>}
+          fallback={
+            <span class="absolute inset-0 flex items-center justify-center text-[rgba(255,255,255,0.85)] text-[42px] font-extrabold uppercase select-none">
+              {initial()}
+            </span>
+          }
         >
-          <img src={cover()} alt="" loading="lazy" />
+          <img
+            src={cover()}
+            alt=""
+            loading="lazy"
+            class="absolute inset-0 block w-full h-full object-cover"
+          />
         </Show>
       </div>
 
-      <div class="ui-mpcard__body">
+      <div class="flex flex-col flex-1 gap-[8px] p-[14px]">
         {/* 标题 + 作者 (作者灰色小字接在标题后)。 */}
-        <div class="ui-mpcard__title" title={hit().title}>
+        <div
+          class="text-[15px] font-bold text-fg whitespace-nowrap overflow-hidden text-ellipsis"
+          title={hit().title}
+        >
           {hit().title}
           <Show when={hit().author}>
-            <span class="ui-mpcard__author"> by {hit().author}</span>
+            <span class="text-dim font-normal"> by {hit().author}</span>
           </Show>
         </div>
 
-        {/* 描述 2 行截断。 */}
-        <div class="ui-mpcard__desc">{hit().description}</div>
+        {/* 描述 2 行截断, min-height 固定避免高度跳动。 */}
+        <div class="text-[13px] leading-[1.45] text-dim line-clamp-2 min-h-[calc(1.45em*2)]">
+          {hit().description}
+        </div>
 
         {/* 统计行: 下载数 (k/M 缩写) + 分类标签。 */}
-        <div class="ui-mpcard__stats">
-          <span class="ui-mpcard__downloads" title={`${hit().downloads} downloads`}>
-            {/* 下载图标 (向下箭头入托盘)。 */}
-            <svg width="13" height="13" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
+        <div class="flex items-center flex-wrap gap-[8px] mt-auto">
+          <span
+            class="inline-flex items-center shrink-0 gap-[4px] text-[12px] text-dim"
+            title={`${hit().downloads} downloads`}
+          >
+            {/* 下载图标 (向下箭头入托盘), accent 色。 */}
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 14 14"
+              fill="currentColor"
+              aria-hidden="true"
+              class="text-a-5"
+            >
               <path d="M7 1a.9.9 0 0 1 .9.9v5.04l1.5-1.5a.9.9 0 1 1 1.27 1.27L7.64 9.94a.9.9 0 0 1-1.28 0L3.33 6.71A.9.9 0 0 1 4.6 5.44l1.5 1.5V1.9A.9.9 0 0 1 7 1Z" />
               <path d="M2.1 10.2a.9.9 0 0 1 .9.9v.7h8v-.7a.9.9 0 1 1 1.8 0v1.1a1.4 1.4 0 0 1-1.4 1.4H2.7a1.4 1.4 0 0 1-1.4-1.4v-1.1a.9.9 0 0 1 .9-.9Z" />
             </svg>
             {formatCount(hit().downloads)}
           </span>
 
-          <div class="ui-mpcard__chips">
+          <div class="flex items-center flex-nowrap gap-[5px] overflow-hidden">
             <For each={chips()}>
-              {(cat) => <span class="ui-mpcard__chip">{cat}</span>}
+              {(cat) => (
+                <span class="text-[11px] text-dim bg-n-5 rounded-xs px-[7px] py-[2px] whitespace-nowrap capitalize">
+                  {cat}
+                </span>
+              )}
             </For>
           </div>
         </div>

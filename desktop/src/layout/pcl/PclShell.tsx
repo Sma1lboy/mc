@@ -41,39 +41,49 @@ const TABS: { page: Page; label: string; icon: IconName }[] = [
 
 const PclShell: Component = () => {
   return (
-    <div class="pcl-shell">
+    // pcl-shell 仅保留为变量定义 scope(--pcl-* 在残留 CSS 里),布局已迁到工具类:
+    // grid 48px/1fr、铺满视口、隐藏溢出、浅灰底、正文色、PCL 字体栈、13px。
+    <div class="pcl-shell grid grid-rows-[48px_1fr] w-screen h-screen overflow-hidden bg-pcl-gray-bg text-pcl-text font-[Microsoft_YaHei_UI,'PingFang_SC',system-ui,sans-serif] text-[13px]">
       {/* 主题色标题栏(可拖拽);左侧留白避开原生交通灯 */}
-      <header class="pcl-titlebar" data-tauri-drag-region>
-        <div class="pcl-brand" data-tauri-drag-region>
-          <span class="pcl-logo-mark"><PclLogo /></span>
-          <span class="pcl-logo">PCL</span>
-          <span class="pcl-sub">启动器</span>
+      <header
+        class="flex items-center gap-[18px] pl-[80px] pr-[12px] bg-[linear-gradient(90deg,var(--pcl-blue-hover),var(--pcl-blue))] text-white select-none shadow-[0_1px_6px_rgba(52,61,74,0.18)] z-[1]"
+        data-tauri-drag-region
+      >
+        <div class="flex items-center gap-[9px]" data-tauri-drag-region>
+          <span class="flex w-[28px] h-[28px] flex-[0_0_28px] [filter:drop-shadow(0_1px_3px_rgba(11,91,203,0.35))] [&_svg]:w-full [&_svg]:h-full"><PclLogo /></span>
+          <span class="text-[19px] font-extrabold tracking-[2px] self-center">PCL</span>
+          <span class="text-[12px] opacity-[0.82] self-center">启动器</span>
         </div>
 
-        <nav class="pcl-tabs no-drag">
+        <nav class="flex gap-[2px] h-full items-center [-webkit-app-region:no-drag]">
           <For each={TABS}>
             {(t) => (
               <button
-                class="pcl-tab"
-                classList={{ active: currentPage() === t.page }}
+                class="flex items-center gap-[6px] h-[32px] px-[15px] border-none bg-transparent text-white text-[14px] rounded-[4px] cursor-pointer transition-[background] duration-[0.18s] ease-[ease] hover:bg-white/20"
+                classList={{
+                  "!bg-white !text-pcl-blue !font-semibold": currentPage() === t.page,
+                }}
                 onClick={() => setCurrentPage(t.page)}
               >
-                <span class="pcl-tab-icon"><Icon name={t.icon} size={24} /></span>
+                <span class="flex w-[17px] h-[17px] [&_svg]:w-full [&_svg]:h-full"><Icon name={t.icon} size={24} /></span>
                 {t.label}
               </button>
             )}
           </For>
         </nav>
 
-        <div class="pcl-titlebar-right">
+        <div class="ml-auto flex items-center">
           {/* 一键切回 Modrinth 风,方便对比 */}
-          <button class="pcl-switch no-drag" onClick={() => switchLayout("modrinth")}>
+          <button
+            class="border border-white/55 bg-white/[0.14] text-white text-[12px] px-[11px] py-[5px] rounded-[3px] cursor-pointer transition-[background] duration-[0.18s] ease-[ease] hover:bg-white/30 [-webkit-app-region:no-drag]"
+            onClick={() => switchLayout("modrinth")}
+          >
             切到 Modrinth 风 ⇄
           </button>
         </div>
       </header>
 
-      <main class="pcl-content">
+      <main class="overflow-hidden min-h-0 bg-pcl-gray-bg">
         <Switch fallback={<PclLaunch />}>
           <Match when={currentPage() === "launch"}>
             <PclLaunch />

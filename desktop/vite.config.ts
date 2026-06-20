@@ -1,12 +1,14 @@
 import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
+import tailwindcss from "@tailwindcss/vite";
 
 // Tauri v2 前端构建配置:固定端口 1420 供 Tauri webview 加载,
 // 关闭 Vite 自带的清屏以便和 cargo/tauri 的日志共存。
 export default defineConfig({
   // root 即 desktop/ 本目录(index.html 所在处)。
   root: ".",
-  plugins: [solid()],
+  // tailwindcss() 必须在 solid() 之前:先做 CSS 处理再交给 solid 的 JSX 变换。
+  plugins: [tailwindcss(), solid()],
   // Tauri 期望前端固定跑在 1420;strictPort 保证端口被占用时直接失败而非漂移。
   server: {
     port: 1420,

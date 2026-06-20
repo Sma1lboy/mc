@@ -1,7 +1,6 @@
 import { JSX, For, Show, Switch, Match } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import { Presence, motion } from "../motion";
-import "./Toast.css";
 
 // use:motion 指令在编译后按名字引用 `motion`;显式触达避免被打包器摇掉。
 void motion;
@@ -96,10 +95,34 @@ toast.warn = (message: string, duration?: number) => toast({ type: "warn", messa
 toast.error = (message: string, duration?: number) =>
   toast({ type: "error", message, duration });
 
+// 类型 → 左色条颜色 (border-left-color) 的工具类。info/success 用 accent。
+function toastBorderClass(type: ToastType): string {
+  switch (type) {
+    case "warn":
+      return "border-l-[#f5b53d]";
+    case "error":
+      return "border-l-[#ff5c5c]";
+    default: // info / success
+      return "border-l-[var(--a-5)]";
+  }
+}
+
+// 类型 → 图标颜色 (currentColor)。与左色条一致。
+function toastIconColorClass(type: ToastType): string {
+  switch (type) {
+    case "warn":
+      return "text-[#f5b53d]";
+    case "error":
+      return "text-[#ff5c5c]";
+    default: // info / success
+      return "text-[var(--a-5)]";
+  }
+}
+
 // 每种类型的图标 (内联 SVG, currentColor 跟随类型色)。
 function ToastIcon(props: { type: ToastType }): JSX.Element {
   return (
-    <span class="ui-toast__icon">
+    <span class={`shrink-0 flex ${toastIconColorClass(props.type)}`}>
       <Switch>
         <Match when={props.type === "success"}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -160,7 +183,10 @@ function ToastIcon(props: { type: ToastType }): JSX.Element {
 // ToastContainer —— 挂一次在 AppShell 根部。渲染左下角 toast 堆叠。
 export function ToastContainer(): JSX.Element {
   return (
-    <div class="ui-toast-container" aria-live="polite">
+    <div
+      class="fixed left-[16px] bottom-[16px] z-[9999] flex flex-col-reverse gap-[10px] pointer-events-none"
+      aria-live="polite"
+    >
       <For each={items}>
         {(item) => (
           // 每个 toast 自带 <Presence>:open=false 时播 toast 退场预设(微缩+淡出),
@@ -169,14 +195,24 @@ export function ToastContainer(): JSX.Element {
             <Show when={item.open}>
               <div
                 use:motion={{ preset: "toast" }}
-                class={`ui-toast ui-toast--${item.type}`}
+                class={
+                  "pointer-events-auto flex items-center gap-[10px] min-w-[240px] max-w-[380px] " +
+                  "px-[14px] py-[11px] rounded-card bg-n-4 text-fg shadow-card " +
+                  "border-l-4 text-[13px] leading-[1.4] origin-center " +
+                  toastBorderClass(item.type)
+                }
                 role="status"
               >
                 <ToastIcon type={item.type} />
-                <span class="ui-toast__msg">{item.message}</span>
+                <span class="flex-1 min-w-0 break-words">{item.message}</span>
                 <button
                   type="button"
-                  class="ui-toast__close"
+                  class={
+                    "shrink-0 inline-flex items-center justify-center w-[18px] h-[18px] " +
+                    "border-none bg-transparent text-dim cursor-pointer rounded-xs " +
+                    "transition-[color,background-color] duration-[var(--dur)] ease-app " +
+                    "hover:text-fg hover:bg-n-5"
+                  }
                   aria-label="Dismiss"
                   onClick={() => dismissToast(item.id)}
                 >

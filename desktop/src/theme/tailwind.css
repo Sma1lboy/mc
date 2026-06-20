@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+/* 让 JIT 扫描到源码里用到的类名。 */
+@source "../**/*.{ts,tsx}";
+@source "../../index.html";
+
+/*
+ * 令牌桥接:tokens.css 仍是单一真相(运行时由 theme.ts 注入 a/n 阶、按
+ * data-theme 切深浅、PclShell.css 提供 pcl 皮)。这里用 @theme inline 把那些
+ * CSS 变量桥接成 Tailwind 主题令牌,于是工具类编译后直接引用原变量,既得到
+ * utility 写法又完整保留运行时换肤。约定见 docs 或本文件下方令牌名。
+ */
+@theme inline {
+  /* 中性/背景阶 n-1..8 */
+  --color-n-1: var(--n-1);
+  --color-n-2: var(--n-2);
+  --color-n-3: var(--n-3);
+  --color-n-4: var(--n-4);
+  --color-n-5: var(--n-5);
+  --color-n-6: var(--n-6);
+  --color-n-7: var(--n-7);
+  --color-n-8: var(--n-8);
+
+  /* 强调色阶 a-1..8(运行时注入) */
+  --color-a-1: var(--a-1);
+  --color-a-2: var(--a-2);
+  --color-a-3: var(--a-3);
+  --color-a-4: var(--a-4);
+  --color-a-5: var(--a-5);
+  --color-a-6: var(--a-6);
+  --color-a-7: var(--a-7);
+  --color-a-8: var(--a-8);
+
+  /* 语义色:bg-card / text-fg / text-dim */
+  --color-card: var(--bg-card);
+  --color-fg: var(--text);
+  --color-dim: var(--text-dim);
+
+  /* PCL 浅色皮肤 */
+  --color-pcl-blue: var(--pcl-blue);
+  --color-pcl-blue-hover: var(--pcl-blue-hover);
+  --color-pcl-blue-dark: var(--pcl-blue-dark);
+  --color-pcl-blue-soft: var(--pcl-blue-soft);
+  --color-pcl-blue-bg: var(--pcl-blue-bg);
+  --color-pcl-blue-bg2: var(--pcl-blue-bg2);
+  --color-pcl-blue-lightest: var(--pcl-blue-lightest);
+  --color-pcl-card: var(--pcl-card);
+  --color-pcl-line: var(--pcl-line);
+  --color-pcl-text: var(--pcl-text);
+  --color-pcl-text2: var(--pcl-text2);
+  --color-pcl-text3: var(--pcl-text3);
+  --color-pcl-gray-bg: var(--pcl-gray-bg);
+
+  /* 圆角:rounded-xs / rounded-ctl / rounded-card */
+  --radius-xs: var(--radius-sm);
+  --radius-ctl: var(--radius);
+  --radius-card: var(--radius-card);
+
+  /* 阴影:shadow-card / shadow-pcl / shadow-pcl-strong */
+  --shadow-card: var(--shadow);
+  --shadow-pcl: var(--pcl-shadow);
+  --shadow-pcl-strong: var(--pcl-shadow-strong);
+
+  /* 缓动:ease-app / ease-emph */
+  --ease-app: var(--ease);
+  --ease-emph: var(--mo-ease-out);
+
+  /* 字体 */
+  --font-sans: var(--font);
+}

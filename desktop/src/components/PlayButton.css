@@ -1,54 +1,6 @@
-/* PlayButton.css —— accent 主操作按钮 (启动游戏)。 */
-
-.ui-play {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  font-size: var(--fs-base);
-  font-family: inherit;
-  font-weight: 600;
-  line-height: 1;
-  padding: 9px 18px;
-  border: none;
-  border-radius: var(--radius);
-  color: #ffffff;
-  cursor: pointer;
-  user-select: none;
-  white-space: nowrap;
-  background-color: var(--a-4);
-  transition:
-    background-color var(--dur) var(--ease),
-    transform var(--dur) var(--ease),
-    opacity var(--dur) var(--ease);
-}
-
-.ui-play:hover:not(:disabled) {
-  background-color: var(--a-5);
-}
-.ui-play:active:not(:disabled) {
-  background-color: var(--a-3);
-  transform: translateY(1px);
-}
-.ui-play:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* running 态: 用更深的 accent 区分"正在运行", 文案变为 Stop / Running。 */
-.ui-play--running {
-  background-color: var(--a-2);
-}
-.ui-play--running:hover:not(:disabled) {
-  /* 运行中 hover 暗示可点击停止 (偏红警示)。 */
-  background-color: #c0463f;
-}
-
-.ui-play__icon {
-  /* 图标随按钮文字色, 通过 currentColor 继承。 */
-  display: block;
-  flex-shrink: 0;
-}
+/* PlayButton.css —— 残留样式:只保留 running 态旋转环的 @keyframes 及其绑定
+ * (Tailwind preflight/utility 不覆盖自定义关键帧)。其余视觉已迁到
+ * PlayButton.tsx 的 Tailwind 工具类。 */
 
 /* running 时的旋转环动画。 */
 .ui-play__spin {

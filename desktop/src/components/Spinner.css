@@ -1,19 +1,9 @@
-/* Spinner.css —— accent 色旋转 loading 指示器。 */
+/* Spinner.css —— 残留样式:只保留 @keyframes(Tailwind preflight/utility 不覆盖
+ * 自定义关键帧)。视觉其余部分已迁到 Spinner.tsx 的 Tailwind 工具类。 */
 
-.ui-spinner {
-  display: inline-block;
-  flex-shrink: 0;
+.ui-spinner-rotate {
   animation: ui-spinner-rotate 0.8s linear infinite;
   transform-origin: center;
-}
-
-.ui-spinner__track {
-  /* 底环: 半透明中性色。 */
-  stroke: var(--n-6);
-}
-.ui-spinner__head {
-  /* 旋转高亮弧: accent 色。 */
-  stroke: var(--a-5);
 }
 
 @keyframes ui-spinner-rotate {

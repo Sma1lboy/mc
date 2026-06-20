@@ -1,5 +1,4 @@
 import { JSX, Show } from "solid-js";
-import "./SearchBox.css";
 
 // SearchBox —— 圆角搜索框, 背景 n-5, 带放大镜图标。
 // props 契约:
@@ -17,10 +16,20 @@ export interface SearchBoxProps {
 
 export function SearchBox(props: SearchBoxProps): JSX.Element {
   return (
-    <div class={`ui-search${props.class ? " " + props.class : ""}`}>
+    <div
+      class={
+        // 容器:inline-flex 居中、间距 8px、满宽、n-5 背景、透明边、控件圆角、
+        // 左右内距 12px、高 36px、边色+背景过渡;聚焦内含子元素时 accent 描边。
+        "inline-flex items-center gap-[8px] w-full bg-n-5 border border-transparent " +
+        "rounded-ctl px-[12px] h-[36px] " +
+        "transition-[border-color,background-color] duration-[var(--dur)] ease-app " +
+        "focus-within:border-a-4" +
+        (props.class ? " " + props.class : "")
+      }
+    >
       {/* 放大镜图标 (内联 SVG, currentColor 跟随 dim 文字色)。 */}
       <svg
-        class="ui-search__icon"
+        class="shrink-0 text-dim"
         width="16"
         height="16"
         viewBox="0 0 16 16"
@@ -37,7 +46,9 @@ export function SearchBox(props: SearchBoxProps): JSX.Element {
       </svg>
 
       <input
-        class="ui-search__input"
+        // 输入框:占满剩余、可收缩、无边框/描边、透明底、主文字色、基础字号、
+        // 继承字体;placeholder 用 dim 文字色。
+        class="flex-1 min-w-0 border-none outline-none bg-transparent text-fg text-[var(--fs-base)] font-[inherit] placeholder:text-dim"
         type="text"
         value={props.value}
         placeholder={props.placeholder ?? "Search"}
@@ -52,7 +63,9 @@ export function SearchBox(props: SearchBoxProps): JSX.Element {
       <Show when={props.value.length > 0}>
         <button
           type="button"
-          class="ui-search__clear"
+          // 清除按钮:18x18 居中、无边框透明底、dim 文字色、指针、xs 圆角、
+          // 颜色+背景过渡;hover 转主文字色 + n-6 底。
+          class="shrink-0 inline-flex items-center justify-center w-[18px] h-[18px] border-none bg-transparent text-dim cursor-pointer rounded-xs transition-[color,background-color] duration-[var(--dur)] ease-app hover:text-fg hover:bg-n-6"
           aria-label="Clear search"
           onClick={() => props.onInput("")}
         >

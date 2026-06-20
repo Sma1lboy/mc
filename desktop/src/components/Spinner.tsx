@@ -1,5 +1,5 @@
 import { JSX } from "solid-js";
-import "./Spinner.css";
+import "./Spinner.css"; // 残留 @keyframes(旋转动画)
 
 // Spinner —— accent 色旋转 loading。用于加载态占位。
 // props:
@@ -21,7 +21,7 @@ export function Spinner(props: SpinnerProps): JSX.Element {
 
   return (
     <svg
-      class={`ui-spinner${props.class ? " " + props.class : ""}`}
+      class={`inline-block shrink-0 ui-spinner-rotate${props.class ? " " + props.class : ""}`}
       width={size()}
       height={size()}
       viewBox={`0 0 ${size()} ${size()}`}
@@ -29,17 +29,17 @@ export function Spinner(props: SpinnerProps): JSX.Element {
       role="status"
       aria-label={props.label ?? "Loading"}
     >
-      {/* 底环 */}
+      {/* 底环: 半透明中性色。 */}
       <circle
-        class="ui-spinner__track"
+        class="[stroke:var(--n-6)]"
         cx={c()}
         cy={c()}
         r={r()}
         stroke-width={stroke()}
       />
-      {/* 高亮弧: 约占 1/4 周长 (用 dasharray 实现)。 */}
+      {/* 高亮弧: accent 色, 约占 1/4 周长 (dasharray)。 */}
       <circle
-        class="ui-spinner__head"
+        class="[stroke:var(--a-5)]"
         cx={c()}
         cy={c()}
         r={r()}

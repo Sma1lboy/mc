@@ -10,7 +10,6 @@ import {
 import { api, onGameLog, onLaunchProgress } from "../ipc/api";
 import { currentRoot } from "../store";
 import type { InstanceSummary, SearchHit } from "../ipc/types";
-import "./Home.css";
 
 /**
  * Home —— Modrinth 式 dashboard。
@@ -89,25 +88,25 @@ const Home: Component = () => {
   }
 
   return (
-    <div class="home">
-      <header class="home-head">
-        <h1>Welcome back!</h1>
-        <h2>Jump back in</h2>
+    <div class="py-[24px] px-[28px] overflow-y-auto h-full">
+      <header>
+        <h1 class="text-[28px] font-bold text-fg m-0 mb-[4px]">Welcome back!</h1>
+        <h2 class="text-[18px] font-semibold text-fg my-[12px]">Jump back in</h2>
       </header>
 
       <Show
         when={!instances.loading}
-        fallback={<div class="home-loading"><Spinner /></div>}
+        fallback={<div class="flex justify-center p-[32px]"><Spinner /></div>}
       >
         <Show
           when={recent().length > 0}
           fallback={
-            <div class="home-empty">
+            <div class="p-[24px] rounded-card bg-n-3 text-dim text-center">
               还没有实例。去 <b>库 / Discover</b> 安装一个版本开始游玩。
             </div>
           }
         >
-          <div class="home-rows">
+          <div class="flex flex-col gap-[10px]">
             <For each={recent()}>
               {(inst) => (
                 <InstanceRow
@@ -121,13 +120,13 @@ const Home: Component = () => {
         </Show>
       </Show>
 
-      <section class="home-discover">
-        <h2 class="home-discover-title">Discover a modpack →</h2>
+      <section class="mt-[28px]">
+        <h2 class="text-[18px] font-semibold text-fg m-0 mb-[14px] cursor-pointer">Discover a modpack →</h2>
         <Show
           when={!packs.loading}
-          fallback={<div class="home-loading"><Spinner /></div>}
+          fallback={<div class="flex justify-center p-[32px]"><Spinner /></div>}
         >
-          <div class="home-grid">
+          <div class="grid grid-cols-2 gap-[16px]">
             <For each={(packs() ?? []).slice(0, 6)}>
               {(hit) => (
                 <ModpackCard

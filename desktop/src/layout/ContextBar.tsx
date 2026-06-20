@@ -8,7 +8,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { Avatar } from "../components";
 import type { AccountSummary, AccountKind } from "../ipc/types";
-import "./ContextBar.css";
+import "./ContextBar.css"; // 残留:@keyframes ctx-pulse(骨架脉冲)
 
 /**
  * ContextBar —— 340px 右侧上下文栏(Home 页内容)。
@@ -29,8 +29,23 @@ const KIND_LABEL: Record<AccountKind, string> = {
   yggdrasil: "外置登录",
 };
 
+// 通用栏目标题(灰色小标题)。
+const HEADING =
+  "m-0 text-[13px] font-semibold text-dim tracking-[0.2px]";
+// Friends / News 通用空态卡片。
+const EMPTY_CARD =
+  "flex flex-col gap-[2px] px-[12px] py-[16px] border border-dashed border-n-6 " +
+  "rounded-ctl bg-n-3 text-center";
+// 元信息列(用户名 + 类型),可截断。
+const META = "flex flex-col gap-px min-w-0 flex-[1_1_auto]";
+// 用户名(单行截断)。
+const NAME =
+  "text-[var(--fs-base)] font-medium text-fg whitespace-nowrap overflow-hidden text-ellipsis";
+// 账号类型小字。
+const KIND = "text-[11px] text-dim";
+
 const ChevronDown = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+  <svg class="w-[16px] h-[16px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <path d="m6 9 6 6 6-6" />
   </svg>
@@ -74,22 +89,35 @@ const ContextBar: Component = () => {
   };
 
   return (
-    <aside class="ctxbar" aria-label="上下文信息">
+    <aside
+      class="[grid-row:1] [grid-column:2] w-[340px] h-full box-border bg-n-2 border-l border-n-6 p-[16px] flex flex-col gap-[20px] overflow-y-auto"
+      aria-label="上下文信息"
+    >
       {/* ===== Playing as ===== */}
-      <section class="ctx-section">
-        <h3 class="ctx-heading">Playing as</h3>
+      <section class="flex flex-col gap-[8px]">
+        <h3 class={HEADING}>Playing as</h3>
 
         <Show
           when={!accounts.loading}
-          fallback={<div class="account-card skeleton" aria-busy="true" />}
+          fallback={
+            <div
+              class="account-card-skeleton h-[56px] rounded-ctl bg-n-5"
+              aria-busy="true"
+            />
+          }
         >
           {/* 错误态:list_accounts 失败 */}
           <Show
             when={!accounts.error}
             fallback={
-              <div class="ctx-error">
+              <div class="flex items-center justify-between gap-[8px] p-[12px] border border-n-6 rounded-ctl bg-n-3 text-[13px] text-dim">
                 <span>账号载入失败</span>
-                <button class="ctx-retry" onClick={() => refetch()}>重试</button>
+                <button
+                  class="border border-n-6 bg-n-4 text-fg rounded-xs px-[10px] py-[4px] text-[12px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-n-5 motion-reduce:transition-none"
+                  onClick={() => refetch()}
+                >
+                  重试
+                </button>
               </div>
             }
           >
@@ -97,60 +125,73 @@ const ContextBar: Component = () => {
             <Show
               when={(accounts()?.length ?? 0) > 0}
               fallback={
-                <div class="account-empty">
-                  <span class="account-empty-text">尚未添加账号</span>
-                  <span class="account-empty-hint">前往设置登录</span>
+                <div class="flex flex-col gap-[2px] p-[14px] border border-dashed border-n-6 rounded-ctl bg-n-3">
+                  <span class="text-[var(--fs-base)] text-fg">尚未添加账号</span>
+                  <span class="text-[12px] text-dim">前往设置登录</span>
                 </div>
               }
             >
               {/* 选择器触发器 */}
               <button
-                class="account-trigger"
-                classList={{ open: open() }}
+                class="group flex items-center gap-[10px] w-full p-[10px] border bg-card cursor-pointer text-left transition-[background-color,border-color] duration-[var(--dur)] ease-app hover:bg-n-5 hover:border-a-4 motion-reduce:transition-none"
+                classList={{
+                  open: open(),
+                  "border-n-6 rounded-ctl": !open(),
+                  "border-a-4 rounded-ctl rounded-bl-none rounded-br-none": open(),
+                }}
                 onClick={() => setOpen((v) => !v)}
                 aria-expanded={open()}
                 aria-haspopup="listbox"
               >
-                <span class="account-avatar">
+                <span class="w-[36px] h-[36px] flex-shrink-0 rounded-xs grid place-items-center text-[15px] font-semibold text-white bg-[linear-gradient(135deg,var(--a-3),var(--a-5))]">
                   <Avatar kind={current()?.kind} uuid={current()?.uuid} />
                 </span>
-                <span class="account-meta">
-                  <span class="account-name">{current()?.username}</span>
-                  <span class="account-kind">
+                <span class={META}>
+                  <span class={NAME}>{current()?.username}</span>
+                  <span class={KIND}>
                     {current() ? KIND_LABEL[current()!.kind] : ""}
                   </span>
                 </span>
-                <span class="account-chevron" aria-hidden="true">
+                <span
+                  class="flex-shrink-0 text-dim grid place-items-center transition-transform duration-[var(--dur)] ease-app group-[.open]:rotate-180 motion-reduce:transition-none"
+                  aria-hidden="true"
+                >
                   <ChevronDown />
                 </span>
               </button>
 
               {/* 切换错误提示 */}
               <Show when={switchErr()}>
-                <div class="account-switch-err">{switchErr()}</div>
+                <div class="mt-[6px] text-[12px] text-[#e5848a]">{switchErr()}</div>
               </Show>
 
               {/* 下拉:全部账号 */}
               <Show when={open()}>
-                <ul class="account-list" role="listbox">
+                <ul
+                  class="list-none m-0 p-[4px] border border-a-4 border-t-0 rounded-bl-ctl rounded-br-ctl bg-card flex flex-col gap-[2px] shadow-card"
+                  role="listbox"
+                >
                   <For each={accounts()}>
                     {(acc) => (
                       <li
                         role="option"
                         aria-selected={acc.selected}
-                        class="account-option"
-                        classList={{ selected: acc.selected }}
+                        class="flex items-center gap-[10px] p-[8px] rounded-xs cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-n-5 motion-reduce:transition-none"
+                        classList={{
+                          "bg-[color-mix(in_srgb,var(--a-4)_14%,transparent)]":
+                            acc.selected,
+                        }}
                         onClick={() => pick(acc)}
                       >
-                        <span class="account-avatar sm">
+                        <span class="w-[30px] h-[30px] flex-shrink-0 rounded-xs grid place-items-center text-[13px] font-semibold text-white bg-[linear-gradient(135deg,var(--a-3),var(--a-5))]">
                           <Avatar kind={acc.kind} uuid={acc.uuid} />
                         </span>
-                        <span class="account-meta">
-                          <span class="account-name">{acc.username}</span>
-                          <span class="account-kind">{KIND_LABEL[acc.kind]}</span>
+                        <span class={META}>
+                          <span class={NAME}>{acc.username}</span>
+                          <span class={KIND}>{KIND_LABEL[acc.kind]}</span>
                         </span>
                         <Show when={acc.selected}>
-                          <span class="account-check" aria-hidden="true">✓</span>
+                          <span class="text-a-5 text-[14px] flex-shrink-0" aria-hidden="true">✓</span>
                         </Show>
                       </li>
                     )}
@@ -163,22 +204,22 @@ const ContextBar: Component = () => {
       </section>
 
       {/* ===== Friends ===== */}
-      <section class="ctx-section">
-        <h3 class="ctx-heading">Friends</h3>
+      <section class="flex flex-col gap-[8px]">
+        <h3 class={HEADING}>Friends</h3>
         {/* 社交功能未接入:空态占位。接入后此处渲染好友 + 在线状态点。 */}
-        <div class="ctx-empty">
-          <span class="ctx-empty-text">暂无好友</span>
-          <span class="ctx-empty-hint">联机/社交功能开发中</span>
+        <div class={EMPTY_CARD}>
+          <span class="text-[13px] text-dim">暂无好友</span>
+          <span class="text-[11px] text-n-7">联机/社交功能开发中</span>
         </div>
       </section>
 
       {/* ===== News ===== */}
-      <section class="ctx-section">
-        <h3 class="ctx-heading">News</h3>
+      <section class="flex flex-col gap-[8px]">
+        <h3 class={HEADING}>News</h3>
         {/* 新闻 feed 未接入:空态占位。接入后渲染公告/更新卡片列表。 */}
-        <div class="ctx-empty">
-          <span class="ctx-empty-text">暂无动态</span>
-          <span class="ctx-empty-hint">敬请期待</span>
+        <div class={EMPTY_CARD}>
+          <span class="text-[13px] text-dim">暂无动态</span>
+          <span class="text-[11px] text-n-7">敬请期待</span>
         </div>
       </section>
     </aside>

@@ -3,6 +3,8 @@ import { render } from "solid-js/web";
 
 // 全局设计令牌(CSS 变量)必须最先加载,后续主题脚本只覆盖 --a-*/--n-*。
 import "./theme/tokens.css";
+// Tailwind 入口 + 令牌桥接(放 tokens 之后:preflight/utilities 引用上面的变量)。
+import "./theme/tailwind.css";
 import App from "./App";
 
 const root = document.getElementById("root");

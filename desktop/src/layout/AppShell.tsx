@@ -33,12 +33,18 @@ const AppShell: Component = () => {
   const showContext = () => PAGES_WITH_CONTEXT.has(currentPage());
 
   return (
-    <div class="app-shell">
+    <div class="app-shell grid w-screen h-screen bg-n-1 text-fg text-[length:var(--fs-base)] overflow-hidden">
       <Rail />
       <TopBar />
       {/* body:有右栏时两列(1fr 340px),无右栏时单列铺满 */}
-      <div class="app-body" classList={{ "with-context": showContext() }}>
-        <main class="app-main">
+      <div
+        class="grid min-h-0 min-w-0 [grid-area:body]"
+        classList={{
+          "grid-cols-[1fr]": !showContext(),
+          "grid-cols-[1fr_340px]": showContext(),
+        }}
+      >
+        <main class="[grid-row:1] [grid-column:1] min-w-0 min-h-0 overflow-y-auto overflow-x-hidden bg-n-3">
           {/* 根据 currentPage 切换页面组件。Switch/Match 保证同一时刻只挂一个页面。 */}
           <Switch fallback={<Home />}>
             <Match when={currentPage() === "home"}>

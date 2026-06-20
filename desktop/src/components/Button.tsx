@@ -1,5 +1,23 @@
 import { JSX, splitProps } from "solid-js";
-import "./Button.css";
+
+// 基础样式(Tailwind 内联):行内 flex 居中、14px 基准字号、控件圆角、~240ms 过渡。
+const BTN_BASE =
+  "inline-flex items-center justify-center gap-[6px] " +
+  "text-[length:var(--fs-base)] font-[inherit] font-medium leading-none " +
+  "px-[14px] py-[8px] border border-transparent rounded-ctl " +
+  "cursor-pointer select-none whitespace-nowrap " +
+  "transition-[background-color,border-color,color,opacity,transform] duration-[var(--dur)] ease-app " +
+  // 轻微下压反馈 + 禁用态。
+  "active:enabled:translate-y-px disabled:opacity-45 disabled:cursor-not-allowed";
+
+// 三种变体:primary(accent 实心白字) / ghost(透明底 hover 中性灰) / danger(红色破坏性)。
+const BTN_VARIANT: Record<string, string> = {
+  primary: "bg-a-4 text-white hover:enabled:bg-a-5 active:enabled:bg-a-3",
+  ghost:
+    "bg-transparent text-fg hover:enabled:bg-n-5 active:enabled:bg-n-6",
+  danger:
+    "bg-[#ff5c5c] text-white hover:enabled:bg-[#ff7575] active:enabled:bg-[#e34a4a]",
+};
 
 // Button —— 通用按钮组件。
 // props 契约 (页面 agent 按此调用):
@@ -32,7 +50,7 @@ export function Button(props: ButtonProps): JSX.Element {
     <button
       {...rest}
       type={props.type ?? "button"}
-      class={`ui-btn ui-btn--${local.variant ?? "primary"}${
+      class={`${BTN_BASE} ${BTN_VARIANT[local.variant ?? "primary"]}${
         local.class ? " " + local.class : ""
       }`}
       disabled={local.disabled}
