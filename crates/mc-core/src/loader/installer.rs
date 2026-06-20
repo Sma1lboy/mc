@@ -7,15 +7,17 @@
 //! processor pipeline (1.13+) is too involved to reimplement.
 
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use tokio::sync::watch;
 
-use mc_types::Progress;
+use mc_types::{ManifestVersion, Progress};
 
 use crate::download::{DownloadItem, Downloader};
 use crate::error::{CoreError, IoResultExt, Result};
+use crate::launch;
 use crate::paths::{ensure_dir, GamePaths};
+use crate::version::RuntimeContext;
 
 /// Names of the version directories currently present.
 fn version_dirs(paths: &GamePaths) -> HashSet<String> {
@@ -108,4 +110,59 @@ pub fn verify_installed(paths: &GamePaths, id: &str) -> Result<()> {
     crate::version::VersionJson::parse(&raw)
         .map(|_| ())
         .map_err(|e| CoreError::Parse { what: format!("installed version {id}"), source: e })
+}
+
+// ===========================================================================
+// 各 loader 共用的安装编排步骤
+// ---------------------------------------------------------------------------
+// fabric/forge/quilt/neoforge 此前各自重复了「确保原版」「收尾确保库」两段;
+// forge/neoforge 还各重复了「挑 Java → 跑 installer → 校验」。统一到这里,
+// 每个 loader 文件只保留自己真正不同的部分(meta URL / 版本解析 / installer URL)。
+// ===========================================================================
+
+/// 确保原版 MC 已在磁盘上(loader profile `inheritsFrom` 它);缺失则装一遍。
+pub async fn ensure_vanilla(
+    dl: &Downloader,
+    paths: &GamePaths,
+    mc_version: &str,
+    vanilla_entry: &ManifestVersion,
+    progress: &Option<watch::Sender<Progress>>,
+) -> Result<()> {
+    if !paths.version_json(mc_version).exists() {
+        if let Some(tx) = progress {
+            let _ = tx.send(Progress::new(format!("安装原版 {mc_version}")));
+        }
+        launch::install_version(dl, paths, vanilla_entry, progress.clone()).await?;
+    }
+    Ok(())
+}
+
+/// 收尾:解析装好的 loader profile 的完整 `inheritsFrom` 链,确保它引用的库都到位。
+pub async fn finalize(
+    dl: &Downloader,
+    paths: &GamePaths,
+    id: &str,
+    progress: Option<watch::Sender<Progress>>,
+) -> Result<()> {
+    let profile = launch::resolve_disk_profile(paths, id)?;
+    let ctx = RuntimeContext::default();
+    launch::ensure_files(dl, paths, &profile, &ctx, progress).await
+}
+
+/// forge/neoforge 共用:挑 Java(给定或自动探测)→ 跑官方 installer jar →
+/// 校验生成的版本目录,返回新版本 id。
+pub async fn install_via_jar(
+    dl: &Downloader,
+    paths: &GamePaths,
+    installer_url: &str,
+    java_path: Option<PathBuf>,
+    progress: &Option<watch::Sender<Progress>>,
+) -> Result<String> {
+    let java = match java_path {
+        Some(p) => p,
+        None => any_java().await.ok_or(CoreError::JavaNotFound { major: 8 })?,
+    };
+    let id = run_installer(dl, paths, installer_url, &java, progress.clone()).await?;
+    verify_installed(paths, &id)?;
+    Ok(id)
 }

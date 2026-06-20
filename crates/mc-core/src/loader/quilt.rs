@@ -7,11 +7,11 @@ use tokio::sync::watch;
 
 use mc_types::{ManifestVersion, Progress};
 
+use super::installer;
 use crate::download::Downloader;
 use crate::error::{CoreError, Result};
-use crate::launch;
 use crate::paths::{ensure_dir, GamePaths};
-use crate::version::{RuntimeContext, VersionJson};
+use crate::version::VersionJson;
 
 const QUILT_META: &str = "https://meta.quiltmc.org/v3";
 
@@ -48,12 +48,7 @@ pub async fn install_quilt(
     vanilla_entry: &ManifestVersion,
     progress: Option<watch::Sender<Progress>>,
 ) -> Result<String> {
-    if !paths.version_json(mc_version).exists() {
-        if let Some(tx) = &progress {
-            let _ = tx.send(Progress::new(format!("安装原版 {mc_version}")));
-        }
-        launch::install_version(dl, paths, vanilla_entry, progress.clone()).await?;
-    }
+    installer::ensure_vanilla(dl, paths, mc_version, vanilla_entry, &progress).await?;
 
     if let Some(tx) = &progress {
         let _ = tx.send(Progress::new("解析 Quilt loader 版本"));
@@ -84,9 +79,7 @@ pub async fn install_quilt(
     if let Some(tx) = &progress {
         let _ = tx.send(Progress::new("下载 Quilt 依赖库"));
     }
-    let profile = launch::resolve_disk_profile(paths, &id)?;
-    let ctx = RuntimeContext::default();
-    launch::ensure_files(dl, paths, &profile, &ctx, progress).await?;
+    installer::finalize(dl, paths, &id, progress).await?;
 
     Ok(id)
 }

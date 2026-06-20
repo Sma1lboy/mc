@@ -7,8 +7,7 @@ use tokio::sync::watch;
 use mc_types::{ManifestVersion, Progress};
 
 use crate::download::Downloader;
-use crate::error::{CoreError, Result};
-use crate::launch;
+use crate::error::Result;
 use crate::paths::GamePaths;
 
 use super::installer;
@@ -36,31 +35,16 @@ pub async fn install_forge(
     java_path: Option<PathBuf>,
     progress: Option<watch::Sender<Progress>>,
 ) -> Result<String> {
-    if !paths.version_json(mc_version).exists() {
-        if let Some(tx) = &progress {
-            let _ = tx.send(Progress::new(format!("安装原版 {mc_version}")));
-        }
-        launch::install_version(dl, paths, vanilla_entry, progress.clone()).await?;
-    }
-
-    let java = match java_path {
-        Some(p) => p,
-        None => installer::any_java()
-            .await
-            .ok_or(CoreError::JavaNotFound { major: 8 })?,
-    };
+    installer::ensure_vanilla(dl, paths, mc_version, vanilla_entry, &progress).await?;
 
     let url = installer_url(mc_version, forge_build);
-    let id = installer::run_installer(dl, paths, &url, &java, progress.clone()).await?;
-    installer::verify_installed(paths, &id)?;
+    let id = installer::install_via_jar(dl, paths, &url, java_path, &progress).await?;
 
     // Make sure any libraries the profile references are present.
     if let Some(tx) = &progress {
         let _ = tx.send(Progress::new("校验 Forge 文件"));
     }
-    let profile = launch::resolve_disk_profile(paths, &id)?;
-    let ctx = crate::version::RuntimeContext::default();
-    launch::ensure_files(dl, paths, &profile, &ctx, progress).await?;
+    installer::finalize(dl, paths, &id, progress).await?;
 
     Ok(id)
 }

@@ -10,11 +10,11 @@ use tokio::sync::watch;
 
 use mc_types::{ManifestVersion, Progress};
 
+use super::installer;
 use crate::download::Downloader;
 use crate::error::{CoreError, Result};
-use crate::launch;
 use crate::paths::{ensure_dir, GamePaths};
-use crate::version::{RuntimeContext, VersionJson};
+use crate::version::VersionJson;
 
 const FABRIC_META: &str = "https://meta.fabricmc.net/v2";
 
@@ -60,12 +60,7 @@ pub async fn install_fabric(
     progress: Option<watch::Sender<Progress>>,
 ) -> Result<String> {
     // 1. Ensure vanilla is installed (Fabric's profile inheritsFrom it).
-    if !paths.version_json(mc_version).exists() {
-        if let Some(tx) = &progress {
-            let _ = tx.send(Progress::new(format!("安装原版 {mc_version}")));
-        }
-        launch::install_version(dl, paths, vanilla_entry, progress.clone()).await?;
-    }
+    installer::ensure_vanilla(dl, paths, mc_version, vanilla_entry, &progress).await?;
 
     // 2. Resolve the loader version and fetch its profile json.
     if let Some(tx) = &progress {
@@ -89,9 +84,7 @@ pub async fn install_fabric(
     if let Some(tx) = &progress {
         let _ = tx.send(Progress::new("下载 Fabric 依赖库"));
     }
-    let profile = launch::resolve_disk_profile(paths, &id)?;
-    let ctx = RuntimeContext::default();
-    launch::ensure_files(dl, paths, &profile, &ctx, progress).await?;
+    installer::finalize(dl, paths, &id, progress).await?;
 
     Ok(id)
 }
