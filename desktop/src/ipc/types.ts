@@ -134,6 +134,26 @@ export interface ThemeConfig {
   lightness: number;
 }
 
+/** 全局启动器设置(跨实例;对应后端 GlobalSettings,持久化到 settings.json) */
+export interface GlobalSettings {
+  /** 下载源:"official"(官方直连)或 "bmclapi"(国内镜像) */
+  download_source: string;
+  /** 下载并发数 */
+  concurrency: number;
+  /** 新建实例的默认堆内存(MiB) */
+  default_memory_mb: number;
+  /** 全局 Java 可执行文件路径;null = 自动检测 */
+  java_path: string | null;
+  /** 是否强制走镜像(与 download_source 任一指向镜像即生效) */
+  use_mirror: boolean;
+  /** 界面语言(如 zh-CN / en-US) */
+  language: string;
+  /** 可选远端服务地址 */
+  server_url: string | null;
+  /** 额外自定义数据根目录 */
+  custom_roots: string[];
+}
+
 /** 一个整合包版本的详情(详情页用;对应后端 VersionDetail) */
 export interface ModrinthVersion {
   id: string;
@@ -152,6 +172,35 @@ export interface ModrinthVersion {
   mrpack_url: string | null;
   mrpack_filename: string | null;
   file_size: number | null;
+}
+
+/** 项目画廊里的一张图(对应后端 GalleryImage) */
+export interface GalleryImage {
+  url: string;
+  title: string | null;
+  description: string | null;
+  featured: boolean;
+}
+
+/** 一个整合包项目的完整详情(详情页「简介」标签页用;对应后端 ProjectDetail) */
+export interface ModrinthProject {
+  id: string;
+  slug: string;
+  title: string;
+  /** 一句话简介 */
+  description: string;
+  /** 完整介绍正文(markdown 原文) */
+  body: string;
+  downloads: number;
+  followers: number;
+  icon_url: string | null;
+  categories: string[];
+  /** 画廊图片(已按 ordering 升序) */
+  gallery: GalleryImage[];
+  source_url: string | null;
+  issues_url: string | null;
+  wiki_url: string | null;
+  discord_url: string | null;
 }
 
 /** 一个 CurseForge blocked 文件(作者禁第三方分发,需用户手动下载) */

@@ -29,6 +29,9 @@ pub fn run() {
             commands::install_modrinth_modpack,
             commands::install_modpack_url,
             commands::modrinth_versions,
+            commands::modrinth_project,
+            commands::get_settings,
+            commands::set_settings,
             commands::log_boot,
         ])
         .run(tauri::generate_context!())

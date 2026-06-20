@@ -23,6 +23,8 @@ import type {
   GameLog,
   ImportOutcome,
   ModrinthVersion,
+  ModrinthProject,
+  GlobalSettings,
 } from "./types";
 
 // ===== 命令封装 =====
@@ -176,6 +178,11 @@ export const api = {
     return invoke<ModrinthVersion[]>("modrinth_versions", { projectId });
   },
 
+  /** 取一个整合包项目的完整详情(简介标签页用:长描述/画廊/外部链接) */
+  modrinthProject(projectId: string): Promise<ModrinthProject> {
+    return invoke<ModrinthProject>("modrinth_project", { projectId });
+  },
+
   /** 从指定 .mrpack 直链安装(详情页「安装此版本」) */
   installModpackUrl(
     root: string,
@@ -187,6 +194,16 @@ export const api = {
       url,
       instanceId: instanceId ?? null,
     });
+  },
+
+  /** 读取全局设置(下载源/并发/默认内存/Java…) */
+  getSettings(): Promise<GlobalSettings> {
+    return invoke<GlobalSettings>("get_settings");
+  },
+
+  /** 持久化全局设置 */
+  setSettings(settings: GlobalSettings): Promise<void> {
+    return invoke<void>("set_settings", { settings });
   },
 
   /** 读取持久化的主题配置 */

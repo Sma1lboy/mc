@@ -165,6 +165,14 @@ impl ModrinthApi {
         Ok(map_project(raw))
     }
 
+    /// 便捷方法:解析 `/project/{id}` 的完整详情(含 body / gallery / 链接)。
+    /// 与 [`Self::parse_project`] 同源字节,但保留详情页需要的全部字段。
+    pub fn parse_project_detail(bytes: &[u8]) -> Result<ProjectDetail> {
+        let raw: RawProject = serde_json::from_slice(bytes)
+            .map_err(|e| CoreError::Parse { what: "modrinth project detail".into(), source: e })?;
+        Ok(map_project_detail(raw))
+    }
+
     /// 取**单个版本**的元信息(`GET /v2/version/{id}`)。导入时把 manifest 里的
     /// version id 变成可下载文件,逐个走这个端点。映射复用 [`map_version`]。
     pub async fn get_version(&self, version_id: &str) -> Result<ProjectVersion> {
@@ -368,6 +376,38 @@ struct RawProject {
     icon_url: Option<String>,
     #[serde(default)]
     categories: Vec<String>,
+    // —— 详情页额外字段(map_project 不消费,project_details 用)——
+    /// 完整介绍正文(markdown 原文)。
+    #[serde(default)]
+    body: String,
+    #[serde(default)]
+    followers: u64,
+    #[serde(default)]
+    gallery: Vec<RawGalleryImage>,
+    #[serde(default)]
+    source_url: Option<String>,
+    #[serde(default)]
+    issues_url: Option<String>,
+    #[serde(default)]
+    wiki_url: Option<String>,
+    #[serde(default)]
+    discord_url: Option<String>,
+}
+
+/// `/v2/project/{id}` 的 `gallery` 数组里的一张图。
+#[derive(Debug, Deserialize)]
+struct RawGalleryImage {
+    #[serde(default)]
+    url: String,
+    #[serde(default)]
+    featured: bool,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+    /// 展示排序(升序)。
+    #[serde(default)]
+    ordering: i64,
 }
 
 /// `/v2/project/{id}/version` 数组里的一个版本。
@@ -529,6 +569,70 @@ fn map_version_detail(r: RawVersion) -> VersionDetail {
     }
 }
 
+/// 一个项目的展示详情(整合包详情页「简介」用):长描述正文(markdown)、
+/// 画廊、外部链接等。比 [`SearchHit`] 多带 `body` / `gallery` / 链接,供详情页
+/// 渲染一个像样的「简介」标签页(而不只是一句话 description)。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ProjectDetail {
+    pub id: String,
+    pub slug: String,
+    pub title: String,
+    /// 一句话简介。
+    pub description: String,
+    /// 完整介绍正文(markdown 原文,前端渲染它)。
+    pub body: String,
+    pub downloads: u64,
+    pub followers: u64,
+    pub icon_url: Option<String>,
+    pub categories: Vec<String>,
+    /// 画廊图片(已按 `ordering` 升序;`featured` 为推荐封面)。
+    pub gallery: Vec<GalleryImage>,
+    pub source_url: Option<String>,
+    pub issues_url: Option<String>,
+    pub wiki_url: Option<String>,
+    pub discord_url: Option<String>,
+}
+
+/// 项目画廊里的一张图。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GalleryImage {
+    pub url: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub featured: bool,
+}
+
+fn map_project_detail(r: RawProject) -> ProjectDetail {
+    let mut imgs = r.gallery;
+    imgs.sort_by_key(|g| g.ordering);
+    let gallery = imgs
+        .into_iter()
+        .filter(|g| !g.url.is_empty())
+        .map(|g| GalleryImage {
+            url: g.url,
+            title: g.title,
+            description: g.description,
+            featured: g.featured,
+        })
+        .collect();
+    ProjectDetail {
+        id: r.id,
+        slug: r.slug,
+        title: r.title,
+        description: r.description,
+        body: r.body,
+        downloads: r.downloads,
+        followers: r.followers,
+        icon_url: r.icon_url,
+        categories: r.categories,
+        gallery,
+        source_url: r.source_url,
+        issues_url: r.issues_url,
+        wiki_url: r.wiki_url,
+        discord_url: r.discord_url,
+    }
+}
+
 impl ModrinthApi {
     /// 列出某项目所有版本的展示详情(含 changelog / 类型 / 发布时间 + `.mrpack` 地址)。
     /// 整合包详情页用。
@@ -537,6 +641,14 @@ impl ModrinthApi {
         let raws: Vec<RawVersion> =
             self.client.get(&url).send().await?.error_for_status()?.json().await?;
         Ok(raws.into_iter().map(map_version_detail).collect())
+    }
+
+    /// 取某项目的完整详情(长描述正文 + 画廊 + 外部链接)。详情页「简介」用。
+    pub async fn project_details(&self, id: &str) -> Result<ProjectDetail> {
+        let url = format!("{}/project/{}", self.base, id);
+        let bytes =
+            self.client.get(&url).send().await?.error_for_status()?.bytes().await?;
+        Self::parse_project_detail(&bytes)
     }
 }
 
@@ -893,6 +1005,55 @@ mod tests {
         assert_eq!(hit.author, "");
         assert_eq!(hit.downloads, 50_000_000);
         assert_eq!(hit.icon_url.as_deref(), Some("https://cdn.modrinth.com/icon.png"));
+    }
+
+    #[test]
+    fn parse_project_detail_captures_body_gallery_links() {
+        // 详情页「简介」依赖 body / gallery / 外部链接;gallery 必须按 ordering 升序。
+        // 用 r##"…"## 分隔:body 里的 `"#`(JSON 字符串后接 markdown 标题)会提前
+        // 关闭 r#"…"#。
+        let sample = r##"{
+            "id": "PROJ123",
+            "slug": "cool-pack",
+            "title": "Cool Pack",
+            "description": "one-liner",
+            "downloads": 12345,
+            "followers": 678,
+            "icon_url": "https://cdn/icon.png",
+            "categories": ["adventure"],
+            "body": "# Hello\nLong **markdown** description.",
+            "source_url": "https://github.com/x/y",
+            "issues_url": "https://github.com/x/y/issues",
+            "wiki_url": null,
+            "discord_url": "https://discord.gg/abc",
+            "gallery": [
+                {"url": "https://cdn/b.png", "featured": false, "title": "Second", "ordering": 2},
+                {"url": "https://cdn/a.png", "featured": true, "title": "First", "ordering": 1}
+            ]
+        }"##;
+        let p = ModrinthApi::parse_project_detail(sample.as_bytes()).unwrap();
+        assert_eq!(p.id, "PROJ123");
+        assert_eq!(p.followers, 678);
+        assert!(p.body.contains("Long **markdown**"));
+        assert_eq!(p.source_url.as_deref(), Some("https://github.com/x/y"));
+        assert_eq!(p.wiki_url, None);
+        assert_eq!(p.discord_url.as_deref(), Some("https://discord.gg/abc"));
+        // ordering 升序:a(1) 在 b(2) 前。
+        assert_eq!(p.gallery.len(), 2);
+        assert_eq!(p.gallery[0].url, "https://cdn/a.png");
+        assert!(p.gallery[0].featured);
+        assert_eq!(p.gallery[1].url, "https://cdn/b.png");
+    }
+
+    #[test]
+    fn parse_project_detail_tolerates_missing_optional_fields() {
+        // 只有最小字段时不应 panic,可选项回退到空/None。
+        let sample = r#"{"id":"P","slug":"s","title":"T","description":"d"}"#;
+        let p = ModrinthApi::parse_project_detail(sample.as_bytes()).unwrap();
+        assert_eq!(p.body, "");
+        assert!(p.gallery.is_empty());
+        assert_eq!(p.followers, 0);
+        assert!(p.source_url.is_none());
     }
 
     #[test]

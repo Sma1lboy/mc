@@ -12,6 +12,7 @@ use mc_core::download::{Downloader, MirrorResolver};
 use mc_core::instance::Instance;
 use mc_core::launch::{self, LaunchSpec};
 use mc_core::paths::{self, GamePaths};
+use mc_core::settings::GlobalSettings;
 use mc_core::{java, meta, LAUNCHER_NAME, LAUNCHER_VERSION};
 use mc_core::types::{AccountKind, ReleaseKind};
 
@@ -152,6 +153,12 @@ enum Command {
     ResolveHash {
         sha512: String,
     },
+    /// Show a Modrinth project's detail (description body / gallery / links) — the
+    /// data behind the detail page's 「简介」 tab.
+    Project {
+        /// Modrinth project id or slug.
+        id: String,
+    },
     /// Detect a modpack archive's format without installing anything.
     ModpackDetect {
         file: PathBuf,
@@ -161,6 +168,11 @@ enum Command {
         file: PathBuf,
         #[arg(long)]
         id: Option<String>,
+    },
+    /// Show or modify the global launcher settings (the same settings.json the UI edits).
+    Settings {
+        #[command(subcommand)]
+        action: Option<SettingsAction>,
     },
     /// Export an instance. target: modrinth | curseforge | modlist[:md|json|csv|txt|html].
     ModpackExport {
@@ -177,6 +189,33 @@ enum Command {
         loader: Option<String>,
         #[arg(long)]
         loader_version: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum SettingsAction {
+    /// Print the current settings (this is also the default with no sub-action).
+    Show,
+    /// Modify one or more fields and persist to settings.json.
+    Set {
+        /// Download source: "official" (direct) or "bmclapi" (China mirror).
+        #[arg(long)]
+        download_source: Option<String>,
+        /// Download concurrency (number of files in flight).
+        #[arg(long)]
+        concurrency: Option<usize>,
+        /// Default heap memory for new instances (MiB).
+        #[arg(long)]
+        memory_mb: Option<u32>,
+        /// Global Java executable path; pass "" to clear (→ auto-detect).
+        #[arg(long)]
+        java_path: Option<String>,
+        /// Force downloads through the mirror even when source is "official".
+        #[arg(long)]
+        use_mirror: Option<bool>,
+        /// UI language tag (e.g. zh-CN / en-US).
+        #[arg(long)]
+        language: Option<String>,
     },
 }
 
@@ -204,9 +243,15 @@ fn resolve_root(dir: &Option<PathBuf>) -> GamePaths {
     GamePaths::new(path)
 }
 
+/// Build a downloader from the persisted [`GlobalSettings`] — the SAME daemon
+/// state the desktop UI's settings page reads/writes — so CLI and UI download
+/// behavior stay identical (concurrency + mirror source). The global `--mirror`
+/// flag still force-enables the full China mirror set regardless of settings.
 fn downloader(mirror: bool) -> Result<Downloader> {
-    let dl = Downloader::new(64).context("building downloader")?;
-    Ok(if mirror { dl.with_mirror(MirrorResolver::bmclapi()) } else { dl })
+    let settings = GlobalSettings::load(&data_dir()).unwrap_or_default();
+    let dl = Downloader::new(settings.concurrency.max(1)).context("building downloader")?;
+    let resolver = if mirror { MirrorResolver::china() } else { settings.mirror_resolver() };
+    Ok(dl.with_mirror(resolver))
 }
 
 #[tokio::main]
@@ -248,6 +293,8 @@ async fn main() -> Result<()> {
             cmd_search(query, *cf, kind, mc_version.clone(), loader.clone()).await
         }
         Command::ResolveHash { sha512 } => cmd_resolve_hash(sha512).await,
+        Command::Project { id } => cmd_project(id).await,
+        Command::Settings { action } => cmd_settings(action),
         Command::ModpackDetect { file } => cmd_modpack_detect(file),
         Command::ModpackImport { file, id } => cmd_modpack_import(&cli, file, id.clone()).await,
         Command::ModpackExport {
@@ -729,6 +776,101 @@ async fn cmd_resolve_hash(sha512: &str) -> Result<()> {
             r.project_id, r.version_id, r.file.filename, r.file.url
         ),
         None => println!("✗ Modrinth 未收录该 sha512"),
+    }
+    Ok(())
+}
+
+/// Show or mutate the global launcher settings — the daemon state shared with
+/// the desktop UI. `mc settings` prints; `mc settings set --…` persists changes.
+fn cmd_settings(action: &Option<SettingsAction>) -> Result<()> {
+    let dir = data_dir();
+    let mut s = GlobalSettings::load(&dir)?;
+
+    if let Some(SettingsAction::Set {
+        download_source,
+        concurrency,
+        memory_mb,
+        java_path,
+        use_mirror,
+        language,
+    }) = action
+    {
+        if let Some(v) = download_source {
+            s.download_source = v.clone();
+        }
+        if let Some(v) = concurrency {
+            s.concurrency = (*v).max(1);
+        }
+        if let Some(v) = memory_mb {
+            s.default_memory_mb = *v;
+        }
+        if let Some(v) = java_path {
+            // 空串 = 清空 → 自动检测。
+            s.java_path = if v.is_empty() { None } else { Some(v.clone()) };
+        }
+        if let Some(v) = use_mirror {
+            s.use_mirror = *v;
+        }
+        if let Some(v) = language {
+            s.language = v.clone();
+        }
+        s.save(&dir).context("写入 settings.json")?;
+        println!("✓ 已保存到 {}\n", GlobalSettings::path(&dir).display());
+    }
+
+    print_settings(&dir, &s);
+    Ok(())
+}
+
+/// Pretty-print the settings exactly as the daemon holds them, plus the derived
+/// mirror decision (the part that actually drives downloads).
+fn print_settings(dir: &std::path::Path, s: &GlobalSettings) {
+    let wants_mirror = s.use_mirror || s.download_source.eq_ignore_ascii_case("bmclapi");
+    println!("settings.json  ({})", GlobalSettings::path(dir).display());
+    println!("  download_source : {}", s.download_source);
+    println!("  concurrency     : {}", s.concurrency);
+    println!("  default_memory  : {} MiB", s.default_memory_mb);
+    println!("  java_path       : {}", s.java_path.as_deref().unwrap_or("(自动检测)"));
+    println!("  use_mirror      : {}", s.use_mirror);
+    println!("  language        : {}", s.language);
+    println!("  server_url      : {}", s.server_url.as_deref().unwrap_or("-"));
+    println!(
+        "  custom_roots    : {}",
+        if s.custom_roots.is_empty() { "-".to_string() } else { s.custom_roots.join(", ") }
+    );
+    println!("  → 下载走镜像     : {}", if wants_mirror { "是 (BMCLAPI + McIM)" } else { "否 (官方直连)" });
+}
+
+async fn cmd_project(id: &str) -> Result<()> {
+    let api = mc_core::modplatform::modrinth::ModrinthApi::new();
+    println!("拉取项目 {id} 详情…");
+    let p = api.project_details(id).await?;
+    println!("\n{}  ({})", p.title, p.slug);
+    println!("  {}", p.description);
+    println!("  ⬇ {}  ♥ {}", p.downloads, p.followers);
+    if !p.categories.is_empty() {
+        println!("  分类: {}", p.categories.join(", "));
+    }
+    let links: Vec<(&str, &Option<String>)> = vec![
+        ("源码", &p.source_url),
+        ("问题", &p.issues_url),
+        ("Wiki", &p.wiki_url),
+        ("Discord", &p.discord_url),
+    ];
+    for (label, url) in links {
+        if let Some(u) = url {
+            println!("  {label}: {u}");
+        }
+    }
+    println!("  画廊: {} 张图", p.gallery.len());
+    for g in &p.gallery {
+        println!("    - {}{}", g.url, g.title.as_deref().map(|t| format!("  ({t})")).unwrap_or_default());
+    }
+    println!("  简介正文: {} 字符 (markdown)", p.body.chars().count());
+    // 打印正文前若干行,便于在终端核对内容。
+    let preview: String = p.body.lines().take(12).collect::<Vec<_>>().join("\n");
+    if !preview.trim().is_empty() {
+        println!("  ----- body 预览 -----\n{preview}\n  ---------------------");
     }
     Ok(())
 }

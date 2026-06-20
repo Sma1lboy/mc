@@ -51,6 +51,18 @@ fn root_paths(root: &str) -> paths::GamePaths {
     }
 }
 
+/// 加载全局设置(损坏/缺失回退默认,绝不报错)。
+fn settings_global() -> mc_core::settings::GlobalSettings {
+    mc_core::settings::GlobalSettings::load(&data_dir()).unwrap_or_default()
+}
+
+/// 按全局设置构造下载器:并发数 + 镜像源(官方/BMCLAPI+McIM)都来自用户设置,
+/// 让「下载源/并发」这些全局设置真正生效。
+fn make_downloader() -> CmdResult<Downloader> {
+    let s = settings_global();
+    Ok(Downloader::new(s.concurrency.max(1)).map_err(err)?.with_mirror(s.mirror_resolver()))
+}
+
 // --- DTOs that differ from the core types --------------------------------
 
 /// JavaInstall with the version flattened to a string (the core keeps it
@@ -77,7 +89,7 @@ pub fn list_instances(root: String) -> CmdResult<Vec<InstanceSummary>> {
 
 #[tauri::command]
 pub async fn list_versions(snapshot: bool) -> CmdResult<Vec<ManifestVersion>> {
-    let dl = Downloader::new(32).map_err(err)?;
+    let dl = make_downloader()?;
     let all = meta::fetch_manifest(&dl).await.map_err(err)?;
     Ok(if snapshot {
         all
@@ -289,7 +301,7 @@ fn forward_progress(app: AppHandle, event: &'static str, mut rx: watch::Receiver
 #[tauri::command]
 pub async fn install_version(app: AppHandle, root: String, id: String) -> CmdResult<()> {
     let paths = root_paths(&root);
-    let dl = Downloader::new(64).map_err(err)?;
+    let dl = make_downloader()?;
     let manifest = meta::fetch_manifest(&dl).await.map_err(err)?;
     let entry = manifest
         .into_iter()
@@ -312,7 +324,7 @@ pub async fn launch_instance(
     online: bool,
 ) -> CmdResult<()> {
     let paths = root_paths(&root);
-    let dl = Downloader::new(64).map_err(err)?;
+    let dl = make_downloader()?;
 
     // Prefer the selected stored account; fall back to an offline session.
     let session = AccountStore::load(data_dir().join("accounts.json"))
@@ -402,12 +414,11 @@ pub async fn import_modpack(
     path: String,
     instance_id: Option<String>,
 ) -> CmdResult<ImportOutcomeDto> {
-    use mc_core::download::MirrorResolver;
     use mc_core::modpack::import::{ImportEngine, ImportOptions, ImportSource};
     use mc_core::modplatform::provider::ProviderRegistry;
 
     let paths = root_paths(&root);
-    let dl = Downloader::new(16).map_err(err)?.with_mirror(MirrorResolver::china());
+    let dl = make_downloader()?;
     let engine = ImportEngine::with_defaults(dl, ProviderRegistry::with_defaults());
 
     let mut opts = ImportOptions::new(paths.root().to_path_buf());
@@ -529,7 +540,6 @@ pub async fn install_modrinth_modpack(
     project_id: String,
     instance_id: Option<String>,
 ) -> CmdResult<ImportOutcomeDto> {
-    use mc_core::download::MirrorResolver;
     use mc_core::modpack::import::{ImportEngine, ImportOptions, ImportSource};
     use mc_core::modplatform::provider::ProviderRegistry;
 
@@ -551,7 +561,7 @@ pub async fn install_modrinth_modpack(
 
     // 2) 从 URL 导入(引擎先下到临时文件,再识别格式 + 安装)。
     let paths = root_paths(&root);
-    let dl = Downloader::new(16).map_err(err)?.with_mirror(MirrorResolver::china());
+    let dl = make_downloader()?;
     let engine = ImportEngine::with_defaults(dl, ProviderRegistry::with_defaults());
     let mut opts = ImportOptions::new(paths.root().to_path_buf());
     opts.instance_id = instance_id;
@@ -601,6 +611,15 @@ pub async fn modrinth_versions(
     ModrinthApi::new().version_details(&project_id).await.map_err(err)
 }
 
+/// 取一个 Modrinth 项目的完整详情(简介标签页用:长描述正文 markdown + 画廊 +
+/// 关注数 + 源码/issue/wiki/discord 等外部链接)。
+#[tauri::command]
+pub async fn modrinth_project(
+    project_id: String,
+) -> CmdResult<mc_core::modplatform::modrinth::ProjectDetail> {
+    ModrinthApi::new().project_details(&project_id).await.map_err(err)
+}
+
 /// 从一个 `.mrpack` 直链安装整合包(详情页「安装此版本」用)。
 #[tauri::command]
 pub async fn install_modpack_url(
@@ -608,15 +627,26 @@ pub async fn install_modpack_url(
     url: String,
     instance_id: Option<String>,
 ) -> CmdResult<ImportOutcomeDto> {
-    use mc_core::download::MirrorResolver;
     use mc_core::modpack::import::{ImportEngine, ImportOptions, ImportSource};
     use mc_core::modplatform::provider::ProviderRegistry;
 
     let paths = root_paths(&root);
-    let dl = Downloader::new(16).map_err(err)?.with_mirror(MirrorResolver::china());
+    let dl = make_downloader()?;
     let engine = ImportEngine::with_defaults(dl, ProviderRegistry::with_defaults());
     let mut opts = ImportOptions::new(paths.root().to_path_buf());
     opts.instance_id = instance_id;
     let outcome = engine.import(ImportSource::Url(url), opts).await.map_err(err)?;
     Ok(outcome.into())
+}
+
+/// 读取全局设置(下载源/并发/默认内存/Java 路径/语言…)。缺失/损坏回退默认。
+#[tauri::command]
+pub fn get_settings() -> CmdResult<mc_core::settings::GlobalSettings> {
+    mc_core::settings::GlobalSettings::load(&data_dir()).map_err(err)
+}
+
+/// 持久化全局设置(原子写 settings.json)。下载相关项下次构造下载器即生效。
+#[tauri::command]
+pub fn set_settings(settings: mc_core::settings::GlobalSettings) -> CmdResult<()> {
+    settings.save(&data_dir()).map_err(err)
 }
