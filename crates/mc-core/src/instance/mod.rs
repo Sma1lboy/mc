@@ -108,33 +108,6 @@ impl Instance {
     pub fn save_config(&self, config: &InstanceConfig) -> Result<()> {
         config.save(&self.config_path())
     }
-
-    /// 删除该实例:移除整个版本目录(`versions/<id>/`,含 mods/saves/worlds 等
-    /// 运行时数据)。**破坏性操作**,调用方应先与用户确认。
-    ///
-    /// 安全护栏:仅当目标确实是 `root/versions/<id>` 形态(且 id 非空)时才删除,
-    /// 避免 id 异常导致误删上层目录;目录不存在时返回 [`CoreError::InstanceNotFound`]。
-    pub fn delete(&self) -> Result<()> {
-        if self.id.is_empty() || self.id.contains(['/', '\\']) {
-            return Err(crate::error::CoreError::other(format!(
-                "拒绝删除非法实例 id: {:?}",
-                self.id
-            )));
-        }
-        let dir = self.dir();
-        let expected_parent = self.paths().versions_dir();
-        if dir.parent() != Some(expected_parent.as_path()) {
-            return Err(crate::error::CoreError::other(format!(
-                "拒绝删除意外路径: {}",
-                dir.display()
-            )));
-        }
-        if !dir.exists() {
-            return Err(crate::error::CoreError::InstanceNotFound(self.id.clone()));
-        }
-        std::fs::remove_dir_all(&dir).map_err(|e| crate::error::CoreError::io(&dir, e))?;
-        Ok(())
-    }
 }
 
 /// 由实例 id 与可选的 `inheritsFrom` 推断 loader 家族。
@@ -336,6 +309,7 @@ mod tests {
         let paths = GamePaths::new(root.path.clone());
         assert!(list_instances(&paths).is_empty());
     }
+
 
     #[test]
     fn lists_vanilla_and_loader_instances() {

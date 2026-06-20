@@ -95,11 +95,11 @@ pub fn instance_dir(root: String, id: String) -> CmdResult<String> {
     Ok(dir.to_string_lossy().to_string())
 }
 
-/// 删除一个实例(移除整个版本目录,含 mods/saves/worlds)。破坏性:前端须先确认。
+/// 删除一个实例。复用 mc-core 的 lifecycle::delete_instance:优先移入系统回收站
+/// (可恢复),无 GUI 时回退永久删除;目录不存在视为已删除(幂等)。前端须先确认。
 #[tauri::command]
 pub fn delete_instance(root: String, id: String) -> CmdResult<()> {
-    let paths = root_paths(&root);
-    Instance::new(&id, paths.root().to_path_buf()).delete().map_err(err)
+    mc_core::instance::lifecycle::delete_instance(&root_paths(&root), &id).map_err(err)
 }
 
 #[tauri::command]
