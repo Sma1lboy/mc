@@ -6,9 +6,7 @@ import {
   createSignal,
 } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
-import { Portal } from "solid-js/web";
-import { Menu } from "@ark-ui/solid/menu";
-import { Avatar } from "../components";
+import { Avatar, Menu } from "../components";
 import type { AccountSummary, AccountKind } from "../ipc/types";
 import "./ContextBar.css"; // 残留:@keyframes ctx-pulse(骨架脉冲)
 
@@ -153,34 +151,30 @@ const ContextBar: Component = () => {
                   </span>
                 </Menu.Trigger>
 
-                <Portal>
-                  <Menu.Positioner>
-                    <Menu.Content class="z-[300] mt-[2px] m-0 p-[4px] border border-n-6 rounded-ctl bg-card flex flex-col gap-[2px] shadow-card focus:outline-none">
-                      <For each={accounts()}>
-                        {(acc) => (
-                          <Menu.Item
-                            value={acc.uuid}
-                            class="flex items-center gap-[10px] p-[8px] rounded-xs cursor-pointer select-none transition-[background] duration-[var(--dur)] ease-app data-[highlighted]:bg-n-5 motion-reduce:transition-none"
-                            classList={{
-                              "bg-[color-mix(in_srgb,var(--a-4)_14%,transparent)]": acc.selected,
-                            }}
-                          >
-                            <span class="w-[30px] h-[30px] flex-shrink-0 rounded-xs grid place-items-center text-[13px] font-semibold text-white bg-[linear-gradient(135deg,var(--a-3),var(--a-5))]">
-                              <Avatar kind={acc.kind} uuid={acc.uuid} />
-                            </span>
-                            <span class={META}>
-                              <span class={NAME}>{acc.username}</span>
-                              <span class={KIND}>{KIND_LABEL[acc.kind]}</span>
-                            </span>
-                            <Show when={acc.selected}>
-                              <span class="text-a-5 text-[14px] flex-shrink-0" aria-hidden="true">✓</span>
-                            </Show>
-                          </Menu.Item>
-                        )}
-                      </For>
-                    </Menu.Content>
-                  </Menu.Positioner>
-                </Portal>
+                <Menu.Content>
+                  <For each={accounts()}>
+                    {(acc) => (
+                      <Menu.ItemRaw
+                        value={acc.uuid}
+                        class="flex items-center gap-[10px] p-[8px] rounded-xs cursor-pointer select-none transition-[background] duration-[var(--dur)] ease-app data-[highlighted]:bg-n-5 motion-reduce:transition-none"
+                        classList={{
+                          "bg-[color-mix(in_srgb,var(--a-4)_14%,transparent)]": acc.selected,
+                        }}
+                      >
+                        <span class="w-[30px] h-[30px] flex-shrink-0 rounded-xs grid place-items-center text-[13px] font-semibold text-white bg-[linear-gradient(135deg,var(--a-3),var(--a-5))]">
+                          <Avatar kind={acc.kind} uuid={acc.uuid} />
+                        </span>
+                        <span class={META}>
+                          <span class={NAME}>{acc.username}</span>
+                          <span class={KIND}>{KIND_LABEL[acc.kind]}</span>
+                        </span>
+                        <Show when={acc.selected}>
+                          <span class="text-a-5 text-[14px] flex-shrink-0" aria-hidden="true">✓</span>
+                        </Show>
+                      </Menu.ItemRaw>
+                    )}
+                  </For>
+                </Menu.Content>
               </Menu.Root>
 
               {/* 切换错误提示 */}

@@ -1,8 +1,7 @@
 import { JSX, Show, createSignal } from "solid-js";
-import { Portal } from "solid-js/web";
-import { Menu } from "@ark-ui/solid/menu";
 import { PlayButton } from "./PlayButton";
 import { Dialog } from "./Dialog";
+import { Menu } from "./Menu";
 import { formatRelativeTime } from "./format";
 
 // InstanceRow 接收的实例形状。与后端 InstanceSummary 字段对齐
@@ -31,14 +30,6 @@ export interface InstanceRowProps {
   onExport?: (id: string) => void;
   onDelete?: (id: string) => void;
 }
-
-// 菜单项通用类名(headless Ark 项,用我们的令牌着色 + data-[highlighted] 高亮)。
-const MENU_ITEM =
-  "flex items-center px-[10px] py-[7px] rounded-xs text-fg cursor-pointer select-none " +
-  "data-[highlighted]:bg-n-5 motion-reduce:transition-none";
-const MENU_ITEM_DANGER =
-  "flex items-center px-[10px] py-[7px] rounded-xs text-[#e5848a] cursor-pointer select-none " +
-  "data-[highlighted]:bg-[rgba(229,132,138,0.14)] motion-reduce:transition-none";
 
 export function InstanceRow(props: InstanceRowProps): JSX.Element {
   const inst = () => props.instance;
@@ -117,17 +108,15 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
                 <circle cx="8" cy="13" r="1.5" />
               </svg>
             </Menu.Trigger>
-            <Portal>
-              <Menu.Positioner>
-                <Menu.Content class="z-[300] min-w-[168px] p-[4px] border border-n-6 rounded-ctl bg-card shadow-card flex flex-col gap-[1px] text-[13px] focus:outline-none">
-                  <Menu.Item value="play" class={MENU_ITEM}>启动</Menu.Item>
-                  <Menu.Item value="open" class={MENU_ITEM}>打开游戏目录</Menu.Item>
-                  <Menu.Item value="export" class={MENU_ITEM}>导出整合包(.mrpack)</Menu.Item>
-                  <Menu.Separator class="my-[4px] h-px bg-n-6 border-none" />
-                  <Menu.Item value="delete" class={MENU_ITEM_DANGER}>删除实例</Menu.Item>
-                </Menu.Content>
-              </Menu.Positioner>
-            </Portal>
+            <Menu.Content>
+              <Menu.Item value="play">启动</Menu.Item>
+              <Menu.Item value="open">打开游戏目录</Menu.Item>
+              <Menu.Item value="export">导出整合包(.mrpack)</Menu.Item>
+              <Menu.Separator />
+              <Menu.Item value="delete" danger>
+                删除实例
+              </Menu.Item>
+            </Menu.Content>
           </Menu.Root>
         </div>
       </div>
