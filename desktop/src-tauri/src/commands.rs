@@ -199,6 +199,35 @@ pub async fn install_mod(
         .map_err(err)
 }
 
+/// 检查实例里已启用 mod 的更新(对每个 jar 的 sha1 问 Modrinth 当前 loader/版本下的最新版)。
+#[tauri::command]
+pub async fn check_mod_updates(
+    root: String,
+    id: String,
+    mc_version: String,
+    loader: String,
+) -> CmdResult<Vec<mc_core::instance::ModUpdate>> {
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let api = ModrinthApi::new();
+    mc_core::instance::check_mod_updates(&api, &inst, &mc_version, &loader)
+        .await
+        .map_err(err)
+}
+
+/// 应用一个 mod 更新:下载新版本进 mods/ 并删掉旧文件。update 为 check_mod_updates 返回的条目。
+#[tauri::command]
+pub async fn apply_mod_update(
+    root: String,
+    id: String,
+    update: mc_core::instance::ModUpdate,
+) -> CmdResult<()> {
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let dl = make_downloader()?;
+    mc_core::instance::apply_mod_update(&inst, &dl, &update)
+        .await
+        .map_err(err)
+}
+
 /// 列出某实例下指定类型的包(资源包 / 光影 / 数据包),含启停态。
 #[tauri::command]
 pub fn instance_packs(

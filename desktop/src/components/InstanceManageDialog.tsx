@@ -9,6 +9,7 @@ import type {
   InstanceConfig,
   InstanceSummary,
   ModInfo,
+  ModUpdate,
   PackKind,
   PackInfo,
   ProjectKind,
@@ -397,6 +398,7 @@ export const InstanceManageDialog: Component<{
   // 打开/切换实例时拉配置 + 复位到设置页;关闭时清空。
   createEffect(() => {
     const inst = props.instance;
+    setUpdates(null); // 切换实例/开关时清掉上一个实例的更新检查结果。
     if (props.open && inst) {
       setCfg(null);
       api
@@ -470,6 +472,57 @@ export const InstanceManageDialog: Component<{
       toast({ type: "error", message: `安装失败:${e}` });
     } finally {
       setInstalling(null);
+    }
+  }
+
+  // ---- Mod 更新检查 ----
+  const [updates, setUpdates] = createSignal<ModUpdate[] | null>(null);
+  const [checking, setChecking] = createSignal(false);
+  const [updatingFile, setUpdatingFile] = createSignal<string | null>(null);
+
+  async function checkUpdates() {
+    const inst = props.instance;
+    if (!inst) return;
+    setChecking(true);
+    try {
+      const list = await api.checkModUpdates(
+        activeRoot(),
+        inst.id,
+        inst.mc_version,
+        searchLoader() ?? "",
+      );
+      setUpdates(list);
+      toast({
+        type: list.length > 0 ? "info" : "success",
+        message: list.length > 0 ? `发现 ${list.length} 个可更新` : "全部 mod 已是最新",
+      });
+    } catch (e) {
+      toast({ type: "error", message: `检查更新失败:${e}` });
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  async function applyUpdate(u: ModUpdate) {
+    const inst = props.instance;
+    if (!inst) return;
+    setUpdatingFile(u.file_name);
+    try {
+      await api.applyModUpdate(activeRoot(), inst.id, u);
+      toast({ type: "success", message: `${u.name} 已更新到 ${u.new_version}` });
+      setUpdates((prev) => (prev ?? []).filter((x) => x.file_name !== u.file_name));
+      refetchMods();
+    } catch (e) {
+      toast({ type: "error", message: `更新失败:${e}` });
+    } finally {
+      setUpdatingFile(null);
+    }
+  }
+
+  async function applyAllUpdates() {
+    for (const u of updates() ?? []) {
+      // 串行执行,避免并发下载相互踩;每个失败只提示该项,不中断其余。
+      await applyUpdate(u);
     }
   }
 
@@ -739,7 +792,55 @@ export const InstanceManageDialog: Component<{
               </Show>
 
               <div class="h-px bg-n-3 my-[2px]" />
-              <div class={LABEL}>已安装</div>
+              <div class="flex items-center justify-between">
+                <div class={LABEL}>已安装</div>
+                <button
+                  class="text-[12px] text-a-6 px-[8px] py-[3px] rounded-xs cursor-pointer hover:bg-a-4/10 disabled:opacity-50"
+                  disabled={checking() || searchLoader() === null}
+                  onClick={checkUpdates}
+                >
+                  {checking() ? "检查中…" : "检查更新"}
+                </button>
+              </div>
+
+              {/* 可更新清单(检查后才出现) */}
+              <Show when={(updates() ?? []).length > 0}>
+                <div class="flex flex-col gap-[6px] rounded-ctl bg-a-4/10 p-[8px]">
+                  <div class="flex items-center justify-between">
+                    <span class="text-[12px] text-fg font-semibold">
+                      {updates()!.length} 个可更新
+                    </span>
+                    <button
+                      class={INSTALL_BTN}
+                      disabled={updatingFile() !== null}
+                      onClick={applyAllUpdates}
+                    >
+                      全部更新
+                    </button>
+                  </div>
+                  <For each={updates()}>
+                    {(u) => (
+                      <div class="flex items-center gap-[10px] py-[6px] px-[8px] rounded-ctl bg-card">
+                        <div class="flex-1 min-w-0">
+                          <div class="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">
+                            {u.name}
+                          </div>
+                          <div class="text-[11px] text-dim whitespace-nowrap overflow-hidden text-ellipsis">
+                            {(u.current_version ?? "当前") + " → " + u.new_version}
+                          </div>
+                        </div>
+                        <button
+                          class={INSTALL_BTN}
+                          disabled={updatingFile() !== null}
+                          onClick={() => applyUpdate(u)}
+                        >
+                          {updatingFile() === u.file_name ? "更新中…" : "更新"}
+                        </button>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
             </div>
 
             <Show

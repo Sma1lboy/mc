@@ -203,6 +203,39 @@ impl ModrinthApi {
         Ok(raw.into_iter().map(|(k, v)| (k, map_version(v))).collect())
     }
 
+    /// 按文件哈希批量查询"在给定 loader / 游戏版本下的最新版本"(`POST /v2/version_files/update`)。
+    ///
+    /// 这是更新检查的核心:对已装 mod 的每个文件 sha1,直接拿回 Modrinth 认为的最新
+    /// 兼容版本(同 `/version/{id}` 形状)。响应同样是 *键为请求哈希* 的对象,未命中的
+    /// 哈希缺席。请求体追加 `loaders` / `game_versions` 过滤,确保返回的"最新"确实兼容
+    /// 当前实例;为空时不过滤(交给调用方约束)。
+    pub async fn latest_versions_from_hashes(
+        &self,
+        hashes: &[String],
+        algorithm: &str,
+        loaders: &[String],
+        game_versions: &[String],
+    ) -> Result<std::collections::HashMap<String, ProjectVersion>> {
+        let url = format!("{}/version_files/update", self.base);
+        let body = serde_json::json!({
+            "hashes": hashes,
+            "algorithm": algorithm,
+            "loaders": loaders,
+            "game_versions": game_versions,
+        });
+        let bytes = self
+            .client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await?
+            .error_for_status()?
+            .bytes()
+            .await?;
+        let raw = Self::parse_raw_versions_from_hashes(&bytes)?;
+        Ok(raw.into_iter().map(|(k, v)| (k, map_version(v))).collect())
+    }
+
     /// 批量取项目元信息(`GET /v2/projects?ids=["a","b"]`)。`ids` 参数是 json 编码
     /// 的字符串数组。响应是项目对象数组(同 `/project/{id}` 形状),逐个走 [`map_project`]。
     pub async fn get_projects(&self, ids: &[String]) -> Result<Vec<SearchHit>> {

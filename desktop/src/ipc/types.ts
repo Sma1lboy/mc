@@ -217,6 +217,22 @@ export interface WorldInfo {
   size_bytes: number;
 }
 
+/** 一个可用的 mod 更新(对应后端 ModUpdate);字段足以直接应用更新 */
+export interface ModUpdate {
+  /** 当前磁盘文件名(将被替换) */
+  file_name: string;
+  name: string;
+  /** 当前版本号(本地元数据,可能缺失) */
+  current_version: string | null;
+  /** 最新版本号 */
+  new_version: string;
+  /** 最新文件落盘名 */
+  new_file_name: string;
+  url: string;
+  sha1: string | null;
+  size: number | null;
+}
+
 /** 向实例装 mod 的结果(对应后端 InstallReport) */
 export interface InstallReport {
   /** 已装入的文件 */

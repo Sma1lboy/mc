@@ -27,6 +27,7 @@ import type {
   GlobalSettings,
   InstanceConfig,
   ModInfo,
+  ModUpdate,
   InstallReport,
   PackKind,
   PackInfo,
@@ -82,6 +83,16 @@ export const api = {
   /** 删除一个 mod 文件 */
   deleteMod(root: string, id: string, fileName: string): Promise<void> {
     return invoke<void>("delete_mod", { root, id, fileName });
+  },
+
+  /** 检查实例里已启用 mod 的更新(对每个 jar 的 sha1 问 Modrinth 最新兼容版) */
+  checkModUpdates(root: string, id: string, mcVersion: string, loader: string): Promise<ModUpdate[]> {
+    return invoke<ModUpdate[]>("check_mod_updates", { root, id, mcVersion, loader });
+  },
+
+  /** 应用一个 mod 更新(下载新版进 mods/ 并删旧文件) */
+  applyModUpdate(root: string, id: string, update: ModUpdate): Promise<void> {
+    return invoke<void>("apply_mod_update", { root, id, update });
   },
 
   /** 从 Modrinth 把一个 mod(+必需依赖)装进实例 */

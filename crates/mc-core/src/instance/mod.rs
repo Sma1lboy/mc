@@ -14,12 +14,14 @@ pub mod install_mod;
 pub mod lifecycle;
 pub mod mods;
 pub mod packs;
+pub mod update;
 pub mod world;
 
 pub use config::InstanceConfig;
 pub use install_mod::{install_mod, install_mod_version, InstallReport};
 pub use mods::{list_mods, ModInfo};
 pub use packs::{install_pack, list_packs, PackInfo, PackKind};
+pub use update::{apply_mod_update, check_mod_updates, ModUpdate};
 pub use world::{list_worlds, WorldInfo};
 
 use std::path::{Path, PathBuf};

@@ -22,6 +22,8 @@ pub fn run() {
             commands::set_mod_enabled,
             commands::delete_mod,
             commands::install_mod,
+            commands::check_mod_updates,
+            commands::apply_mod_update,
             commands::instance_packs,
             commands::set_pack_enabled,
             commands::delete_pack,
