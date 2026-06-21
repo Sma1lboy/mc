@@ -174,6 +174,20 @@ export interface InstanceConfig {
   server: string | null;
 }
 
+/** 实例里的一个本地 mod(对应后端 ModInfo) */
+export interface ModInfo {
+  /** 磁盘文件名(含 .disabled,如有);启停/删除的稳定标识 */
+  file_name: string;
+  enabled: boolean;
+  name: string;
+  version: string | null;
+  mod_id: string | null;
+  loader: string;
+  authors: string[];
+  description: string | null;
+  size: number;
+}
+
 /** 一个整合包版本的详情(详情页用;对应后端 VersionDetail) */
 export interface ModrinthVersion {
   id: string;

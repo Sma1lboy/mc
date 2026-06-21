@@ -144,6 +144,27 @@ pub fn set_instance_config(
     inst.save_config(&config).map_err(err)
 }
 
+/// 列出某实例 mods 目录里的 mod(含启停态)。
+#[tauri::command]
+pub fn instance_mods(root: String, id: String) -> CmdResult<Vec<mc_core::instance::ModInfo>> {
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    Ok(mc_core::instance::list_mods(&inst))
+}
+
+/// 启用/停用一个 mod(改 `.jar` ↔ `.jar.disabled`)。file_name 为 list 返回的稳定标识。
+#[tauri::command]
+pub fn set_mod_enabled(root: String, id: String, file_name: String, enabled: bool) -> CmdResult<()> {
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    mc_core::instance::mods::set_mod_enabled(&inst, &file_name, enabled).map_err(err)
+}
+
+/// 删除一个 mod 文件。
+#[tauri::command]
+pub fn delete_mod(root: String, id: String, file_name: String) -> CmdResult<()> {
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    mc_core::instance::mods::delete_mod(&inst, &file_name).map_err(err)
+}
+
 #[tauri::command]
 pub async fn list_versions(snapshot: bool) -> CmdResult<Vec<ManifestVersion>> {
     let dl = make_downloader()?;

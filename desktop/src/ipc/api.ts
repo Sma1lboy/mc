@@ -26,6 +26,7 @@ import type {
   ModrinthProject,
   GlobalSettings,
   InstanceConfig,
+  ModInfo,
 } from "./types";
 
 // ===== 命令封装 =====
@@ -57,6 +58,21 @@ export const api = {
   /** 写单实例配置(持久化到该实例的 instance.json) */
   setInstanceConfig(root: string, id: string, config: InstanceConfig): Promise<void> {
     return invoke<void>("set_instance_config", { root, id, config });
+  },
+
+  /** 列出某实例的本地 mod(含启停态) */
+  instanceMods(root: string, id: string): Promise<ModInfo[]> {
+    return invoke<ModInfo[]>("instance_mods", { root, id });
+  },
+
+  /** 启用/停用一个 mod(.jar ↔ .jar.disabled) */
+  setModEnabled(root: string, id: string, fileName: string, enabled: boolean): Promise<void> {
+    return invoke<void>("set_mod_enabled", { root, id, fileName, enabled });
+  },
+
+  /** 删除一个 mod 文件 */
+  deleteMod(root: string, id: string, fileName: string): Promise<void> {
+    return invoke<void>("delete_mod", { root, id, fileName });
   },
 
   /** 删除实例(移除整个版本目录,含 mods/saves;破坏性,调用方需先确认) */
