@@ -28,6 +28,9 @@ import type {
   InstanceConfig,
   ModInfo,
   InstallReport,
+  PackKind,
+  PackInfo,
+  WorldInfo,
 } from "./types";
 
 // ===== 命令封装 =====
@@ -85,6 +88,48 @@ export const api = {
     loader: string,
   ): Promise<InstallReport> {
     return invoke<InstallReport>("install_mod", { root, id, project, mcVersion, loader });
+  },
+
+  /** 列出某实例下指定类型的包(资源包 / 光影 / 数据包),含启停态 */
+  instancePacks(root: string, id: string, kind: PackKind): Promise<PackInfo[]> {
+    return invoke<PackInfo[]>("instance_packs", { root, id, kind });
+  },
+
+  /** 启用/停用一个包(.zip ↔ .zip.disabled) */
+  setPackEnabled(
+    root: string,
+    id: string,
+    kind: PackKind,
+    fileName: string,
+    enabled: boolean,
+  ): Promise<void> {
+    return invoke<void>("set_pack_enabled", { root, id, kind, fileName, enabled });
+  },
+
+  /** 删除一个包(移入回收站,可找回) */
+  deletePack(root: string, id: string, kind: PackKind, fileName: string): Promise<void> {
+    return invoke<void>("delete_pack", { root, id, kind, fileName });
+  },
+
+  /** 从 Modrinth 安装一个包到实例对应目录,返回落盘文件名 */
+  installPack(
+    root: string,
+    id: string,
+    kind: PackKind,
+    project: string,
+    mcVersion: string,
+  ): Promise<string> {
+    return invoke<string>("install_pack", { root, id, kind, project, mcVersion });
+  },
+
+  /** 列出某实例的存档世界 */
+  instanceWorlds(root: string, id: string): Promise<WorldInfo[]> {
+    return invoke<WorldInfo[]>("instance_worlds", { root, id });
+  },
+
+  /** 删除一个存档世界(移入回收站,可找回) */
+  deleteWorld(root: string, id: string, folder: string): Promise<void> {
+    return invoke<void>("delete_world", { root, id, folder });
   },
 
   /** 删除实例(移除整个版本目录,含 mods/saves;破坏性,调用方需先确认) */

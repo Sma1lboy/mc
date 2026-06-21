@@ -19,7 +19,7 @@ pub mod world;
 pub use config::InstanceConfig;
 pub use install_mod::{install_mod, install_mod_version, InstallReport};
 pub use mods::{list_mods, ModInfo};
-pub use packs::{list_packs, PackKind};
+pub use packs::{install_pack, list_packs, PackInfo, PackKind};
 pub use world::{list_worlds, WorldInfo};
 
 use std::path::{Path, PathBuf};

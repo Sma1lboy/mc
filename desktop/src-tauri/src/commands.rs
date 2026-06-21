@@ -183,6 +183,73 @@ pub async fn install_mod(
         .map_err(err)
 }
 
+/// 列出某实例下指定类型的包(资源包 / 光影 / 数据包),含启停态。
+#[tauri::command]
+pub fn instance_packs(
+    root: String,
+    id: String,
+    kind: mc_core::instance::PackKind,
+) -> CmdResult<Vec<mc_core::instance::PackInfo>> {
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    Ok(mc_core::instance::list_packs(&inst, kind))
+}
+
+/// 启用/停用一个包(改 `.zip` ↔ `.zip.disabled`)。
+#[tauri::command]
+pub fn set_pack_enabled(
+    root: String,
+    id: String,
+    kind: mc_core::instance::PackKind,
+    file_name: String,
+    enabled: bool,
+) -> CmdResult<()> {
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    mc_core::instance::packs::set_pack_enabled(&inst, kind, &file_name, enabled).map_err(err)
+}
+
+/// 删除一个包(移入系统回收站,可找回)。
+#[tauri::command]
+pub fn delete_pack(
+    root: String,
+    id: String,
+    kind: mc_core::instance::PackKind,
+    file_name: String,
+) -> CmdResult<()> {
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    mc_core::instance::packs::delete_pack(&inst, kind, &file_name).map_err(err)
+}
+
+/// 从 Modrinth 安装一个包到实例对应目录,返回落盘文件名。
+#[tauri::command]
+pub async fn install_pack(
+    root: String,
+    id: String,
+    kind: mc_core::instance::PackKind,
+    project: String,
+    mc_version: String,
+) -> CmdResult<String> {
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let dl = make_downloader()?;
+    let api = ModrinthApi::new();
+    mc_core::instance::install_pack(&api, &dl, &inst, kind, &project, &mc_version)
+        .await
+        .map_err(err)
+}
+
+/// 列出某实例的存档世界(名字/模式/大小/上次游玩…)。
+#[tauri::command]
+pub fn instance_worlds(root: String, id: String) -> CmdResult<Vec<mc_core::instance::WorldInfo>> {
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    Ok(mc_core::instance::list_worlds(&inst))
+}
+
+/// 删除一个存档世界(移入系统回收站,可找回)。
+#[tauri::command]
+pub fn delete_world(root: String, id: String, folder: String) -> CmdResult<()> {
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    mc_core::instance::world::delete_world(&inst, &folder).map_err(err)
+}
+
 #[tauri::command]
 pub async fn list_versions(snapshot: bool) -> CmdResult<Vec<ManifestVersion>> {
     let dl = make_downloader()?;

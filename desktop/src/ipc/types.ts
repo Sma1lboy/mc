@@ -188,6 +188,35 @@ export interface ModInfo {
   size: number;
 }
 
+/** 包资源种类(对应后端 PackKind,serde snake_case) */
+export type PackKind = "resource_pack" | "shader" | "datapack";
+
+/** 实例里的一个本地包资源(资源包 / 光影 / 数据包;对应后端 PackInfo) */
+export interface PackInfo {
+  /** 磁盘文件(或目录)名,含可能的 .disabled 后缀;启停/删除的稳定标识 */
+  file_name: string;
+  enabled: boolean;
+  /** 资源类型标签:resourcepack / shader / datapack */
+  kind: string;
+  /** 文件大小(字节);目录形态的数据包为 0 */
+  size: number;
+  /** 资源包 pack.mcmeta 描述;无则缺省 */
+  description?: string;
+}
+
+/** 一个存档世界(对应后端 WorldInfo) */
+export interface WorldInfo {
+  /** saves/ 下的目录名(backup/delete/rename 的稳定标识) */
+  folder: string;
+  name: string;
+  /** survival / creative / adventure / spectator / unknown */
+  game_mode: string;
+  /** 上次游玩时间(epoch 毫秒);0 = 未知 */
+  last_played: number;
+  seed: number | null;
+  size_bytes: number;
+}
+
 /** 向实例装 mod 的结果(对应后端 InstallReport) */
 export interface InstallReport {
   /** 已装入的文件 */

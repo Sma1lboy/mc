@@ -4,7 +4,15 @@ import { Spinner } from "./Spinner";
 import { toast } from "./Toast";
 import { api } from "../ipc/api";
 import { activeRoot } from "../store";
-import type { InstanceConfig, InstanceSummary, ModInfo } from "../ipc/types";
+import type {
+  InstanceConfig,
+  InstanceSummary,
+  ModInfo,
+  PackKind,
+  PackInfo,
+  ProjectKind,
+  WorldInfo,
+} from "../ipc/types";
 
 /**
  * InstanceManageDialog —— 单实例管理:设置(名字/内存/Java/JVM/窗口)+ Mods(启停/删除)。
@@ -20,7 +28,266 @@ const TAB =
   "text-n-6 hover:text-n-8 transition-colors duration-150";
 const TAB_ACTIVE = "!text-a-6 !border-b-a-5";
 
-type Tab = "settings" | "mods";
+type Tab = "settings" | "mods" | "resources" | "worlds";
+
+/** 人类可读的字节大小;0 / 缺省返回空串。 */
+function fmtSize(bytes: number): string {
+  if (!bytes) return "";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let n = bytes;
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) {
+    n /= 1024;
+    i += 1;
+  }
+  return `${n.toFixed(i > 0 && n < 10 ? 1 : 0)} ${units[i]}`;
+}
+
+const INSTALL_BTN =
+  "shrink-0 h-[28px] px-[12px] rounded-ctl bg-a-4 text-white text-[12px] font-semibold cursor-pointer " +
+  "transition-opacity duration-150 hover:opacity-90 disabled:opacity-50 disabled:cursor-default";
+const DEL_BTN =
+  "shrink-0 text-[12px] text-[#e5848a] px-[8px] py-[4px] rounded-xs cursor-pointer hover:bg-[rgba(229,132,138,0.14)]";
+
+/**
+ * PacksPanel —— 资源包 / 光影的统一面板:Modrinth 搜索安装 + 本地启停/删除。
+ * 与 Mods 面板同构,差异仅在 PackKind / 搜索资源类型;按本实例 mc 版本过滤,
+ * 资源包/光影在 Modrinth 上不按加载器细分,故 loader 传 null。
+ */
+const PacksPanel: Component<{
+  instance: InstanceSummary;
+  kind: PackKind;
+  searchKind: ProjectKind;
+  emptyHint: string;
+}> = (props) => {
+  const [packs, { refetch }] = createResource(
+    () => [props.instance.id, props.kind] as const,
+    ([id, kind]) => api.instancePacks(activeRoot(), id, kind),
+  );
+
+  const [query, setQuery] = createSignal("");
+  const [debounced, setDebounced] = createSignal("");
+  const [installing, setInstalling] = createSignal<string | null>(null);
+  let timer: number | undefined;
+  function onInput(v: string) {
+    setQuery(v);
+    clearTimeout(timer);
+    timer = window.setTimeout(() => setDebounced(v.trim()), 280);
+  }
+  onCleanup(() => clearTimeout(timer));
+
+  const [hits] = createResource(
+    () => (debounced() ? ([props.searchKind, debounced()] as const) : false),
+    () => api.modrinthSearch(debounced(), props.searchKind, props.instance.mc_version, null),
+  );
+
+  async function install(projectId: string, title: string) {
+    setInstalling(projectId);
+    try {
+      const file = await api.installPack(
+        activeRoot(),
+        props.instance.id,
+        props.kind,
+        projectId,
+        props.instance.mc_version,
+      );
+      toast({ type: "success", message: `已安装 ${title}(${file})` });
+      refetch();
+    } catch (e) {
+      toast({ type: "error", message: `安装失败:${e}` });
+    } finally {
+      setInstalling(null);
+    }
+  }
+
+  async function toggle(p: PackInfo, enabled: boolean) {
+    try {
+      await api.setPackEnabled(activeRoot(), props.instance.id, props.kind, p.file_name, enabled);
+      refetch();
+    } catch (e) {
+      toast({ type: "error", message: `操作失败:${e}` });
+    }
+  }
+
+  async function remove(p: PackInfo) {
+    try {
+      await api.deletePack(activeRoot(), props.instance.id, props.kind, p.file_name);
+      toast({ type: "success", message: `已删除 ${p.file_name}` });
+      refetch();
+    } catch (e) {
+      toast({ type: "error", message: `删除失败:${e}` });
+    }
+  }
+
+  return (
+    <div class="flex flex-col gap-[8px]">
+      <div class="relative">
+        <input
+          class={`${FIELD} w-full pr-[30px]`}
+          placeholder={`搜索 Modrinth(${props.instance.mc_version})`}
+          value={query()}
+          onInput={(e) => onInput(e.currentTarget.value)}
+        />
+        <Show when={hits.loading}>
+          <div class="absolute right-[10px] top-1/2 -translate-y-1/2">
+            <Spinner size={14} />
+          </div>
+        </Show>
+      </div>
+
+      <Show when={debounced() && !hits.loading && (hits() ?? []).length === 0}>
+        <div class="text-[12px] text-dim py-[4px]">没有匹配的结果。</div>
+      </Show>
+
+      <Show when={(hits() ?? []).length > 0}>
+        <div class="flex flex-col gap-[6px] max-h-[180px] overflow-y-auto">
+          <For each={hits()}>
+            {(h) => (
+              <div class="flex items-center gap-[10px] py-[7px] px-[10px] rounded-ctl bg-n-2 border border-n-3">
+                <Show
+                  when={h.icon_url}
+                  fallback={<div class="w-[30px] h-[30px] rounded-xs bg-n-4 shrink-0" />}
+                >
+                  <img src={h.icon_url!} alt="" class="w-[30px] h-[30px] rounded-xs object-cover shrink-0" />
+                </Show>
+                <div class="flex-1 min-w-0">
+                  <div class="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">
+                    {h.title}
+                  </div>
+                  <div class="text-[11px] text-dim whitespace-nowrap overflow-hidden text-ellipsis">
+                    {h.description}
+                  </div>
+                </div>
+                <button
+                  class={INSTALL_BTN}
+                  disabled={installing() !== null}
+                  onClick={() => install(h.project_id, h.title)}
+                >
+                  {installing() === h.project_id ? "安装中…" : "安装"}
+                </button>
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
+
+      <div class="h-px bg-n-3 my-[2px]" />
+      <div class={LABEL}>已安装</div>
+
+      <Show
+        when={!packs.loading}
+        fallback={
+          <div class="flex items-center gap-[10px] text-dim text-[13px] py-[12px]">
+            <Spinner size={16} /> 扫描中…
+          </div>
+        }
+      >
+        <Show
+          when={(packs() ?? []).length > 0}
+          fallback={<div class="text-dim text-[13px] py-[12px]">{props.emptyHint}</div>}
+        >
+          <div class="flex flex-col gap-[6px]">
+            <For each={packs()}>
+              {(p) => (
+                <div
+                  class="flex items-center gap-[10px] py-[8px] px-[10px] rounded-ctl bg-n-3"
+                  classList={{ "opacity-55": !p.enabled }}
+                >
+                  <div class="flex-1 min-w-0">
+                    <div class="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">
+                      {p.file_name.replace(/\.disabled$/, "")}
+                    </div>
+                    <div class="text-[11px] text-dim whitespace-nowrap overflow-hidden text-ellipsis">
+                      {[p.description, fmtSize(p.size)].filter(Boolean).join(" · ")}
+                    </div>
+                  </div>
+                  <label class="flex items-center gap-[5px] text-[11px] text-dim cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      class="w-[15px] h-[15px] accent-[var(--a-4)] cursor-pointer"
+                      checked={p.enabled}
+                      onChange={(e) => toggle(p, e.currentTarget.checked)}
+                    />
+                    启用
+                  </label>
+                  <button class={DEL_BTN} onClick={() => remove(p)}>
+                    删除
+                  </button>
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
+      </Show>
+    </div>
+  );
+};
+
+/**
+ * WorldsPanel —— 存档世界列表 + 删除(走回收站)。只读字段:名称/模式/大小。
+ */
+const WorldsPanel: Component<{ instance: InstanceSummary }> = (props) => {
+  const [worlds, { refetch }] = createResource(
+    () => props.instance.id,
+    (id) => api.instanceWorlds(activeRoot(), id),
+  );
+
+  async function remove(w: WorldInfo) {
+    try {
+      await api.deleteWorld(activeRoot(), props.instance.id, w.folder);
+      toast({ type: "success", message: `已删除存档 ${w.name}` });
+      refetch();
+    } catch (e) {
+      toast({ type: "error", message: `删除失败:${e}` });
+    }
+  }
+
+  const MODE_LABEL: Record<string, string> = {
+    survival: "生存",
+    creative: "创造",
+    adventure: "冒险",
+    spectator: "旁观",
+    unknown: "未知",
+  };
+
+  return (
+    <Show
+      when={!worlds.loading}
+      fallback={
+        <div class="flex items-center gap-[10px] text-dim text-[13px] py-[12px]">
+          <Spinner size={16} /> 扫描存档…
+        </div>
+      }
+    >
+      <Show
+        when={(worlds() ?? []).length > 0}
+        fallback={<div class="text-dim text-[13px] py-[12px]">该实例还没有存档。</div>}
+      >
+        <div class="flex flex-col gap-[6px]">
+          <For each={worlds()}>
+            {(w) => (
+              <div class="flex items-center gap-[10px] py-[8px] px-[10px] rounded-ctl bg-n-3">
+                <div class="flex-1 min-w-0">
+                  <div class="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">
+                    {w.name}
+                  </div>
+                  <div class="text-[11px] text-dim whitespace-nowrap overflow-hidden text-ellipsis">
+                    {[MODE_LABEL[w.game_mode] ?? w.game_mode, fmtSize(w.size_bytes), w.folder]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </div>
+                </div>
+                <button class={DEL_BTN} onClick={() => remove(w)}>
+                  删除
+                </button>
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
+    </Show>
+  );
+};
 
 export const InstanceManageDialog: Component<{
   open: boolean;
@@ -30,6 +297,8 @@ export const InstanceManageDialog: Component<{
 }> = (props) => {
   const [tab, setTab] = createSignal<Tab>("settings");
   const [cfg, setCfg] = createSignal<InstanceConfig | null>(null);
+  // 资源标签内的子类型:资源包 / 光影。
+  const [resKind, setResKind] = createSignal<PackKind>("resource_pack");
 
   // 打开/切换实例时拉配置 + 复位到设置页;关闭时清空。
   createEffect(() => {
@@ -163,6 +432,12 @@ export const InstanceManageDialog: Component<{
           </button>
           <button class={`${TAB} ${tab() === "mods" ? TAB_ACTIVE : ""}`} onClick={() => setTab("mods")}>
             Mods
+          </button>
+          <button class={`${TAB} ${tab() === "resources" ? TAB_ACTIVE : ""}`} onClick={() => setTab("resources")}>
+            资源
+          </button>
+          <button class={`${TAB} ${tab() === "worlds" ? TAB_ACTIVE : ""}`} onClick={() => setTab("worlds")}>
+            存档
           </button>
         </div>
 
@@ -380,6 +655,53 @@ export const InstanceManageDialog: Component<{
                 </div>
               </Show>
             </Show>
+          </Show>
+
+          {/* ---- 资源(资源包 / 光影)---- */}
+          <Show when={tab() === "resources" && props.instance}>
+            {(inst) => (
+              <>
+                <div class="flex gap-[6px]">
+                  <button
+                    class={`px-[12px] h-[28px] rounded-ctl text-[12px] cursor-pointer transition-colors duration-150 ${
+                      resKind() === "resource_pack" ? "bg-a-4 text-white" : "bg-n-3 text-dim hover:text-fg"
+                    }`}
+                    onClick={() => setResKind("resource_pack")}
+                  >
+                    资源包
+                  </button>
+                  <button
+                    class={`px-[12px] h-[28px] rounded-ctl text-[12px] cursor-pointer transition-colors duration-150 ${
+                      resKind() === "shader" ? "bg-a-4 text-white" : "bg-n-3 text-dim hover:text-fg"
+                    }`}
+                    onClick={() => setResKind("shader")}
+                  >
+                    光影
+                  </button>
+                </div>
+                <Show when={resKind() === "resource_pack"}>
+                  <PacksPanel
+                    instance={inst()}
+                    kind="resource_pack"
+                    searchKind="resourcepack"
+                    emptyHint="该实例还没有资源包。"
+                  />
+                </Show>
+                <Show when={resKind() === "shader"}>
+                  <PacksPanel
+                    instance={inst()}
+                    kind="shader"
+                    searchKind="shader"
+                    emptyHint="该实例还没有光影。"
+                  />
+                </Show>
+              </>
+            )}
+          </Show>
+
+          {/* ---- 存档 ---- */}
+          <Show when={tab() === "worlds" && props.instance}>
+            {(inst) => <WorldsPanel instance={inst()} />}
           </Show>
         </div>
 

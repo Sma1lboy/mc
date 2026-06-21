@@ -288,6 +288,34 @@ pub async fn install_pack_version(
     Ok(file.filename.clone())
 }
 
+/// 从 Modrinth 安装一个包(资源包 / 光影 / 数据包)到实例对应目录。
+///
+/// 流程:`get_versions(project_id, mc_version, loader?)` → 选最新兼容版本 →
+/// [`install_pack_version`]。资源包不区分加载器,故 `loader` 传 `None`(光影虽有
+/// iris/optifine 之分,但放宽到不限可避免漏装,游戏侧按需启用)。
+///
+/// 服务端已按 `game_version` 过滤,这里仍优先选 `game_versions` 含 `mc_version` 的
+/// 版本,实在没有再回退到列表首项;列表为空时报错。返回落盘文件名。
+pub async fn install_pack(
+    api: &crate::modplatform::modrinth::ModrinthApi,
+    dl: &crate::download::Downloader,
+    inst: &Instance,
+    kind: PackKind,
+    project_id: &str,
+    mc_version: &str,
+) -> Result<String> {
+    let versions = api.get_versions(project_id, Some(mc_version), None).await?;
+    let chosen = versions
+        .iter()
+        .find(|v| v.game_versions.iter().any(|g| g == mc_version))
+        .or_else(|| versions.first())
+        .ok_or_else(|| {
+            CoreError::other(format!("项目 {project_id} 没有兼容 {mc_version} 的版本"))
+        })?;
+
+    install_pack_version(inst, dl, kind, chosen).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
