@@ -154,6 +154,26 @@ export interface GlobalSettings {
   custom_roots: string[];
 }
 
+/** 单实例配置(对应后端 InstanceConfig,持久化到该实例的 instance.json) */
+export interface InstanceConfig {
+  /** 展示名;null = 用 id */
+  name: string | null;
+  /** 最大堆内存(MiB) */
+  memory_mb: number;
+  /** 该实例的 Java 路径;null = 跟随全局/自动 */
+  java_path: string | null;
+  /** 额外 JVM 参数 */
+  jvm_args: string[];
+  /** 额外游戏参数 */
+  game_args: string[];
+  /** 窗口宽 / 高;null = 默认 */
+  width: number | null;
+  height: number | null;
+  fullscreen: boolean;
+  /** 启动后自动加入的服务器地址 */
+  server: string | null;
+}
+
 /** 一个整合包版本的详情(详情页用;对应后端 VersionDetail) */
 export interface ModrinthVersion {
   id: string;

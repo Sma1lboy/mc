@@ -126,6 +126,24 @@ pub async fn create_instance(
         .map_err(err)
 }
 
+/// 读取某实例的配置(名字/内存/Java/JVM 参数/窗口…)。文件缺失返回默认值。
+#[tauri::command]
+pub fn get_instance_config(root: String, id: String) -> CmdResult<mc_core::instance::InstanceConfig> {
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    inst.load_config().map_err(err)
+}
+
+/// 写某实例的配置(原子写入 instance.json)。
+#[tauri::command]
+pub fn set_instance_config(
+    root: String,
+    id: String,
+    config: mc_core::instance::InstanceConfig,
+) -> CmdResult<()> {
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    inst.save_config(&config).map_err(err)
+}
+
 #[tauri::command]
 pub async fn list_versions(snapshot: bool) -> CmdResult<Vec<ManifestVersion>> {
     let dl = make_downloader()?;

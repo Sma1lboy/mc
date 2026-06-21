@@ -25,6 +25,7 @@ import type {
   ModrinthVersion,
   ModrinthProject,
   GlobalSettings,
+  InstanceConfig,
 } from "./types";
 
 // ===== 命令封装 =====
@@ -46,6 +47,16 @@ export const api = {
   /** 取实例的游戏目录绝对路径(用于「打开游戏目录」) */
   instanceDir(root: string, id: string): Promise<string> {
     return invoke<string>("instance_dir", { root, id });
+  },
+
+  /** 读取单实例配置(名字/内存/Java/JVM/窗口…) */
+  getInstanceConfig(root: string, id: string): Promise<InstanceConfig> {
+    return invoke<InstanceConfig>("get_instance_config", { root, id });
+  },
+
+  /** 写单实例配置(持久化到该实例的 instance.json) */
+  setInstanceConfig(root: string, id: string, config: InstanceConfig): Promise<void> {
+    return invoke<void>("set_instance_config", { root, id, config });
   },
 
   /** 删除实例(移除整个版本目录,含 mods/saves;破坏性,调用方需先确认) */

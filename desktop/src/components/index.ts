@@ -38,6 +38,7 @@ export { Dialog } from "./Dialog";
 export type { DialogProps } from "./Dialog";
 export { Menu } from "./Menu";
 export { NewInstanceDialog } from "./NewInstanceDialog";
+export { InstanceManageDialog } from "./InstanceManageDialog";
 
 // 复合行/卡片 (Modrinth 风格)
 export { InstanceRow } from "./InstanceRow";

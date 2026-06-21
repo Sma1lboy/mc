@@ -1,5 +1,5 @@
 import { Component, createResource, createSignal, For, Show, onCleanup } from "solid-js";
-import { Avatar, NewInstanceDialog, Spinner, toast } from "../components";
+import { Avatar, InstanceManageDialog, NewInstanceDialog, Spinner, toast } from "../components";
 import { api, onGameLog, onLaunchProgress } from "../ipc/api";
 import { activeRoot } from "../store";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
@@ -39,6 +39,7 @@ const PclLaunch: Component = () => {
   const [newsOpen, setNewsOpen] = createSignal<Record<string, boolean>>({ snapshot: true });
   const [showLogin, setShowLogin] = createSignal(false);
   const [showNew, setShowNew] = createSignal(false);
+  const [showManage, setShowManage] = createSignal(false);
   // 整合包导入/导出的进行态(禁用按钮 + 文案)。
   const [busy, setBusy] = createSignal<"" | "import" | "export">("");
 
@@ -214,7 +215,11 @@ const PclLaunch: Component = () => {
             </button>
             <button
               class="h-[36px] border border-pcl-line rounded-[3px] bg-pcl-card text-pcl-text text-[13px] cursor-pointer transition-[background,border-color,color] duration-150 ease-[ease] hover:bg-pcl-blue-lightest hover:border-pcl-blue-soft"
-              onClick={() => toast({ type: "info", message: "版本设置:待接入" })}
+              onClick={() =>
+                selected()
+                  ? setShowManage(true)
+                  : toast({ type: "info", message: "先在左侧选择一个实例" })
+              }
             >
               版本设置
             </button>
@@ -393,6 +398,14 @@ const PclLaunch: Component = () => {
           const list = await refetchInstances();
           setSelected((list ?? []).find((i) => i.id === id) ?? null);
         }}
+      />
+
+      {/* 实例设置(内存/Java/JVM/窗口) */}
+      <InstanceManageDialog
+        open={showManage()}
+        instance={selected()}
+        onClose={() => setShowManage(false)}
+        onChanged={() => refetchInstances()}
       />
     </div>
   );
