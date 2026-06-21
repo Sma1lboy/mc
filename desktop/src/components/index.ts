@@ -37,6 +37,7 @@ export type { TooltipProps } from "./Tooltip";
 export { Dialog } from "./Dialog";
 export type { DialogProps } from "./Dialog";
 export { Menu } from "./Menu";
+export { NewInstanceDialog } from "./NewInstanceDialog";
 
 // 复合行/卡片 (Modrinth 风格)
 export { InstanceRow } from "./InstanceRow";

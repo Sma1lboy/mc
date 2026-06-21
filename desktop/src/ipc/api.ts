@@ -53,6 +53,27 @@ export const api = {
     return invoke<void>("delete_instance", { root, id });
   },
 
+  /**
+   * 从零创建实例(装核心 + 命名实例);进度走 install://progress,返回新实例 id。
+   * loader: "vanilla" | "fabric" | "quilt" | "forge" | "neoforge"。
+   * forge/neoforge 需要 loaderVersion(forge build / neoforge 版本)。
+   */
+  createInstance(
+    root: string,
+    name: string,
+    mcVersion: string,
+    loader: string,
+    loaderVersion?: string | null,
+  ): Promise<string> {
+    return invoke<string>("create_instance", {
+      root,
+      name,
+      mcVersion,
+      loader,
+      loaderVersion: loaderVersion ?? null,
+    });
+  },
+
   /** 列出官方版本清单;snapshot=true 时包含快照 */
   listVersions(snapshot: boolean): Promise<ManifestVersion[]> {
     return invoke<ManifestVersion[]>("list_versions", { snapshot });

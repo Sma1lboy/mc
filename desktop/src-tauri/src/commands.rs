@@ -102,6 +102,30 @@ pub fn delete_instance(root: String, id: String) -> CmdResult<()> {
     mc_core::instance::lifecycle::delete_instance(&root_paths(&root), &id).map_err(err)
 }
 
+/// 从零创建实例:装核心(原版或 + loader)→ 写命名实例。进度走 install://progress。
+/// loader = "vanilla" / "fabric" / "quilt" / "forge" / "neoforge";forge/neoforge 需 loader_version。
+#[tauri::command]
+pub async fn create_instance(
+    app: AppHandle,
+    root: String,
+    name: String,
+    mc_version: String,
+    loader: String,
+    loader_version: Option<String>,
+) -> CmdResult<String> {
+    let paths = root_paths(&root);
+    let dl = make_downloader()?;
+    let loader_opt = match parse_loader_kind(&loader) {
+        None | Some(mc_core::types::LoaderKind::Vanilla) => None,
+        Some(kind) => Some((kind, loader_version.unwrap_or_default())),
+    };
+    let (tx, rx) = watch::channel(Progress::new("准备"));
+    forward_progress(app, "install://progress", rx);
+    mc_core::instance::lifecycle::create_instance(&dl, &paths, &name, &mc_version, loader_opt, Some(tx))
+        .await
+        .map_err(err)
+}
+
 #[tauri::command]
 pub async fn list_versions(snapshot: bool) -> CmdResult<Vec<ManifestVersion>> {
     let dl = make_downloader()?;

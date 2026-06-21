@@ -13,6 +13,7 @@ pub fn run() {
             commands::list_instances,
             commands::instance_dir,
             commands::delete_instance,
+            commands::create_instance,
             commands::list_versions,
             commands::list_accounts,
             commands::msa_login_start,

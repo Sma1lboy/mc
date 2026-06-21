@@ -1,5 +1,5 @@
 import { Component, createResource, createSignal, For, Show, onCleanup } from "solid-js";
-import { Avatar, Spinner, toast } from "../components";
+import { Avatar, NewInstanceDialog, Spinner, toast } from "../components";
 import { api, onGameLog, onLaunchProgress } from "../ipc/api";
 import { activeRoot } from "../store";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
@@ -38,6 +38,7 @@ const PclLaunch: Component = () => {
   const [rightView, setRightView] = createSignal<RightView>("news");
   const [newsOpen, setNewsOpen] = createSignal<Record<string, boolean>>({ snapshot: true });
   const [showLogin, setShowLogin] = createSignal(false);
+  const [showNew, setShowNew] = createSignal(false);
   // 整合包导入/导出的进行态(禁用按钮 + 文案)。
   const [busy, setBusy] = createSignal<"" | "import" | "export">("");
 
@@ -218,6 +219,12 @@ const PclLaunch: Component = () => {
               版本设置
             </button>
           </div>
+          <button
+            class="w-full h-[36px] mt-[10px] border border-pcl-blue rounded-[3px] bg-pcl-blue-lightest text-pcl-blue text-[13px] font-semibold cursor-pointer transition-[background] duration-150 ease-[ease] hover:bg-pcl-blue-bg"
+            onClick={() => setShowNew(true)}
+          >
+            + 新建实例
+          </button>
         </div>
       </aside>
 
@@ -377,6 +384,16 @@ const PclLaunch: Component = () => {
           }}
         />
       </Show>
+
+      {/* 从零新建实例 */}
+      <NewInstanceDialog
+        open={showNew()}
+        onClose={() => setShowNew(false)}
+        onCreated={async (id) => {
+          const list = await refetchInstances();
+          setSelected((list ?? []).find((i) => i.id === id) ?? null);
+        }}
+      />
     </div>
   );
 };
