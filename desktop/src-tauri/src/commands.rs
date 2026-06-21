@@ -144,6 +144,14 @@ pub fn set_instance_config(
     inst.save_config(&config).map_err(err)
 }
 
+/// 把任意图片设为实例图标(拷贝到 `versions/<id>/icon.png`)。source 为本地文件绝对路径。
+/// 之后 list_instances 会把它探测为 data URL 回传前端。
+#[tauri::command]
+pub fn set_instance_icon(root: String, id: String, source: String) -> CmdResult<()> {
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    inst.set_icon(std::path::Path::new(&source)).map_err(err)
+}
+
 /// 列出某实例 mods 目录里的 mod(含启停态)。
 #[tauri::command]
 pub fn instance_mods(root: String, id: String) -> CmdResult<Vec<mc_core::instance::ModInfo>> {

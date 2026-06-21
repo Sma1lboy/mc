@@ -16,6 +16,7 @@ pub fn run() {
             commands::create_instance,
             commands::get_instance_config,
             commands::set_instance_config,
+            commands::set_instance_icon,
             commands::instance_mods,
             commands::set_mod_enabled,
             commands::delete_mod,

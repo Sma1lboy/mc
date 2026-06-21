@@ -405,7 +405,12 @@ const PclLaunch: Component = () => {
         open={showManage()}
         instance={selected()}
         onClose={() => setShowManage(false)}
-        onChanged={() => refetchInstances()}
+        onChanged={async () => {
+          // 重拉列表,并把 selected 同步到刷新后的对象(否则改名/换图标后弹窗与头部仍是旧值)。
+          const list = await refetchInstances();
+          const cur = selected();
+          if (cur && list) setSelected(list.find((i) => i.id === cur.id) ?? cur);
+        }}
       />
     </div>
   );

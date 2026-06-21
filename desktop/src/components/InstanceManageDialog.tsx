@@ -1,4 +1,5 @@
 import { Component, createSignal, createResource, createEffect, onCleanup, For, Show } from "solid-js";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { Dialog } from "./Dialog";
 import { Spinner } from "./Spinner";
 import { toast } from "./Toast";
@@ -391,6 +392,23 @@ export const InstanceManageDialog: Component<{
       .catch((e) => toast({ type: "error", message: `保存失败:${e}` }));
   }
 
+  async function pickIcon() {
+    const inst = props.instance;
+    if (!inst) return;
+    const picked = await openDialog({
+      multiple: false,
+      filters: [{ name: "图片", extensions: ["png", "jpg", "jpeg", "gif", "bmp", "webp"] }],
+    });
+    if (typeof picked !== "string") return; // 取消 / 多选(不会发生)
+    try {
+      await api.setInstanceIcon(activeRoot(), inst.id, picked);
+      toast({ type: "success", message: "已更新实例图标" });
+      props.onChanged?.(); // 触发列表重拉,新图标随 list_instances 探测回来
+    } catch (e) {
+      toast({ type: "error", message: `设置图标失败:${e}` });
+    }
+  }
+
   async function toggleMod(m: ModInfo, enabled: boolean) {
     const inst = props.instance;
     if (!inst) return;
@@ -454,6 +472,30 @@ export const InstanceManageDialog: Component<{
             >
               {(c) => (
                 <>
+                  <div class="flex items-center gap-[12px]">
+                    <div class="w-[56px] h-[56px] rounded-ctl overflow-hidden bg-n-3 shrink-0 grid place-items-center">
+                      <Show
+                        when={props.instance?.icon}
+                        fallback={
+                          <span class="text-[22px] font-bold text-dim">
+                            {(props.instance?.name || props.instance?.id || "?").charAt(0).toUpperCase()}
+                          </span>
+                        }
+                      >
+                        <img src={props.instance!.icon!} alt="" class="w-full h-full object-cover" />
+                      </Show>
+                    </div>
+                    <div class="flex flex-col gap-[5px]">
+                      <span class={LABEL}>实例图标</span>
+                      <button
+                        class="h-[30px] px-[12px] border border-n-6 rounded-ctl bg-n-4 text-fg text-[12px] cursor-pointer transition-colors duration-150 hover:bg-n-5 w-fit"
+                        onClick={pickIcon}
+                      >
+                        更换图标…
+                      </button>
+                    </div>
+                  </div>
+
                   <label class="flex flex-col gap-[5px]">
                     <span class={LABEL}>名称</span>
                     <input

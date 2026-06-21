@@ -64,6 +64,11 @@ export const api = {
     return invoke<void>("set_instance_config", { root, id, config });
   },
 
+  /** 把本地图片设为实例图标(拷贝到 versions/<id>/icon.png);之后 list 会探测回传 */
+  setInstanceIcon(root: string, id: string, source: string): Promise<void> {
+    return invoke<void>("set_instance_icon", { root, id, source });
+  },
+
   /** 列出某实例的本地 mod(含启停态) */
   instanceMods(root: string, id: string): Promise<ModInfo[]> {
     return invoke<ModInfo[]>("instance_mods", { root, id });

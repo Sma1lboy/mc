@@ -26,7 +26,7 @@ use std::path::{Path, PathBuf};
 
 use mc_types::{InstanceSummary, LoaderKind};
 
-use crate::error::Result;
+use crate::error::{CoreError, IoResultExt, Result};
 use crate::paths::GamePaths;
 
 /// `instance.json` 在实例目录下的固定文件名。
@@ -99,6 +99,34 @@ impl Instance {
         self.game_dir().join("screenshots")
     }
 
+    /// 实例图标路径:`versions/<id>/icon.png`(与导入器写入位置、[`detect_icon`] 探测位置一致)。
+    pub fn icon_path(&self) -> PathBuf {
+        self.game_dir().join("icon.png")
+    }
+
+    /// 把任意图片设为该实例的图标:校验后拷贝到 [`Instance::icon_path`]。
+    ///
+    /// 防御:源必须存在、是受支持的图片(按魔数嗅探)、且不超过 1 MiB(与 [`detect_icon`]
+    /// 的内联上限一致,避免设了却显示不出)。内容按原样拷贝(不重编码),文件名固定 `icon.png`
+    /// 但真实格式由 [`detect_icon`] 嗅探决定 mime。
+    pub fn set_icon(&self, source: &Path) -> Result<()> {
+        let bytes = std::fs::read(source).with_path(source)?;
+        if bytes.is_empty() {
+            return Err(CoreError::other("图标文件为空"));
+        }
+        if bytes.len() > 1024 * 1024 {
+            return Err(CoreError::other("图标过大(上限 1 MiB)"));
+        }
+        if sniff_image_mime_opt(&bytes).is_none() {
+            return Err(CoreError::other("无法识别的图片格式(支持 png/jpg/gif/bmp/webp)"));
+        }
+        let dest = self.icon_path();
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent).with_path(parent)?;
+        }
+        std::fs::write(&dest, &bytes).with_path(&dest)
+    }
+
     /// 读取该实例的配置;文件不存在时返回 [`InstanceConfig::default`]。
     pub fn load_config(&self) -> Result<InstanceConfig> {
         InstanceConfig::load(&self.config_path())
@@ -146,6 +174,66 @@ struct VersionHead {
     id: Option<String>,
     #[serde(rename = "inheritsFrom")]
     inherits_from: Option<String>,
+}
+
+/// 探测实例目录下的 `icon.png`,有则读出编码为 `data:` URL,供前端 `<img>` 直接用。
+///
+/// 约定与导入器一致:实例图标固定落在 `versions/<id>/icon.png`(本模型下
+/// `game_dir == version_dir`)。内联成 data URL 而非返回路径,避免在两套布局里都
+/// 去配 Tauri asset 协议 / 作用域;图标通常只有几十 KB,代价可忽略。
+///
+/// 任何失败(无文件 / 读取错误 / 空文件 / 过大)一律返回 `None` —— 图标是纯展示性的,
+/// 缺省时 UI 会用首字母占位兜底,绝不应让列表因图标失败。设 1 MiB 上限防止把异常大的
+/// 图塞进每次 list 的 json。
+fn detect_icon(dir: &Path) -> Option<String> {
+    let bytes = std::fs::read(dir.join("icon.png")).ok()?;
+    if bytes.is_empty() || bytes.len() > 1024 * 1024 {
+        return None;
+    }
+    Some(format!("data:{};base64,{}", sniff_image_mime(&bytes), base64_encode(&bytes)))
+}
+
+/// 从文件头的魔数判断图片 mime。图标文件名固定为 `icon.png`,但用户可能拖入 jpg/webp 等,
+/// 故按内容嗅探 mime,保证 data URL 声明正确、各 webview 都能渲染;无法识别时退回 png
+/// (探测既有 icon.png 时从宽,坏数据也至多渲染失败,不影响列表)。
+fn sniff_image_mime(bytes: &[u8]) -> &'static str {
+    sniff_image_mime_opt(bytes).unwrap_or("image/png")
+}
+
+/// 严格版嗅探:仅当魔数匹配已知图片格式时返回 `Some(mime)`,否则 `None`。
+/// 用于 [`Instance::set_icon`] 在写盘前拒绝非图片文件。
+fn sniff_image_mime_opt(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
+        Some("image/png")
+    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Some("image/jpeg")
+    } else if bytes.starts_with(b"GIF8") {
+        Some("image/gif")
+    } else if bytes.starts_with(b"BM") {
+        Some("image/bmp")
+    } else if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else {
+        None
+    }
+}
+
+/// 标准 base64 编码(带 `=` 填充)。手写以免为"把图标内联进 data URL"这一处引入依赖。
+fn base64_encode(input: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
+    for chunk in input.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = *chunk.get(1).unwrap_or(&0) as u32;
+        let b2 = *chunk.get(2).unwrap_or(&0) as u32;
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(ALPHABET[((n >> 18) & 63) as usize] as char);
+        out.push(ALPHABET[((n >> 12) & 63) as usize] as char);
+        out.push(if chunk.len() > 1 { ALPHABET[((n >> 6) & 63) as usize] as char } else { '=' });
+        out.push(if chunk.len() > 2 { ALPHABET[(n & 63) as usize] as char } else { '=' });
+    }
+    out
 }
 
 /// 取目录的最后修改时间(epoch millis),失败返回 0。
@@ -262,7 +350,7 @@ pub fn list_instances(paths: &GamePaths) -> Vec<InstanceSummary> {
                 LoaderKind::Vanilla => None,
                 _ => Some(dir_id.clone()),
             },
-            icon: None, // 图标当前未在 config 建模,留空(后续可由 icon.png 探测填充)。
+            icon: detect_icon(&dir), // versions/<id>/icon.png(导入器写入)→ data URL,无则 None。
             last_played: last_played_for(&dir),
             running: false, // 运行态由上层进程管理器维护,列表层不感知。
         });
@@ -387,6 +475,41 @@ mod tests {
         cfg.memory_mb = 6144;
         inst.save_config(&cfg).unwrap();
         assert_eq!(inst.load_config().unwrap().memory_mb, 6144);
+    }
+
+    #[test]
+    fn base64_encode_matches_known_vectors() {
+        // RFC 4648 测试向量,覆盖三种填充情形。
+        assert_eq!(base64_encode(b""), "");
+        assert_eq!(base64_encode(b"f"), "Zg==");
+        assert_eq!(base64_encode(b"fo"), "Zm8=");
+        assert_eq!(base64_encode(b"foo"), "Zm9v");
+        assert_eq!(base64_encode(b"foob"), "Zm9vYg==");
+        assert_eq!(base64_encode(b"fooba"), "Zm9vYmE=");
+        assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
+    }
+
+    #[test]
+    fn detect_icon_reads_png_into_data_url() {
+        let root = TempRoot::new("icon");
+        root.add_version("1.20.1", None);
+        let paths = GamePaths::new(root.path.clone());
+        let dir = paths.version_dir("1.20.1");
+
+        // 无 icon.png 时返回 None。
+        assert!(detect_icon(&dir).is_none());
+
+        // 写入图标后应被探测并内联为 data URL。
+        fs::write(dir.join("icon.png"), b"abc").unwrap();
+        assert_eq!(
+            detect_icon(&dir).as_deref(),
+            Some("data:image/png;base64,YWJj"),
+        );
+
+        // 该实例的列表项也应带上同一个 data URL。
+        let list = list_instances(&paths);
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].icon.as_deref(), Some("data:image/png;base64,YWJj"));
     }
 
     #[test]
