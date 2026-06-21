@@ -165,6 +165,24 @@ pub fn delete_mod(root: String, id: String, file_name: String) -> CmdResult<()> 
     mc_core::instance::mods::delete_mod(&inst, &file_name).map_err(err)
 }
 
+/// 从 Modrinth 把一个 mod(及其必需依赖)装进实例。loader/mc_version 用于挑兼容版本。
+/// 返回安装报告(已装 / 已满足 / 未解决依赖)。
+#[tauri::command]
+pub async fn install_mod(
+    root: String,
+    id: String,
+    project: String,
+    mc_version: String,
+    loader: String,
+) -> CmdResult<mc_core::instance::InstallReport> {
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let dl = make_downloader()?;
+    let api = ModrinthApi::new();
+    mc_core::instance::install_mod(&api, &dl, &inst, &project, &mc_version, &loader, true)
+        .await
+        .map_err(err)
+}
+
 #[tauri::command]
 pub async fn list_versions(snapshot: bool) -> CmdResult<Vec<ManifestVersion>> {
     let dl = make_downloader()?;

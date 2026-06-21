@@ -19,6 +19,7 @@ pub fn run() {
             commands::instance_mods,
             commands::set_mod_enabled,
             commands::delete_mod,
+            commands::install_mod,
             commands::list_versions,
             commands::list_accounts,
             commands::msa_login_start,

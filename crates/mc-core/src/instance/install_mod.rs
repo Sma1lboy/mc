@@ -164,7 +164,7 @@ fn install_rec<'a>(
     resolve_deps: bool,
     visited: &'a mut HashSet<String>,
     report: &'a mut InstallReport,
-) -> Pin<Box<dyn Future<Output = Result<()>> + 'a>> {
+) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>> {
     Box::pin(async move {
         // 去重 / 防环:已处理过的 project_id 直接记入 satisfied 并返回。
         // insert 返回 false 代表此前已存在。

@@ -188,6 +188,16 @@ export interface ModInfo {
   size: number;
 }
 
+/** 向实例装 mod 的结果(对应后端 InstallReport) */
+export interface InstallReport {
+  /** 已装入的文件 */
+  installed: { project_id: string; file_name: string }[];
+  /** 已满足(已存在/无需重复装)的依赖 project id */
+  satisfied: string[];
+  /** 找不到兼容版本、需手动处理的 required 依赖 */
+  unresolved: string[];
+}
+
 /** 一个整合包版本的详情(详情页用;对应后端 VersionDetail) */
 export interface ModrinthVersion {
   id: string;

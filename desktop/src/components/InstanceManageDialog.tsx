@@ -1,4 +1,4 @@
-import { Component, createSignal, createResource, createEffect, For, Show } from "solid-js";
+import { Component, createSignal, createResource, createEffect, onCleanup, For, Show } from "solid-js";
 import { Dialog } from "./Dialog";
 import { Spinner } from "./Spinner";
 import { toast } from "./Toast";
@@ -51,6 +51,64 @@ export const InstanceManageDialog: Component<{
     () => (props.open && props.instance && tab() === "mods" ? props.instance.id : false),
     (id) => api.instanceMods(activeRoot(), id as string),
   );
+
+  // ---- 从 Modrinth 搜索并安装 ----
+  // vanilla 实例没有加载器,搜 mod 无意义,这里把 loader 归一为 null(不限)。
+  const searchLoader = () => {
+    const l = props.instance?.loader;
+    return l && l !== "vanilla" ? l : null;
+  };
+  const [query, setQuery] = createSignal("");
+  const [debounced, setDebounced] = createSignal("");
+  const [installing, setInstalling] = createSignal<string | null>(null);
+  let debounceTimer: number | undefined;
+
+  function onQueryInput(v: string) {
+    setQuery(v);
+    clearTimeout(debounceTimer);
+    debounceTimer = window.setTimeout(() => setDebounced(v.trim()), 280);
+  }
+  onCleanup(() => clearTimeout(debounceTimer));
+
+  // 搜索结果:仅在 Mods 标签 + 有关键词时请求。
+  const [hits] = createResource(
+    () =>
+      props.open && props.instance && tab() === "mods" && debounced()
+        ? ([props.instance.id, debounced()] as const)
+        : false,
+    () => api.modrinthSearch(debounced(), "mod", props.instance?.mc_version ?? null, searchLoader()),
+  );
+
+  async function installHit(projectId: string, title: string) {
+    const inst = props.instance;
+    if (!inst) return;
+    setInstalling(projectId);
+    try {
+      const report = await api.installMod(
+        activeRoot(),
+        inst.id,
+        projectId,
+        inst.mc_version,
+        searchLoader() ?? "",
+      );
+      if (report.installed.length === 0 && report.unresolved.length === 0) {
+        toast({ type: "info", message: `${title} 已存在,无需重复安装` });
+      } else {
+        const parts = [`已装入 ${report.installed.length} 个文件`];
+        if (report.unresolved.length > 0)
+          parts.push(`${report.unresolved.length} 个依赖未解决`);
+        toast({
+          type: report.unresolved.length > 0 ? "warn" : "success",
+          message: `${title}:${parts.join(",")}`,
+        });
+      }
+      refetchMods();
+    } catch (e) {
+      toast({ type: "error", message: `安装失败:${e}` });
+    } finally {
+      setInstalling(null);
+    }
+  }
 
   function patch(p: Partial<InstanceConfig>) {
     const cur = cfg();
@@ -208,6 +266,72 @@ export const InstanceManageDialog: Component<{
 
           {/* ---- Mods ---- */}
           <Show when={tab() === "mods"}>
+            {/* 从 Modrinth 搜索并安装(按本实例的 MC 版本 + 加载器过滤) */}
+            <div class="flex flex-col gap-[8px]">
+              <div class="relative">
+                <input
+                  class={`${FIELD} w-full pr-[30px]`}
+                  placeholder={`搜索 Modrinth mod(${props.instance?.mc_version ?? ""} · ${searchLoader() ?? "无加载器"})`}
+                  value={query()}
+                  onInput={(e) => onQueryInput(e.currentTarget.value)}
+                />
+                <Show when={hits.loading}>
+                  <div class="absolute right-[10px] top-1/2 -translate-y-1/2">
+                    <Spinner size={14} />
+                  </div>
+                </Show>
+              </div>
+
+              <Show when={searchLoader() === null}>
+                <div class="text-[11px] text-dim">
+                  该实例没有加载器(原版),无法安装 mod。
+                </div>
+              </Show>
+
+              <Show when={debounced() && !hits.loading && (hits() ?? []).length === 0}>
+                <div class="text-[12px] text-dim py-[4px]">没有匹配的 mod。</div>
+              </Show>
+
+              <Show when={(hits() ?? []).length > 0}>
+                <div class="flex flex-col gap-[6px] max-h-[200px] overflow-y-auto">
+                  <For each={hits()}>
+                    {(h) => (
+                      <div class="flex items-center gap-[10px] py-[7px] px-[10px] rounded-ctl bg-n-2 border border-n-3">
+                        <Show
+                          when={h.icon_url}
+                          fallback={<div class="w-[30px] h-[30px] rounded-xs bg-n-4 shrink-0" />}
+                        >
+                          <img
+                            src={h.icon_url!}
+                            alt=""
+                            class="w-[30px] h-[30px] rounded-xs object-cover shrink-0"
+                          />
+                        </Show>
+                        <div class="flex-1 min-w-0">
+                          <div class="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">
+                            {h.title}
+                          </div>
+                          <div class="text-[11px] text-dim whitespace-nowrap overflow-hidden text-ellipsis">
+                            {h.description}
+                          </div>
+                        </div>
+                        <button
+                          class="shrink-0 h-[28px] px-[12px] rounded-ctl bg-a-4 text-white text-[12px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90 disabled:opacity-50 disabled:cursor-default"
+                          disabled={installing() !== null}
+                          onClick={() => installHit(h.project_id, h.title)}
+                        >
+                          {installing() === h.project_id ? "安装中…" : "安装"}
+                        </button>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
+
+              <div class="h-px bg-n-3 my-[2px]" />
+              <div class={LABEL}>已安装</div>
+            </div>
+
             <Show
               when={!mods.loading}
               fallback={

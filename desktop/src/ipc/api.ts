@@ -27,6 +27,7 @@ import type {
   GlobalSettings,
   InstanceConfig,
   ModInfo,
+  InstallReport,
 } from "./types";
 
 // ===== 命令封装 =====
@@ -73,6 +74,17 @@ export const api = {
   /** 删除一个 mod 文件 */
   deleteMod(root: string, id: string, fileName: string): Promise<void> {
     return invoke<void>("delete_mod", { root, id, fileName });
+  },
+
+  /** 从 Modrinth 把一个 mod(+必需依赖)装进实例 */
+  installMod(
+    root: string,
+    id: string,
+    project: string,
+    mcVersion: string,
+    loader: string,
+  ): Promise<InstallReport> {
+    return invoke<InstallReport>("install_mod", { root, id, project, mcVersion, loader });
   },
 
   /** 删除实例(移除整个版本目录,含 mods/saves;破坏性,调用方需先确认) */
