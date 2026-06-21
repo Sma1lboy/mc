@@ -225,13 +225,18 @@ const PacksPanel: Component<{
 };
 
 /**
- * WorldsPanel —— 存档世界列表 + 删除(走回收站)。只读字段:名称/模式/大小。
+ * WorldsPanel —— 存档世界列表 + 备份(导出 zip)/ 重命名(改显示名)/ 删除(走回收站)。
  */
 const WorldsPanel: Component<{ instance: InstanceSummary }> = (props) => {
   const [worlds, { refetch }] = createResource(
     () => props.instance.id,
     (id) => api.instanceWorlds(activeRoot(), id),
   );
+
+  // 行内重命名:正在编辑的世界 folder + 草稿名。
+  const [editing, setEditing] = createSignal<string | null>(null);
+  const [draft, setDraft] = createSignal("");
+  const [busy, setBusy] = createSignal<string | null>(null);
 
   async function remove(w: WorldInfo) {
     try {
@@ -240,6 +245,41 @@ const WorldsPanel: Component<{ instance: InstanceSummary }> = (props) => {
       refetch();
     } catch (e) {
       toast({ type: "error", message: `删除失败:${e}` });
+    }
+  }
+
+  async function backup(w: WorldInfo) {
+    const dir = await openDialog({ directory: true, title: "选择备份保存位置" });
+    if (typeof dir !== "string") return; // 取消
+    setBusy(w.folder);
+    try {
+      const zip = await api.backupWorld(activeRoot(), props.instance.id, w.folder, dir);
+      toast({ type: "success", message: `已备份到 ${zip}` });
+    } catch (e) {
+      toast({ type: "error", message: `备份失败:${e}` });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function startRename(w: WorldInfo) {
+    setDraft(w.name);
+    setEditing(w.folder);
+  }
+
+  async function commitRename(w: WorldInfo) {
+    const name = draft().trim();
+    if (!name || name === w.name) {
+      setEditing(null);
+      return;
+    }
+    try {
+      await api.renameWorld(activeRoot(), props.instance.id, w.folder, name);
+      toast({ type: "success", message: `已重命名为 ${name}` });
+      setEditing(null);
+      refetch();
+    } catch (e) {
+      toast({ type: "error", message: `重命名失败:${e}` });
     }
   }
 
@@ -269,15 +309,45 @@ const WorldsPanel: Component<{ instance: InstanceSummary }> = (props) => {
             {(w) => (
               <div class="flex items-center gap-[10px] py-[8px] px-[10px] rounded-ctl bg-n-3">
                 <div class="flex-1 min-w-0">
-                  <div class="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">
-                    {w.name}
-                  </div>
+                  <Show
+                    when={editing() === w.folder}
+                    fallback={
+                      <div class="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">
+                        {w.name}
+                      </div>
+                    }
+                  >
+                    <input
+                      class={`${FIELD} h-[26px] w-full text-[12px]`}
+                      autofocus
+                      value={draft()}
+                      onInput={(e) => setDraft(e.currentTarget.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") commitRename(w);
+                        else if (e.key === "Escape") setEditing(null);
+                      }}
+                      onBlur={() => commitRename(w)}
+                    />
+                  </Show>
                   <div class="text-[11px] text-dim whitespace-nowrap overflow-hidden text-ellipsis">
                     {[MODE_LABEL[w.game_mode] ?? w.game_mode, fmtSize(w.size_bytes), w.folder]
                       .filter(Boolean)
                       .join(" · ")}
                   </div>
                 </div>
+                <button
+                  class="shrink-0 text-[12px] text-dim px-[8px] py-[4px] rounded-xs cursor-pointer hover:text-fg hover:bg-a-4/10 disabled:opacity-50"
+                  disabled={busy() === w.folder}
+                  onClick={() => backup(w)}
+                >
+                  {busy() === w.folder ? "备份中…" : "备份"}
+                </button>
+                <button
+                  class="shrink-0 text-[12px] text-dim px-[8px] py-[4px] rounded-xs cursor-pointer hover:text-fg hover:bg-a-4/10"
+                  onClick={() => startRename(w)}
+                >
+                  重命名
+                </button>
                 <button class={DEL_BTN} onClick={() => remove(w)}>
                   删除
                 </button>
@@ -298,7 +368,7 @@ export const InstanceManageDialog: Component<{
 }> = (props) => {
   const [tab, setTab] = createSignal<Tab>("settings");
   const [cfg, setCfg] = createSignal<InstanceConfig | null>(null);
-  // 资源标签内的子类型:资源包 / 光影。
+  // 资源标签内的子类型:资源包 / 光影 / 数据包。
   const [resKind, setResKind] = createSignal<PackKind>("resource_pack");
 
   // 打开/切换实例时拉配置 + 复位到设置页;关闭时清空。
@@ -720,6 +790,14 @@ export const InstanceManageDialog: Component<{
                   >
                     光影
                   </button>
+                  <button
+                    class={`px-[12px] h-[28px] rounded-ctl text-[12px] cursor-pointer transition-colors duration-150 ${
+                      resKind() === "datapack" ? "bg-a-4 text-white" : "bg-n-3 text-dim hover:text-fg"
+                    }`}
+                    onClick={() => setResKind("datapack")}
+                  >
+                    数据包
+                  </button>
                 </div>
                 <Show when={resKind() === "resource_pack"}>
                   <PacksPanel
@@ -735,6 +813,14 @@ export const InstanceManageDialog: Component<{
                     kind="shader"
                     searchKind="shader"
                     emptyHint="该实例还没有光影。"
+                  />
+                </Show>
+                <Show when={resKind() === "datapack"}>
+                  <PacksPanel
+                    instance={inst()}
+                    kind="datapack"
+                    searchKind="datapack"
+                    emptyHint="该实例还没有数据包。"
                   />
                 </Show>
               </>

@@ -258,6 +258,22 @@ pub fn delete_world(root: String, id: String, folder: String) -> CmdResult<()> {
     mc_core::instance::world::delete_world(&inst, &folder).map_err(err)
 }
 
+/// 把一个存档打成 zip 备份到 dest_dir,返回写出的 zip 绝对路径。
+#[tauri::command]
+pub fn backup_world(root: String, id: String, folder: String, dest_dir: String) -> CmdResult<String> {
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    mc_core::instance::world::backup_world(&inst, &folder, std::path::Path::new(&dest_dir))
+        .map(|p| p.to_string_lossy().into_owned())
+        .map_err(err)
+}
+
+/// 重命名存档的显示名(改 level.dat 的 LevelName,不改文件夹名)。
+#[tauri::command]
+pub fn rename_world(root: String, id: String, folder: String, new_name: String) -> CmdResult<()> {
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    mc_core::instance::world::rename_world(&inst, &folder, &new_name).map_err(err)
+}
+
 #[tauri::command]
 pub async fn list_versions(snapshot: bool) -> CmdResult<Vec<ManifestVersion>> {
     let dl = make_downloader()?;

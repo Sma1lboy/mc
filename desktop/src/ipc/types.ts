@@ -90,8 +90,8 @@ export interface JavaInstall {
   source: string;
 }
 
-/** Modrinth 搜索可检索的资源类型 */
-export type ProjectKind = "mod" | "modpack" | "shader" | "resourcepack";
+/** Modrinth 搜索可检索的资源类型(datapack 在 Modrinth 是带 datapack 分类的 mod 项目) */
+export type ProjectKind = "mod" | "modpack" | "shader" | "resourcepack" | "datapack";
 
 /** Modrinth 搜索命中的一个项目 */
 export interface SearchHit {

@@ -27,6 +27,8 @@ pub fn run() {
             commands::install_pack,
             commands::instance_worlds,
             commands::delete_world,
+            commands::backup_world,
+            commands::rename_world,
             commands::list_versions,
             commands::list_accounts,
             commands::msa_login_start,
