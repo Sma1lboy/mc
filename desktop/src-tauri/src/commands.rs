@@ -228,6 +228,33 @@ pub async fn apply_mod_update(
         .map_err(err)
 }
 
+/// 把一个本地文件拖拽导入实例:按 target 拷贝到对应子目录,返回落盘文件名。
+/// target = "mod" / "resourcepack" / "shader" / "datapack"。
+#[tauri::command]
+pub fn import_local_resource(
+    root: String,
+    id: String,
+    target: String,
+    path: String,
+) -> CmdResult<String> {
+    use mc_core::instance::PackKind;
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let src = std::path::Path::new(&path);
+    match target.as_str() {
+        "mod" => mc_core::instance::mods::import_local_mod(&inst, src).map_err(err),
+        "resourcepack" => {
+            mc_core::instance::packs::import_local_pack(&inst, PackKind::ResourcePack, src).map_err(err)
+        }
+        "shader" => {
+            mc_core::instance::packs::import_local_pack(&inst, PackKind::Shader, src).map_err(err)
+        }
+        "datapack" => {
+            mc_core::instance::packs::import_local_pack(&inst, PackKind::Datapack, src).map_err(err)
+        }
+        other => Err(format!("不支持的导入目标: {other}")),
+    }
+}
+
 /// 列出某实例下指定类型的包(资源包 / 光影 / 数据包),含启停态。
 #[tauri::command]
 pub fn instance_packs(

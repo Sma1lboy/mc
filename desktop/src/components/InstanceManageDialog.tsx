@@ -1,5 +1,6 @@
 import { Component, createSignal, createResource, createEffect, onCleanup, For, Show } from "solid-js";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Dialog } from "./Dialog";
 import { Spinner } from "./Spinner";
 import { toast } from "./Toast";
@@ -61,9 +62,11 @@ const PacksPanel: Component<{
   kind: PackKind;
   searchKind: ProjectKind;
   emptyHint: string;
+  /** 外部导入计数:递增即触发重扫(拖拽导入后由父组件 bump)。 */
+  tick?: number;
 }> = (props) => {
   const [packs, { refetch }] = createResource(
-    () => [props.instance.id, props.kind] as const,
+    () => [props.instance.id, props.kind, props.tick ?? 0] as const,
     ([id, kind]) => api.instancePacks(activeRoot(), id, kind),
   );
 
@@ -526,6 +529,56 @@ export const InstanceManageDialog: Component<{
     }
   }
 
+  // ---- 拖拽导入 ----
+  // Tauri 启用了原生文件拖放,HTML5 ondrop 不触发,改用 webview 的 onDragDropEvent。
+  // 整个弹窗作为拖放区,目标类型由当前标签 + 资源子类型决定。
+  const [dragOver, setDragOver] = createSignal(false);
+  const [importTick, setImportTick] = createSignal(0);
+
+  function dropTarget(): string | null {
+    if (tab() === "mods") return "mod";
+    if (tab() === "resources") return resKind() === "resource_pack" ? "resourcepack" : resKind();
+    return null; // 设置/存档标签不接受拖拽导入。
+  }
+
+  async function handleDrop(paths: string[]) {
+    const inst = props.instance;
+    const target = dropTarget();
+    if (!inst || !target) {
+      toast({ type: "info", message: "请切到 Mods 或资源标签再拖入文件" });
+      return;
+    }
+    let ok = 0;
+    for (const path of paths) {
+      try {
+        await api.importLocalResource(activeRoot(), inst.id, target, path);
+        ok += 1;
+      } catch (e) {
+        toast({ type: "error", message: `导入失败:${e}` });
+      }
+    }
+    if (ok > 0) {
+      toast({ type: "success", message: `已导入 ${ok} 个文件` });
+      if (target === "mod") refetchMods();
+      else setImportTick((t) => t + 1);
+    }
+  }
+
+  createEffect(() => {
+    if (!props.open) return;
+    const unlisten = getCurrentWebview().onDragDropEvent((e) => {
+      if (!props.open) return;
+      const p = e.payload;
+      if (p.type === "enter" || p.type === "over") setDragOver(true);
+      else if (p.type === "leave") setDragOver(false);
+      else if (p.type === "drop") {
+        setDragOver(false);
+        void handleDrop(p.paths);
+      }
+    });
+    onCleanup(() => void unlisten.then((f) => f()));
+  });
+
   function patch(p: Partial<InstanceConfig>) {
     const cur = cfg();
     const inst = props.instance;
@@ -585,7 +638,15 @@ export const InstanceManageDialog: Component<{
       label="实例管理"
       contentClass="w-[520px] max-w-[calc(100vw-48px)] bg-card rounded-card shadow-card overflow-hidden focus:outline-none"
     >
-      <div class="flex flex-col max-h-[calc(100vh-100px)]">
+      <div
+        class="relative flex flex-col max-h-[calc(100vh-100px)] transition-shadow duration-150"
+        classList={{ "ring-2 ring-inset ring-a-4": dragOver() }}
+      >
+        <Show when={dragOver() && dropTarget()}>
+          <div class="absolute inset-0 z-10 grid place-items-center bg-card/85 pointer-events-none">
+            <div class="text-[14px] text-a-6 font-semibold">松手导入到此实例</div>
+          </div>
+        </Show>
         <div class="px-[20px] pt-[18px] text-[15px] font-bold text-fg">
           {props.instance?.name || props.instance?.id}
         </div>
@@ -929,6 +990,7 @@ export const InstanceManageDialog: Component<{
                     kind="resource_pack"
                     searchKind="resourcepack"
                     emptyHint="该实例还没有资源包。"
+                    tick={importTick()}
                   />
                 </Show>
                 <Show when={resKind() === "shader"}>
@@ -937,6 +999,7 @@ export const InstanceManageDialog: Component<{
                     kind="shader"
                     searchKind="shader"
                     emptyHint="该实例还没有光影。"
+                    tick={importTick()}
                   />
                 </Show>
                 <Show when={resKind() === "datapack"}>
@@ -945,6 +1008,7 @@ export const InstanceManageDialog: Component<{
                     kind="datapack"
                     searchKind="datapack"
                     emptyHint="该实例还没有数据包。"
+                    tick={importTick()}
                   />
                 </Show>
               </>

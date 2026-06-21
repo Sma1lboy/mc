@@ -288,6 +288,31 @@ pub async fn install_pack_version(
     Ok(file.filename.clone())
 }
 
+/// 把一个本地包文件(`.zip` / `.jar`)拖拽导入对应目录,返回落盘文件名。
+///
+/// 校验:源存在、文件名是受支持的包归档(见 [`is_pack_archive`])。文件名按单一路径段
+/// 校验(防穿越)。重名直接覆盖——用户主动拖入即视为替换意图。
+pub fn import_local_pack(
+    inst: &Instance,
+    kind: PackKind,
+    source: &std::path::Path,
+) -> Result<String> {
+    let name = source
+        .file_name()
+        .and_then(|n| n.to_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| CoreError::other("无效的文件名"))?
+        .to_string();
+    if !is_pack_archive(&name) {
+        return Err(CoreError::other("只支持 .zip / .jar 包文件"));
+    }
+    let dir = kind.dir(inst);
+    std::fs::create_dir_all(&dir).with_path(&dir)?;
+    let dest = resolve_in_dir(&dir, &name)?;
+    std::fs::copy(source, &dest).with_path(source)?;
+    Ok(name)
+}
+
 /// 从 Modrinth 安装一个包(资源包 / 光影 / 数据包)到实例对应目录。
 ///
 /// 流程:`get_versions(project_id, mc_version, loader?)` → 选最新兼容版本 →

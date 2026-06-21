@@ -18,7 +18,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{IoResultExt, Result};
+use crate::error::{CoreError, IoResultExt, Result};
 use crate::instance::Instance;
 
 /// 单个本地 mod 的元数据视图。字段尽量贴近 UI 列表展示所需。
@@ -162,6 +162,26 @@ pub fn delete_mod(inst: &Instance, file_name: &str) -> Result<()> {
         std::fs::remove_file(&target).with_path(&target)?;
     }
     Ok(())
+}
+
+/// 把一个本地 `.jar` 拖拽导入实例 `mods/` 目录,返回落盘文件名。
+///
+/// 校验:源必须存在、文件名是 `.jar`(忽略大小写)。重名直接覆盖——用户主动拖入即视为
+/// 替换意图。文件名取源的 basename(不含路径分量),天然不含路径穿越。
+pub fn import_local_mod(inst: &Instance, source: &Path) -> Result<String> {
+    let name = source
+        .file_name()
+        .and_then(|n| n.to_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| CoreError::other("无效的文件名"))?
+        .to_string();
+    if !name.to_ascii_lowercase().ends_with(".jar") {
+        return Err(CoreError::other("只支持拖入 .jar mod 文件"));
+    }
+    let dir = inst.mods_dir();
+    std::fs::create_dir_all(&dir).with_path(&dir)?;
+    std::fs::copy(source, dir.join(&name)).with_path(source)?;
+    Ok(name)
 }
 
 // ───────────────────────── 内部:文件名与兜底 ─────────────────────────

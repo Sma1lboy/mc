@@ -106,6 +106,11 @@ export const api = {
     return invoke<InstallReport>("install_mod", { root, id, project, mcVersion, loader });
   },
 
+  /** 拖拽导入一个本地文件到实例:target = "mod"/"resourcepack"/"shader"/"datapack",返回落盘文件名 */
+  importLocalResource(root: string, id: string, target: string, path: string): Promise<string> {
+    return invoke<string>("import_local_resource", { root, id, target, path });
+  },
+
   /** 列出某实例下指定类型的包(资源包 / 光影 / 数据包),含启停态 */
   instancePacks(root: string, id: string, kind: PackKind): Promise<PackInfo[]> {
     return invoke<PackInfo[]>("instance_packs", { root, id, kind });
