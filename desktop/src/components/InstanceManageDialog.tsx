@@ -330,7 +330,12 @@ const WorldsPanel: Component<{ instance: InstanceSummary }> = (props) => {
                     />
                   </Show>
                   <div class="text-[11px] text-dim whitespace-nowrap overflow-hidden text-ellipsis">
-                    {[MODE_LABEL[w.game_mode] ?? w.game_mode, fmtSize(w.size_bytes), w.folder]
+                    {[
+                      MODE_LABEL[w.game_mode] ?? w.game_mode,
+                      fmtSize(w.size_bytes),
+                      w.seed != null ? `种子 ${w.seed}` : null,
+                      w.folder,
+                    ]
                       .filter(Boolean)
                       .join(" · ")}
                   </div>
@@ -365,11 +370,29 @@ export const InstanceManageDialog: Component<{
   instance: InstanceSummary | null;
   onClose: () => void;
   onChanged?: () => void;
+  /** 复制完成回调,带新实例 id;PclLaunch 据此重拉列表并选中新实例。 */
+  onCopied?: (newId: string) => void;
 }> = (props) => {
   const [tab, setTab] = createSignal<Tab>("settings");
   const [cfg, setCfg] = createSignal<InstanceConfig | null>(null);
+  const [copying, setCopying] = createSignal(false);
   // 资源标签内的子类型:资源包 / 光影 / 数据包。
   const [resKind, setResKind] = createSignal<PackKind>("resource_pack");
+
+  async function copyInstance() {
+    const inst = props.instance;
+    if (!inst) return;
+    setCopying(true);
+    try {
+      const newId = await api.copyInstance(activeRoot(), inst.id, `${inst.name || inst.id} 副本`);
+      toast({ type: "success", message: "已复制实例" });
+      props.onCopied?.(newId);
+    } catch (e) {
+      toast({ type: "error", message: `复制失败:${e}` });
+    } finally {
+      setCopying(false);
+    }
+  }
 
   // 打开/切换实例时拉配置 + 复位到设置页;关闭时清空。
   createEffect(() => {
@@ -833,7 +856,14 @@ export const InstanceManageDialog: Component<{
           </Show>
         </div>
 
-        <div class="flex justify-end px-[20px] py-[14px] border-t border-n-3">
+        <div class="flex justify-between items-center px-[20px] py-[14px] border-t border-n-3">
+          <button
+            class="h-[34px] px-[16px] border border-n-6 rounded-ctl bg-transparent text-dim text-[13px] cursor-pointer transition-colors duration-150 hover:text-fg hover:bg-n-4 disabled:opacity-50"
+            disabled={copying() || !props.instance}
+            onClick={copyInstance}
+          >
+            {copying() ? "复制中…" : "复制实例"}
+          </button>
           <button
             class="h-[34px] px-[16px] border border-n-6 rounded-ctl bg-n-4 text-fg text-[13px] cursor-pointer transition-colors duration-150 hover:bg-n-5"
             onClick={props.onClose}

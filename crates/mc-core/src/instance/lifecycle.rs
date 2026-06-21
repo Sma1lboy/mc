@@ -172,6 +172,25 @@ pub fn copy_instance(paths: &GamePaths, src_id: &str, new_id: &str) -> Result<()
     Ok(())
 }
 
+/// 按展示名把实例 `src_id` 复制为一个新实例:由 `new_name` 推出唯一安全的目录 id,
+/// 整目录复制(见 [`copy_instance`]),再把复制出的 `instance.json` 的 `name` 设为
+/// `new_name`(以便列表/管理弹窗显示新名,而非沿用旧实例名)。返回新实例 id。
+///
+/// 这是 UI「复制实例」的入口:调用方只给一个人类可读的新名,id 的唯一化与安全化在此处理。
+pub fn copy_instance_named(paths: &GamePaths, src_id: &str, new_name: &str) -> Result<String> {
+    let new_id = unique_instance_id(paths, new_name);
+    copy_instance(paths, src_id, &new_id)?;
+
+    // 复制带过来的 instance.json 仍是旧名,改写成用户给的新名;name 为空时回退用 id。
+    let inst = Instance::new(new_id.clone(), paths.root().to_path_buf());
+    let mut config = inst.load_config().unwrap_or_default();
+    let trimmed = new_name.trim();
+    config.name = if trimmed.is_empty() { None } else { Some(trimmed.to_string()) };
+    inst.save_config(&config)?;
+
+    Ok(new_id)
+}
+
 /// 把版本 json 文本里的顶层 `"id"` 字段改成 `new_id`,返回改写后的 json 文本。
 ///
 /// 用 [`serde_json::Value`] 做最小改动:只 insert/替换 `id` 这一个键,其余字段
@@ -446,6 +465,28 @@ mod tests {
         // 源实例保持原样(复制而非移动)。
         assert!(paths.version_json("1.20.1").is_file());
         assert!(paths.version_jar("1.20.1").is_file());
+    }
+
+    #[test]
+    fn copy_instance_named_uniquifies_id_and_rewrites_name() {
+        let root = TempRoot::new("copy-named");
+        let paths = root.paths();
+
+        fs::create_dir_all(paths.version_dir("1.20.1")).unwrap();
+        fs::write(paths.version_json("1.20.1"), r#"{"id":"1.20.1"}"#).unwrap();
+        fs::write(paths.version_dir("1.20.1").join("instance.json"), r#"{"name":"Source"}"#).unwrap();
+
+        // 首次复制:id 由名字 slug 化。
+        let id1 = copy_instance_named(&paths, "1.20.1", "我的副本").unwrap();
+        assert_eq!(id1, "我的副本");
+        let cfg1 = Instance::new(id1.clone(), paths.root().to_path_buf()).load_config().unwrap();
+        assert_eq!(cfg1.name.as_deref(), Some("我的副本"), "新实例名应改写为给定名");
+
+        // 再复制同名:id 自动加后缀避免目录冲突,name 仍为给定名。
+        let id2 = copy_instance_named(&paths, "1.20.1", "我的副本").unwrap();
+        assert_eq!(id2, "我的副本-2");
+        let cfg2 = Instance::new(id2, paths.root().to_path_buf()).load_config().unwrap();
+        assert_eq!(cfg2.name.as_deref(), Some("我的副本"));
     }
 
     #[test]

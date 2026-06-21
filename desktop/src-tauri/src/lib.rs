@@ -13,6 +13,7 @@ pub fn run() {
             commands::list_instances,
             commands::instance_dir,
             commands::delete_instance,
+            commands::copy_instance,
             commands::create_instance,
             commands::get_instance_config,
             commands::set_instance_config,

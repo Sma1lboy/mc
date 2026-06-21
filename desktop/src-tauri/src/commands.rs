@@ -102,6 +102,14 @@ pub fn delete_instance(root: String, id: String) -> CmdResult<()> {
     mc_core::instance::lifecycle::delete_instance(&root_paths(&root), &id).map_err(err)
 }
 
+/// 复制一个实例:整目录复制 src_id → 新实例(id 由 new_name 唯一化),并把新实例
+/// 的 instance.json name 设为 new_name。返回新实例 id。
+#[tauri::command]
+pub fn copy_instance(root: String, src_id: String, new_name: String) -> CmdResult<String> {
+    mc_core::instance::lifecycle::copy_instance_named(&root_paths(&root), &src_id, &new_name)
+        .map_err(err)
+}
+
 /// 从零创建实例:装核心(原版或 + loader)→ 写命名实例。进度走 install://progress。
 /// loader = "vanilla" / "fabric" / "quilt" / "forge" / "neoforge";forge/neoforge 需 loader_version。
 #[tauri::command]

@@ -411,6 +411,12 @@ const PclLaunch: Component = () => {
           const cur = selected();
           if (cur && list) setSelected(list.find((i) => i.id === cur.id) ?? cur);
         }}
+        onCopied={async (newId) => {
+          // 复制完成:重拉列表、选中新实例、关闭弹窗。
+          const list = await refetchInstances();
+          setSelected((list ?? []).find((i) => i.id === newId) ?? null);
+          setShowManage(false);
+        }}
       />
     </div>
   );

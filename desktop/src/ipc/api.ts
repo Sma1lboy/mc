@@ -152,6 +152,11 @@ export const api = {
     return invoke<void>("delete_instance", { root, id });
   },
 
+  /** 复制实例:整目录复制 srcId → 新实例(id 由 newName 唯一化),返回新实例 id */
+  copyInstance(root: string, srcId: string, newName: string): Promise<string> {
+    return invoke<string>("copy_instance", { root, srcId, newName });
+  },
+
   /**
    * 从零创建实例(装核心 + 命名实例);进度走 install://progress,返回新实例 id。
    * loader: "vanilla" | "fabric" | "quilt" | "forge" | "neoforge"。
