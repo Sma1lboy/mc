@@ -24,10 +24,94 @@
 
 use std::path::Path;
 
+use tokio::sync::watch;
+
+use mc_types::{LoaderKind, Progress};
+
 use crate::download::Downloader;
 use crate::error::{CoreError, IoResultExt, Result};
-use crate::instance::Instance;
+use crate::instance::{Instance, InstanceConfig};
 use crate::paths::GamePaths;
+
+// ===========================================================================
+// 从零建实例
+// ===========================================================================
+
+/// 从零创建一个实例:装核心(原版或 + loader)→ 写一个 `inheritsFrom` 核心的命名版本
+/// json → 写实例配置(展示名 + 默认内存等)。返回新实例 id(展示名的 slug,冲突自动加序号)。
+///
+/// 与整合包导入**共用** [`crate::loader::install_core`] 装核心,故 Forge/Fabric/Quilt/
+/// NeoForge 都支持;`loader == None` 即纯原版实例。建好后 mods/资源包/设置等照常按实例管理
+/// (`install_mod` / `list_mods` / `list_packs` / `InstanceConfig`)。
+pub async fn create_instance(
+    dl: &Downloader,
+    paths: &GamePaths,
+    name: &str,
+    mc_version: &str,
+    loader: Option<(LoaderKind, String)>,
+    progress: Option<watch::Sender<Progress>>,
+) -> Result<String> {
+    // 1. 装核心,拿到实例应继承的版本 id。
+    let core_id =
+        crate::loader::install_core(dl, paths, mc_version, loader.as_ref(), progress).await?;
+
+    // 2. 唯一实例 id(展示名 slug;与已存在版本目录冲突则加序号)。
+    let instance_id = unique_instance_id(paths, name);
+
+    // 3. 让实例本身成为可启动版本:写最小 {id, inheritsFrom: core_id}。
+    //    unique_instance_id 已避开所有已存在目录,故 instance_id != core_id 必成立;留判防御。
+    if instance_id != core_id {
+        let json = serde_json::json!({ "id": instance_id, "inheritsFrom": core_id });
+        let raw = serde_json::to_string_pretty(&json)
+            .map_err(|e| CoreError::Parse { what: "instance version json".into(), source: e })?;
+        crate::fs::write_atomic(&paths.version_json(&instance_id), raw.as_bytes())?;
+    }
+
+    // 4. 写实例配置:展示名 + 默认值(内存/Java/窗口取 InstanceConfig::default)。
+    let inst = Instance::new(&instance_id, paths.root().to_path_buf());
+    inst.save_config(&InstanceConfig { name: Some(name.to_string()), ..InstanceConfig::default() })?;
+
+    Ok(instance_id)
+}
+
+/// 由展示名推一个文件系统安全、且当前 root 下唯一的实例 id(= 目录名)。
+fn unique_instance_id(paths: &GamePaths, name: &str) -> String {
+    let base = slugify_instance_id(name);
+    if !paths.version_dir(&base).exists() {
+        return base;
+    }
+    (2u32..)
+        .map(|n| format!("{base}-{n}"))
+        .find(|cand| !paths.version_dir(cand).exists())
+        .unwrap_or(base)
+}
+
+/// 把展示名化简成目录名:路径分隔符/保留字/控制字符与空白归一为 `-`,收尾去掉首尾 `-`。
+/// **保留 unicode**(中文名可直接作目录名);空结果回退 `instance`。
+fn slugify_instance_id(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    let mut prev_dash = false;
+    for ch in name.trim().chars() {
+        let bad = ch.is_whitespace()
+            || ch.is_control()
+            || matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|');
+        if bad {
+            if !prev_dash && !out.is_empty() {
+                out.push('-');
+                prev_dash = true;
+            }
+        } else {
+            out.push(ch);
+            prev_dash = false;
+        }
+    }
+    let s = out.trim_matches('-').to_string();
+    if s.is_empty() {
+        "instance".to_string()
+    } else {
+        s
+    }
+}
 
 // ===========================================================================
 // 复制 / 删除
@@ -292,6 +376,28 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.path);
         }
+    }
+
+    // ---- create_instance helpers ----
+
+    #[test]
+    fn slugify_instance_id_cleans_and_keeps_unicode() {
+        assert_eq!(slugify_instance_id("My Pack 1.20"), "My-Pack-1.20");
+        assert_eq!(slugify_instance_id("  weird/\\:name? "), "weird-name");
+        assert_eq!(slugify_instance_id("我的整合包"), "我的整合包"); // 保留中文
+        assert_eq!(slugify_instance_id("///"), "instance"); // 空结果回退
+        assert_eq!(slugify_instance_id("a   b"), "a-b"); // 空白归一
+    }
+
+    #[test]
+    fn unique_instance_id_suffixes_on_collision() {
+        let root = TempRoot::new("unique");
+        let paths = root.paths();
+        assert_eq!(unique_instance_id(&paths, "Pack"), "Pack");
+        fs::create_dir_all(paths.version_dir("Pack")).unwrap();
+        assert_eq!(unique_instance_id(&paths, "Pack"), "Pack-2");
+        fs::create_dir_all(paths.version_dir("Pack-2")).unwrap();
+        assert_eq!(unique_instance_id(&paths, "Pack"), "Pack-3");
     }
 
     // ---- copy_instance ----

@@ -3,12 +3,14 @@
 //! after that it is just another component the version system merges. See
 //! `docs/modules/version-system.md`.
 
+pub mod core;
 pub mod fabric;
 pub mod forge;
 pub mod installer;
 pub mod neoforge;
 pub mod quilt;
 
+pub use core::install_core;
 pub use fabric::install_fabric;
 pub use forge::install_forge;
 pub use neoforge::install_neoforge;

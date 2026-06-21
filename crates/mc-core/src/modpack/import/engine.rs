@@ -10,8 +10,6 @@
 
 use std::path::PathBuf;
 
-use mc_types::LoaderKind;
-
 use crate::download::{DownloadItem, Downloader};
 use crate::error::{CoreError, Result};
 use crate::instance::Instance;
@@ -264,62 +262,9 @@ impl ImportEngine {
     /// 注:Forge/NeoForge 使用 manifest 钉死的版本;Fabric/Quilt 现取最新稳定 loader
     /// (loader 向后兼容,通常无碍),钉版安装是后续增强。
     async fn install_core(&self, paths: &GamePaths, plan: &ImportPlan) -> Result<String> {
-        let manifest = crate::meta::fetch_manifest(&self.dl).await?;
-        let vanilla_entry = manifest
-            .iter()
-            .find(|m| m.id == plan.mc_version)
-            .ok_or_else(|| {
-                CoreError::other(format!("版本清单中找不到 Minecraft {}", plan.mc_version))
-            })?;
-
-        let core_id = match &plan.loader {
-            None => {
-                if !paths.version_json(&plan.mc_version).is_file() {
-                    crate::launch::install_version(&self.dl, paths, vanilla_entry, None).await?;
-                }
-                plan.mc_version.clone()
-            }
-            Some((LoaderKind::Fabric, _)) => {
-                crate::loader::install_fabric(&self.dl, paths, &plan.mc_version, vanilla_entry, None)
-                    .await?
-            }
-            Some((LoaderKind::Quilt, _)) => {
-                crate::loader::install_quilt(&self.dl, paths, &plan.mc_version, vanilla_entry, None)
-                    .await?
-            }
-            Some((LoaderKind::Forge, build)) => {
-                crate::loader::install_forge(
-                    &self.dl,
-                    paths,
-                    &plan.mc_version,
-                    build,
-                    vanilla_entry,
-                    None,
-                    None,
-                )
-                .await?
-            }
-            Some((LoaderKind::NeoForge, neo_version)) => {
-                crate::loader::install_neoforge(
-                    &self.dl,
-                    paths,
-                    neo_version,
-                    vanilla_entry,
-                    None,
-                    None,
-                )
-                .await?
-            }
-            Some((other, _)) => {
-                // LiteLoader / OptiFine 无独立安装器入口:至少把原版装好,loader 由后续叠加。
-                tracing::warn!(loader = other.as_str(), "整合包声明的 loader 暂无自动安装器,仅装原版");
-                if !paths.version_json(&plan.mc_version).is_file() {
-                    crate::launch::install_version(&self.dl, paths, vanilla_entry, None).await?;
-                }
-                plan.mc_version.clone()
-            }
-        };
-        Ok(core_id)
+        // 与「从零建实例」共用同一条装核心路径(见 loader::install_core)。
+        crate::loader::install_core(&self.dl, paths, &plan.mc_version, plan.loader.as_ref(), None)
+            .await
     }
 
     /// 为整合包实例写一个最小 version json(`{id, inheritsFrom: core_id}`),使其成为

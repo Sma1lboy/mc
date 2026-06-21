@@ -53,6 +53,19 @@ enum Command {
         /// Version id, e.g. "1.20.1".
         id: String,
     },
+    /// Create a new instance from scratch (vanilla, optionally + a mod loader).
+    Create {
+        /// Display name for the instance.
+        name: String,
+        /// Minecraft version, e.g. "1.20.1".
+        mc_version: String,
+        /// Loader: vanilla | fabric | quilt | forge | neoforge.
+        #[arg(long, default_value = "vanilla")]
+        loader: String,
+        /// Loader version (forge build / neoforge version; required for those two).
+        #[arg(long)]
+        loader_version: Option<String>,
+    },
     /// Install Fabric loader for a Minecraft version (installs vanilla if needed).
     Fabric {
         /// Minecraft version, e.g. "1.20.1".
@@ -268,6 +281,9 @@ async fn main() -> Result<()> {
         Command::Versions { snapshot, limit } => cmd_versions(&cli, *snapshot, *limit).await,
         Command::List => cmd_list(&cli),
         Command::Install { id } => cmd_install(&cli, id).await,
+        Command::Create { name, mc_version, loader, loader_version } => {
+            cmd_create(&cli, name, mc_version, loader, loader_version.clone()).await
+        }
         Command::Fabric { mc_version } => cmd_fabric(&cli, mc_version).await,
         Command::Quilt { mc_version } => cmd_quilt(&cli, mc_version).await,
         Command::Forge { mc_version, forge_build } => cmd_forge(&cli, mc_version, forge_build).await,
@@ -404,6 +420,51 @@ async fn cmd_install(cli: &Cli, id: &str) -> Result<()> {
     launch::install_version(&dl, &paths, entry, Some(tx)).await?;
     let _ = printer.await;
     println!("✓ 安装完成:{id}");
+    Ok(())
+}
+
+async fn cmd_create(
+    cli: &Cli,
+    name: &str,
+    mc_version: &str,
+    loader: &str,
+    loader_version: Option<String>,
+) -> Result<()> {
+    use mc_core::types::LoaderKind;
+    let paths = resolve_root(&cli.dir);
+    let dl = downloader(cli.mirror)?;
+
+    let loader_opt = match loader.to_ascii_lowercase().as_str() {
+        "vanilla" | "none" | "" => None,
+        "fabric" => Some((LoaderKind::Fabric, loader_version.unwrap_or_default())),
+        "quilt" => Some((LoaderKind::Quilt, loader_version.unwrap_or_default())),
+        "forge" => Some((
+            LoaderKind::Forge,
+            loader_version.ok_or_else(|| anyhow::anyhow!("forge 需要 --loader-version <build>"))?,
+        )),
+        "neoforge" => Some((
+            LoaderKind::NeoForge,
+            loader_version
+                .ok_or_else(|| anyhow::anyhow!("neoforge 需要 --loader-version <version>"))?,
+        )),
+        other => anyhow::bail!("未知 loader: {other}(用 vanilla|fabric|quilt|forge|neoforge)"),
+    };
+
+    let loader_desc = match &loader_opt {
+        None => "原版".to_string(),
+        Some((k, v)) if v.is_empty() => format!("{} (最新)", k.as_str()),
+        Some((k, v)) => format!("{} {v}", k.as_str()),
+    };
+    println!("从零创建实例「{name}」(MC {mc_version} · {loader_desc}) …");
+
+    let tx = live_progress();
+    let id = mc_core::instance::lifecycle::create_instance(
+        &dl, &paths, name, mc_version, loader_opt, Some(tx),
+    )
+    .await?;
+    println!("✓ 已创建实例: {id}");
+    println!("  启动:   mc launch {id} --name <你的名字>");
+    println!("  装 mod: mc install-mod {id} <项目 slug> [--loader <loader>]");
     Ok(())
 }
 
