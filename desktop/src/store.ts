@@ -1,5 +1,7 @@
 import { createSignal } from "solid-js";
 import { saveTheme, themeForLayout } from "./theme/theme";
+import { api, onGameExit, onGameStarted } from "./ipc/api";
+import { toast } from "./components/Toast";
 
 // 页面标识。工作台布局用 home/library/discover/settings;
 // 经典布局用 launch/discover/settings/more(顶部 Tab,带图标)。
@@ -73,4 +75,51 @@ export function switchLayout(mode: LayoutMode) {
   persistLayoutMode(mode);
   void saveTheme(themeForLayout(mode)).catch(() => {});
   setCurrentPage(mode === "classic" ? "launch" : "home");
+}
+
+// ===== 运行中的游戏(进程生命周期) =====
+// 后端把进程登记进 RunningGames,并通过 game://started / game://exit 广播状态。
+// 这里维护一份全局「正在运行的实例 id」集合,任何组件 import isRunning(id) 即可响应式读取
+// 运行态(运行点、Play↔Stop 切换)。崩溃/退出的 toast 也在这里统一发,避免各页重复。
+
+const [runningIds, setRunningIds] = createSignal<ReadonlySet<string>>(new Set());
+
+/** 某实例当前是否在运行(响应式)。 */
+export function isRunning(id: string): boolean {
+  return runningIds().has(id);
+}
+
+/** 正在运行的实例 id 集合(响应式)。 */
+export { runningIds };
+
+function markRunning(id: string, running: boolean) {
+  setRunningIds((prev) => {
+    if (running === prev.has(id)) return prev; // 无变化,保持引用稳定
+    const next = new Set(prev);
+    if (running) next.add(id);
+    else next.delete(id);
+    return next;
+  });
+}
+
+// 仅在真实 Tauri 环境(有 window)下挂监听并同步初始运行态。
+if (typeof window !== "undefined") {
+  // 挂载时同步一次已在运行的实例(热重载 / 页面重建后不丢运行态)。
+  void api
+    .runningInstances()
+    .then((ids) => setRunningIds(new Set(ids)))
+    .catch(() => {});
+
+  onGameStarted((e) => markRunning(e.id, true));
+
+  onGameExit((e) => {
+    markRunning(e.id, false);
+    if (e.success) {
+      toast({ type: "info", message: "游戏已退出" });
+    } else {
+      const reason = e.reason || `游戏异常退出${e.code != null ? `(代码 ${e.code})` : ""}`;
+      const hint = e.suggestions && e.suggestions.length > 0 ? ` —— ${e.suggestions[0]}` : "";
+      toast({ type: "error", message: `${reason}${hint}` });
+    }
+  });
 }

@@ -7,8 +7,8 @@ import {
   type InstanceRowData,
   type ModpackHit,
 } from "../components";
-import { api, onGameLog, onLaunchProgress } from "../ipc/api";
-import { activeRoot } from "../store";
+import { api, onLaunchProgress } from "../ipc/api";
+import { activeRoot, isRunning } from "../store";
 import { openInstanceDir, exportInstanceMrpack, deleteInstance } from "../util/instanceActions";
 import type { InstanceSummary, SearchHit } from "../ipc/types";
 
@@ -58,20 +58,13 @@ const Home: Component = () => {
     api.modrinthSearch("", "modpack", null, null).catch(() => [] as SearchHit[]),
   );
 
-  // 启动反馈:订阅进度与日志,给出 toast。
+  // 启动反馈:仅订阅进度提示。成功/退出/崩溃的 toast 与运行态由 store 统一处理
+  //(基于真实的 game://started/exit 事件,而非「第一行日志」这种会把崩溃误报成成功的信号)。
   const offProgress = onLaunchProgress((p) => {
     if (p.stage) toast({ type: "info", message: p.stage });
   });
-  let firstLog = true;
-  const offLog = onGameLog(() => {
-    if (firstLog) {
-      firstLog = false;
-      toast({ type: "success", message: "游戏已启动" });
-    }
-  });
   onCleanup(() => {
     offProgress();
-    offLog();
   });
 
   const recent = () =>
@@ -80,9 +73,18 @@ const Home: Component = () => {
       .slice(0, 6);
 
   async function play(id: string) {
+    // 运行中再点 = 停止;否则启动。运行态由 store 依事件维护。
+    if (isRunning(id)) {
+      try {
+        await api.stopInstance(id);
+      } catch (e) {
+        toast({ type: "error", message: `停止失败:${e}` });
+      }
+      return;
+    }
     try {
-      firstLog = true;
       await api.launchInstance(activeRoot(), id, "Player", false);
+      toast({ type: "success", message: "已启动" });
     } catch (e) {
       toast({ type: "error", message: `启动失败:${e}` });
     }

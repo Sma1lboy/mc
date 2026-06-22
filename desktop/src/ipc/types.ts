@@ -341,3 +341,23 @@ export interface GameLog {
   /** 日志级别(后端可不提供,UI 据此着色) */
   level?: "info" | "warn" | "error";
 }
+
+/** 进程真正 spawn 成功事件 payload(event: "game://started") */
+export interface GameStarted {
+  /** 实例 id */
+  id: string;
+}
+
+/** 进程退出事件 payload(event: "game://exit") */
+export interface GameExit {
+  /** 实例 id */
+  id: string;
+  /** 退出码;被信号杀死时可能为 null */
+  code: number | null;
+  /** 是否正常退出(code === 0) */
+  success: boolean;
+  /** 非正常退出时的人话崩溃原因(诊断命中才有) */
+  reason?: string | null;
+  /** 崩溃诊断给出的可执行建议(可能为空) */
+  suggestions: string[];
+}

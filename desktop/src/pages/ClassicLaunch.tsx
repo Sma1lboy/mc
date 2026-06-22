@@ -1,7 +1,7 @@
 import { Component, createEffect, createResource, createSignal, For, Show, onCleanup } from "solid-js";
 import { Avatar, InstanceManageDialog, NewInstanceDialog, Spinner, toast } from "../components";
 import { api, onGameLog, onLaunchProgress } from "../ipc/api";
-import { activeRoot } from "../store";
+import { activeRoot, isRunning } from "../store";
 import { openInstanceDir } from "../util/instanceActions";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import type { AccountSummary, InstanceSummary } from "../ipc/types";
@@ -96,11 +96,26 @@ const ClassicLaunch: Component = () => {
     offProg();
   });
 
+  // 选中实例是否在运行(运行态由 store 依 game://started/exit 维护)。
+  const selectedRunning = () => {
+    const inst = selected();
+    return !!inst && isRunning(inst.id);
+  };
+
   async function launch() {
     const inst = selected();
     if (!inst) {
       toast({ type: "error", message: "请先在「版本选择」里选一个版本" });
       setRightView("versions");
+      return;
+    }
+    // 运行中再点 = 停止。
+    if (isRunning(inst.id)) {
+      try {
+        await api.stopInstance(inst.id);
+      } catch (e) {
+        toast({ type: "error", message: `停止失败:${e}` });
+      }
       return;
     }
     const acc = activeAccount();
@@ -111,7 +126,7 @@ const ClassicLaunch: Component = () => {
     setLogs([`正在启动 ${inst.name || inst.id} …`]);
     try {
       await api.launchInstance(activeRoot(), inst.id, name, online);
-      toast({ type: "success", message: `已启动 ${inst.name}` });
+      // 成功/退出/崩溃的 toast 由 store 统一发(基于真实进程事件)。
     } catch (e) {
       toast({ type: "error", message: `启动失败:${e}` });
       setLogs((p) => [...p, `启动失败:${e}`]);
@@ -246,7 +261,9 @@ const ClassicLaunch: Component = () => {
             disabled={launching()}
             onClick={launch}
           >
-            <span class="text-[16px] font-bold tracking-[1px] text-classic-blue">{launching() ? "启动中…" : "启动游戏"}</span>
+            <span class="text-[16px] font-bold tracking-[1px] text-classic-blue">
+              {launching() ? "启动中…" : selectedRunning() ? "停止游戏" : "启动游戏"}
+            </span>
             <span class="text-[11px] text-classic-text3 max-w-full whitespace-nowrap overflow-hidden text-ellipsis">
               <Show when={selected()} fallback={"未选择版本"}>
                 {selected()!.name || selected()!.id}
@@ -522,7 +539,7 @@ const ClassicLaunch: Component = () => {
                       disabled={launching()}
                       onClick={launch}
                     >
-                      {launching() ? "启动中…" : "启动游戏"}
+                      {launching() ? "启动中…" : isRunning(inst().id) ? "停止游戏" : "启动游戏"}
                     </button>
                     <button
                       class="h-[34px] px-[16px] rounded-[3px] border border-classic-line bg-classic-card text-classic-text text-[13px] cursor-pointer transition-colors duration-150 hover:bg-classic-blue-lightest hover:border-classic-blue-soft"

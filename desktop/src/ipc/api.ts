@@ -21,6 +21,8 @@ import type {
   InstallProgress,
   LaunchProgress,
   GameLog,
+  GameStarted,
+  GameExit,
   ImportOutcome,
   ModrinthVersion,
   ModrinthProject,
@@ -283,6 +285,16 @@ export const api = {
     return invoke<void>("launch_instance", { root, id, name, online });
   },
 
+  /** 停止一个正在运行的实例(给其进程发停止信号;不在运行时为 no-op)。 */
+  stopInstance(id: string): Promise<void> {
+    return invoke<void>("stop_instance", { id });
+  },
+
+  /** 当前正在运行的实例 id 列表(UI 挂载时同步运行态)。 */
+  runningInstances(): Promise<string[]> {
+    return invoke<string[]>("running_instances");
+  },
+
   /** Modrinth 搜索。gameVersion / loader 为 null 表示不限。 */
   modrinthSearch(
     query: string,
@@ -449,4 +461,14 @@ export function onLaunchProgress(
 /** 订阅游戏日志,返回 unlisten */
 export function onGameLog(cb: (log: GameLog) => void): () => void {
   return subscribe<GameLog>("game://log", cb);
+}
+
+/** 订阅「进程已真正启动」事件,返回 unlisten */
+export function onGameStarted(cb: (e: GameStarted) => void): () => void {
+  return subscribe<GameStarted>("game://started", cb);
+}
+
+/** 订阅「进程已退出」事件(含崩溃原因/建议),返回 unlisten */
+export function onGameExit(cb: (e: GameExit) => void): () => void {
+  return subscribe<GameExit>("game://exit", cb);
 }
