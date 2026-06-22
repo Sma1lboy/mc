@@ -13,6 +13,7 @@ import { api } from "../ipc/api";
 import { layoutMode, switchLayout } from "../store";
 import type { LayoutMode } from "../store";
 import type { ThemeConfig, ThemeMode, GlobalSettings } from "../ipc/types";
+import "./Settings.css";
 
 type SegmentOption<T extends string> = {
   value: T;
@@ -61,7 +62,7 @@ function SegmentedControl<T extends string>(props: SegmentedControlProps<T>) {
   );
 }
 
-const SECTION_CLASS = "bg-n-3 rounded-card px-[20px] py-[18px]";
+const SECTION_CLASS = "settings-section";
 
 /**
  * Settings —— 主题(HSL 三滑块实时换肤 + 预设 + 深浅切换)
@@ -173,12 +174,12 @@ const Settings: Component = () => {
   }
 
   return (
-    <div class="h-full w-full overflow-y-auto overflow-x-hidden px-[28px] py-[24px]">
-      <div class="w-full">
+    <div class="settings-page">
+      <div class="settings-page__inner">
         <h1 class="text-[24px] font-bold text-fg mt-0 mb-[20px] mx-0">设置</h1>
 
-        <div class="grid grid-cols-[minmax(0,1fr)_minmax(300px,360px)] gap-[18px] items-start max-[860px]:grid-cols-1">
-          <div class="flex min-w-0 flex-col gap-[18px]">
+        <div class="settings-page__grid">
+          <div class="settings-page__main">
             <section class={SECTION_CLASS}>
               <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">界面布局</h2>
               <div class="flex items-center justify-between mb-[14px] text-fg text-[14px]">
@@ -311,7 +312,7 @@ const Settings: Component = () => {
             </section>
           </div>
 
-          <div class="flex min-w-0 flex-col gap-[18px]">
+          <div class="settings-page__side">
             <section class={SECTION_CLASS}>
               <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">下载与游戏</h2>
               <Show when={settings()} fallback={<div class="text-dim">加载设置中…</div>}>

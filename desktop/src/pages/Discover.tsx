@@ -3,6 +3,7 @@ import { ModpackListItem, SearchBox, Spinner, toast, type ModpackHit } from "../
 import { api } from "../ipc/api";
 import type { ProjectKind, SearchHit } from "../ipc/types";
 import ModpackDetail from "./ModpackDetail";
+import ProjectInstallDetail from "./ProjectInstallDetail";
 
 /**
  * Discover —— Modrinth 搜索页。类型切换 + 防抖搜索 + 卡片网格。
@@ -14,6 +15,8 @@ const KINDS: { key: ProjectKind; label: string }[] = [
   { key: "shader", label: "光影" },
   { key: "resourcepack", label: "资源包" },
 ];
+
+type SelectedProject = { hit: ModpackHit; kind: ProjectKind };
 
 function toHit(h: SearchHit): ModpackHit {
   return {
@@ -67,22 +70,30 @@ const Discover: Component = () => {
     },
   );
 
-  // 当前打开详情的整合包(null = 显示搜索网格)。点击卡片进入详情页,而非直接下载。
-  const [selected, setSelected] = createSignal<ModpackHit | null>(null);
+  // 当前打开详情的项目(null = 显示搜索网格)。点击卡片进入详情页,而非直接下载。
+  const [selected, setSelected] = createSignal<SelectedProject | null>(null);
 
   function openHit(h: ModpackHit) {
-    if (kind() === "modpack") {
-      setSelected(h);
-    } else {
-      // 模组/光影/资源包的详情/安装入口后续接入。
-      toast({ type: "info", message: `${h.title}:单资源详情页待接入` });
-    }
+    setSelected({ hit: h, kind: kind() });
   }
 
   return (
     <div class="px-[28px] py-[24px] overflow-y-auto h-full">
       <Show when={selected()}>
-        <ModpackDetail hit={selected()!} onBack={() => setSelected(null)} />
+        {(project) => (
+          <Show
+            when={project().kind === "modpack"}
+            fallback={
+              <ProjectInstallDetail
+                hit={project().hit}
+                kind={project().kind as Exclude<ProjectKind, "modpack">}
+                onBack={() => setSelected(null)}
+              />
+            }
+          >
+            <ModpackDetail hit={project().hit} onBack={() => setSelected(null)} />
+          </Show>
+        )}
       </Show>
 
       <Show when={!selected()}>

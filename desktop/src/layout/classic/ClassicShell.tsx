@@ -77,7 +77,7 @@ const ClassicShell: Component = () => {
         </div>
       </header>
 
-      <main class="overflow-hidden min-h-0 bg-classic-gray-bg">
+      <main class="w-full h-full overflow-hidden min-h-0 bg-classic-gray-bg">
         {/* 从路由表取当前页组件渲染。 */}
         <Dynamic component={routeFor(CLASSIC_ROUTES, currentPage()).component} />
       </main>

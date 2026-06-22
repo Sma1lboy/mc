@@ -30,6 +30,9 @@
 .md p {
   margin: 0.6em 0;
 }
+.md .md-center {
+  text-align: center;
+}
 .md a {
   color: var(--a-6, #1370f3);
   text-decoration: none;
@@ -55,6 +58,17 @@
   height: auto;
   border-radius: 6px;
   margin: 0.4em 0;
+}
+.md iframe {
+  width: 100%;
+  max-width: 720px;
+  aspect-ratio: 16 / 9;
+  height: auto;
+  border: 0;
+  border-radius: 8px;
+  margin: 0.6em auto;
+  display: block;
+  background: var(--n-2, rgba(0, 0, 0, 0.06));
 }
 .md code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
