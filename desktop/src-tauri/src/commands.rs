@@ -262,12 +262,14 @@ pub async fn install_version_file(
     version_id: String,
     mc_version: Option<String>,
     loader: Option<String>,
+    world: Option<String>,
 ) -> CmdResult<VersionInstallReport> {
     use mc_core::instance::PackKind;
     let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
     let dl = make_downloader()?;
     let api = ModrinthApi::new();
     let v = api.get_version(&version_id).await.map_err(err)?;
+    let w = world.as_deref();
 
     let pack_report = |file: String| VersionInstallReport {
         file,
@@ -303,16 +305,16 @@ pub async fn install_version_file(
                 .map_err(err),
         },
         "resourcepack" => {
-            mc_core::instance::packs::install_pack_version(&inst, &dl, PackKind::ResourcePack, &v)
+            mc_core::instance::packs::install_pack_version(&inst, &dl, PackKind::ResourcePack, &v, None)
                 .await
                 .map(pack_report)
                 .map_err(err)
         }
-        "shader" => mc_core::instance::packs::install_pack_version(&inst, &dl, PackKind::Shader, &v)
+        "shader" => mc_core::instance::packs::install_pack_version(&inst, &dl, PackKind::Shader, &v, None)
             .await
             .map(pack_report)
             .map_err(err),
-        "datapack" => mc_core::instance::packs::install_pack_version(&inst, &dl, PackKind::Datapack, &v)
+        "datapack" => mc_core::instance::packs::install_pack_version(&inst, &dl, PackKind::Datapack, &v, w)
             .await
             .map(pack_report)
             .map_err(err),
@@ -357,20 +359,22 @@ pub fn import_local_resource(
     id: String,
     target: String,
     path: String,
+    world: Option<String>,
 ) -> CmdResult<String> {
     use mc_core::instance::PackKind;
     let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
     let src = std::path::Path::new(&path);
+    let w = world.as_deref();
     match target.as_str() {
         "mod" => mc_core::instance::mods::import_local_mod(&inst, src).map_err(err),
         "resourcepack" => {
-            mc_core::instance::packs::import_local_pack(&inst, PackKind::ResourcePack, src).map_err(err)
+            mc_core::instance::packs::import_local_pack(&inst, PackKind::ResourcePack, src, None).map_err(err)
         }
         "shader" => {
-            mc_core::instance::packs::import_local_pack(&inst, PackKind::Shader, src).map_err(err)
+            mc_core::instance::packs::import_local_pack(&inst, PackKind::Shader, src, None).map_err(err)
         }
         "datapack" => {
-            mc_core::instance::packs::import_local_pack(&inst, PackKind::Datapack, src).map_err(err)
+            mc_core::instance::packs::import_local_pack(&inst, PackKind::Datapack, src, w).map_err(err)
         }
         other => Err(format!("不支持的导入目标: {other}")),
     }
@@ -382,9 +386,10 @@ pub fn instance_packs(
     root: String,
     id: String,
     kind: mc_core::instance::PackKind,
+    world: Option<String>,
 ) -> CmdResult<Vec<mc_core::instance::PackInfo>> {
     let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
-    Ok(mc_core::instance::list_packs(&inst, kind))
+    Ok(mc_core::instance::list_packs(&inst, kind, world.as_deref()))
 }
 
 /// 启用/停用一个包(改 `.zip` ↔ `.zip.disabled`)。
@@ -395,9 +400,11 @@ pub fn set_pack_enabled(
     kind: mc_core::instance::PackKind,
     file_name: String,
     enabled: bool,
+    world: Option<String>,
 ) -> CmdResult<()> {
     let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
-    mc_core::instance::packs::set_pack_enabled(&inst, kind, &file_name, enabled).map_err(err)
+    mc_core::instance::packs::set_pack_enabled(&inst, kind, &file_name, enabled, world.as_deref())
+        .map_err(err)
 }
 
 /// 删除一个包(移入系统回收站,可找回)。
@@ -407,9 +414,10 @@ pub fn delete_pack(
     id: String,
     kind: mc_core::instance::PackKind,
     file_name: String,
+    world: Option<String>,
 ) -> CmdResult<()> {
     let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
-    mc_core::instance::packs::delete_pack(&inst, kind, &file_name).map_err(err)
+    mc_core::instance::packs::delete_pack(&inst, kind, &file_name, world.as_deref()).map_err(err)
 }
 
 /// 从 Modrinth 安装一个包到实例对应目录,返回落盘文件名。
@@ -420,11 +428,12 @@ pub async fn install_pack(
     kind: mc_core::instance::PackKind,
     project: String,
     mc_version: String,
+    world: Option<String>,
 ) -> CmdResult<String> {
     let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
     let dl = make_downloader()?;
     let api = ModrinthApi::new();
-    mc_core::instance::install_pack(&api, &dl, &inst, kind, &project, &mc_version)
+    mc_core::instance::install_pack(&api, &dl, &inst, kind, &project, &mc_version, world.as_deref())
         .await
         .map_err(err)
 }

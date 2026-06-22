@@ -106,6 +106,7 @@ export const api = {
     versionId: string,
     mcVersion?: string | null,
     loader?: string | null,
+    world?: string | null,
   ): Promise<VersionInstallReport> {
     return invoke<VersionInstallReport>("install_version_file", {
       root,
@@ -114,6 +115,7 @@ export const api = {
       versionId,
       mcVersion: mcVersion ?? null,
       loader: loader ?? null,
+      world: world ?? null,
     });
   },
 
@@ -138,41 +140,52 @@ export const api = {
     return invoke<InstallReport>("install_mod", { root, id, project, mcVersion, loader });
   },
 
-  /** 拖拽导入一个本地文件到实例:target = "mod"/"resourcepack"/"shader"/"datapack",返回落盘文件名 */
-  importLocalResource(root: string, id: string, target: string, path: string): Promise<string> {
-    return invoke<string>("import_local_resource", { root, id, target, path });
+  /**
+   * 拖拽导入一个本地文件到实例:target = "mod"/"resourcepack"/"shader"/"datapack"。
+   * 数据包需指定目标存档 world(逐存档生效);返回落盘文件名。
+   */
+  importLocalResource(
+    root: string,
+    id: string,
+    target: string,
+    path: string,
+    world?: string | null,
+  ): Promise<string> {
+    return invoke<string>("import_local_resource", { root, id, target, path, world: world ?? null });
   },
 
-  /** 列出某实例下指定类型的包(资源包 / 光影 / 数据包),含启停态 */
-  instancePacks(root: string, id: string, kind: PackKind): Promise<PackInfo[]> {
-    return invoke<PackInfo[]>("instance_packs", { root, id, kind });
+  /** 列出某实例下指定类型的包(资源包 / 光影 / 数据包),含启停态。数据包传 world 定位存档 */
+  instancePacks(root: string, id: string, kind: PackKind, world?: string | null): Promise<PackInfo[]> {
+    return invoke<PackInfo[]>("instance_packs", { root, id, kind, world: world ?? null });
   },
 
-  /** 启用/停用一个包(.zip ↔ .zip.disabled) */
+  /** 启用/停用一个包(.zip ↔ .zip.disabled)。数据包传 world 定位存档 */
   setPackEnabled(
     root: string,
     id: string,
     kind: PackKind,
     fileName: string,
     enabled: boolean,
+    world?: string | null,
   ): Promise<void> {
-    return invoke<void>("set_pack_enabled", { root, id, kind, fileName, enabled });
+    return invoke<void>("set_pack_enabled", { root, id, kind, fileName, enabled, world: world ?? null });
   },
 
-  /** 删除一个包(移入回收站,可找回) */
-  deletePack(root: string, id: string, kind: PackKind, fileName: string): Promise<void> {
-    return invoke<void>("delete_pack", { root, id, kind, fileName });
+  /** 删除一个包(移入回收站,可找回)。数据包传 world 定位存档 */
+  deletePack(root: string, id: string, kind: PackKind, fileName: string, world?: string | null): Promise<void> {
+    return invoke<void>("delete_pack", { root, id, kind, fileName, world: world ?? null });
   },
 
-  /** 从 Modrinth 安装一个包到实例对应目录,返回落盘文件名 */
+  /** 从 Modrinth 安装一个包到实例对应目录,返回落盘文件名。数据包传 world 定位存档 */
   installPack(
     root: string,
     id: string,
     kind: PackKind,
     project: string,
     mcVersion: string,
+    world?: string | null,
   ): Promise<string> {
-    return invoke<string>("install_pack", { root, id, kind, project, mcVersion });
+    return invoke<string>("install_pack", { root, id, kind, project, mcVersion, world: world ?? null });
   },
 
   /** 列出某实例的截图(仅元数据,按修改时间倒序) */

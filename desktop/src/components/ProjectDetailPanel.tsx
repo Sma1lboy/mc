@@ -25,6 +25,8 @@ export const ProjectDetailPanel: Component<{
   mcVersion: string;
   /** mod 用加载器过滤;资源包/光影/数据包传 null(不按加载器分) */
   loader: string | null;
+  /** 数据包安装的目标存档(逐存档生效);其它类型传 null */
+  world?: string | null;
   onClose: () => void;
   onInstalled: () => void;
 }> = (props) => {
@@ -72,6 +74,7 @@ export const ProjectDetailPanel: Component<{
         v.id,
         isMod ? props.mcVersion : null,
         isMod ? props.loader : null,
+        props.target === "datapack" ? props.world ?? null : null,
       );
       const parts = [`已安装 ${v.version_number}`];
       if (report.installed_deps > 0) parts.push(`+${report.installed_deps} 个依赖`);

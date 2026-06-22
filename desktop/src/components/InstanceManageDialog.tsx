@@ -288,9 +288,28 @@ const PacksPanel: Component<{
   /** 外部导入计数:递增即触发重扫(拖拽导入后由父组件 bump)。 */
   tick?: number;
 }> = (props) => {
+  // 数据包逐存档生效:落到 saves/<world>/datapacks。其它包类型无 world 概念。
+  const isDatapack = () => props.kind === "datapack";
+  const [worlds] = createResource(
+    () => (isDatapack() ? props.instance.id : false),
+    (id) => api.instanceWorlds(activeRoot(), id as string),
+  );
+  const [world, setWorld] = createSignal<string | null>(null);
+  // 默认选中第一个存档(按上次游玩排序);存档变化后若当前选中已失效则回退。
+  createEffect(() => {
+    if (!isDatapack()) return;
+    const list = worlds() ?? [];
+    if (list.length === 0) {
+      setWorld(null);
+    } else if (!world() || !list.some((w) => w.folder === world())) {
+      setWorld(list[0].folder);
+    }
+  });
+  const worldArg = () => (isDatapack() ? world() : null);
+
   const [packs, { refetch }] = createResource(
-    () => [props.instance.id, props.kind, props.tick ?? 0] as const,
-    ([id, kind]) => api.instancePacks(activeRoot(), id, kind),
+    () => [props.instance.id, props.kind, props.tick ?? 0, worldArg()] as const,
+    ([id, kind, , w]) => api.instancePacks(activeRoot(), id, kind, w),
   );
 
   const [query, setQuery] = createSignal("");
@@ -319,6 +338,7 @@ const PacksPanel: Component<{
         props.kind,
         projectId,
         props.instance.mc_version,
+        worldArg(),
       );
       toast({ type: "success", message: `已安装 ${title}(${file})` });
       refetch();
@@ -331,7 +351,7 @@ const PacksPanel: Component<{
 
   async function toggle(p: PackInfo, enabled: boolean) {
     try {
-      await api.setPackEnabled(activeRoot(), props.instance.id, props.kind, p.file_name, enabled);
+      await api.setPackEnabled(activeRoot(), props.instance.id, props.kind, p.file_name, enabled, worldArg());
       refetch();
     } catch (e) {
       toast({ type: "error", message: `操作失败:${e}` });
@@ -340,7 +360,7 @@ const PacksPanel: Component<{
 
   async function remove(p: PackInfo) {
     try {
-      await api.deletePack(activeRoot(), props.instance.id, props.kind, p.file_name);
+      await api.deletePack(activeRoot(), props.instance.id, props.kind, p.file_name, worldArg());
       toast({ type: "success", message: `已删除 ${p.file_name}` });
       refetch();
     } catch (e) {
@@ -350,6 +370,32 @@ const PacksPanel: Component<{
 
   return (
     <div class="flex flex-col gap-[8px]">
+      {/* 数据包目标存档选择器:数据包是逐存档生效的,必须先选一个存档。 */}
+      <Show when={isDatapack()}>
+        <Show
+          when={(worlds() ?? []).length > 0}
+          fallback={
+            <div class="text-[12px] leading-[1.7] text-dim py-[4px]">
+              这个实例还没有存档。数据包是按存档生效的(放进 <code>saves/&lt;存档&gt;/datapacks</code>),
+              先在「存档」里创建/导入一个存档,或进游戏新建世界后再来安装。
+            </div>
+          }
+        >
+          <label class="flex items-center gap-[8px] text-[12px] text-dim">
+            <span class="shrink-0">目标存档</span>
+            <select
+              class={`${FIELD} flex-1`}
+              value={world() ?? ""}
+              onChange={(e) => setWorld(e.currentTarget.value)}
+            >
+              <For each={worlds()}>
+                {(w) => <option value={w.folder}>{w.name || w.folder}</option>}
+              </For>
+            </select>
+          </label>
+        </Show>
+      </Show>
+
       <div class="relative">
         <input
           class={`${FIELD} w-full pr-[30px]`}
@@ -395,7 +441,8 @@ const PacksPanel: Component<{
                 </button>
                 <button
                   class={INSTALL_BTN}
-                  disabled={installing() !== null}
+                  disabled={installing() !== null || (isDatapack() && !world())}
+                  title={isDatapack() && !world() ? "先选择目标存档" : ""}
                   onClick={() => install(h.project_id, h.title)}
                 >
                   {installing() === h.project_id ? "安装中…" : "安装"}
@@ -419,7 +466,9 @@ const PacksPanel: Component<{
                 ? "resourcepacks"
                 : props.kind === "shader"
                   ? "shaderpacks"
-                  : "datapacks",
+                  : world()
+                    ? `saves/${world()}/datapacks`
+                    : "datapacks",
             )
           }
         >
@@ -483,6 +532,7 @@ const PacksPanel: Component<{
             instanceId={props.instance.id}
             mcVersion={props.instance.mc_version}
             loader={null}
+            world={worldArg()}
             onClose={() => setDetail(null)}
             onInstalled={() => refetch()}
           />

@@ -47,6 +47,18 @@ impl PackKind {
         }
     }
 
+    /// 安装目录(按存档定位数据包)。**数据包是逐存档生效的** —— 放在实例根的
+    /// `datapacks/` 里游戏根本不会加载;必须落到 `saves/<world>/datapacks/`。给定
+    /// `world` 时数据包用该存档目录;`world` 为空 / 其它类型回退到 [`dir`](Self::dir)。
+    pub fn dir_for(&self, inst: &Instance, world: Option<&str>) -> PathBuf {
+        match (self, world) {
+            (PackKind::Datapack, Some(w)) if !w.is_empty() => {
+                inst.saves_dir().join(w).join("datapacks")
+            }
+            _ => self.dir(inst),
+        }
+    }
+
     /// 映射到内容平台的资源类型,供搜索 / 取版本时使用。
     pub fn to_resource_kind(&self) -> ResourceKind {
         match self {
@@ -144,8 +156,8 @@ fn read_resourcepack_description(path: &std::path::Path) -> Option<String> {
 ///
 /// 仅资源包会尝试读取 `pack.mcmeta` 描述(其它类型无此约定),失败静默忽略。
 /// 结果按 `file_name` 字典序稳定排序,保证展示顺序确定。
-pub fn list_packs(inst: &Instance, kind: PackKind) -> Vec<PackInfo> {
-    let dir = kind.dir(inst);
+pub fn list_packs(inst: &Instance, kind: PackKind, world: Option<&str>) -> Vec<PackInfo> {
+    let dir = kind.dir_for(inst, world);
     let entries = match std::fs::read_dir(&dir) {
         Ok(e) => e,
         Err(_) => return Vec::new(),
@@ -207,8 +219,9 @@ pub fn set_pack_enabled(
     kind: PackKind,
     file_name: &str,
     enabled: bool,
+    world: Option<&str>,
 ) -> Result<()> {
-    let dir = kind.dir(inst);
+    let dir = kind.dir_for(inst, world);
     let src = resolve_in_dir(&dir, file_name)?;
 
     // 计算目标文件名:启用即去后缀,禁用即加后缀。
@@ -235,8 +248,8 @@ pub fn set_pack_enabled(
 ///
 /// `trash::delete` 在无 GUI / 不支持回收站的环境会失败,此时回退到不可逆删除
 /// (文件用 `remove_file`,目录用 `remove_dir_all`)以保证操作最终生效。
-pub fn delete_pack(inst: &Instance, kind: PackKind, file_name: &str) -> Result<()> {
-    let dir = kind.dir(inst);
+pub fn delete_pack(inst: &Instance, kind: PackKind, file_name: &str, world: Option<&str>) -> Result<()> {
+    let dir = kind.dir_for(inst, world);
     let path = resolve_in_dir(&dir, file_name)?;
 
     // 不存在视为已删除(幂等),不报错。
@@ -267,12 +280,13 @@ pub async fn install_pack_version(
     dl: &crate::download::Downloader,
     kind: PackKind,
     v: &ProjectVersion,
+    world: Option<&str>,
 ) -> Result<String> {
     let file = v
         .primary_file()
         .ok_or_else(|| CoreError::other(format!("版本 {} 没有可下载文件", v.id)))?;
 
-    let dir = kind.dir(inst);
+    let dir = kind.dir_for(inst, world);
     // primary file 的 filename 由平台给出,理论可信;仍按单一路径段校验防御。
     let path = resolve_in_dir(&dir, &file.filename)?;
 
@@ -296,6 +310,7 @@ pub fn import_local_pack(
     inst: &Instance,
     kind: PackKind,
     source: &std::path::Path,
+    world: Option<&str>,
 ) -> Result<String> {
     let name = source
         .file_name()
@@ -306,7 +321,7 @@ pub fn import_local_pack(
     if !is_pack_archive(&name) {
         return Err(CoreError::other("只支持 .zip / .jar 包文件"));
     }
-    let dir = kind.dir(inst);
+    let dir = kind.dir_for(inst, world);
     std::fs::create_dir_all(&dir).with_path(&dir)?;
     let dest = resolve_in_dir(&dir, &name)?;
     std::fs::copy(source, &dest).with_path(source)?;
@@ -328,6 +343,7 @@ pub async fn install_pack(
     kind: PackKind,
     project_id: &str,
     mc_version: &str,
+    world: Option<&str>,
 ) -> Result<String> {
     let versions = api.get_versions(project_id, Some(mc_version), None).await?;
     let chosen = versions
@@ -338,7 +354,7 @@ pub async fn install_pack(
             CoreError::other(format!("项目 {project_id} 没有兼容 {mc_version} 的版本"))
         })?;
 
-    install_pack_version(inst, dl, kind, chosen).await
+    install_pack_version(inst, dl, kind, chosen, world).await
 }
 
 #[cfg(test)]
@@ -382,7 +398,7 @@ mod tests {
         // 一个无关文件(txt),应被忽略。
         fs::write(rp.join("readme.txt"), b"ignore me").unwrap();
 
-        let packs = list_packs(&t.inst, PackKind::ResourcePack);
+        let packs = list_packs(&t.inst, PackKind::ResourcePack, None);
         assert_eq!(packs.len(), 2, "只应列出两个 zip 包,忽略 txt");
 
         let faithful = packs.iter().find(|p| p.file_name == "Faithful.zip").unwrap();
@@ -401,20 +417,20 @@ mod tests {
         fs::write(rp.join("Pack.zip"), b"data").unwrap();
 
         // 禁用:应改名为 Pack.zip.disabled。
-        set_pack_enabled(&t.inst, PackKind::ResourcePack, "Pack.zip", false).unwrap();
+        set_pack_enabled(&t.inst, PackKind::ResourcePack, "Pack.zip", false, None).unwrap();
         assert!(!rp.join("Pack.zip").exists());
         assert!(rp.join("Pack.zip.disabled").exists());
 
-        let after_disable = list_packs(&t.inst, PackKind::ResourcePack);
+        let after_disable = list_packs(&t.inst, PackKind::ResourcePack, None);
         assert_eq!(after_disable.len(), 1);
         assert!(!after_disable[0].enabled);
 
         // 再启用:应改回 Pack.zip。
-        set_pack_enabled(&t.inst, PackKind::ResourcePack, "Pack.zip.disabled", true).unwrap();
+        set_pack_enabled(&t.inst, PackKind::ResourcePack, "Pack.zip.disabled", true, None).unwrap();
         assert!(rp.join("Pack.zip").exists());
         assert!(!rp.join("Pack.zip.disabled").exists());
 
-        let after_enable = list_packs(&t.inst, PackKind::ResourcePack);
+        let after_enable = list_packs(&t.inst, PackKind::ResourcePack, None);
         assert!(after_enable[0].enabled);
     }
 
@@ -425,16 +441,16 @@ mod tests {
         fs::write(rp.join("A.zip"), b"x").unwrap();
 
         // 已启用再启用:空操作,文件不变。
-        set_pack_enabled(&t.inst, PackKind::ResourcePack, "A.zip", true).unwrap();
+        set_pack_enabled(&t.inst, PackKind::ResourcePack, "A.zip", true, None).unwrap();
         assert!(rp.join("A.zip").exists());
     }
 
     #[test]
     fn rejects_path_traversal_filename() {
         let t = TempInst::new("traversal");
-        let err = set_pack_enabled(&t.inst, PackKind::ResourcePack, "../evil.zip", true);
+        let err = set_pack_enabled(&t.inst, PackKind::ResourcePack, "../evil.zip", true, None);
         assert!(err.is_err(), "含 .. 的文件名必须被拒绝");
-        let err2 = set_pack_enabled(&t.inst, PackKind::ResourcePack, "sub/evil.zip", false);
+        let err2 = set_pack_enabled(&t.inst, PackKind::ResourcePack, "sub/evil.zip", false, None);
         assert!(err2.is_err(), "含分隔符的文件名必须被拒绝");
     }
 
@@ -445,7 +461,7 @@ mod tests {
         fs::create_dir_all(dp.join("MyDatapack")).unwrap();
         fs::write(dp.join("vanilla-tweaks.zip"), b"PK").unwrap();
 
-        let packs = list_packs(&t.inst, PackKind::Datapack);
+        let packs = list_packs(&t.inst, PackKind::Datapack, None);
         assert_eq!(packs.len(), 2, "数据包应同时列出目录形态与 zip 形态");
         assert!(packs.iter().any(|p| p.file_name == "MyDatapack"));
         assert!(packs.iter().any(|p| p.file_name == "vanilla-tweaks.zip"));
@@ -455,7 +471,7 @@ mod tests {
     fn missing_dir_lists_empty() {
         let t = TempInst::new("missing");
         // shaderpacks 目录未创建。
-        let packs = list_packs(&t.inst, PackKind::Shader);
+        let packs = list_packs(&t.inst, PackKind::Shader, None);
         assert!(packs.is_empty());
     }
 
@@ -476,7 +492,7 @@ mod tests {
             .unwrap();
         zw.finish().unwrap();
 
-        let packs = list_packs(&t.inst, PackKind::ResourcePack);
+        let packs = list_packs(&t.inst, PackKind::ResourcePack, None);
         let described = packs.iter().find(|p| p.file_name == "Described.zip").unwrap();
         assert_eq!(described.description.as_deref(), Some("A cool pack"));
     }
@@ -500,10 +516,10 @@ mod tests {
         let target = rp.join("Trash.zip");
         fs::write(&target, b"bye").unwrap();
 
-        delete_pack(&t.inst, PackKind::ResourcePack, "Trash.zip").unwrap();
+        delete_pack(&t.inst, PackKind::ResourcePack, "Trash.zip", None).unwrap();
         assert!(!target.exists(), "删除后文件应不在原位(回收站或硬删均可)");
 
         // 重复删除不存在的文件应幂等成功。
-        delete_pack(&t.inst, PackKind::ResourcePack, "Trash.zip").unwrap();
+        delete_pack(&t.inst, PackKind::ResourcePack, "Trash.zip", None).unwrap();
     }
 }
