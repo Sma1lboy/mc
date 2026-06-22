@@ -35,7 +35,7 @@ the architecture designed in [`docs/`](./docs) and built from it.
 - ✅ **Lite server** (`mc-server`, axum 0.8): loader-version aggregation, news, instance sharing, and **launcher accounts via [better-auth](https://github.com/better-auth-rs/better-auth-rs)** (email/password + sessions; social/passkey/2FA available as plugins)
 - ✅ **Persistence on Supabase (Postgres via sqlx)** — better-auth users/sessions/accounts + shares, verified across restart
 - ✅ Portable / multi-root game-directory discovery; crash-safe atomic writes; shared-store hardlink/reflink
-- ✅ Desktop app: native rounded window + three-zone layout (Modrinth) + PCL adjustable-accent theme
+- ✅ Desktop app: native rounded window + workspace view + classic adjustable-accent theme
 
 > **224 passing tests.** UI exists but the current focus is the data layer + backend (see [docs/08](./docs/08-data-layer-and-lite-server.md)).
 

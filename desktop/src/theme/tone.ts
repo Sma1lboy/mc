@@ -1,7 +1,7 @@
 /* ============================================================================
  * theme/tone.ts —— 感知化主题色引擎的「锚点表」(ToneProfile)
  *
- * 1:1 移植 PCL-CE `PCL.Core/UI/Theme/ToneProfile.cs` + `ToneProfileConfig.cs`:
+ * 主题锚点来自参考启动器的 ToneProfile / ToneProfileConfig 思路:
  * 每个明暗模式各一份 OKLCH 的 L/C/alpha 锚点。生成器(palette.ts)拿这份锚点 +
  * 一组 ThemeAccent 三元组,用 OKLCH 派生 8 级中性(--n-*)与 8 级强调(--a-*)。
  *
@@ -18,7 +18,7 @@
  * ========================================================================== */
 
 /**
- * 一份明暗模式的 OKLCH 锚点(对应 PCL `ToneProfile` record 的字段与默认值)。
+ * 一份明暗模式的 OKLCH 锚点(对应 Classic `ToneProfile` record 的字段与默认值)。
  * L/C 在 OKLCH 下取 0..1;hue 不在此存(由 ThemeAccent 提供),中性恒 chroma 0。
  */
 export interface ToneProfile {
@@ -61,7 +61,7 @@ export interface ToneProfile {
 }
 
 /**
- * PCL `ToneProfile` record 的默认值(= 浅色档)。逐字段对齐 ToneProfile.cs。
+ * Classic `ToneProfile` record 的默认值(= 浅色档)。逐字段对齐 ToneProfile.cs。
  * 浅色档亮度自暗(L1=0.35)向亮(L8=0.96)爬升,色度在中段(C2..C4)最盛。
  */
 export const LIGHT_TONE: ToneProfile = {
@@ -94,7 +94,7 @@ export const LIGHT_TONE: ToneProfile = {
 };
 
 /**
- * PCL `ToneProfileConfig.DefaultDark`:仅覆写亮度类锚点(L1..8 反转为亮→暗,
+ * Classic `ToneProfileConfig.DefaultDark`:仅覆写亮度类锚点(L1..8 反转为亮→暗,
  * LBackground/LForeground/LWhite 调到深色档),色度与 alpha 锚点沿用浅色档默认。
  * 深色档 L1=0.96(最亮,作前景文字)向 L8=0.2(最暗,作底)递减——与浅色相反,
  * 生成器据此把中性映射回我们「--n-1=最暗底 → --n-8=最亮前景」的既有语义。
@@ -123,7 +123,7 @@ export function toneFor(mode: ToneMode): ToneProfile {
 }
 
 /**
- * 强调色三元组(= PCL `GetCurrentThemeArgs()` 的 `(Hue, LightAdjust, ChromaAdjust)`)。
+ * 强调色三元组(= Classic `GetCurrentThemeArgs()` 的 `(Hue, LightAdjust, ChromaAdjust)`)。
  * 取代现有扁平 `{hue,saturation,lightness}`:
  *   - hue           OKLCH 色相(0..360)。
  *   - lightAdjust   亮度旋钮(-1..1):正提亮、负压暗,经非对称 _AdjustLinear 不溢出。
@@ -136,16 +136,16 @@ export interface ThemeAccent {
 }
 
 /**
- * PCL 内置主题的强调三元组(对应 ThemeService.GetCurrentThemeArgs() 的 switch)。
+ * Classic 内置主题的强调三元组(对应 ThemeService.GetCurrentThemeArgs() 的 switch)。
  * 作为预设的「感知化」锚点,供上层在需要时直接取用。
  */
 export const ACCENT_PRESETS: Record<string, ThemeAccent> = {
-  /** 天蓝(PCL SkyBlue)。 */
+  /** 天蓝(Classic SkyBlue)。 */
   skyBlue: { hue: 235, lightAdjust: 0.36, chromaAdjust: 0.2 },
-  /** 猫猫蓝(PCL CatBlue,默认招牌)。 */
+  /** 猫猫蓝(Classic CatBlue,默认招牌)。 */
   catBlue: { hue: 255, lightAdjust: 0, chromaAdjust: -0.2 },
-  /** 深蓝(PCL DeathBlue)。 */
+  /** 深蓝(Classic DeathBlue)。 */
   deathBlue: { hue: 268, lightAdjust: -0.05, chromaAdjust: -0.1 },
-  /** HMCL 蓝(PCL HmclBlue)。 */
+  /** HMCL 蓝(Classic HmclBlue)。 */
   hmclBlue: { hue: 275, lightAdjust: -0.03, chromaAdjust: -0.35 },
 };

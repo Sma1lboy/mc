@@ -1,0 +1,24 @@
+/* ClassicShell.css —— 残留样式:只保留 --classic-* CSS 变量【定义】。
+ * 这些变量是经典浅色皮肤的单一真相,被全局 Tailwind 令牌桥接
+ * (theme/tailwind.css 的 @theme inline 把 --color-classic-* 映射到这些变量)引用,
+ * 因此【不能删除/内联】,否则所有 classic-* 工具类会失去颜色。
+ * 视觉/布局其余部分已迁到 ClassicShell.tsx 的 Tailwind 工具类。
+ * classic 调色板 scope 在 .classic-shell。 */
+.classic-shell {
+  /* 经典蓝体系 */
+  --classic-blue: #1370f3; /* 主蓝:启动按钮/高亮 */
+  --classic-blue-hover: #4890f5; /* hover/边框/标题栏渐变 */
+  --classic-blue-dark: #0b5bcb; /* 按下 */
+  --classic-blue-soft: #96c0f9;
+  --classic-blue-bg: #d5e6fd; /* 选中底/卡片 */
+  --classic-blue-bg2: #e0eafd; /* hover 底 */
+  --classic-blue-lightest: #eaf2fe; /* 最浅 */
+  --classic-text: #343d4a; /* 正文/标题 */
+  --classic-text2: #737373; /* 次要 */
+  --classic-text3: #8c8c8c; /* 辅助/版本名 */
+  --classic-gray-bg: #f5f5f5; /* 浅背景 */
+  --classic-line: #ebebeb; /* 分隔/边框 */
+  --classic-card: #ffffff;
+  --classic-shadow: 0 2px 8px rgba(52, 61, 74, 0.13);
+  --classic-shadow-strong: 0 4px 14px rgba(52, 61, 74, 0.2);
+}

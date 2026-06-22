@@ -49,7 +49,7 @@ export function formatRelativeTime(epochMs: number): string {
 
 /**
  * 把一个整数缩写成带 k/M/B 后缀的紧凑字符串, 如 2_650_000 -> "2.65M", 461_400 -> "461.4k"。
- * 用于 ModpackCard 的下载数显示 (Modrinth 风格)。
+ * 用于 ModpackCard 的下载数显示。
  *
  * 规则:
  *  - < 1000 直接显示整数。

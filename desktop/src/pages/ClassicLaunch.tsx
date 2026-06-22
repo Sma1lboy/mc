@@ -6,8 +6,8 @@ import { openInstanceDir } from "../util/instanceActions";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import type { AccountSummary, InstanceSummary } from "../ipc/types";
 import type { InstanceManageTab } from "../components/InstanceManageDialog";
-import PclAccountDialog from "./PclAccountDialog";
-import "./PclLaunch.css";
+import ClassicAccountDialog from "./ClassicAccountDialog";
+import "./ClassicLaunch.css";
 
 const loaderLabel = (l: string) =>
   ({ vanilla: "原版", forge: "Forge", neoforge: "NeoForge", fabric: "Fabric", quilt: "Quilt" } as Record<string, string>)[l] ?? l;
@@ -15,7 +15,7 @@ const loaderLabel = (l: string) =>
 const kindLabel = (k: string) =>
   k === "microsoft" ? "正版验证" : k === "yggdrasil" ? "外置登录" : "离线模式";
 
-/** 右侧主区视图:新闻主页 / 版本选择 / 实例详情 / 启动日志(照抄 PCL CE 的 启动页交互)。 */
+/** 右侧主区视图:新闻主页 / 版本选择 / 实例详情 / 启动日志。 */
 type RightView = "news" | "versions" | "instance" | "log";
 /** 实例详情内的子标签:首页(概览)+ 实例管理各页,资源子类不再藏到二级 tab。 */
 type InstanceTab = "home" | InstanceManageTab;
@@ -32,13 +32,13 @@ const INSTANCE_TABS: { key: InstanceTab; label: string }[] = [
 ];
 
 /**
- * PclLaunch —— 1:1 照抄 PCL CE 启动页逻辑(非 Modrinth 那种列表页):
+ * ClassicLaunch —— 经典启动页:
  *   - 左栏:账号卡(皮肤头像 + 用户名 + 验证方式)+ 招牌「启动游戏」按钮
  *     (副标题=当前版本)+「版本选择 / 版本设置」两个并排按钮。
  *   - 右栏:默认是「新闻主页」(欢迎卡 + 折叠卡 + 最新快照);点「版本选择」
  *     切到版本列表;启动后切到实时日志。版本列表不再常驻铺在启动页。
  */
-const PclLaunch: Component = () => {
+const ClassicLaunch: Component = () => {
   const [instances, { refetch: refetchInstances }] = createResource(
     () => activeRoot(),
     (root) => api.listInstances(root),
@@ -183,28 +183,28 @@ const PclLaunch: Component = () => {
   }
 
   return (
-    <div class="grid grid-cols-[300px_1fr] h-full min-h-0 bg-pcl-gray-bg">
-      {/* ===== 左栏:账号卡 + 启动区(PCL 固定窄栏) ===== */}
-      <aside class="grid grid-rows-[1fr_auto] min-h-0 bg-pcl-card border-r border-pcl-line">
+    <div class="grid grid-cols-[300px_1fr] h-full min-h-0 bg-classic-gray-bg">
+      {/* ===== 左栏:账号卡 + 启动区(Classic 固定窄栏) ===== */}
+      <aside class="grid grid-rows-[1fr_auto] min-h-0 bg-classic-card border-r border-classic-line">
         {/* 账号卡:皮肤头像 + 用户名 + 验证方式,点击打开登录/切换弹窗 */}
         <button
-          class="flex flex-col items-center justify-center gap-[10px] p-[24px] text-center w-full border-none bg-transparent cursor-pointer transition-[background] duration-150 ease-[ease] hover:bg-pcl-blue-lightest"
+          class="flex flex-col items-center justify-center gap-[10px] p-[24px] text-center w-full border-none bg-transparent cursor-pointer transition-[background] duration-150 ease-[ease] hover:bg-classic-blue-lightest"
           onClick={() => setShowLogin(true)}
           title="点击登录 / 切换账号"
         >
           <Show
             when={!accounts.loading}
             fallback={
-              <div class="w-[84px] h-[84px] rounded-[10px] flex items-center justify-center text-[34px] font-extrabold text-white shadow-pcl [image-rendering:pixelated] bg-pcl-blue-bg2 animate-[pcl-pulse_1.3s_ease-in-out_infinite]" />
+              <div class="w-[84px] h-[84px] rounded-[10px] flex items-center justify-center text-[34px] font-extrabold text-white shadow-classic [image-rendering:pixelated] bg-classic-blue-bg2 animate-[classic-pulse_1.3s_ease-in-out_infinite]" />
             }
           >
-            <div class="w-[84px] h-[84px] rounded-[10px] flex items-center justify-center text-[34px] font-extrabold text-white shadow-pcl [image-rendering:pixelated] bg-[linear-gradient(135deg,var(--pcl-blue-hover),var(--pcl-blue))]">
+            <div class="w-[84px] h-[84px] rounded-[10px] flex items-center justify-center text-[34px] font-extrabold text-white shadow-classic [image-rendering:pixelated] bg-[linear-gradient(135deg,var(--classic-blue-hover),var(--classic-blue))]">
               <Avatar kind={activeAccount()?.kind} uuid={activeAccount()?.uuid} />
             </div>
-            <div class="text-[18px] font-bold text-pcl-text max-w-full whitespace-nowrap overflow-hidden text-ellipsis">
+            <div class="text-[18px] font-bold text-classic-text max-w-full whitespace-nowrap overflow-hidden text-ellipsis">
               {activeAccount()?.username ?? "未登录"}
             </div>
-            <div class="text-[12px] text-pcl-text3">
+            <div class="text-[12px] text-classic-text3">
               {activeAccount() ? kindLabel(activeAccount()!.kind) : "点击登录账号"}
             </div>
           </Show>
@@ -213,12 +213,12 @@ const PclLaunch: Component = () => {
         {/* 启动区:招牌按钮(描边 + 版本副标题)+ 版本选择/版本设置 */}
         <div class="pt-[14px] px-[20px] pb-[18px]">
           <button
-            class="w-full h-[54px] flex flex-col items-center justify-center gap-px border-[1.5px] border-pcl-blue rounded-[3px] bg-pcl-blue-lightest cursor-pointer transition-[background,box-shadow,transform] duration-150 ease-[ease] enabled:hover:bg-pcl-blue-bg enabled:hover:shadow-[0_3px_10px_rgba(19,112,243,0.2)] enabled:active:scale-[0.99] disabled:opacity-[0.55] disabled:cursor-not-allowed"
+            class="w-full h-[54px] flex flex-col items-center justify-center gap-px border-[1.5px] border-classic-blue rounded-[3px] bg-classic-blue-lightest cursor-pointer transition-[background,box-shadow,transform] duration-150 ease-[ease] enabled:hover:bg-classic-blue-bg enabled:hover:shadow-[0_3px_10px_rgba(19,112,243,0.2)] enabled:active:scale-[0.99] disabled:opacity-[0.55] disabled:cursor-not-allowed"
             disabled={launching()}
             onClick={launch}
           >
-            <span class="text-[16px] font-bold tracking-[1px] text-pcl-blue">{launching() ? "启动中…" : "启动游戏"}</span>
-            <span class="text-[11px] text-pcl-text3 max-w-full whitespace-nowrap overflow-hidden text-ellipsis">
+            <span class="text-[16px] font-bold tracking-[1px] text-classic-blue">{launching() ? "启动中…" : "启动游戏"}</span>
+            <span class="text-[11px] text-classic-text3 max-w-full whitespace-nowrap overflow-hidden text-ellipsis">
               <Show when={selected()} fallback={"未选择版本"}>
                 {selected()!.name || selected()!.id}
               </Show>
@@ -226,11 +226,11 @@ const PclLaunch: Component = () => {
           </button>
           <div class="mt-[10px]">
             <button
-              class="w-full h-[36px] border border-pcl-line rounded-[3px] bg-pcl-card text-pcl-text text-[13px] cursor-pointer transition-[background,border-color,color] duration-150 ease-[ease] hover:bg-pcl-blue-lightest hover:border-pcl-blue-soft"
+              class="w-full h-[36px] border border-classic-line rounded-[3px] bg-classic-card text-classic-text text-[13px] cursor-pointer transition-[background,border-color,color] duration-150 ease-[ease] hover:bg-classic-blue-lightest hover:border-classic-blue-soft"
               classList={{
-                "bg-pcl-blue-bg": rightView() === "versions" || rightView() === "instance",
-                "border-pcl-blue": rightView() === "versions" || rightView() === "instance",
-                "text-pcl-blue": rightView() === "versions" || rightView() === "instance",
+                "bg-classic-blue-bg": rightView() === "versions" || rightView() === "instance",
+                "border-classic-blue": rightView() === "versions" || rightView() === "instance",
+                "text-classic-blue": rightView() === "versions" || rightView() === "instance",
                 "font-semibold": rightView() === "versions" || rightView() === "instance",
               }}
               onClick={() => setRightView(rightView() === "versions" ? "news" : "versions")}
@@ -239,7 +239,7 @@ const PclLaunch: Component = () => {
             </button>
           </div>
           <button
-            class="w-full h-[36px] mt-[10px] border border-pcl-blue rounded-[3px] bg-pcl-blue-lightest text-pcl-blue text-[13px] font-semibold cursor-pointer transition-[background] duration-150 ease-[ease] hover:bg-pcl-blue-bg"
+            class="w-full h-[36px] mt-[10px] border border-classic-blue rounded-[3px] bg-classic-blue-lightest text-classic-blue text-[13px] font-semibold cursor-pointer transition-[background] duration-150 ease-[ease] hover:bg-classic-blue-bg"
             onClick={() => setShowNew(true)}
           >
             + 新建实例
@@ -252,57 +252,57 @@ const PclLaunch: Component = () => {
         {/* --- 新闻主页(默认) --- */}
         <Show when={rightView() === "news"}>
           <div class="flex flex-col gap-[12px]">
-            <div class="bg-pcl-card rounded-[5px] shadow-pcl py-[14px] px-[16px] flex items-center gap-[12px] bg-[linear-gradient(90deg,var(--pcl-blue-lightest),var(--pcl-card))] border-l-[3px] border-pcl-blue">
+            <div class="bg-classic-card rounded-[5px] shadow-classic py-[14px] px-[16px] flex items-center gap-[12px] bg-[linear-gradient(90deg,var(--classic-blue-lightest),var(--classic-card))] border-l-[3px] border-classic-blue">
               <span class="text-[22px]">📰</span>
               <div>
-                <div class="text-[14px] font-bold text-pcl-text">欢迎使用 PCL 启动器</div>
-                <div class="text-[12px] text-pcl-text3 mt-[3px]">左侧选择账号与版本,点「启动游戏」即可开玩。</div>
+                <div class="text-[14px] font-bold text-classic-text">欢迎使用 MC Launcher</div>
+                <div class="text-[12px] text-classic-text3 mt-[3px]">左侧选择账号与版本,点「启动游戏」即可开玩。</div>
               </div>
             </div>
 
             <button
-              class="bg-pcl-card rounded-[5px] shadow-pcl py-[14px] px-[16px] flex items-center justify-between w-full border-none cursor-pointer text-left transition-[box-shadow] duration-150 ease-[ease] hover:shadow-pcl-strong"
+              class="bg-classic-card rounded-[5px] shadow-classic py-[14px] px-[16px] flex items-center justify-between w-full border-none cursor-pointer text-left transition-[box-shadow] duration-150 ease-[ease] hover:shadow-classic-strong"
               onClick={() => setNewsOpen((o) => ({ ...o, cape: !o.cape }))}
             >
-              <span class="text-[14px] font-bold text-pcl-text">新披风与披风迁移</span>
+              <span class="text-[14px] font-bold text-classic-text">新披风与披风迁移</span>
               <span
-                class="text-pcl-text3 text-[16px] transition-transform duration-200 ease-[ease]"
+                class="text-classic-text3 text-[16px] transition-transform duration-200 ease-[ease]"
                 classList={{ "rotate-180": !!newsOpen().cape }}
               >
                 ⌄
               </span>
             </button>
             <Show when={newsOpen().cape}>
-              <div class="bg-pcl-card rounded-[5px] shadow-pcl py-[14px] px-[16px] text-[13px] text-pcl-text2">
+              <div class="bg-classic-card rounded-[5px] shadow-classic py-[14px] px-[16px] text-[13px] text-classic-text2">
                 <p class="m-0 leading-[1.7]">Mojang 已开放披风迁移。绑定正版账号后可在游戏内更换披风。</p>
               </div>
             </Show>
 
             <button
-              class="bg-pcl-card rounded-[5px] shadow-pcl py-[14px] px-[16px] flex items-center justify-between w-full border-none cursor-pointer text-left transition-[box-shadow] duration-150 ease-[ease] hover:shadow-pcl-strong"
+              class="bg-classic-card rounded-[5px] shadow-classic py-[14px] px-[16px] flex items-center justify-between w-full border-none cursor-pointer text-left transition-[box-shadow] duration-150 ease-[ease] hover:shadow-classic-strong"
               onClick={() => setNewsOpen((o) => ({ ...o, snapshot: !o.snapshot }))}
             >
-              <span class="text-[14px] font-bold text-pcl-text">
+              <span class="text-[14px] font-bold text-classic-text">
                 最新快照版
                 <Show when={latestSnapshot()}>{` - ${latestSnapshot()!.id}`}</Show>
               </span>
               <span
-                class="text-pcl-text3 text-[16px] transition-transform duration-200 ease-[ease]"
+                class="text-classic-text3 text-[16px] transition-transform duration-200 ease-[ease]"
                 classList={{ "rotate-180": !!newsOpen().snapshot }}
               >
                 ⌄
               </span>
             </button>
             <Show when={newsOpen().snapshot}>
-              <div class="bg-pcl-card rounded-[5px] shadow-pcl py-[14px] px-[16px] text-[13px] text-pcl-text2">
+              <div class="bg-classic-card rounded-[5px] shadow-classic py-[14px] px-[16px] text-[13px] text-classic-text2">
                 <div class="h-[150px] rounded-[5px] bg-[linear-gradient(135deg,#7fb0f7_0%,#4890f5_45%,#1370f3_100%)] flex items-center justify-center">
                   <Show when={latestSnapshot()} fallback={<Spinner />}>
                     <span class="py-[8px] px-[22px] rounded-[6px] bg-[rgba(11,91,203,0.85)] text-white text-[22px] font-bold tracking-[1px]">{latestSnapshot()!.id}</span>
                   </Show>
                 </div>
-                <div class="text-[14px] font-bold mt-[12px] text-pcl-blue">新特性</div>
+                <div class="text-[14px] font-bold mt-[12px] text-classic-blue">新特性</div>
                 <Show when={latestSnapshot()}>
-                  <ul class="list-disc mt-[6px] mb-0 pl-[18px] text-pcl-text2 text-[13px] leading-[1.9]">
+                  <ul class="list-disc mt-[6px] mb-0 pl-[18px] text-classic-text2 text-[13px] leading-[1.9]">
                     <li>发布时间:{new Date(latestSnapshot()!.release_time).toLocaleDateString()}</li>
                     <li>到「下载」标签页可一键安装该快照</li>
                     <li>快照为开发版,建议另建实例体验</li>
@@ -315,19 +315,19 @@ const PclLaunch: Component = () => {
 
         {/* --- 版本选择(点「版本选择」进入) --- */}
         <Show when={rightView() === "versions"}>
-          <div class="bg-pcl-card rounded-[5px] shadow-pcl flex flex-col min-h-0 overflow-hidden flex-1">
-            <div class="flex items-center justify-between gap-[8px] py-[10px] px-[16px] text-[13px] font-bold text-pcl-text border-b border-pcl-line">
+          <div class="bg-classic-card rounded-[5px] shadow-classic flex flex-col min-h-0 overflow-hidden flex-1">
+            <div class="flex items-center justify-between gap-[8px] py-[10px] px-[16px] text-[13px] font-bold text-classic-text border-b border-classic-line">
               <span>版本选择</span>
               <span class="flex gap-[6px]">
                 <button
-                  class="border border-pcl-blue text-pcl-blue bg-transparent rounded-[3px] py-[4px] px-[10px] text-[12px] font-semibold cursor-pointer transition-[background,color] duration-[var(--mo-dur-fast,150ms)] ease-[var(--mo-ease-out,ease)] enabled:hover:bg-pcl-blue enabled:hover:text-white disabled:opacity-50 disabled:cursor-default"
+                  class="border border-classic-blue text-classic-blue bg-transparent rounded-[3px] py-[4px] px-[10px] text-[12px] font-semibold cursor-pointer transition-[background,color] duration-[var(--mo-dur-fast,150ms)] ease-[var(--mo-ease-out,ease)] enabled:hover:bg-classic-blue enabled:hover:text-white disabled:opacity-50 disabled:cursor-default"
                   disabled={busy() !== ""}
                   onClick={importModpack}
                 >
                   {busy() === "import" ? "导入中…" : "导入整合包"}
                 </button>
                 <button
-                  class="border border-pcl-blue text-pcl-blue bg-transparent rounded-[3px] py-[4px] px-[10px] text-[12px] font-semibold cursor-pointer transition-[background,color] duration-[var(--mo-dur-fast,150ms)] ease-[var(--mo-ease-out,ease)] enabled:hover:bg-pcl-blue enabled:hover:text-white disabled:opacity-50 disabled:cursor-default"
+                  class="border border-classic-blue text-classic-blue bg-transparent rounded-[3px] py-[4px] px-[10px] text-[12px] font-semibold cursor-pointer transition-[background,color] duration-[var(--mo-dur-fast,150ms)] ease-[var(--mo-ease-out,ease)] enabled:hover:bg-classic-blue enabled:hover:text-white disabled:opacity-50 disabled:cursor-default"
                   disabled={busy() !== "" || !selected()}
                   onClick={exportSelected}
                 >
@@ -339,27 +339,27 @@ const PclLaunch: Component = () => {
               <Show when={!instances.loading} fallback={<div class="flex justify-center p-[28px]"><Spinner /></div>}>
                 <Show
                   when={(instances() ?? []).length > 0}
-                  fallback={<div class="py-[28px] px-[16px] text-pcl-text3 text-[13px] text-center leading-[1.9]">还没有版本<br />去「下载」装一个</div>}
+                  fallback={<div class="py-[28px] px-[16px] text-classic-text3 text-[13px] text-center leading-[1.9]">还没有版本<br />去「下载」装一个</div>}
                 >
                   <For each={pickDefault(instances() ?? [])}>
                     {(inst) => (
                       <button
-                        class="relative flex items-center gap-[10px] w-full h-[46px] pl-[16px] pr-[18px] border-none bg-transparent cursor-pointer text-left transition-[background] duration-150 ease-[ease] hover:bg-pcl-blue-bg2 before:content-[''] before:absolute before:left-0 before:top-[7px] before:bottom-[7px] before:w-[3px] before:rounded-[0_2px_2px_0] before:bg-transparent before:transition-[background] before:duration-150 before:ease-[ease] hover:before:bg-pcl-blue-soft"
+                        class="relative flex items-center gap-[10px] w-full h-[46px] pl-[16px] pr-[18px] border-none bg-transparent cursor-pointer text-left transition-[background] duration-150 ease-[ease] hover:bg-classic-blue-bg2 before:content-[''] before:absolute before:left-0 before:top-[7px] before:bottom-[7px] before:w-[3px] before:rounded-[0_2px_2px_0] before:bg-transparent before:transition-[background] before:duration-150 before:ease-[ease] hover:before:bg-classic-blue-soft"
                         classList={{
-                          "bg-pcl-blue-bg": selected()?.id === inst.id,
-                          "before:bg-pcl-blue": selected()?.id === inst.id,
+                          "bg-classic-blue-bg": selected()?.id === inst.id,
+                          "before:bg-classic-blue": selected()?.id === inst.id,
                         }}
                         onClick={() => openInstance(inst)}
                       >
                         <span
-                          class="w-[30px] h-[30px] flex-[0_0_30px] rounded-[4px] flex items-center justify-center font-bold text-[14px] text-white bg-pcl-blue data-[loader=forge]:bg-[#c96a1c] data-[loader=neoforge]:bg-[#c96a1c] data-[loader=fabric]:bg-[#a87b3f] data-[loader=quilt]:bg-[#a87b3f]"
+                          class="w-[30px] h-[30px] flex-[0_0_30px] rounded-[4px] flex items-center justify-center font-bold text-[14px] text-white bg-classic-blue data-[loader=forge]:bg-[#c96a1c] data-[loader=neoforge]:bg-[#c96a1c] data-[loader=fabric]:bg-[#a87b3f] data-[loader=quilt]:bg-[#a87b3f]"
                           data-loader={inst.loader}
                         >
                           {(inst.name || inst.id)[0]?.toUpperCase()}
                         </span>
                         <span class="flex flex-col min-w-0">
-                          <span class="text-pcl-text text-[13px] whitespace-nowrap overflow-hidden text-ellipsis">{inst.name || inst.id}</span>
-                          <span class="text-pcl-text3 text-[11px]">{inst.mc_version} · {loaderLabel(inst.loader)}</span>
+                          <span class="text-classic-text text-[13px] whitespace-nowrap overflow-hidden text-ellipsis">{inst.name || inst.id}</span>
+                          <span class="text-classic-text3 text-[11px]">{inst.mc_version} · {loaderLabel(inst.loader)}</span>
                         </span>
                       </button>
                     )}
@@ -375,13 +375,13 @@ const PclLaunch: Component = () => {
           {(inst) => (
             <div class="flex flex-col min-h-0 flex-1 gap-[12px]">
               {/* 头部:图标 + 名称 + 版本信息 + 同级实例标签 */}
-              <div class="bg-pcl-card rounded-[5px] shadow-pcl overflow-hidden">
+              <div class="bg-classic-card rounded-[5px] shadow-classic overflow-hidden">
                 <div class="flex items-center gap-[14px] p-[16px]">
-                  <div class="w-[52px] h-[52px] rounded-[8px] overflow-hidden bg-pcl-blue-bg2 grid place-items-center shrink-0">
+                  <div class="w-[52px] h-[52px] rounded-[8px] overflow-hidden bg-classic-blue-bg2 grid place-items-center shrink-0">
                     <Show
                       when={inst().icon}
                       fallback={
-                        <span class="text-[24px] font-extrabold text-pcl-blue">
+                        <span class="text-[24px] font-extrabold text-classic-blue">
                           {(inst().name || inst().id)[0]?.toUpperCase()}
                         </span>
                       }
@@ -390,21 +390,21 @@ const PclLaunch: Component = () => {
                     </Show>
                   </div>
                   <div class="min-w-0">
-                    <div class="text-[18px] font-bold text-pcl-text whitespace-nowrap overflow-hidden text-ellipsis">
+                    <div class="text-[18px] font-bold text-classic-text whitespace-nowrap overflow-hidden text-ellipsis">
                       {inst().name || inst().id}
                     </div>
-                    <div class="text-[12px] text-pcl-text3">
+                    <div class="text-[12px] text-classic-text3">
                       Minecraft {inst().mc_version} · {loaderLabel(inst().loader)}
                       <Show when={inst().loader_version}>{` ${inst().loader_version}`}</Show>
                     </div>
                   </div>
                 </div>
-                <div class="flex gap-[4px] px-[12px] border-t border-pcl-line overflow-x-auto">
+                <div class="flex gap-[4px] px-[12px] border-t border-classic-line overflow-x-auto">
                   <For each={INSTANCE_TABS}>
                     {(item) => (
                       <button
-                        class="px-[16px] py-[9px] text-[13px] font-semibold cursor-pointer border-b-2 border-b-transparent text-pcl-text3 hover:text-pcl-text transition-colors duration-150 whitespace-nowrap"
-                        classList={{ "!text-pcl-blue !border-b-pcl-blue": instanceTab() === item.key }}
+                        class="px-[16px] py-[9px] text-[13px] font-semibold cursor-pointer border-b-2 border-b-transparent text-classic-text3 hover:text-classic-text transition-colors duration-150 whitespace-nowrap"
+                        classList={{ "!text-classic-blue !border-b-classic-blue": instanceTab() === item.key }}
                         onClick={() => setInstanceTab(item.key)}
                       >
                         {item.label}
@@ -417,18 +417,18 @@ const PclLaunch: Component = () => {
               {/* 首页:概览 + 快捷操作 */}
               <Show when={instanceTab() === "home"}>
                 <div class="flex flex-col gap-[12px]">
-                  <div class="bg-pcl-card rounded-[5px] shadow-pcl py-[14px] px-[16px]">
-                    <div class="text-[13px] font-bold text-pcl-text mb-[8px]">游玩信息</div>
+                  <div class="bg-classic-card rounded-[5px] shadow-classic py-[14px] px-[16px]">
+                    <div class="text-[13px] font-bold text-classic-text mb-[8px]">游玩信息</div>
                     <div class="grid grid-cols-2 gap-y-[6px] text-[13px]">
-                      <span class="text-pcl-text3">游戏版本</span>
-                      <span class="text-pcl-text2">{inst().mc_version}</span>
-                      <span class="text-pcl-text3">加载器</span>
-                      <span class="text-pcl-text2">
+                      <span class="text-classic-text3">游戏版本</span>
+                      <span class="text-classic-text2">{inst().mc_version}</span>
+                      <span class="text-classic-text3">加载器</span>
+                      <span class="text-classic-text2">
                         {loaderLabel(inst().loader)}
                         <Show when={inst().loader_version}>{` ${inst().loader_version}`}</Show>
                       </span>
-                      <span class="text-pcl-text3">上次游玩</span>
-                      <span class="text-pcl-text2">
+                      <span class="text-classic-text3">上次游玩</span>
+                      <span class="text-classic-text2">
                         {inst().last_played
                           ? new Date(inst().last_played!).toLocaleString()
                           : "从未"}
@@ -436,22 +436,22 @@ const PclLaunch: Component = () => {
                     </div>
                   </div>
 
-                  <div class="bg-pcl-card rounded-[5px] shadow-pcl py-[14px] px-[16px] flex flex-wrap gap-[10px]">
+                  <div class="bg-classic-card rounded-[5px] shadow-classic py-[14px] px-[16px] flex flex-wrap gap-[10px]">
                     <button
-                      class="h-[34px] px-[16px] rounded-[3px] bg-pcl-blue text-white text-[13px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90 disabled:opacity-55"
+                      class="h-[34px] px-[16px] rounded-[3px] bg-classic-blue text-white text-[13px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90 disabled:opacity-55"
                       disabled={launching()}
                       onClick={launch}
                     >
                       {launching() ? "启动中…" : "启动游戏"}
                     </button>
                     <button
-                      class="h-[34px] px-[16px] rounded-[3px] border border-pcl-line bg-pcl-card text-pcl-text text-[13px] cursor-pointer transition-colors duration-150 hover:bg-pcl-blue-lightest hover:border-pcl-blue-soft"
+                      class="h-[34px] px-[16px] rounded-[3px] border border-classic-line bg-classic-card text-classic-text text-[13px] cursor-pointer transition-colors duration-150 hover:bg-classic-blue-lightest hover:border-classic-blue-soft"
                       onClick={() => openInstanceDir(activeRoot(), inst().id)}
                     >
                       打开游戏目录
                     </button>
                     <button
-                      class="h-[34px] px-[16px] rounded-[3px] border border-pcl-line bg-pcl-card text-pcl-text text-[13px] cursor-pointer transition-colors duration-150 hover:bg-pcl-blue-lightest hover:border-pcl-blue-soft disabled:opacity-50 disabled:cursor-default"
+                      class="h-[34px] px-[16px] rounded-[3px] border border-classic-line bg-classic-card text-classic-text text-[13px] cursor-pointer transition-colors duration-150 hover:bg-classic-blue-lightest hover:border-classic-blue-soft disabled:opacity-50 disabled:cursor-default"
                       disabled={busy() !== ""}
                       onClick={exportSelected}
                     >
@@ -463,7 +463,7 @@ const PclLaunch: Component = () => {
 
               {/* 实例管理:tab 由上方同级导航控制,面板内不再重复套一层。 */}
               <Show when={instanceTab() !== "home"}>
-                <div class="bg-pcl-card rounded-[5px] shadow-pcl flex-1 min-h-0 overflow-hidden">
+                <div class="bg-classic-card rounded-[5px] shadow-classic flex-1 min-h-0 overflow-hidden">
                   <InstanceManageDialog
                     embedded
                     hideTabs
@@ -492,17 +492,17 @@ const PclLaunch: Component = () => {
         {/* --- 启动日志(启动后) --- */}
         <Show when={rightView() === "log"}>
           <div>
-            <h1 class="text-[20px] font-bold text-pcl-text mt-0 mb-[3px] mx-0">{selected()?.name || selected()?.id || "游戏日志"}</h1>
+            <h1 class="text-[20px] font-bold text-classic-text mt-0 mb-[3px] mx-0">{selected()?.name || selected()?.id || "游戏日志"}</h1>
             <Show when={selected()}>
-              <p class="text-pcl-text3 text-[13px] m-0">
+              <p class="text-classic-text3 text-[13px] m-0">
                 Minecraft {selected()!.mc_version} · {loaderLabel(selected()!.loader)}
                 <Show when={selected()!.loader_version}>{` ${selected()!.loader_version}`}</Show>
               </p>
             </Show>
           </div>
-          <div class="bg-pcl-card rounded-[5px] shadow-pcl flex-1 min-h-0 flex flex-col overflow-hidden">
-            <div class="py-[12px] px-[16px] text-[13px] font-bold text-pcl-text border-b border-pcl-line">游戏日志</div>
-            <pre class="flex-1 min-h-0 overflow-auto m-0 py-[12px] px-[16px] text-[12px]/[1.6] font-[ui-monospace,SFMono-Regular,Menlo,monospace] text-pcl-text2 whitespace-pre-wrap [word-break:break-word]">
+          <div class="bg-classic-card rounded-[5px] shadow-classic flex-1 min-h-0 flex flex-col overflow-hidden">
+            <div class="py-[12px] px-[16px] text-[13px] font-bold text-classic-text border-b border-classic-line">游戏日志</div>
+            <pre class="flex-1 min-h-0 overflow-auto m-0 py-[12px] px-[16px] text-[12px]/[1.6] font-[ui-monospace,SFMono-Regular,Menlo,monospace] text-classic-text2 whitespace-pre-wrap [word-break:break-word]">
               <Show when={logs().length > 0} fallback={"启动后这里显示实时日志…"}>{logs().join("\n")}</Show>
             </pre>
           </div>
@@ -511,7 +511,7 @@ const PclLaunch: Component = () => {
 
       {/* 登录 / 切换账号弹窗 */}
       <Show when={showLogin()}>
-        <PclAccountDialog
+        <ClassicAccountDialog
           onClose={() => setShowLogin(false)}
           onDone={() => {
             setShowLogin(false);
@@ -534,4 +534,4 @@ const PclLaunch: Component = () => {
   );
 };
 
-export default PclLaunch;
+export default ClassicLaunch;

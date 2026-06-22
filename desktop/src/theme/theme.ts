@@ -4,7 +4,7 @@ import { generatePalette, type Palette } from "./palette";
 import { toneFor, type ThemeAccent, type ToneMode } from "./tone";
 
 /* ============================================================================
- * theme.ts —— PCL 式主题引擎(感知化 / OKLCH 版)
+ * theme.ts —— 主题引擎(感知化 / OKLCH 版)
  *
  * 两个正交维度:
  *   1) 明暗模式 mode: 'dark' | 'light' | 'system'
@@ -13,7 +13,7 @@ import { toneFor, type ThemeAccent, type ToneMode } from "./tone";
  *      派生出感知化的 ThemeAccent{hue,lightAdjust,chromaAdjust},喂生成器
  *      (palette.ts)发出整套 --n-1..8 + --a-1..8 + 强调表面令牌并注入 :root。
  *
- * 这正是 PCL「一键全局换肤」的灵魂:组件只引用色阶号,换色只改变量;且此版用 OKLCH
+ * 核心约束:组件只引用色阶号,换色只改变量;且此版用 OKLCH
  * 感知锚点 + 非对称 _AdjustLinear,严格优于旧朴素 HSL 偏移数组。docs/modules/ui-polish.md §1。
  *
  * 响应式管线(SolidJS,模块级单例,无 Context——对齐 store.ts 约定):
@@ -29,7 +29,7 @@ export interface ThemeConfig {
   lightness: number; // 0..100(映射到 OKLCH 亮度旋钮)
 }
 
-/** 默认主题:深色 + Modrinth 绿(h150 s60 l45)。invoke 失败时的兜底。 */
+/** 默认主题:深色 + 工作台绿(h150 s60 l45)。invoke 失败时的兜底。 */
 export const DEFAULT_THEME: ThemeConfig = {
   mode: "dark",
   hue: 150,
@@ -38,12 +38,12 @@ export const DEFAULT_THEME: ThemeConfig = {
 };
 
 /**
- * 各布局「对味」的默认主题。布局与主题是耦合的:Modrinth 配深色+绿,
- * PCL 配浅色+蓝。switchLayout / 启动注入 / 设置页「重置」都走这同一份,避免
- * 三处各写一份魔法数导致跑偏(例如 PCL 布局却套深色,出现顶栏浅、正文深的诡异组合)。
+ * 各布局「对味」的默认主题。布局与主题是耦合的:工作台配深色+绿,
+ * 经典视图配浅色+蓝。switchLayout / 启动注入 / 设置页「重置」都走这同一份,避免
+ * 三处各写一份魔法数导致跑偏(例如经典布局却套深色,出现顶栏浅、正文深的诡异组合)。
  */
 export const MODRINTH_THEME: ThemeConfig = DEFAULT_THEME;
-export const PCL_THEME: ThemeConfig = {
+export const CLASSIC_THEME: ThemeConfig = {
   mode: "light",
   hue: 255,
   saturation: 40,
@@ -51,8 +51,8 @@ export const PCL_THEME: ThemeConfig = {
 };
 
 /** 取某布局相称的默认主题。 */
-export function themeForLayout(layout: "modrinth" | "pcl"): ThemeConfig {
-  return layout === "pcl" ? PCL_THEME : MODRINTH_THEME;
+export function themeForLayout(layout: "modrinth" | "classic"): ThemeConfig {
+  return layout === "classic" ? CLASSIC_THEME : MODRINTH_THEME;
 }
 
 /* ----------------------------------------------------------------------------
@@ -177,8 +177,8 @@ export const PRESETS: {
   saturation: number;
   lightness: number;
 }[] = [
-  { name: "绿", hue: 150, saturation: 60, lightness: 45 }, // Modrinth 绿(默认)
-  { name: "蓝", hue: 255, saturation: 40, lightness: 45 }, // PCL CatBlue
+  { name: "绿", hue: 150, saturation: 60, lightness: 45 }, // 工作台绿(默认)
+  { name: "蓝", hue: 255, saturation: 40, lightness: 45 }, // 经典蓝
   { name: "粉", hue: 330, saturation: 70, lightness: 58 },
   { name: "紫", hue: 265, saturation: 60, lightness: 58 },
   { name: "橙", hue: 28, saturation: 85, lightness: 54 },

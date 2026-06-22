@@ -8,7 +8,7 @@ import ContextBar from "./ContextBar";
 import "./AppShell.css";
 
 /**
- * AppShell —— 三区 CSS Grid 骨架(对标 Modrinth,皮用 PCL token)。
+ * AppShell —— 三区 CSS Grid 骨架(对标 Modrinth,皮用 Classic token)。
  *
  * 布局:
  *   grid-template-columns: 64px 1fr   ← 左 Rail + 其余

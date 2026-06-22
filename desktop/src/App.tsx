@@ -1,7 +1,7 @@
 import { onMount, Show, type Component } from "solid-js";
 import { initTheme, applyTheme, themeForLayout } from "./theme/theme";
 import AppShell from "./layout/AppShell";
-import PclShell from "./layout/pcl/PclShell";
+import ClassicShell from "./layout/classic/ClassicShell";
 import { ToastContainer } from "./components";
 import { api } from "./ipc/api";
 import { setCurrentRoot, layoutMode } from "./store";
@@ -20,11 +20,11 @@ import { setCurrentRoot, layoutMode } from "./store";
 const App: Component = () => {
   onMount(() => {
     // 异步初始化主题,不阻塞渲染;tokens.css 已提供默认值兜底首帧观感。
-    // 启动后让主题与当前布局相称:PCL 布局 → 浅色+蓝。
+    // 启动后让主题与当前布局相称:经典布局 → 浅色+蓝。
     initTheme().then(() => {
-      // PCL 布局启动时套用其相称主题(浅色+蓝);经 themeForLayout 这一处获取
+      // 经典布局启动时套用其相称主题(浅色+蓝);经 themeForLayout 这一处获取
       // 每布局默认,与 switchLayout / 设置页重置同源,不再散落硬编码常量。
-      if (layoutMode() === "pcl") {
+      if (layoutMode() === "classic") {
         applyTheme(themeForLayout(layoutMode()));
       }
     });
@@ -41,9 +41,9 @@ const App: Component = () => {
 
   return (
     <>
-      {/* 两套界面:Modrinth(深色三区)与 PCL(浅色顶栏 Tab),按 layoutMode 切换。 */}
-      <Show when={layoutMode() === "pcl"} fallback={<AppShell />}>
-        <PclShell />
+      {/* 两套界面:工作台视图与经典视图,按 layoutMode 切换。 */}
+      <Show when={layoutMode() === "classic"} fallback={<AppShell />}>
+        <ClassicShell />
       </Show>
       {/* 全局 Toast 容器:左下角滑入提示,挂在根部一次即可。 */}
       <ToastContainer />

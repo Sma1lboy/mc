@@ -8,10 +8,10 @@
  *   --a-bg0/--a-bg1 强调染色表面(浅强调底,Bg0 实色 / Bg1 半透明)
  *   --n-white / --n-white-semi / --n-white-half  纯白叠层(半透明白)
  *
- * 移植自 PCL-CE `ThemeService._CalculateGrays/_CalculateColors` + `LabColor`
+ * 移植自参考启动器的 `ThemeService._CalculateGrays/_CalculateColors` + `LabColor`
  * (Unicolour 的 OKLCH→ScRGB + OklchChromaReduction gamut 映射)。这里**不引任何
  * 颜色库**:OKLCH→OKLab→线性 sRGB 矩阵→gamma 全部内联实现(小且公共领域),
- * gamut 越界时按 PCL 的 ReduceChroma 策略在 OKLCH 下二分降色度,保证输出 in-gamut。
+ * gamut 越界时按 Classic 的 ReduceChroma 策略在 OKLCH 下二分降色度,保证输出 in-gamut。
  *
  * docs/modules/ui-polish.md §1。响应式包装在 theme.ts(createMemo→createEffect)。
  * ========================================================================== */
@@ -35,15 +35,15 @@ function clampRange(v: number, lo: number, hi: number): number {
 }
 
 /* ----------------------------------------------------------------------------
- * 1) 非对称线性微调 —— 逐字移植 PCL `_AdjustLinear`
+ * 1) 非对称线性微调 —— 逐字移植 Classic `_AdjustLinear`
  *    adj>0:把 v 朝 1 拉 adj 比例(提亮/增艳,不溢出 1)
  *    adj<0:把 v 朝 0 拉 |adj| 比例(压暗/去饱和,不溢出 0)
  * -------------------------------------------------------------------------- */
 
-/** PCL `_AdjustLinear(value, adjustment)` 的逐字移植(单旋钮非对称 lerp)。 */
+/** Classic `_AdjustLinear(value, adjustment)` 的逐字移植(单旋钮非对称 lerp)。 */
 export function adjustLinear(value: number, adjustment: number): number {
   if (adjustment === 0) return value;
-  // 与 PCL 一致:先把输入夹到合理范围。
+  // 与 Classic 一致:先把输入夹到合理范围。
   const v = clamp01(value);
   const adj = clampRange(adjustment, -1, 1);
   // 非对称线性插值。
@@ -106,7 +106,7 @@ function inGamut(rgb: LinearRgb): boolean {
 }
 
 /**
- * 把一个 OKLCH 颜色映射进 sRGB gamut(= PCL 的 ReduceChroma 策略):保持 L、H 不变,
+ * 把一个 OKLCH 颜色映射进 sRGB gamut(= Classic 的 ReduceChroma 策略):保持 L、H 不变,
  * 二分搜索最大可表示的色度 C,使线性 sRGB 落在 [0,1]^3。越界时降色度(而非裁剪),
  * 鲜艳色不至于变脏灰偏色——与 Unicolour `OklchChromaReduction` 行为一致。
  */
@@ -149,7 +149,7 @@ export function oklchToHex(L: number, C: number, H: number, alpha = 1): string {
 }
 
 /* ----------------------------------------------------------------------------
- * 3) 调色板生成 —— PCL `_CalculateGrays` / `_CalculateColors` 的 Web 落地
+ * 3) 调色板生成 —— Classic `_CalculateGrays` / `_CalculateColors` 的 Web 落地
  * -------------------------------------------------------------------------- */
 
 /** 一份生成好的调色板:CSS 变量名 → 颜色字符串(hex / hex+alpha)。 */
@@ -169,13 +169,13 @@ const LIGHT_NEUTRALS: Record<string, string> = {
 /**
  * 从 ToneProfile + ThemeAccent 生成完整调色板(--n-* / --a-* / 叠层 / 强调表面)。
  *
- * 中性(--n-*):深色档按 ToneProfile 亮度锚生成;浅色档保留 tokens.css 的 PCL
+ * 中性(--n-*):深色档按 ToneProfile 亮度锚生成;浅色档保留 tokens.css 的 Classic
  * 语义色阶(白底/白卡/浅灰输入/深色文字)。直接用浅档 L1..8 会把卡片和搜索框算成
- * 中灰,偏离 PCL 的默认浅色界面。
+ * 中灰,偏离 Classic 的默认浅色界面。
  *
  * 强调(--a-*):移植 `_CalculateColors`,逐级用非对称 _AdjustLinear 调 L/C 后按 hue
- * 染色。a-1 特例(lightAdj*0.1、chromaAdj*0.25)沿用 PCL,保「最深选中底」稳。
- * 另发 PCL 的 SemiTransparent / Bg0 / Bg1 三个我们之前缺的强调令牌。
+ * 染色。a-1 特例(lightAdj*0.1、chromaAdj*0.25)沿用 Classic,保「最深选中底」稳。
+ * 另发 Classic 的 SemiTransparent / Bg0 / Bg1 三个我们之前缺的强调令牌。
  */
 export function generatePalette(tone: ToneProfile, accent: ThemeAccent): Palette {
   const { hue, lightAdjust: la, chromaAdjust: ca } = accent;
@@ -200,10 +200,10 @@ export function generatePalette(tone: ToneProfile, accent: ThemeAccent): Palette
 
   // ---- 强调 --a-1..8 ----
   //
-  // PCL 的 (Ln,Cn) 锚点对里色度峰在 C2/C3,L 走向随档相反(浅档 L1暗→L8亮,深档 L1亮
+  // Classic 的 (Ln,Cn) 锚点对里色度峰在 C2/C3,L 走向随档相反(浅档 L1暗→L8亮,深档 L1亮
   // →L8暗)。但**我们的 --a-* 语义契约是固定的**:a-1=最深选中底 → a-8=最浅区块底
   // (见 tokens.css),与明暗模式无关。故按「最深锚点 → a-1」对齐:浅档 L 已升序,直接
-  // 取;深档 L 降序,反向取。这样保留 PCL 的 L/C 配对与「a-1 特例旋钮」落在真正最深的
+  // 取;深档 L 降序,反向取。这样保留 Classic 的 L/C 配对与「a-1 特例旋钮」落在真正最深的
   // 那一级,又满足我们恒定的 a-1→a-8 由深到浅契约(深/浅档都对味)。
   // src[k] = 第 k 深锚点(k=0 最深)对应的源序号(1..8)。
   const srcOrder = ascending
@@ -216,7 +216,7 @@ export function generatePalette(tone: ToneProfile, accent: ThemeAccent): Palette
 
   for (let i = 1; i <= 8; i++) {
     const src = srcOrder[i - 1];
-    // a-1 特例:亮度/色度旋钮按 PCL 缩放(0.1 / 0.25),其余级用整旋钮。
+    // a-1 特例:亮度/色度旋钮按 Classic 缩放(0.1 / 0.25),其余级用整旋钮。
     const lAdj = i === 1 ? la * 0.1 : la;
     const cAdj = i === 1 ? ca * 0.25 : ca;
     const L = adjustLinear(lByIdx(src), lAdj);
@@ -224,7 +224,7 @@ export function generatePalette(tone: ToneProfile, accent: ThemeAccent): Palette
     out[`--a-${i}`] = oklchToHex(L, C, hue, 1);
   }
 
-  // ---- 强调附加令牌(PCL SemiTransparent / Bg0 / Bg1)----
+  // ---- 强调附加令牌(Classic SemiTransparent / Bg0 / Bg1)----
   // 与上面同理,按「契约语义」而非源序号取锚点:
   //   SemiTransparent ≈ 最浅那级(a-8 同源锚)的极半透明版(近不可见的强调遮罩)。
   //   Bg0 ≈ 中浅实色表面(取偏浅的 C5 配对);Bg1 ≈ 更浅的半透明 hover 染层(C7)。

@@ -1,16 +1,16 @@
 /* ============================================================================
  * motion/engine.ts —— 一条 rAF ticker 驱动的值补间引擎
  *
- * PCL AnimationService 的 Web 等价,但删掉多线程 Channel/worker(Web 单 UI 线程,
+ * Classic AnimationService 的 Web 等价,但删掉多线程 Channel/worker(Web 单 UI 线程,
  * rAF 已在其上)。只为 CSS/WAAPI 做不到的 ~10% 服务:可打断/从当前值重定向的值
  * 补间、弹簧/拖拽跟随、overshoot/elastic 缓动(docs/modules/ui-animation.md §3/§7)。
  *
  * 设计要点:
  *   - 一个模块级单例 Set<Tween> + 一条 rAF;集合空了就停 rAF(空闲零 CPU)。
  *   - keyed-cancel(Map<key, handle>):同 key 再启动会取消旧 tween;若新 tween 省略
- *     from,则捕获「当前值」作 from(= PCL 命脉:快速来回不跳)。
+ *     from,则捕获「当前值」作 from(= Classic 命脉:快速来回不跳)。
  *   - honor reduced(): effectiveScale()==0 时直接落终值、不进 rAF。
- *   - 基于时间的进度(elapsed/dur),不依赖全局 Fps(掉帧时 PCL 帧计数会失真)。
+ *   - 基于时间的进度(elapsed/dur),不依赖全局 Fps(掉帧时 Classic 帧计数会失真)。
  * ========================================================================== */
 
 import { effectiveScale } from "./reduced";
@@ -31,7 +31,7 @@ export interface AnimationHandle {
 
 /** animate() 选项(数字补间)。 */
 export interface AnimateOptions {
-  /** keyed-cancel 键:同 key 再启动取消旧的(PCL 命名冲突取消)。 */
+  /** keyed-cancel 键:同 key 再启动取消旧的(Classic 命名冲突取消)。 */
   key?: string;
   /** 起始值;省略 = 启动时读「当前值」(同 key 时为被取消 tween 的当前值)。 */
   from?: number;

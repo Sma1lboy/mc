@@ -26,7 +26,7 @@ export function ModpackListItem(props: ModpackListItemProps): JSX.Element {
 
   return (
     <div
-      class="flex items-center gap-[14px] px-[14px] py-[10px] rounded-card bg-card border border-transparent cursor-pointer transition-[background-color,border-color,transform] duration-[var(--dur)] ease-app hover:border-n-6 hover:translate-x-[2px]"
+      class="flex items-center gap-[14px] px-[14px] py-[10px] rounded-card bg-card border border-transparent cursor-pointer transition-[background-color,border-color,transform,box-shadow] duration-[var(--dur)] ease-app hover:border-n-6 hover:translate-x-[2px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5"
       role={props.onClick ? "button" : undefined}
       tabindex={props.onClick ? 0 : undefined}
       onClick={() => props.onClick?.(hit())}
@@ -47,7 +47,7 @@ export function ModpackListItem(props: ModpackListItemProps): JSX.Element {
             </span>
           }
         >
-          <img src={thumb()} alt="" loading="lazy" class="w-full h-full object-cover block" />
+          <img src={thumb()} alt="" width="60" height="60" loading="lazy" class="w-full h-full object-cover block" />
         </Show>
       </div>
 

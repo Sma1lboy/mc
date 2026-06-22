@@ -15,7 +15,7 @@ export interface DialogProps {
   children: JSX.Element;
   /** Content 卡片类名(尺寸/背景/圆角);默认给一个中性卡片。 */
   contentClass?: string;
-  /** 遮罩类名(默认深色半透明 + 亚克力模糊);PCL 传 "pcl-dlg-mask" 复用其逃生口。 */
+  /** 遮罩类名(默认深色半透明 + 亚克力模糊);Classic 传 "classic-dlg-mask" 复用其逃生口。 */
   backdropClass?: string;
   /** 无障碍标题(aria-label)。 */
   label?: string;

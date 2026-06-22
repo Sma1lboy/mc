@@ -4,10 +4,10 @@ import { JSX, mergeProps } from "solid-js";
  * components/Icon.tsx —— 统一图标组件(docs/modules/ui-polish.md §3 / §5)
  *
  * 把散落在 ~10 个 TSX 里的内联 <svg> 收口成一个注册表 + <Icon name=… />。
- * 全部用 fill/stroke: currentColor —— 着色跟随 CSS `color`(= PCL `IconBrush`),
- * 尺寸用 width/height(= PCL `Stretch`,配合 viewBox `preserveAspectRatio`)。
+ * 全部用 fill/stroke: currentColor —— 着色跟随 CSS `color`(= Classic `IconBrush`),
+ * 尺寸用 width/height(= Classic `Stretch`,配合 viewBox `preserveAspectRatio`)。
  * 颜色过渡是普通 CSS `transition: color`,读 --mo-* 动机令牌(见 Icon.css),
- * 不需任何 JS 动画引擎(对齐 PCL `SvgIcon.AnimateIconBrushTo` 的 120ms 手感)。
+ * 不需任何 JS 动画引擎(对齐 Classic `SvgIcon.AnimateIconBrushTo` 的 120ms 手感)。
  *
  * 渲染模式:
  *   - "stroke" 线性图标:<path> 用 currentColor 描边(line-icon),无填充。
@@ -33,25 +33,25 @@ interface IconDef {
 }
 
 /* ----------------------------------------------------------------------------
- * 注册表 —— 收口现有 UI 里在用的图标(PclShell 顶栏 + Toast 状态 + 通用)。
+ * 注册表 —— 收口现有 UI 里在用的图标(ClassicShell 顶栏 + Toast 状态 + 通用)。
  * 新增图标:在此追加一项,name 自动并入 IconName 联合类型。
  * -------------------------------------------------------------------------- */
 const REGISTRY = {
-  /** 电源/启动(PclShell PowerIcon)。 */
+  /** 电源/启动(ClassicShell PowerIcon)。 */
   power: {
     viewBox: "0 0 24 24",
     mode: "stroke",
     strokeWidth: 1.9,
     paths: [{ d: "M12 3v9" }, { d: "M7.4 6.6a7 7 0 1 0 9.2 0" }],
   },
-  /** 下载(PclShell DownloadIcon)。 */
+  /** 下载(ClassicShell DownloadIcon)。 */
   download: {
     viewBox: "0 0 24 24",
     mode: "stroke",
     strokeWidth: 1.9,
     paths: [{ d: "M12 3v11" }, { d: "m7.5 9.5 4.5 4.5 4.5-4.5" }, { d: "M5 19.5h14" }],
   },
-  /** 设置齿轮(PclShell GearIcon)。 */
+  /** 设置齿轮(ClassicShell GearIcon)。 */
   gear: {
     viewBox: "0 0 24 24",
     mode: "stroke",
@@ -62,7 +62,7 @@ const REGISTRY = {
       { d: "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z" },
     ],
   },
-  /** 网格/更多(PclShell GridIcon)。 */
+  /** 网格/更多(ClassicShell GridIcon)。 */
   grid: {
     viewBox: "0 0 24 24",
     mode: "stroke",
@@ -144,7 +144,7 @@ export interface IconProps {
 
 /**
  * <Icon name="power" />:内联 SVG,currentColor 着色,颜色过渡走 CSS。
- * 描边图标用统一的 round 线帽/线接,与现有 PclShell/Toast 视觉一致。
+ * 描边图标用统一的 round 线帽/线接,与现有 ClassicShell/Toast 视觉一致。
  */
 export function Icon(props: IconProps): JSX.Element {
   const merged = mergeProps({ size: 18 }, props);

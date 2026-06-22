@@ -5,7 +5,7 @@
 > SolidJS/Web 前端——只是 `IClock`→`requestAnimationFrame`、`IUIAccessProvider`→无(Web 单 UI 线程)。
 >
 > 配套:[ui-polish.md](./ui-polish.md)(主题色/亚克力/瀑布流/图标等其它可抽象的 GUI 细节)、
-> [05-ui-design-pcl.md](../05-ui-design-pcl.md) §6(更高层的动画设计意图,本文是其工程实现层)。
+> [05-ui-design-classic.md](../05-ui-design-classic.md) §6(更高层的动画设计意图,本文是其工程实现层)。
 
 ## 0. 现状与目标
 

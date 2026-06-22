@@ -1,23 +1,23 @@
 /* 残留样式:只保留遮罩的背景 + 亚克力模糊,以及两条覆盖规则。
- * 其余视觉(布局、卡片、表单、错误框)已迁到 PclAccountDialog.tsx 的 Tailwind 工具类。
+ * 其余视觉(布局、卡片、表单、错误框)已迁到 ClassicAccountDialog.tsx 的 Tailwind 工具类。
  *
  * 之所以留下:遮罩模糊半径用统一的亚克力令牌(docs/ui-polish §2),且有两个
  * 逃生口——祖先 [data-blur="off"] 关闭模糊、以及 prefers-reduced-transparency
  * 媒体查询。这两条都改写遮罩的 backdrop-filter / background,无法用纯内联工具类
  * 表达(变体作用于带属性的元素本身 / 非内置媒体查询),故整体保留在此。 */
-.pcl-dlg-mask {
-  /* 遮罩底色保留 PCL 的冷灰罩,模糊半径改用统一的亚克力令牌,不再写死 blur(2px)。 */
+.classic-dlg-mask {
+  /* 遮罩底色保留 Classic 的冷灰罩,模糊半径改用统一的亚克力令牌,不再写死 blur(2px)。 */
   background: rgba(52, 61, 74, 0.32);
   backdrop-filter: blur(var(--blur-r)) saturate(1.2);
   -webkit-backdrop-filter: blur(var(--blur-r)) saturate(1.2);
 }
-[data-blur="off"] .pcl-dlg-mask {
+[data-blur="off"] .classic-dlg-mask {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   background: rgba(52, 61, 74, 0.48);
 }
 @media (prefers-reduced-transparency: reduce) {
-  .pcl-dlg-mask {
+  .classic-dlg-mask {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
     background: rgba(52, 61, 74, 0.48);

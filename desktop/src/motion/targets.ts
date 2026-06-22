@@ -1,5 +1,5 @@
 /* ============================================================================
- * motion/targets.ts —— 动画目标抽象(PCL IAnimatable 的 Web 等价)
+ * motion/targets.ts —— 动画目标抽象(Classic IAnimatable 的 Web 等价)
  *
  * AnimTarget<T> 把「读当前值 / 写新值」收成一对函数,让 engine 不关心值最终落到
  * DOM style、CSS 自定义属性、还是 SolidJS 信号(docs/modules/ui-animation.md §7)。

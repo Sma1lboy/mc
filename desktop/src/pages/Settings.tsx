@@ -7,7 +7,7 @@ import { layoutMode, switchLayout } from "../store";
 import type { ThemeConfig, ThemeMode, GlobalSettings } from "../ipc/types";
 
 /**
- * Settings —— 主题(PCL 灵魂特性:HSL 三滑块实时换肤 + 预设 + 深浅切换)
+ * Settings —— 主题(HSL 三滑块实时换肤 + 预设 + 深浅切换)
  * 以及 Java 检测列表。改动即时应用,失焦/操作后持久化到后端。
  */
 const Settings: Component = () => {
@@ -78,8 +78,8 @@ const Settings: Component = () => {
     toast({ type: "info", message: `已切换到${mode() === "dark" ? "深色" : "浅色"}` });
   }
 
-  // 恢复当前布局相称的默认主题(PCL→浅色蓝 / Modrinth→深色绿),立即应用并持久化。
-  // 关键:按布局取默认,避免在 PCL 布局里重置成深色、出现顶栏浅正文深的诡异组合。
+  // 恢复当前布局相称的默认主题(经典→浅色蓝 / 工作台→深色绿),立即应用并持久化。
+  // 关键:按布局取默认,避免在经典布局里重置成深色、出现顶栏浅正文深的诡异组合。
   function resetTheme() {
     const def = themeForLayout(layoutMode());
     setModeSig(def.mode);
@@ -103,13 +103,13 @@ const Settings: Component = () => {
               variant={layoutMode() === "modrinth" ? "primary" : "ghost"}
               onClick={() => switchLayout("modrinth")}
             >
-              Modrinth(深色三区)
+              工作台视图
             </Button>
             <Button
-              variant={layoutMode() === "pcl" ? "primary" : "ghost"}
-              onClick={() => switchLayout("pcl")}
+              variant={layoutMode() === "classic" ? "primary" : "ghost"}
+              onClick={() => switchLayout("classic")}
             >
-              PCL(浅色顶栏 Tab)
+              经典视图
             </Button>
           </div>
         </div>

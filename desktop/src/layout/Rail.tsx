@@ -28,7 +28,7 @@ interface NavItem {
   icon: () => JSX.Element;
 }
 
-// 内联 SVG 图标(线性、24x24、currentColor 描边),与 PCL 的 path 风格统一。
+// 内联 SVG 图标(线性、24x24、currentColor 描边),与 Classic 的 path 风格统一。
 const HomeIcon = (): JSX.Element => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

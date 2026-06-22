@@ -79,7 +79,7 @@ const Discover: Component = () => {
         <For each={KINDS}>
           {(k) => (
             <button
-              class="px-[14px] py-[6px] border-none rounded-ctl text-[13px] cursor-pointer transition-all duration-[var(--dur)] ease-app"
+              class="px-[14px] py-[6px] border-none rounded-ctl text-[13px] cursor-pointer transition-[background-color,color,box-shadow] duration-[var(--dur)] ease-app focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5 focus-visible:ring-offset-2 focus-visible:ring-offset-n-1"
               classList={{
                 "bg-a-4 text-white": kind() === k.key,
                 "bg-n-4 text-dim hover:bg-n-5 hover:text-fg": kind() !== k.key,

@@ -649,9 +649,9 @@ export const InstanceManageDialog: Component<{
   instance: InstanceSummary | null;
   onClose: () => void;
   onChanged?: () => void;
-  /** 复制完成回调,带新实例 id;PclLaunch 据此重拉列表并选中新实例。 */
+  /** 复制完成回调,带新实例 id;ClassicLaunch 据此重拉列表并选中新实例。 */
   onCopied?: (newId: string) => void;
-  /** 内嵌模式:不套 Dialog,直接铺在父容器里(PCL 右栏的「设置」标签用),
+  /** 内嵌模式:不套 Dialog,直接铺在父容器里(Classic 右栏的「设置」标签用),
    *  隐藏实例名头部与「完成」按钮,父组件只在需要时挂载本组件即等于「打开」。 */
   embedded?: boolean;
   /** 受控 tab:启动页把实例管理页签提升到实例头部时使用。 */

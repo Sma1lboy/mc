@@ -2,7 +2,7 @@
 
 > 动画之外的「其它细节」可抽象层。来自对 PCL-CE `PCL.Core/UI/` 的梳理:这些 PCL 用整套服务实现的东西,
 > 在现代 Web 平台上大多塌缩成一两行——**只有「感知化主题色引擎」值得真正自建一层**,其余靠平台。
-> 配套:[ui-animation.md](./ui-animation.md)(动画层,优先级更高)、[05-ui-design-pcl.md](../05-ui-design-pcl.md)(UI 设计意图)。
+> 配套:[ui-animation.md](./ui-animation.md)(动画层,优先级更高)、[05-ui-design-classic.md](../05-ui-design-classic.md)(UI 设计意图)。
 
 ## 优先级总览
 

@@ -303,7 +303,7 @@ export interface MotionProps {
 
 /**
  * Motion:一个自带 enter 预设的 div(卸载时入场动画自动取消)。配合外层 <Presence>
- * 可获得退场。这是「我只想给这块加上 PCL 入场」的最省事写法。
+ * 可获得退场。这是「我只想给这块加上 Classic 入场」的最省事写法。
  */
 export function Motion(props: MotionProps): JSX.Element {
   return (

@@ -1,9 +1,9 @@
 /* ============================================================================
- * motion/presets.ts —— PCL「手感」预设表(从 ModAnimation.vb 提取)
+ * motion/presets.ts —— Classic「手感」预设表(从 ModAnimation.vb 提取)
  *
- * 逐条复现 PCL 的标志性动作(时长 + 曲线 + 动什么),docs/modules/ui-animation.md §6。
- * 热路径只动 transform/opacity(PCL 随意动 Margin/Width 因 WPF 合成便宜;Web 会每帧
- * 重排)。transform-origin: center(= PCL RenderTransformOrigin 0.5,0.5)。
+ * 逐条复现 Classic 的标志性动作(时长 + 曲线 + 动什么),docs/modules/ui-animation.md §6。
+ * 热路径只动 transform/opacity(Classic 随意动 Margin/Width 因 WPF 合成便宜;Web 会每帧
+ * 重排)。transform-origin: center(= Classic RenderTransformOrigin 0.5,0.5)。
  *
  * 每个预设给出 enter / exit 两组 WAAPI Keyframe(供 element.animate()),以毫秒时长 +
  * cubic-bezier 字符串缓动表达(WAAPI 仍离主线程,合成友好)。overshoot 用 EASE.back,
@@ -198,7 +198,7 @@ export const PRESETS: Record<PresetName, MotionPreset> = {
     transformOrigin: "center",
   },
 
-  // layout-swap:整壳 modrinth↔pcl 交叉淡(慢一点,沉稳)。
+  // layout-swap:整壳 modrinth↔classic 交叉淡(慢一点,沉稳)。
   layoutSwap: {
     enter: {
       keyframes: [

@@ -40,7 +40,7 @@ export { Menu } from "./Menu";
 export { NewInstanceDialog } from "./NewInstanceDialog";
 export { InstanceManageDialog } from "./InstanceManageDialog";
 
-// 复合行/卡片 (Modrinth 风格)
+// 复合行/卡片
 export { InstanceRow } from "./InstanceRow";
 export type { InstanceRowProps, InstanceRowData } from "./InstanceRow";
 

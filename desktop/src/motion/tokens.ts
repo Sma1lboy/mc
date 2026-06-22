@@ -3,7 +3,7 @@
  *
  * 与 theme/tokens.css 里的 --mo-* 变量「同名同值」,让 CSS 路径(transition/
  * keyframes 引用 var(--mo-*))与 JS 路径(rAF/WAAPI 引用这里的常量)共享同一
- * 个真相源(docs/modules/ui-animation.md §4)。改 PCL「手感」只需改这两处之一
+ * 个真相源(docs/modules/ui-animation.md §4)。改 Classic「手感」只需改这两处之一
  * 并保持一致。
  *
  * 数值单位:DUR 为毫秒(number),EASE 为 cubic-bezier 字符串(供 WAAPI/CSS)。
@@ -20,7 +20,7 @@ export const DUR = {
   base: 200,
   /** 320ms —— 页面级切换(淡+移)。 */
   page: 320,
-  /** 400ms —— 慢(入场沉降,PCL 默认时长)。 */
+  /** 400ms —— 慢(入场沉降,Classic 默认时长)。 */
   slow: 400,
   /** 700ms —— 弹簧/漂移(按钮二段沉降)。 */
   spring: 700,
@@ -36,7 +36,7 @@ export type DurKey = keyof typeof DUR;
 export const EASE = {
   /** 通用属性变化(Material standard)。 */
   standard: "cubic-bezier(.4, 0, .2, 1)",
-  /** = Fluent p3,PCL 默认手感基线。 */
+  /** = Fluent p3,Classic 默认手感基线。 */
   out: "cubic-bezier(.22, 1, .36, 1)",
   /** 强 ease-out,入场/沉降。 */
   emphasized: "cubic-bezier(.16, 1, .3, 1)",

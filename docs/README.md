@@ -19,8 +19,8 @@
 | [02-features.md](./02-features.md) | **核心**:全功能特性清单(MVP → 完整版分级) |
 | [03-tech-stack.md](./03-tech-stack.md) | **选型**:性能优先的技术栈畅想(主推 Rust 核心 + Tauri) |
 | [04-rust-tauri-design.md](./04-rust-tauri-design.md) | **施工蓝图**:Rust+Tauri 的 workspace 布局、核心类型、async 模型、IPC、性能手法、里程碑 |
-| [05-ui-design-pcl.md](./05-ui-design-pcl.md) | **UI 设计**:PCL 风格落地(设计 token、可调主题色、组件、动画、SolidJS 结构) |
-| [06-ui-layout-synthesis.md](./06-ui-layout-synthesis.md) | **UI 布局**:Modrinth 三区骨架 + PCL 主题引擎融合(深色默认、图标栏、dashboard) |
+| [05-ui-design-classic.md](./05-ui-design-classic.md) | **UI 设计**:经典视图设计系统(参考分析、设计 token、可调主题色、组件、动画、SolidJS 结构) |
+| [06-ui-layout-synthesis.md](./06-ui-layout-synthesis.md) | **UI 布局**:工作台视图 + 经典主题引擎融合(深色默认、图标栏、dashboard) |
 | [07-directory-model-portability.md](./07-directory-model-portability.md) | **决策**:启动器独立于实例 + 多根目录自动检测 + 便携模式 |
 | [08-data-layer-and-lite-server.md](./08-data-layer-and-lite-server.md) | **路线图**:数据层 feature 清单(是否值得做)+ lite 服务器设计 + 本地测试环境 |
 | [09-engineering-reference.md](./09-engineering-reference.md) | **工程参考**:框架/库清单、46 模块地图、**存储层每处怎么存** + 优化清单(P0-P3) |
@@ -35,7 +35,7 @@
 | [modules/content-providers.md](./modules/content-providers.md) | **平台 Provider 抽象**:trait ResourceProvider + registry + 反查 + 依赖解析(导入/导出/浏览共用) |
 | [modules/instance-and-components.md](./modules/instance-and-components.md) | **从零建实例 + 多组件版本模型 + 加载器核心**(from scratch + 下载不同的核心) |
 | [modules/instance.md](./modules/instance.md) | 实例管理:版本隔离、目录结构、世界/资源管理 |
-| [modules/ui-animation.md](./modules/ui-animation.md) | **GUI 动画层**:把 PCL 动画系统抽象到 Web(rAF 引擎 vs CSS/WAAPI 切分、动机令牌、缓动库、PCL 手感预设、SolidJS API) |
+| [modules/ui-animation.md](./modules/ui-animation.md) | **GUI 动画层**:把参考动画系统抽象到 Web(rAF 引擎 vs CSS/WAAPI 切分、动机令牌、缓动库、手感预设、SolidJS API) |
 | [modules/ui-polish.md](./modules/ui-polish.md) | **GUI 细节打磨**:感知化主题色引擎(OKLCH)、亚克力、瀑布流、Icon 组件 |
 | [refs/prismlauncher.md](./refs/prismlauncher.md) | PrismLauncher 架构笔记(含文件速查表) |
 | [refs/pcl-ce.md](./refs/pcl-ce.md) | PCL-CE 架构笔记 |

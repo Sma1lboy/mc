@@ -5,7 +5,7 @@
  * 动画完全无视它(docs/modules/ui-animation.md §8)。这里读一次 matchMedia + 监听
  * 变化,所有 JS 动画层据此「dur *= reduced()?0:1」并直接落终值。
  *
- * motionScale 是全局动画时长系数(= PCL 的 AniSpeed/Scale):1=正常,0=瞬切。
+ * motionScale 是全局动画时长系数(= Classic 的 AniSpeed/Scale):1=正常,0=瞬切。
  * reduced 时强制路由到 0(由 effectiveScale 合成),但保留独立信号以便调试/将来
  * 「降低动画强度」设置项可写。
  * ========================================================================== */
@@ -40,7 +40,7 @@ if (mql) {
 export const reduced: Accessor<boolean> = reducedSignal;
 
 /**
- * 全局动画时长系数(= PCL AniSpeed)。1=正常。用户可写(将来设置项),但实际生效
+ * 全局动画时长系数(= Classic AniSpeed)。1=正常。用户可写(将来设置项),但实际生效
  * 值还要与 reduced 合成,见 effectiveScale()。
  */
 export const [motionScale, setMotionScale] = createSignal<number>(1);

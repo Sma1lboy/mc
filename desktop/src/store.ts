@@ -1,18 +1,18 @@
 import { createSignal } from "solid-js";
 import { applyTheme, themeForLayout } from "./theme/theme";
 
-// 页面标识。Modrinth 布局用 home/library/discover/settings;
-// PCL 布局用 launch/discover/settings/more(顶部 Tab,带图标)。
+// 页面标识。工作台布局用 home/library/discover/settings;
+// 经典布局用 launch/discover/settings/more(顶部 Tab,带图标)。
 export type Page = "home" | "library" | "discover" | "settings" | "launch" | "more";
 
-/** 界面布局风格:Modrinth(深色三区)或 PCL(浅色顶栏 Tab)。 */
-export type LayoutMode = "modrinth" | "pcl";
+/** 界面布局风格:工作台视图或经典视图。 */
+export type LayoutMode = "modrinth" | "classic";
 
 /**
  * 全局轻量状态:模块级 createSignal,任何组件 import 即读写,无需 Context。
  */
 
-// 当前页面(Modrinth 默认 dashboard;切到 PCL 时改成 launch)。
+// 当前页面(工作台默认 home;切到经典视图时改成 launch)。
 export const [currentPage, setCurrentPage] = createSignal<Page>("home");
 
 /** 当前选中的游戏根目录(GameRoot.path);null = 未选/未加载。 */
@@ -24,17 +24,17 @@ export const [currentRoot, setCurrentRoot] = createSignal<string | null>(null);
  */
 export const activeRoot = (): string => currentRoot() ?? "";
 
-/** 界面布局,默认 Modrinth 风。 */
-export const [layoutMode, setLayoutMode] = createSignal<LayoutMode>("pcl");
+/** 界面布局,默认经典视图。 */
+export const [layoutMode, setLayoutMode] = createSignal<LayoutMode>("classic");
 
 /**
  * 切换布局,并套用与该布局相称的主题预设,让两种风格各自"对味":
- *   - PCL:浅色 + 蓝(PCL 招牌)
- *   - Modrinth:深色 + 绿
+ *   - classic:浅色 + 蓝
+ *   - modrinth:深色 + 绿
  * 用户之后仍可在设置里单独微调主题色。
  */
 export function switchLayout(mode: LayoutMode) {
   setLayoutMode(mode);
   applyTheme(themeForLayout(mode));
-  setCurrentPage(mode === "pcl" ? "launch" : "home");
+  setCurrentPage(mode === "classic" ? "launch" : "home");
 }

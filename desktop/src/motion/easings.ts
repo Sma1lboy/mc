@@ -1,12 +1,12 @@
 /* ============================================================================
- * motion/easings.ts —— 纯函数缓动库(逐字移植 PCL-CE)
+ * motion/easings.ts —— 纯函数缓动库
  *
- * 「忠实即手感」:这些不是教科书 Penner 版,而是 PCL `ModAnimation.vb` /
- * PCL-CE `IEasing` 的非标准 Back/Elastic 公式(docs/modules/ui-animation.md §5)。
- * 用 Penner 标准曲线替换会丢掉 PCL 的招牌过冲/振荡观感,故照搬。
+ * 「忠实即手感」:这些不是教科书 Penner 版,而是参考实现里的非标准
+ * Back/Elastic 公式(docs/modules/ui-animation.md §5)。
+ * 用 Penner 标准曲线替换会丢掉 Classic 的招牌过冲/振荡观感,故照搬。
  *
  * 约定:所有缓动 (t:number)=>number,t∈[0,1],返回插值进度。多数为 ease-out
- * (PCL 几乎一切默认 OutFluent)。端点用 clampEnds 钳到精确 0/1,避免浮点残差。
+ * (Classic 几乎一切默认 OutFluent)。端点用 clampEnds 钳到精确 0/1,避免浮点残差。
  *
  * 哪些进 CSS / 哪些只能 JS(§5):多项式/正弦/指数/圆 → cubic-bezier(EASE);
  * Back ≈ EASE.back;Elastic/Bounce/Composite/Spring 只能在此 JS 采样(或预采样
@@ -29,20 +29,20 @@ export const clampEnds =
 export const linear: EasingFn = (t) => t;
 
 /**
- * Fluent ease-out(幂曲线):PCL 默认手感基线,p 越大收尾越软。
+ * Fluent ease-out(幂曲线):Classic 默认手感基线,p 越大收尾越软。
  * = 1 - (1 - t)^p。p=3 对应 CSS cubic-bezier(.22,1,.36,1)。
  */
 export const easeOutFluent = (t: number, p = 3): number => 1 - (1 - t) ** p;
 
 /**
  * Back ease-out(回弹):cos 项给末段过冲,p 控制幂次。
- * = 1 - (1 - t)^p * cos(1.5π t)。这是 PCL 的非标准 Back(招牌轻弹)。
+ * = 1 - (1 - t)^p * cos(1.5π t)。这是 Classic 的非标准 Back(招牌轻弹)。
  */
 export const easeOutBack = (t: number, p = 2): number =>
   1 - (1 - t) ** p * Math.cos(1.5 * Math.PI * t);
 
 /**
- * Elastic ease-out(弹性,衰减正弦):PCL 的非标准 Elastic,末段多次振荡收敛。
+ * Elastic ease-out(弹性,衰减正弦):Classic 的非标准 Elastic,末段多次振荡收敛。
  * u=1-t;= 1 - u^((p-1)*0.25) * cos((p-3.5)π (1-u)^1.5)。
  */
 export const easeOutElastic = (t: number, p = 2): number => {
@@ -52,7 +52,7 @@ export const easeOutElastic = (t: number, p = 2): number => {
 
 /**
  * Bounce ease-out(回弹落地):标准四段二次曲线(n1=7.5625, d1=2.75)。
- * PCL 的 loading/error 落地感来源之一。
+ * Classic 的 loading/error 落地感来源之一。
  */
 export const easeOutBounce = (t: number): number => {
   const n1 = 7.5625;
@@ -71,7 +71,7 @@ export const easeOutBounce = (t: number): number => {
   }
 };
 
-/* ---- 由 ease-out 翻折出 in / inOut 变体(PCL EasePower 也是同源翻折)---- */
+/* ---- 由 ease-out 翻折出 in / inOut 变体(Classic EasePower 也是同源翻折)---- */
 
 /** 把一条 ease-out 缓动翻折成 ease-in(time/value 双反)。 */
 export const toEaseIn =
@@ -86,14 +86,14 @@ export const toEaseInOut =
     t < 0.5 ? (1 - out(1 - 2 * t)) / 2 : (1 + out(2 * t - 1)) / 2;
 
 /**
- * EASINGS —— 命名缓动注册表(对齐 PCL EasingConverter 常用项)。
+ * EASINGS —— 命名缓动注册表(对齐 Classic EasingConverter 常用项)。
  * 全部已套 clampEnds,可直接喂给 engine.animate({ ease })。带参数的幂曲线
- * 用 PCL 的 Weak2/Middle3/Strong4/ExtraStrong5 指数档(EasePower 枚举)预绑。
+ * 用 Classic 的 Weak2/Middle3/Strong4/ExtraStrong5 指数档(EasePower 枚举)预绑。
  */
 export const EASINGS: Record<string, EasingFn> = {
   linear: clampEnds(linear),
 
-  // Fluent(幂)ease-out,PCL 的「一切默认」。
+  // Fluent(幂)ease-out,Classic 的「一切默认」。
   outFluent: clampEnds((t) => easeOutFluent(t, 3)),
   outFluentWeak: clampEnds((t) => easeOutFluent(t, 2)),
   outFluentMiddle: clampEnds((t) => easeOutFluent(t, 3)),

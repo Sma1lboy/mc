@@ -5,7 +5,7 @@ import { Component, createEffect, createSignal } from "solid-js";
  * 外置登录 / 取不到 一律回退到内嵌的默认 **Steve** 头像(不依赖网络)。
  *
  * 始终渲染成填满父容器的 `<img>`(`.mc-avatar-img`),所以可直接塞进现有的头像方框
- * (`.pcl-avatar` / `.rail-avatar` / `.account-avatar`)里替换原来的首字母占位。
+ * (`.classic-avatar` / `.rail-avatar` / `.account-avatar`)里替换原来的首字母占位。
  */
 
 /** 内嵌默认 Steve 头像(64×64,来自 mc-heads 的 MHF_Steve)——网络兜底。 */

@@ -1,0 +1,13 @@
+/* ClassicLaunch.css —— 残留样式:只保留 @keyframes(Tailwind preflight/utility 不覆盖
+ * 自定义关键帧)。视觉其余部分已迁到 ClassicLaunch.tsx 的 Tailwind 工具类。
+ * 账号卡骨架占位用 animate-[classic-pulse_1.3s_ease-in-out_infinite] 引用此关键帧。 */
+
+@keyframes classic-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}

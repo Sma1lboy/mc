@@ -3,18 +3,18 @@ import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { Spinner, Dialog, toast } from "../components";
 import { api } from "../ipc/api";
 import type { AccountSummary, DeviceCode } from "../ipc/types";
-import "./PclAccountDialog.css";
+import "./ClassicAccountDialog.css";
 
 /** 登录弹窗状态机:选择方式 → 微软设备码 / 离线用户名。 */
 type Step = "menu" | "msa" | "offline";
 
 /**
- * PclAccountDialog —— 账号登录弹窗(微软正版 + 离线)。
+ * ClassicAccountDialog —— 账号登录弹窗(微软正版 + 离线)。
  *
  * 微软走设备码流:start 拿 user_code + 验证地址 → 自动打开浏览器并复制代码 →
  * 后台 poll 阻塞直到用户在网页完成 → 落库并选中 → 回调 onDone。
  */
-const PclAccountDialog: Component<{
+const ClassicAccountDialog: Component<{
   onClose: () => void;
   onDone: (acc: AccountSummary) => void;
 }> = (props) => {
@@ -84,16 +84,16 @@ const PclAccountDialog: Component<{
     step() === "offline" ? "离线登录" : step() === "msa" ? "微软登录" : "添加账号";
 
   return (
-    // Ark Dialog 负责焦点陷阱 / Esc / 点遮罩关闭 / 滚动锁;遮罩复用 pcl-dlg-mask
+    // Ark Dialog 负责焦点陷阱 / Esc / 点遮罩关闭 / 滚动锁;遮罩复用 classic-dlg-mask
     // 的亚克力模糊 + [data-blur=off] / prefers-reduced-transparency 逃生口。
     <Dialog
       open
       onClose={props.onClose}
       label={title()}
-      backdropClass="pcl-dlg-mask"
-      contentClass="w-[380px] max-w-[calc(100vw-48px)] bg-pcl-card rounded-[8px] shadow-[0_12px_40px_rgba(52,61,74,0.35)] overflow-hidden focus:outline-none"
+      backdropClass="classic-dlg-mask"
+      contentClass="w-[380px] max-w-[calc(100vw-48px)] bg-classic-card rounded-[8px] shadow-[0_12px_40px_rgba(52,61,74,0.35)] overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-classic-blue"
     >
-        <div class="flex items-center justify-between px-[18px] py-[14px] text-[15px] font-bold text-white bg-[linear-gradient(90deg,var(--pcl-blue-hover),var(--pcl-blue))]">
+        <div class="flex items-center justify-between px-[18px] py-[14px] text-[15px] font-bold text-white bg-[linear-gradient(90deg,var(--classic-blue-hover),var(--classic-blue))]">
           <span>{title()}</span>
           <button
             class="border-none bg-transparent text-white text-[15px] cursor-pointer opacity-85 px-[6px] py-[2px] rounded-[4px] hover:bg-white/20 hover:opacity-100"
@@ -108,23 +108,23 @@ const PclAccountDialog: Component<{
         <Show when={step() === "menu"}>
           <div class="p-[18px] flex flex-col gap-[12px]">
             <button
-              class="flex items-center gap-[14px] px-[16px] py-[14px] border border-pcl-line rounded-[6px] bg-pcl-card cursor-pointer text-left [transition:background_0.15s_ease,border-color_0.15s_ease,transform_0.1s_ease] hover:bg-pcl-blue-lightest hover:border-pcl-blue hover:-translate-y-px"
+              class="flex items-center gap-[14px] px-[16px] py-[14px] border border-classic-line rounded-[6px] bg-classic-card cursor-pointer text-left [transition:background_0.15s_ease,border-color_0.15s_ease,transform_0.1s_ease] hover:bg-classic-blue-lightest hover:border-classic-blue hover:-translate-y-px"
               onClick={startMsa}
             >
               <span class="text-[26px]">🪟</span>
               <span class="flex flex-col gap-[2px]">
-                <b class="text-[14px] text-pcl-text">微软账号</b>
-                <small class="text-[12px] text-pcl-text3">正版验证,可联机、用正版皮肤</small>
+                <b class="text-[14px] text-classic-text">微软账号</b>
+                <small class="text-[12px] text-classic-text3">正版验证,可联机、用正版皮肤</small>
               </span>
             </button>
             <button
-              class="flex items-center gap-[14px] px-[16px] py-[14px] border border-pcl-line rounded-[6px] bg-pcl-card cursor-pointer text-left [transition:background_0.15s_ease,border-color_0.15s_ease,transform_0.1s_ease] hover:bg-pcl-blue-lightest hover:border-pcl-blue-soft hover:-translate-y-px"
+              class="flex items-center gap-[14px] px-[16px] py-[14px] border border-classic-line rounded-[6px] bg-classic-card cursor-pointer text-left [transition:background_0.15s_ease,border-color_0.15s_ease,transform_0.1s_ease] hover:bg-classic-blue-lightest hover:border-classic-blue-soft hover:-translate-y-px"
               onClick={() => { setStep("offline"); setError(null); }}
             >
               <span class="text-[26px]">👤</span>
               <span class="flex flex-col gap-[2px]">
-                <b class="text-[14px] text-pcl-text">离线账号</b>
-                <small class="text-[12px] text-pcl-text3">仅输入用户名,单机游玩</small>
+                <b class="text-[14px] text-classic-text">离线账号</b>
+                <small class="text-[12px] text-classic-text3">仅输入用户名,单机游玩</small>
               </span>
             </button>
           </div>
@@ -133,14 +133,14 @@ const PclAccountDialog: Component<{
         {/* --- 微软设备码 --- */}
         <Show when={step() === "msa"}>
           <div class="p-[18px] flex flex-col gap-[12px]">
-            <Show when={device()} fallback={<div class="flex flex-col items-center gap-[10px] p-[16px] text-pcl-text3 text-[13px]"><Spinner /><span>正在获取登录代码…</span></div>}>
-              <p class="m-0 text-[13px] text-pcl-text2 leading-[1.6]">已打开微软登录页并复制代码,在页面输入以下代码完成登录:</p>
-              <div class="self-center px-[28px] py-[12px] rounded-[6px] bg-pcl-blue-bg text-pcl-blue-dark font-bold text-[28px] leading-none [font-family:ui-monospace,SFMono-Regular,Menlo,monospace] tracking-[4px] select-all">{device()!.user_code}</div>
-              <p class="m-0 text-[12px] text-pcl-text3 text-center">
-                验证地址:<a class="text-pcl-blue cursor-pointer" href={device()!.verification_uri} onClick={(e) => { e.preventDefault(); shellOpen(device()!.verification_uri); }}>{device()!.verification_uri}</a>
+            <Show when={device()} fallback={<div class="flex flex-col items-center gap-[10px] p-[16px] text-classic-text3 text-[13px]"><Spinner /><span>正在获取登录代码…</span></div>}>
+              <p class="m-0 text-[13px] text-classic-text2 leading-[1.6]">已打开微软登录页并复制代码,在页面输入以下代码完成登录:</p>
+              <div class="self-center px-[28px] py-[12px] rounded-[6px] bg-classic-blue-bg text-classic-blue-dark font-bold text-[28px] leading-none [font-family:ui-monospace,SFMono-Regular,Menlo,monospace] tracking-[4px] select-all">{device()!.user_code}</div>
+              <p class="m-0 text-[12px] text-classic-text3 text-center">
+                验证地址:<a class="text-classic-blue cursor-pointer" href={device()!.verification_uri} onClick={(e) => { e.preventDefault(); shellOpen(device()!.verification_uri); }}>{device()!.verification_uri}</a>
               </p>
               <Show when={busy() && !error()}>
-                <div class="flex flex-col items-center gap-[10px] px-[16px] pb-[16px] pt-[6px] text-pcl-text3 text-[13px]"><Spinner /><span>等待你在浏览器中完成授权…</span></div>
+                <div class="flex flex-col items-center gap-[10px] px-[16px] pb-[16px] pt-[6px] text-classic-text3 text-[13px]"><Spinner /><span>等待你在浏览器中完成授权…</span></div>
               </Show>
             </Show>
           </div>
@@ -149,25 +149,29 @@ const PclAccountDialog: Component<{
         {/* --- 离线用户名 --- */}
         <Show when={step() === "offline"}>
           <form class="p-[18px] flex flex-col gap-[12px]" onSubmit={submitOffline}>
+            <label for="offline-account-name" class="sr-only">离线用户名</label>
             <input
-              class="h-[40px] px-[14px] border border-pcl-line rounded-[5px] text-[14px] text-pcl-text bg-pcl-gray-bg outline-none transition-[border-color,background-color] duration-150 ease-app focus:border-pcl-blue focus:bg-pcl-card"
-              placeholder="输入用户名(3-16 位)"
+              id="offline-account-name"
+              name="offlineAccountName"
+              class="h-[40px] px-[14px] border border-classic-line rounded-[5px] text-[14px] text-classic-text bg-classic-gray-bg transition-[border-color,background-color,box-shadow] duration-150 ease-app focus-visible:outline-none focus-visible:border-classic-blue focus-visible:bg-classic-card focus-visible:ring-2 focus-visible:ring-classic-blue/25"
+              placeholder="输入用户名,例如 Steve…"
+              autocomplete="off"
+              spellcheck={false}
               value={offlineName()}
               onInput={(e) => setOfflineName(e.currentTarget.value)}
-              autofocus
               maxLength={16}
             />
             <div class="flex justify-end gap-[10px]">
               <button
                 type="button"
-                class="h-[36px] px-[18px] border border-pcl-line rounded-[4px] bg-pcl-card text-pcl-text text-[13px] cursor-pointer transition-[background-color,border-color] duration-150 ease-app hover:bg-pcl-blue-lightest hover:border-pcl-blue-soft"
+                class="h-[36px] px-[18px] border border-classic-line rounded-[4px] bg-classic-card text-classic-text text-[13px] cursor-pointer transition-[background-color,border-color] duration-150 ease-app hover:bg-classic-blue-lightest hover:border-classic-blue-soft"
                 onClick={() => setStep("menu")}
               >
                 返回
               </button>
               <button
                 type="submit"
-                class="h-[36px] px-[18px] rounded-[4px] bg-pcl-blue text-white border border-pcl-blue text-[13px] cursor-pointer transition-[background-color,border-color] duration-150 ease-app hover:not-disabled:bg-pcl-blue-hover disabled:opacity-50 disabled:cursor-not-allowed"
+                class="h-[36px] px-[18px] rounded-[4px] bg-classic-blue text-white border border-classic-blue text-[13px] cursor-pointer transition-[background-color,border-color] duration-150 ease-app hover:not-disabled:bg-classic-blue-hover disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={busy() || !offlineName().trim()}
               >
                 {busy() ? "添加中…" : "确定"}
@@ -194,4 +198,4 @@ const PclAccountDialog: Component<{
   );
 };
 
-export default PclAccountDialog;
+export default ClassicAccountDialog;

@@ -1,9 +1,9 @@
 /* ============================================================================
  * tokens.css —— 设计令牌(CSS 变量)单一真相来源
  *
- * 体系来自 docs/06(Modrinth 骨 + PCL 皮):
+ * 体系来自 docs/06(Modrinth 骨 + Classic 皮):
  *   - 中性/背景阶 --n-1..8(1=最暗底 → 8=最亮主文字),深/浅两套。
- *   - 强调色阶 --a-1..8 由 theme.ts 的 applyThemeColor() 运行时注入(PCL 引擎),
+ *   - 强调色阶 --a-1..8 由 theme.ts 的 applyThemeColor() 运行时注入(Classic 引擎),
  *     这里只给一份默认绿 h150 兜底,保证主题脚本未跑前也有可用色。
  *   - 共用形状/字体/动效令牌(深浅通用)。
  *
@@ -42,7 +42,7 @@
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.22);
 }
 
-/* ===== 浅色(PCL 风,可切换)===== */
+/* ===== 浅色(经典视图,可切换)===== */
 [data-theme="light"] {
   --n-1: #ffffff;
   --n-2: #f5f5f5;
@@ -68,22 +68,22 @@
   --radius-card: 8px; /* 卡片(偏 Modrinth) */
   --radius: 6px; /* 控件 */
   --radius-sm: 4px; /* 小元素 */
-  --fs-base: 14px; /* 比 PCL 略大,Modrinth 偏舒展 */
+  --fs-base: 14px; /* 比 Classic 略大,Modrinth 偏舒展 */
   --font: "Inter", "Microsoft YaHei UI", system-ui, -apple-system, sans-serif;
   --shadow: 0 2px 12px rgba(0, 0, 0, 0.35); /* 深色阴影更重 */
 
   /* ===== 动机令牌(--mo-*):CSS 与 JS(motion/tokens.ts)同名同值的单一真相源。
-   * 见 docs/modules/ui-animation.md §4。改 PCL「手感」只需同步改这两处之一。
+   * 见 docs/modules/ui-animation.md §4。改 Classic「手感」只需同步改这两处之一。
    * cubic-bezier 表达不了的 overshoot/elastic 走 motion/easings.ts(JS rAF)。 */
   --mo-dur-instant: 80ms; /* 瞬时反馈(按下挤压) */
   --mo-dur-fast: 150ms; /* 快(勾选/小过渡) */
   --mo-dur-base: 200ms; /* 基准(hover/颜色淡入) */
   --mo-dur-page: 320ms; /* 页面级切换(淡+移) */
-  --mo-dur-slow: 400ms; /* 慢(入场沉降,PCL 默认) */
+  --mo-dur-slow: 400ms; /* 慢(入场沉降,Classic 默认) */
   --mo-dur-spring: 700ms; /* 弹簧/漂移(二段沉降) */
 
   --mo-ease-standard: cubic-bezier(0.4, 0, 0.2, 1); /* 通用属性变化 */
-  --mo-ease-out: cubic-bezier(0.22, 1, 0.36, 1); /* = Fluent p3,PCL 默认手感基线 */
+  --mo-ease-out: cubic-bezier(0.22, 1, 0.36, 1); /* = Fluent p3,Classic 默认手感基线 */
   --mo-ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1); /* 强 ease-out,入场/沉降 */
   --mo-ease-accel: cubic-bezier(0.4, 0, 1, 1); /* 退场 */
   --mo-ease-back: cubic-bezier(0.34, 1.56, 0.64, 1); /* 回弹 */
@@ -198,7 +198,7 @@ body {
   transition: background var(--mo-dur-base) var(--mo-ease-standard);
 }
 
-/* 性能逃生口(= PCL SamplingRate 的精神,非算法):弱 GPU / 显式关模糊
+/* 性能逃生口(= Classic SamplingRate 的精神,非算法):弱 GPU / 显式关模糊
  * / 系统要求减少透明 时,把最贵的 backdrop-filter 换成扁平半透明填充。 */
 [data-blur="off"] .surface-acrylic,
 .surface-acrylic[data-blur="off"] {

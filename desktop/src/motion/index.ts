@@ -1,7 +1,7 @@
 /* ============================================================================
  * motion/index.ts —— 动画层统一出口
  *
- * 薄动画层(复现 PCL「手感」),docs/modules/ui-animation.md。CSS 路径用
+ * 薄动画层(复现 Classic「手感」),docs/modules/ui-animation.md。CSS 路径用
  * theme/tokens.css 的 --mo-*;JS 路径从这里 import。
  *
  * 用法:

@@ -4,8 +4,8 @@ import Home from "./pages/Home";
 import Library from "./pages/Library";
 import Discover from "./pages/Discover";
 import Settings from "./pages/Settings";
-import PclLaunch from "./pages/PclLaunch";
-import PclMore from "./pages/PclMore";
+import ClassicLaunch from "./pages/ClassicLaunch";
+import ClassicMore from "./pages/ClassicMore";
 
 /**
  * 页面路由表 —— 把「哪个 page 渲染哪个组件」从两个布局壳里各自手写的
@@ -15,11 +15,11 @@ import PclMore from "./pages/PclMore";
 export interface Route {
   page: Page;
   component: Component;
-  /** 该页是否需要 Modrinth 布局的右侧上下文栏(ContextBar)。 */
+  /** 该页是否需要工作台布局的右侧上下文栏(ContextBar)。 */
   showContext?: boolean;
 }
 
-/** Modrinth(深色三区)布局的页面;首项为未命中时的兜底。 */
+/** 工作台布局的页面;首项为未命中时的兜底。 */
 export const MODRINTH_ROUTES: Route[] = [
   { page: "home", component: Home, showContext: true },
   { page: "discover", component: Discover },
@@ -27,12 +27,12 @@ export const MODRINTH_ROUTES: Route[] = [
   { page: "settings", component: Settings },
 ];
 
-/** PCL(浅色顶栏 Tab)布局的页面;首项为兜底。 */
-export const PCL_ROUTES: Route[] = [
-  { page: "launch", component: PclLaunch },
+/** 经典布局的页面;首项为兜底。 */
+export const CLASSIC_ROUTES: Route[] = [
+  { page: "launch", component: ClassicLaunch },
   { page: "discover", component: Discover },
   { page: "settings", component: Settings },
-  { page: "more", component: PclMore },
+  { page: "more", component: ClassicMore },
 ];
 
 /** 取某布局下 `page` 对应的路由;未命中返回首项(兜底)。 */

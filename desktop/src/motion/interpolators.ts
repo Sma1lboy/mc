@@ -4,7 +4,7 @@
  * DOM 属性动画交给浏览器插值;只有「JS 驱动值」(数字读数、自定义属性、信号、
  * 颜色补间)才需要在 TS 里 lerp(docs/modules/ui-animation.md §5/§7)。
  *
- * 颜色默认 sRGB 分量线性 lerp —— 对齐 PCL `NColor`(0..255 RGBA 的 Vector4
+ * 颜色默认 sRGB 分量线性 lerp —— 对齐 Classic `NColor`(0..255 RGBA 的 Vector4
  * 线性插值,非感知)。{ space: 'oklch' } 作可选感知升级:OKLCH→sRGB 数学内联
  * (公版,无第三方依赖)。
  * ========================================================================== */
@@ -30,7 +30,7 @@ export interface Rgba {
   a: number;
 }
 
-/** 颜色插值色彩空间:sRGB(默认,对齐 PCL)或 OKLCH(感知,可选)。 */
+/** 颜色插值色彩空间:sRGB(默认,对齐 Classic)或 OKLCH(感知,可选)。 */
 export type ColorSpace = "srgb" | "oklch";
 
 /** lerpColor 选项。 */
@@ -175,7 +175,7 @@ function lerpAngle(a: number, b: number, t: number): number {
 }
 
 /**
- * 颜色插值。默认 sRGB 分量线性(对齐 PCL NColor 观感);space:'oklch' 走感知
+ * 颜色插值。默认 sRGB 分量线性(对齐 Classic NColor 观感);space:'oklch' 走感知
  * 插值(色相走最短弧)。输入/输出均为 CSS 颜色字符串。
  */
 export function lerpColor(
