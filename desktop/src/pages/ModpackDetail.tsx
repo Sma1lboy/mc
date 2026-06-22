@@ -138,6 +138,8 @@ const ModpackDetail: Component<{
             class="w-full max-h-[240px] object-cover rounded-card"
             src={props.hit.gallery_url}
             alt=""
+            width="960"
+            height="540"
           />
         </Show>
         <div class="flex gap-[14px] items-center">
@@ -153,6 +155,8 @@ const ModpackDetail: Component<{
               class="w-[72px] h-[72px] rounded-[14px] object-cover flex-[0_0_auto]"
               src={props.hit.icon_url}
               alt=""
+              width="72"
+              height="72"
             />
           </Show>
           <div class="min-w-0">
@@ -283,6 +287,8 @@ const ModpackDetail: Component<{
                   class="w-full aspect-[16/9] object-cover rounded-[8px] cursor-zoom-in bg-n-2 transition-transform duration-[var(--mo-dur-fast)] ease-emph hover:scale-[1.015]"
                   src={g.url}
                   alt={g.title ?? ""}
+                  width="960"
+                  height="540"
                   loading="lazy"
                   onClick={() => setLbIndex(i())}
                 />

@@ -13,7 +13,7 @@ import { openInstanceDir, exportInstanceMrpack, deleteInstance } from "../util/i
 import type { InstanceSummary, SearchHit } from "../ipc/types";
 
 /**
- * Home —— Modrinth 式 dashboard。
+ * Home —— 工作台 dashboard。
  *   - "Jump back in":当前根目录下按最近游玩排序的实例,带 Play。
  *   - "Discover a modpack":Modrinth 整合包大卡网格。
  * 数据全部经 createResource 拉取,自动随 currentRoot 变化重新加载。

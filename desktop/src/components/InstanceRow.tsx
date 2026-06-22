@@ -68,7 +68,7 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
         {/* 左: 图标 (有 icon 显示图片, 否则渐变 + 首字母)。 */}
         <div class="relative shrink-0 w-[48px] h-[48px] rounded-ctl overflow-hidden flex items-center justify-center bg-gradient-to-br from-a-3 to-a-5 text-white font-bold text-[20px] uppercase select-none">
           <Show when={inst().icon} fallback={<span>{initial()}</span>}>
-            <img src={inst().icon} alt="" loading="lazy" class="w-full h-full object-cover block" />
+            <img src={inst().icon} alt="" width="48" height="48" loading="lazy" class="w-full h-full object-cover block" />
           </Show>
           {/* 运行中绿点。 */}
           <Show when={inst().running}>
@@ -126,7 +126,7 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
         open={confirmOpen()}
         onClose={() => setConfirmOpen(false)}
         label="删除实例"
-        contentClass="w-[360px] max-w-[calc(100vw-48px)] bg-card rounded-card shadow-card overflow-hidden focus:outline-none"
+        contentClass="w-[360px] max-w-[calc(100vw-48px)] bg-card rounded-card shadow-card overflow-hidden"
       >
         <div class="p-[20px] flex flex-col gap-[14px]">
           <div class="text-[15px] font-semibold text-fg">删除实例「{inst().name}」?</div>

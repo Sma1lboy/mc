@@ -38,7 +38,8 @@ export const Select: Component<SelectProps> = (props) => {
           class={
             "inline-flex items-center justify-between gap-[8px] min-w-[200px] px-[10px] py-[6px] " +
             "rounded-ctl border border-n-6 bg-n-2 text-fg text-[13px] cursor-pointer " +
-            "transition-colors duration-150 ease-app hover:border-a-4 data-[state=open]:border-a-4 " +
+            "transition-[border-color,box-shadow] duration-150 ease-app hover:border-a-4 data-[state=open]:border-a-4 " +
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5/25 " +
             (props.class ?? "")
           }
         >
@@ -50,7 +51,7 @@ export const Select: Component<SelectProps> = (props) => {
       </Ark.Control>
       <Portal>
         <Ark.Positioner>
-          <Ark.Content class="z-[300] max-h-[320px] overflow-y-auto rounded-ctl border border-n-6 bg-card shadow-card p-[4px] text-[13px] focus:outline-none">
+          <Ark.Content class="z-[300] max-h-[320px] overflow-y-auto rounded-ctl border border-n-6 bg-card shadow-card p-[4px] text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5">
             <For each={props.options}>
               {(opt) => (
                 <Ark.Item

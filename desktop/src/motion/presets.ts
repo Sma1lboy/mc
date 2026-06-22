@@ -198,7 +198,7 @@ export const PRESETS: Record<PresetName, MotionPreset> = {
     transformOrigin: "center",
   },
 
-  // layout-swap:整壳 modrinth↔classic 交叉淡(慢一点,沉稳)。
+  // layout-swap:整壳 workspace↔classic 交叉淡(慢一点,沉稳)。
   layoutSwap: {
     enter: {
       keyframes: [

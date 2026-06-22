@@ -100,8 +100,8 @@ const Settings: Component = () => {
           <span>风格</span>
           <div class="flex gap-[8px]">
             <Button
-              variant={layoutMode() === "modrinth" ? "primary" : "ghost"}
-              onClick={() => switchLayout("modrinth")}
+              variant={layoutMode() === "workspace" ? "primary" : "ghost"}
+              onClick={() => switchLayout("workspace")}
             >
               工作台视图
             </Button>
@@ -146,6 +146,7 @@ const Settings: Component = () => {
           <input
             class="w-full accent-[var(--a-4)]"
             type="range"
+            aria-label="色相"
             min="0"
             max="360"
             value={hue()}
@@ -161,6 +162,7 @@ const Settings: Component = () => {
           <input
             class="w-full accent-[var(--a-4)]"
             type="range"
+            aria-label="饱和度"
             min="0"
             max="100"
             value={sat()}
@@ -176,6 +178,7 @@ const Settings: Component = () => {
           <input
             class="w-full accent-[var(--a-4)]"
             type="range"
+            aria-label="明度"
             min="20"
             max="70"
             value={light()}
@@ -240,6 +243,7 @@ const Settings: Component = () => {
             <input
               class="w-full accent-[var(--a-4)]"
               type="range"
+              aria-label="下载并发"
               min="1"
               max="128"
               value={settings()!.concurrency}
@@ -253,6 +257,7 @@ const Settings: Component = () => {
             <input
               class="w-full accent-[var(--a-4)]"
               type="range"
+              aria-label="默认内存"
               min="512"
               max="16384"
               step="256"

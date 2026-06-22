@@ -78,7 +78,7 @@ export const ProjectDetailPanel: Component<{
           ← 返回
         </button>
         <Show when={props.iconUrl}>
-          <img src={props.iconUrl!} alt="" class="w-[26px] h-[26px] rounded-xs object-cover shrink-0" />
+          <img src={props.iconUrl!} alt="" width="26" height="26" class="w-[26px] h-[26px] rounded-xs object-cover shrink-0" />
         </Show>
         <div class="text-[15px] font-bold text-fg whitespace-nowrap overflow-hidden text-ellipsis">
           {props.title}

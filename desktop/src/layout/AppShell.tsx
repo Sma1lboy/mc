@@ -1,14 +1,14 @@
 import { Component, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { currentPage } from "../store";
-import { MODRINTH_ROUTES, routeFor } from "../routes";
+import { WORKSPACE_ROUTES, routeFor } from "../routes";
 import Rail from "./Rail";
 import TopBar from "./TopBar";
 import ContextBar from "./ContextBar";
 import "./AppShell.css";
 
 /**
- * AppShell —— 三区 CSS Grid 骨架(对标 Modrinth,皮用 Classic token)。
+ * AppShell —— 工作台视图的三区 CSS Grid 骨架。
  *
  * 布局:
  *   grid-template-columns: 64px 1fr   ← 左 Rail + 其余
@@ -25,7 +25,7 @@ import "./AppShell.css";
 
 const AppShell: Component = () => {
   // 当前页对应的路由(组件 + 是否需要右栏)。currentPage 是 signal,读它即建立响应依赖。
-  const route = () => routeFor(MODRINTH_ROUTES, currentPage());
+  const route = () => routeFor(WORKSPACE_ROUTES, currentPage());
   const showContext = () => route().showContext ?? false;
 
   return (

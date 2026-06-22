@@ -386,7 +386,7 @@ const ClassicLaunch: Component = () => {
                         </span>
                       }
                     >
-                      <img src={inst().icon!} alt="" class="w-full h-full object-cover" />
+                      <img src={inst().icon!} alt="" width="52" height="52" class="w-full h-full object-cover" />
                     </Show>
                   </div>
                   <div class="min-w-0">

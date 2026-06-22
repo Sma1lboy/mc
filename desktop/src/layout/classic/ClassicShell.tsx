@@ -70,7 +70,7 @@ const ClassicShell: Component = () => {
           {/* 一键切回工作台视图,方便对比 */}
           <button
             class="border border-white/55 bg-white/[0.14] text-white text-[12px] px-[11px] py-[5px] rounded-[3px] cursor-pointer transition-[background] duration-[0.18s] ease-[ease] hover:bg-white/30 [-webkit-app-region:no-drag]"
-            onClick={() => switchLayout("modrinth")}
+            onClick={() => switchLayout("workspace")}
           >
             切到工作台视图 ⇄
           </button>

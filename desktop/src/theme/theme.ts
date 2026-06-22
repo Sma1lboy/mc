@@ -42,7 +42,7 @@ export const DEFAULT_THEME: ThemeConfig = {
  * 经典视图配浅色+蓝。switchLayout / 启动注入 / 设置页「重置」都走这同一份,避免
  * 三处各写一份魔法数导致跑偏(例如经典布局却套深色,出现顶栏浅、正文深的诡异组合)。
  */
-export const MODRINTH_THEME: ThemeConfig = DEFAULT_THEME;
+export const WORKSPACE_THEME: ThemeConfig = DEFAULT_THEME;
 export const CLASSIC_THEME: ThemeConfig = {
   mode: "light",
   hue: 255,
@@ -51,8 +51,8 @@ export const CLASSIC_THEME: ThemeConfig = {
 };
 
 /** 取某布局相称的默认主题。 */
-export function themeForLayout(layout: "modrinth" | "classic"): ThemeConfig {
-  return layout === "classic" ? CLASSIC_THEME : MODRINTH_THEME;
+export function themeForLayout(layout: "workspace" | "classic"): ThemeConfig {
+  return layout === "classic" ? CLASSIC_THEME : WORKSPACE_THEME;
 }
 
 /* ----------------------------------------------------------------------------

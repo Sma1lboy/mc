@@ -6,7 +6,7 @@ import type { AccountSummary } from "../ipc/types";
 import "./Rail.css";
 
 /**
- * Rail —— 64px 竖直图标栏(Modrinth 主导航形态)。
+ * Rail —— 64px 竖直图标栏(工作台主导航形态)。
  *
  * 结构(自上而下):
  *   - App Logo

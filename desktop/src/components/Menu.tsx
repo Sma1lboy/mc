@@ -35,7 +35,7 @@ function MenuContent(props: MenuContentProps): JSX.Element {
         <Ark.Content
           class={
             "z-[300] min-w-[168px] p-[4px] border border-n-6 rounded-ctl bg-card shadow-card " +
-            "flex flex-col gap-[2px] text-[13px] focus:outline-none " +
+            "flex flex-col gap-[2px] text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5 " +
             (props.class ?? "")
           }
         >

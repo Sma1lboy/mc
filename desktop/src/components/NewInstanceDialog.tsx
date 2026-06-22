@@ -20,8 +20,9 @@ const LOADERS = [
 ];
 
 const FIELD =
-  "h-[36px] px-[12px] rounded-ctl border border-n-6 bg-n-2 text-fg text-[13px] outline-none " +
-  "transition-colors duration-150 focus:border-a-4 disabled:opacity-50";
+  "h-[36px] px-[12px] rounded-ctl border border-n-6 bg-n-2 text-fg text-[13px] " +
+  "transition-[border-color,box-shadow] duration-150 focus-visible:outline-none " +
+  "focus-visible:border-a-4 focus-visible:ring-2 focus-visible:ring-a-5/25 disabled:opacity-50";
 
 export const NewInstanceDialog: Component<{
   open: boolean;
@@ -81,7 +82,7 @@ export const NewInstanceDialog: Component<{
       open={props.open}
       onClose={() => !creating() && props.onClose()}
       label="新建实例"
-      contentClass="w-[440px] max-w-[calc(100vw-48px)] bg-card rounded-card shadow-card overflow-hidden focus:outline-none"
+      contentClass="w-[440px] max-w-[calc(100vw-48px)] bg-card rounded-card shadow-card overflow-hidden"
     >
       <div class="p-[20px] flex flex-col gap-[14px]">
         <div class="text-[16px] font-bold text-fg">新建实例</div>
@@ -90,11 +91,13 @@ export const NewInstanceDialog: Component<{
           <span class="text-[12px] text-dim">名称</span>
           <input
             class={FIELD}
-            placeholder="我的整合包"
+            name="instanceName"
+            autocomplete="off"
+            spellcheck={false}
+            placeholder="例如 生存整合包…"
             value={name()}
             onInput={(e) => setName(e.currentTarget.value)}
             disabled={creating()}
-            autofocus
           />
         </label>
 
@@ -120,6 +123,10 @@ export const NewInstanceDialog: Component<{
             </span>
             <input
               class={FIELD}
+              name="loaderVersion"
+              autocomplete="off"
+              spellcheck={false}
+              placeholder={loader() === "forge" ? "例如 47.2.0…" : "例如 20.4.237…"}
               value={loaderVersion()}
               onInput={(e) => setLoaderVersion(e.currentTarget.value)}
               disabled={creating()}

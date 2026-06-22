@@ -20,7 +20,7 @@ export interface Route {
 }
 
 /** 工作台布局的页面;首项为未命中时的兜底。 */
-export const MODRINTH_ROUTES: Route[] = [
+export const WORKSPACE_ROUTES: Route[] = [
   { page: "home", component: Home, showContext: true },
   { page: "discover", component: Discover },
   { page: "library", component: Library },

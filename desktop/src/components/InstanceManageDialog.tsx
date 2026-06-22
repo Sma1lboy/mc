@@ -37,8 +37,9 @@ import type {
  */
 
 const FIELD =
-  "h-[34px] px-[12px] rounded-ctl border border-n-6 bg-n-2 text-fg text-[13px] outline-none " +
-  "transition-colors duration-150 focus:border-a-4";
+  "h-[34px] px-[12px] rounded-ctl border border-n-6 bg-n-2 text-fg text-[13px] " +
+  "transition-[border-color,box-shadow] duration-150 focus-visible:outline-none " +
+  "focus-visible:border-a-4 focus-visible:ring-2 focus-visible:ring-a-5/25";
 const LABEL = "text-[12px] text-dim";
 const TAB =
   "px-[14px] py-[7px] text-[13px] font-semibold cursor-pointer border-b-2 border-b-transparent " +
@@ -110,7 +111,7 @@ const ScreenshotTile: Component<{
           </div>
         }
       >
-        <img src={props.url} alt={props.info.file_name} class="w-full h-full object-cover" />
+        <img src={props.url} alt={props.info.file_name} width="320" height="180" class="w-full h-full object-cover" />
       </Show>
       <button
         class="absolute top-[4px] right-[4px] opacity-0 group-hover:opacity-100 transition-opacity duration-150 text-[11px] text-white px-[6px] py-[2px] rounded-xs bg-[rgba(0,0,0,0.55)] hover:bg-[rgba(229,132,138,0.9)]"
@@ -347,7 +348,7 @@ const PacksPanel: Component<{
                   when={h.icon_url}
                   fallback={<div class="w-[30px] h-[30px] rounded-xs bg-n-4 shrink-0" />}
                 >
-                  <img src={h.icon_url!} alt="" class="w-[30px] h-[30px] rounded-xs object-cover shrink-0" />
+                  <img src={h.icon_url!} alt="" width="30" height="30" class="w-[30px] h-[30px] rounded-xs object-cover shrink-0" />
                 </Show>
                 <div class="flex-1 min-w-0">
                   <div class="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">
@@ -597,7 +598,10 @@ const WorldsPanel: Component<{ instance: InstanceSummary; tick?: number }> = (pr
                   >
                     <input
                       class={`${FIELD} h-[26px] w-full text-[12px]`}
-                      autofocus
+                      ref={(el) => queueMicrotask(() => el.focus())}
+                      name="worldName"
+                      autocomplete="off"
+                      spellcheck={false}
                       value={draft()}
                       onInput={(e) => setDraft(e.currentTarget.value)}
                       onKeyDown={(e) => {
@@ -989,7 +993,7 @@ export const InstanceManageDialog: Component<{
                           </span>
                         }
                       >
-                        <img src={props.instance!.icon!} alt="" class="w-full h-full object-cover" />
+                        <img src={props.instance!.icon!} alt="" width="56" height="56" class="w-full h-full object-cover" />
                       </Show>
                     </div>
                     <div class="flex flex-col gap-[5px]">
@@ -1137,6 +1141,8 @@ export const InstanceManageDialog: Component<{
                           <img
                             src={h.icon_url!}
                             alt=""
+                            width="30"
+                            height="30"
                             class="w-[30px] h-[30px] rounded-xs object-cover shrink-0"
                           />
                         </Show>
@@ -1366,7 +1372,7 @@ export const InstanceManageDialog: Component<{
       open={props.open}
       onClose={props.onClose}
       label="实例管理"
-      contentClass="w-[520px] max-w-[calc(100vw-48px)] bg-card rounded-card shadow-card overflow-hidden focus:outline-none"
+      contentClass="w-[520px] max-w-[calc(100vw-48px)] bg-card rounded-card shadow-card overflow-hidden"
     >
       {body}
     </Dialog>

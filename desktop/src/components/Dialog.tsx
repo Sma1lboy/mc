@@ -36,12 +36,13 @@ export const Dialog: Component<DialogProps> = (props) => {
             (props.backdropClass ?? "bg-[rgba(8,10,14,0.5)] backdrop-blur-[var(--blur-r)]")
           }
         />
-        <Ark.Positioner class="fixed inset-0 z-[100] flex items-center justify-center p-[24px]">
+        <Ark.Positioner class="fixed inset-0 z-[100] flex items-center justify-center p-[24px] overscroll-contain">
           <Ark.Content
             aria-label={props.label}
             class={
-              props.contentClass ??
-              "w-[420px] max-w-[calc(100vw-48px)] bg-card rounded-card shadow-card overflow-hidden focus:outline-none"
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5 " +
+              (props.contentClass ??
+                "w-[420px] max-w-[calc(100vw-48px)] bg-card rounded-card shadow-card overflow-hidden")
             }
           >
             {props.children}

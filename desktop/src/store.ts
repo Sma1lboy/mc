@@ -6,7 +6,7 @@ import { applyTheme, themeForLayout } from "./theme/theme";
 export type Page = "home" | "library" | "discover" | "settings" | "launch" | "more";
 
 /** 界面布局风格:工作台视图或经典视图。 */
-export type LayoutMode = "modrinth" | "classic";
+export type LayoutMode = "workspace" | "classic";
 
 /**
  * 全局轻量状态:模块级 createSignal,任何组件 import 即读写,无需 Context。
@@ -30,7 +30,7 @@ export const [layoutMode, setLayoutMode] = createSignal<LayoutMode>("classic");
 /**
  * 切换布局,并套用与该布局相称的主题预设,让两种风格各自"对味":
  *   - classic:浅色 + 蓝
- *   - modrinth:深色 + 绿
+ *   - workspace:深色 + 绿
  * 用户之后仍可在设置里单独微调主题色。
  */
 export function switchLayout(mode: LayoutMode) {

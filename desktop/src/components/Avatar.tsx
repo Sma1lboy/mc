@@ -42,6 +42,8 @@ export const Avatar: Component<{
       class={`mc-avatar-img${props.class ? ` ${props.class}` : ""}`}
       src={src()}
       alt=""
+      width="64"
+      height="64"
       title={props.title}
       draggable={false}
       onError={() => setFailed(true)}
