@@ -204,6 +204,14 @@ export interface PackInfo {
   description?: string;
 }
 
+/** 一张截图的元数据(对应后端 ScreenshotInfo;图片字节按需经 read_screenshot 取) */
+export interface ScreenshotInfo {
+  file_name: string;
+  size: number;
+  /** 修改时间(epoch 毫秒) */
+  modified: number;
+}
+
 /** 一个存档世界(对应后端 WorldInfo) */
 export interface WorldInfo {
   /** saves/ 下的目录名(backup/delete/rename 的稳定标识) */

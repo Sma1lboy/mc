@@ -32,6 +32,7 @@ import type {
   PackKind,
   PackInfo,
   WorldInfo,
+  ScreenshotInfo,
 } from "./types";
 
 // ===== 命令封装 =====
@@ -141,6 +142,21 @@ export const api = {
     mcVersion: string,
   ): Promise<string> {
     return invoke<string>("install_pack", { root, id, kind, project, mcVersion });
+  },
+
+  /** 列出某实例的截图(仅元数据,按修改时间倒序) */
+  instanceScreenshots(root: string, id: string): Promise<ScreenshotInfo[]> {
+    return invoke<ScreenshotInfo[]>("instance_screenshots", { root, id });
+  },
+
+  /** 按需读取一张截图为 data URL */
+  readScreenshot(root: string, id: string, fileName: string): Promise<string> {
+    return invoke<string>("read_screenshot", { root, id, fileName });
+  },
+
+  /** 删除一张截图(移入回收站) */
+  deleteScreenshot(root: string, id: string, fileName: string): Promise<void> {
+    return invoke<void>("delete_screenshot", { root, id, fileName });
   },
 
   /** 列出某实例的存档世界 */

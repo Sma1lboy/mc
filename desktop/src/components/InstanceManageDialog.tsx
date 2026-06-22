@@ -1,7 +1,18 @@
-import { Component, createSignal, createResource, createEffect, onCleanup, For, Show } from "solid-js";
+import {
+  Component,
+  createSignal,
+  createResource,
+  createEffect,
+  onMount,
+  onCleanup,
+  For,
+  Show,
+} from "solid-js";
+import { createStore } from "solid-js/store";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Dialog } from "./Dialog";
+import Lightbox from "./Lightbox";
 import { Spinner } from "./Spinner";
 import { toast } from "./Toast";
 import { api } from "../ipc/api";
@@ -15,6 +26,7 @@ import type {
   PackInfo,
   ProjectKind,
   WorldInfo,
+  ScreenshotInfo,
 } from "../ipc/types";
 
 /**
@@ -31,7 +43,154 @@ const TAB =
   "text-n-6 hover:text-n-8 transition-colors duration-150";
 const TAB_ACTIVE = "!text-a-6 !border-b-a-5";
 
-type Tab = "settings" | "mods" | "resources" | "worlds";
+type Tab = "settings" | "mods" | "resources" | "worlds" | "screenshots";
+
+/** 截图栅格上限:只展示最新 N 张,避免一次性加载海量大图。 */
+const SCREENSHOT_CAP = 60;
+
+/**
+ * ScreenshotTile —— 单张截图缩略图。用 IntersectionObserver 懒加载:滚动到视口附近才
+ * 通过 read_screenshot 取该张的 data URL,避免把目录里所有大图一次性读进内存。
+ */
+const ScreenshotTile: Component<{
+  info: ScreenshotInfo;
+  url?: string;
+  onVisible: () => void;
+  onOpen: () => void;
+  onDelete: (e: MouseEvent) => void;
+}> = (props) => {
+  let el: HTMLDivElement | undefined;
+  onMount(() => {
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          props.onVisible();
+          io.disconnect();
+        }
+      },
+      { rootMargin: "120px" },
+    );
+    if (el) io.observe(el);
+    onCleanup(() => io.disconnect());
+  });
+
+  return (
+    <div
+      ref={el}
+      class="group relative aspect-video rounded-ctl overflow-hidden bg-n-3 cursor-pointer"
+      onClick={props.onOpen}
+    >
+      <Show
+        when={props.url}
+        fallback={
+          <div class="w-full h-full grid place-items-center">
+            <Spinner size={16} />
+          </div>
+        }
+      >
+        <img src={props.url} alt={props.info.file_name} class="w-full h-full object-cover" />
+      </Show>
+      <button
+        class="absolute top-[4px] right-[4px] opacity-0 group-hover:opacity-100 transition-opacity duration-150 text-[11px] text-white px-[6px] py-[2px] rounded-xs bg-[rgba(0,0,0,0.55)] hover:bg-[rgba(229,132,138,0.9)]"
+        onClick={props.onDelete}
+      >
+        删除
+      </button>
+    </div>
+  );
+};
+
+/**
+ * ScreenshotsPanel —— 实例截图栅格:懒加载缩略图、点开进灯箱、悬停删除。
+ * 列表只取元数据,图片字节按需 read_screenshot;最多展示 SCREENSHOT_CAP 张(更多时提示)。
+ */
+const ScreenshotsPanel: Component<{ instance: InstanceSummary }> = (props) => {
+  const [shots, { refetch }] = createResource(
+    () => props.instance.id,
+    (id) => api.instanceScreenshots(activeRoot(), id),
+  );
+  const capped = () => (shots() ?? []).slice(0, SCREENSHOT_CAP);
+  const [urls, setUrls] = createStore<Record<string, string>>({});
+  const [lightbox, setLightbox] = createSignal<number | null>(null);
+
+  async function loadUrl(fileName: string) {
+    if (urls[fileName]) return;
+    try {
+      const u = await api.readScreenshot(activeRoot(), props.instance.id, fileName);
+      setUrls(fileName, u);
+    } catch {
+      // 单张读失败不致命:留占位(spinner),不打断其余。
+    }
+  }
+
+  async function remove(s: ScreenshotInfo, e: MouseEvent) {
+    e.stopPropagation(); // 别触发打开灯箱。
+    try {
+      await api.deleteScreenshot(activeRoot(), props.instance.id, s.file_name);
+      toast({ type: "success", message: "已删除截图" });
+      refetch();
+    } catch (err) {
+      toast({ type: "error", message: `删除失败:${err}` });
+    }
+  }
+
+  const lightboxImages = () =>
+    capped().map((s) => ({ url: urls[s.file_name] ?? "", title: s.file_name }));
+
+  // 打开/切换灯箱时确保目标图已加载(其缩略图可能还没滚动到、未触发懒加载)。
+  function openLightbox(i: number) {
+    const f = capped()[i]?.file_name;
+    if (f) void loadUrl(f);
+    setLightbox(i);
+  }
+
+  return (
+    <div class="flex flex-col gap-[8px]">
+      <Show when={(shots() ?? []).length > SCREENSHOT_CAP}>
+        <div class="text-[11px] text-dim">
+          共 {shots()!.length} 张,仅展示最新 {SCREENSHOT_CAP} 张(其余可在「打开目录」里查看)。
+        </div>
+      </Show>
+
+      <Show
+        when={!shots.loading}
+        fallback={
+          <div class="flex items-center gap-[10px] text-dim text-[13px] py-[12px]">
+            <Spinner size={16} /> 扫描截图…
+          </div>
+        }
+      >
+        <Show
+          when={capped().length > 0}
+          fallback={<div class="text-dim text-[13px] py-[12px]">该实例还没有截图。</div>}
+        >
+          <div class="grid grid-cols-3 gap-[8px]">
+            <For each={capped()}>
+              {(s, i) => (
+                <ScreenshotTile
+                  info={s}
+                  url={urls[s.file_name]}
+                  onVisible={() => loadUrl(s.file_name)}
+                  onOpen={() => openLightbox(i())}
+                  onDelete={(e) => remove(s, e)}
+                />
+              )}
+            </For>
+          </div>
+        </Show>
+      </Show>
+
+      <Show when={lightbox() !== null}>
+        <Lightbox
+          images={lightboxImages()}
+          index={lightbox()!}
+          onIndex={openLightbox}
+          onClose={() => setLightbox(null)}
+        />
+      </Show>
+    </div>
+  );
+};
 
 /** 人类可读的字节大小;0 / 缺省返回空串。 */
 function fmtSize(bytes: number): string {
@@ -705,6 +864,12 @@ export const InstanceManageDialog: Component<{
           <button class={`${TAB} ${tab() === "worlds" ? TAB_ACTIVE : ""}`} onClick={() => setTab("worlds")}>
             存档
           </button>
+          <button
+            class={`${TAB} ${tab() === "screenshots" ? TAB_ACTIVE : ""}`}
+            onClick={() => setTab("screenshots")}
+          >
+            截图
+          </button>
         </div>
 
         <div class="p-[20px] flex flex-col gap-[14px] overflow-y-auto">
@@ -1059,6 +1224,11 @@ export const InstanceManageDialog: Component<{
           {/* ---- 存档 ---- */}
           <Show when={tab() === "worlds" && props.instance}>
             {(inst) => <WorldsPanel instance={inst()} tick={worldTick()} />}
+          </Show>
+
+          {/* ---- 截图 ---- */}
+          <Show when={tab() === "screenshots" && props.instance}>
+            {(inst) => <ScreenshotsPanel instance={inst()} />}
           </Show>
         </div>
 

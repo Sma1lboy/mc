@@ -14,6 +14,7 @@ pub mod install_mod;
 pub mod lifecycle;
 pub mod mods;
 pub mod packs;
+pub mod screenshots;
 pub mod update;
 pub mod world;
 
@@ -21,6 +22,7 @@ pub use config::InstanceConfig;
 pub use install_mod::{install_mod, install_mod_version, InstallReport};
 pub use mods::{list_mods, ModInfo};
 pub use packs::{install_pack, list_packs, PackInfo, PackKind};
+pub use screenshots::{list_screenshots, read_screenshot, ScreenshotInfo};
 pub use update::{apply_mod_update, check_mod_updates, ModUpdate};
 pub use world::{import_world_zip, list_worlds, WorldInfo};
 
@@ -198,7 +200,7 @@ fn detect_icon(dir: &Path) -> Option<String> {
 /// 从文件头的魔数判断图片 mime。图标文件名固定为 `icon.png`,但用户可能拖入 jpg/webp 等,
 /// 故按内容嗅探 mime,保证 data URL 声明正确、各 webview 都能渲染;无法识别时退回 png
 /// (探测既有 icon.png 时从宽,坏数据也至多渲染失败,不影响列表)。
-fn sniff_image_mime(bytes: &[u8]) -> &'static str {
+pub(crate) fn sniff_image_mime(bytes: &[u8]) -> &'static str {
     sniff_image_mime_opt(bytes).unwrap_or("image/png")
 }
 
@@ -221,7 +223,7 @@ fn sniff_image_mime_opt(bytes: &[u8]) -> Option<&'static str> {
 }
 
 /// 标准 base64 编码(带 `=` 填充)。手写以免为"把图标内联进 data URL"这一处引入依赖。
-fn base64_encode(input: &[u8]) -> String {
+pub(crate) fn base64_encode(input: &[u8]) -> String {
     const ALPHABET: &[u8; 64] =
         b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(input.len().div_ceil(3) * 4);

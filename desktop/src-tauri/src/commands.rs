@@ -308,6 +308,30 @@ pub async fn install_pack(
         .map_err(err)
 }
 
+/// 列出某实例的截图(仅元数据,按修改时间倒序)。
+#[tauri::command]
+pub fn instance_screenshots(
+    root: String,
+    id: String,
+) -> CmdResult<Vec<mc_core::instance::ScreenshotInfo>> {
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    Ok(mc_core::instance::list_screenshots(&inst))
+}
+
+/// 按需读取一张截图为 data URL(UI 滚动到哪张才取哪张)。
+#[tauri::command]
+pub fn read_screenshot(root: String, id: String, file_name: String) -> CmdResult<String> {
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    mc_core::instance::read_screenshot(&inst, &file_name).map_err(err)
+}
+
+/// 删除一张截图(移入系统回收站,可找回)。
+#[tauri::command]
+pub fn delete_screenshot(root: String, id: String, file_name: String) -> CmdResult<()> {
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    mc_core::instance::screenshots::delete_screenshot(&inst, &file_name).map_err(err)
+}
+
 /// 列出某实例的存档世界(名字/模式/大小/上次游玩…)。
 #[tauri::command]
 pub fn instance_worlds(root: String, id: String) -> CmdResult<Vec<mc_core::instance::WorldInfo>> {
