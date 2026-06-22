@@ -78,8 +78,10 @@ const SCREENSHOT_CAP = 60;
 const ScreenshotTile: Component<{
   info: ScreenshotInfo;
   url?: string;
+  failed?: boolean;
   onVisible: () => void;
   onOpen: () => void;
+  onRetry: () => void;
   onDelete: (e: MouseEvent) => void;
 }> = (props) => {
   let el: HTMLDivElement | undefined;
@@ -106,9 +108,27 @@ const ScreenshotTile: Component<{
       <Show
         when={props.url}
         fallback={
-          <div class="w-full h-full grid place-items-center">
-            <Spinner size={16} />
-          </div>
+          <Show
+            when={props.failed}
+            fallback={
+              <div class="w-full h-full grid place-items-center">
+                <Spinner size={16} />
+              </div>
+            }
+          >
+            {/* 读图失败:给可重试的占位,而不是永远转圈。 */}
+            <button
+              class="w-full h-full grid place-items-center gap-[2px] text-[11px] text-dim bg-n-3 cursor-pointer hover:text-fg"
+              onClick={(e) => {
+                e.stopPropagation();
+                props.onRetry();
+              }}
+              title="重新加载"
+            >
+              <span>加载失败</span>
+              <span class="text-[10px] underline">点击重试</span>
+            </button>
+          </Show>
         }
       >
         <img src={props.url} alt={props.info.file_name} width="320" height="180" class="w-full h-full object-cover" />
@@ -134,15 +154,18 @@ const ScreenshotsPanel: Component<{ instance: InstanceSummary }> = (props) => {
   );
   const capped = () => (shots() ?? []).slice(0, SCREENSHOT_CAP);
   const [urls, setUrls] = createStore<Record<string, string>>({});
+  const [failed, setFailed] = createStore<Record<string, boolean>>({});
   const [lightbox, setLightbox] = createSignal<number | null>(null);
 
   async function loadUrl(fileName: string) {
     if (urls[fileName]) return;
+    setFailed(fileName, false);
     try {
       const u = await api.readScreenshot(activeRoot(), props.instance.id, fileName);
       setUrls(fileName, u);
     } catch {
-      // 单张读失败不致命:留占位(spinner),不打断其余。
+      // 单张读失败不致命:标记失败态,渲染可重试占位,不让缩略图永远转圈。
+      setFailed(fileName, true);
     }
   }
 
@@ -203,8 +226,10 @@ const ScreenshotsPanel: Component<{ instance: InstanceSummary }> = (props) => {
                 <ScreenshotTile
                   info={s}
                   url={urls[s.file_name]}
+                  failed={failed[s.file_name]}
                   onVisible={() => loadUrl(s.file_name)}
                   onOpen={() => openLightbox(i())}
+                  onRetry={() => loadUrl(s.file_name)}
                   onDelete={(e) => remove(s, e)}
                 />
               )}
