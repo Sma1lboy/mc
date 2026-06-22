@@ -50,7 +50,14 @@ export const ProjectDetailPanel: Component<{
     return showAll() || compat.length === 0 ? all : compat;
   };
 
+  // 仅 mod 的加载器/版本不匹配是硬性不可装(必崩);资源包/光影的版本差异只是软提示。
+  const blocked = (v: ModrinthVersion) => props.target === "mod" && !compatible(v);
+
   async function install(v: ModrinthVersion) {
+    if (blocked(v)) {
+      toast({ type: "error", message: "这个版本不兼容当前实例的加载器/游戏版本" });
+      return;
+    }
     setInstalling(v.id);
     try {
       const file = await api.installVersionFile(activeRoot(), props.instanceId, props.target, v.id);
@@ -154,7 +161,8 @@ export const ProjectDetailPanel: Component<{
                     </div>
                     <button
                       class="shrink-0 h-[28px] px-[12px] rounded-ctl bg-a-4 text-white text-[12px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90 disabled:opacity-50 disabled:cursor-default"
-                      disabled={installing() !== null}
+                      disabled={installing() !== null || blocked(v)}
+                      title={blocked(v) ? "当前实例的加载器/版本不兼容这个文件" : ""}
                       onClick={() => install(v)}
                     >
                       {installing() === v.id ? "安装中…" : "安装"}

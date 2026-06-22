@@ -114,6 +114,10 @@ const ProjectInstallDetail: Component<{
   async function installVersion(version: ModrinthVersion) {
     const inst = selectedInstance();
     if (!inst || installing() || installingVersion()) return;
+    if (props.kind === "mod" && !versionMatches(version, inst, props.kind)) {
+      toast({ type: "error", message: "这个版本不兼容当前实例的加载器/游戏版本" });
+      return;
+    }
     setInstallingVersion(version.id);
     try {
       const file = await api.installVersionFile(activeRoot(), inst.id, meta().target, version.id);
@@ -262,6 +266,9 @@ const ProjectInstallDetail: Component<{
                         return i ? versionMatches(version, i, props.kind) : false;
                       };
                       const busy = () => installing() || installingVersion() !== null;
+                      // 仅 mod 的加载器/版本不匹配是硬性不可装(必崩);资源包/光影的版本差异
+                      // 只是软提示(游戏内可带警告加载),不拦。
+                      const blocked = () => props.kind === "mod" && !!inst() && !compatible();
                       return (
                         <div
                           class="flex items-center gap-[10px] rounded-ctl bg-n-2 border border-n-3 px-[10px] py-[8px]"
@@ -283,8 +290,8 @@ const ProjectInstallDetail: Component<{
                           <span class="text-[11px] text-n-6 whitespace-nowrap">⬇ {version.downloads.toLocaleString()}</span>
                           <button
                             class="shrink-0 h-[28px] rounded-ctl border border-n-3 bg-card px-[12px] text-[12px] font-semibold text-a-6 cursor-pointer transition-[background-color] duration-150 hover:bg-a-1 disabled:opacity-50 disabled:cursor-default"
-                            disabled={busy() || !inst()}
-                            title={inst() ? "" : "先在右侧选择一个实例"}
+                            disabled={busy() || !inst() || blocked()}
+                            title={!inst() ? "先在右侧选择一个实例" : blocked() ? "当前实例的加载器/版本不兼容这个文件" : ""}
                             onClick={() => installVersion(version)}
                           >
                             {installingVersion() === version.id ? "安装中…" : "安装"}
