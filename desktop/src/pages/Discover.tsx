@@ -1,4 +1,4 @@
-import { Component, createResource, createSignal, For, Show } from "solid-js";
+import { Component, createEffect, createSignal, For, Show } from "solid-js";
 import { ModpackListItem, SearchBox, Spinner, toast, type ModpackHit } from "../components";
 import { api } from "../ipc/api";
 import type { ProjectKind, SearchHit } from "../ipc/types";
@@ -55,20 +55,48 @@ const Discover: Component = () => {
     timer = setTimeout(() => setDebounced(v), 350) as unknown as number;
   }
 
-  const [results] = createResource(
-    () => [debounced(), kind()] as const,
-    async ([q, k]) => {
-      setBackendUnavailable(false);
-      return api.modrinthSearch(q, k, null, null).catch((e) => {
-        if (isDesktopBackendUnavailable(e)) {
-          setBackendUnavailable(true);
-          return [] as SearchHit[];
-        }
+  // 分页:每页 PAGE 条,首屏替换、「加载更多」追加,直到某页不足一页视为到底。
+  const PAGE = 30;
+  const [results, setResults] = createSignal<SearchHit[]>([]);
+  const [loading, setLoading] = createSignal(true);
+  const [loadingMore, setLoadingMore] = createSignal(false);
+  const [reachedEnd, setReachedEnd] = createSignal(false);
+
+  async function fetchPage(q: string, k: ProjectKind, offset: number): Promise<SearchHit[] | null> {
+    try {
+      const hits = await api.modrinthSearch(q, k, null, null, PAGE, offset);
+      setReachedEnd(hits.length < PAGE);
+      return hits;
+    } catch (e) {
+      if (isDesktopBackendUnavailable(e)) {
+        setBackendUnavailable(true);
+      } else {
         toast({ type: "error", message: `搜索失败:${e}` });
-        return [] as SearchHit[];
-      });
-    },
-  );
+      }
+      return null;
+    }
+  }
+
+  // 查询关键词 / 类型变化 → 重新拉第一页(替换)。
+  createEffect(() => {
+    const q = debounced();
+    const k = kind();
+    setBackendUnavailable(false);
+    setLoading(true);
+    setReachedEnd(false);
+    void fetchPage(q, k, 0).then((hits) => {
+      setResults(hits ?? []);
+      setLoading(false);
+    });
+  });
+
+  async function loadMore() {
+    if (loadingMore() || reachedEnd()) return;
+    setLoadingMore(true);
+    const hits = await fetchPage(debounced(), kind(), results().length);
+    if (hits) setResults((prev) => [...prev, ...hits]);
+    setLoadingMore(false);
+  }
 
   // 当前打开详情的项目(null = 显示搜索网格)。点击卡片进入详情页,而非直接下载。
   const [selected, setSelected] = createSignal<SelectedProject | null>(null);
@@ -119,9 +147,9 @@ const Discover: Component = () => {
         </For>
       </div>
 
-      <Show when={!results.loading} fallback={<div class="flex justify-center p-[40px]"><Spinner /></div>}>
+      <Show when={!loading()} fallback={<div class="flex justify-center p-[40px]"><Spinner /></div>}>
         <Show
-          when={(results() ?? []).length > 0}
+          when={results().length > 0}
           fallback={
             <div class="p-[32px] text-dim text-center">
               <Show
@@ -140,6 +168,18 @@ const Discover: Component = () => {
               )}
             </For>
           </div>
+
+          <Show when={!reachedEnd()}>
+            <div class="flex justify-center mt-[16px]">
+              <button
+                class="px-[20px] py-[8px] rounded-ctl border border-n-6 bg-n-4 text-fg text-[13px] cursor-pointer transition-[background-color] duration-[var(--dur)] ease-app hover:bg-n-5 disabled:opacity-50 disabled:cursor-default"
+                disabled={loadingMore()}
+                onClick={loadMore}
+              >
+                {loadingMore() ? "加载中…" : "加载更多"}
+              </button>
+            </div>
+          </Show>
         </Show>
       </Show>
       </Show>

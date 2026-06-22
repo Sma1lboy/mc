@@ -76,6 +76,7 @@ impl ModrinthApi {
         game_version: Option<&str>,
         loader: Option<&str>,
         limit: u32,
+        offset: u32,
     ) -> Result<Vec<SearchHit>> {
         let facets = build_facets(kind, game_version, loader);
         let limit = limit.clamp(1, 100);
@@ -88,6 +89,7 @@ impl ModrinthApi {
                 ("query", query),
                 ("facets", facets.as_str()),
                 ("limit", &limit.to_string()),
+                ("offset", &offset.to_string()),
                 ("index", "relevance"),
             ])
             .send()
@@ -813,6 +815,7 @@ impl ResourceProvider for ModrinthProvider {
                     q.game_version.as_deref(),
                     q.loader.as_deref(),
                     q.limit,
+                    q.offset,
                 )
                 .await
         })

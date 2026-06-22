@@ -655,6 +655,8 @@ pub async fn modrinth_search(
     kind: String,
     game_version: Option<String>,
     loader: Option<String>,
+    limit: Option<u32>,
+    offset: Option<u32>,
 ) -> CmdResult<Vec<mc_core::modplatform::SearchHit>> {
     let api = ModrinthApi::new();
     let rk = match kind.as_str() {
@@ -664,9 +666,16 @@ pub async fn modrinth_search(
         "datapack" => ResourceKind::Datapack,
         _ => ResourceKind::Mod,
     };
-    api.search(&query, rk, game_version.as_deref(), loader.as_deref(), 30)
-        .await
-        .map_err(err)
+    api.search(
+        &query,
+        rk,
+        game_version.as_deref(),
+        loader.as_deref(),
+        limit.unwrap_or(30),
+        offset.unwrap_or(0),
+    )
+    .await
+    .map_err(err)
 }
 
 // --- theme persistence ----------------------------------------------------

@@ -314,19 +314,22 @@ export const api = {
     return invoke<string[]>("running_instances");
   },
 
-  /** Modrinth 搜索。gameVersion / loader 为 null 表示不限。 */
+  /** Modrinth 搜索。gameVersion / loader 为 null 表示不限。limit/offset 用于分页(默认 30/0)。 */
   modrinthSearch(
     query: string,
     kind: ProjectKind,
     gameVersion: string | null,
     loader: string | null,
+    limit?: number,
+    offset?: number,
   ): Promise<SearchHit[]> {
-    // 后端命令签名:modrinth_search(query, kind, game_version, loader)
     return invoke<SearchHit[]>("modrinth_search", {
       query,
       kind,
       gameVersion,
       loader,
+      limit: limit ?? null,
+      offset: offset ?? null,
     });
   },
 
