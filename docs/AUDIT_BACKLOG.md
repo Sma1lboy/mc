@@ -11,9 +11,13 @@ Generated 2026-06-22 from a multi-agent end-to-end audit (10 chains, adversarial
 - **#4 + #5** Process registry + `game://started`/`game://exit` events: real running state, Stop, crash diagnostics, no success-on-first-log, double-spawn guard.
 - **#6** Auto-provision a matching Temurin JRE on launch when none is installed (`LaunchSpec.runtimes_dir`).
 - **#7** World backup uses save-as (no silent overwrite). **#23** rename re-entrancy guard.
+- **#10 (+#19)** Per-instance management (settings/mods/packs/worlds/copy) reachable from the workspace layout via InstanceRow → "管理实例"; Home/Library Play is now a real launch/stop toggle.
+- **#14** Quilt instances can use Fabric mods — centralized `accepted_loaders` across search/install/update/deps + UI.
 - **#15** Incompatible mod versions can't be installed (button blocked + backend-agnostic guard).
+- **#24** Failed screenshot loads show a click-to-retry tile, not an endless spinner.
+- **#25** Switching layout no longer overwrites a customized theme.
 
-Remaining: see ranks #8–#14, #16–#22, #24–#31 below.
+Remaining: ranks #8, #9, #11, #12, #13, #16, #17, #18, #20, #21, #22, #26–#31 below.
 
 ## Cross-cutting themes
 
