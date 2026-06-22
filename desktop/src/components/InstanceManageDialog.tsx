@@ -673,7 +673,10 @@ export const InstanceManageDialog: Component<{
     setInternalTab(next);
     props.onTabChange?.(next);
   };
-  const packKind = (): PackKind => (isPackTab(tab()) ? tab() : "resource_pack");
+  const packKind = (): PackKind => {
+    const t = tab();
+    return isPackTab(t) ? t : "resource_pack";
+  };
 
   // 是否「活动」(应加载数据 / 接受拖放):弹窗模式看 open,内嵌模式只要挂载即活动。
   const active = () => props.embedded || props.open;

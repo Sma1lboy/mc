@@ -38,7 +38,6 @@ function SegmentedControl<T extends string>(props: SegmentedControlProps<T>) {
       <For each={props.options}>
         {(option) => {
           const selected = () => props.value === option.value;
-          const Icon = option.icon;
           return (
             <button
               type="button"
@@ -50,8 +49,11 @@ function SegmentedControl<T extends string>(props: SegmentedControlProps<T>) {
               aria-pressed={selected()}
               onClick={() => props.onChange(option.value)}
             >
-              <Show when={Icon}>
-                {() => <Icon size={14} aria-hidden="true" />}
+              <Show when={option.icon}>
+                {(icon) => {
+                  const Icon = icon();
+                  return <Icon size={14} aria-hidden="true" />;
+                }}
               </Show>
               <span>{option.label}</span>
             </button>
