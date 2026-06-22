@@ -237,35 +237,85 @@ pub async fn install_mod(
         .map_err(err)
 }
 
-/// 安装一个**指定版本**(by Modrinth version id)到实例对应位置,返回落盘文件名。
+/// 显式选版安装的结果:落盘主文件 + (仅 mod)依赖解析摘要。
+#[derive(Serialize)]
+pub struct VersionInstallReport {
+    /// 主文件落盘名。
+    file: String,
+    /// 新装入的 required 依赖数量(仅 mod;packs 恒为 0)。
+    installed_deps: usize,
+    /// 找不到兼容版本、未能解决的 required 依赖 project_id(仅 mod)。
+    unresolved: Vec<String>,
+}
+
+/// 安装一个**指定版本**(by Modrinth version id)到实例对应位置。
 /// target = "mod" / "resourcepack" / "shader" / "datapack"。
-/// 注意:显式选版安装不做依赖解析(用户已自行决定要哪个版本)。
+///
+/// mod:在装入所选版本的同时解析它声明的 required 依赖(取各依赖最新兼容版本),与「装最新版」
+/// 行为一致 —— 避免选版安装出一个缺前置、进不去游戏的孤立 jar。需要 `mc_version` + `loader`
+/// 才能给依赖挑兼容版本;缺省时退回只装主文件。packs 不涉及依赖。
 #[tauri::command]
 pub async fn install_version_file(
     root: String,
     id: String,
     target: String,
     version_id: String,
-) -> CmdResult<String> {
+    mc_version: Option<String>,
+    loader: Option<String>,
+) -> CmdResult<VersionInstallReport> {
     use mc_core::instance::PackKind;
     let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
     let dl = make_downloader()?;
-    let v = ModrinthApi::new().get_version(&version_id).await.map_err(err)?;
+    let api = ModrinthApi::new();
+    let v = api.get_version(&version_id).await.map_err(err)?;
+
+    let pack_report = |file: String| VersionInstallReport {
+        file,
+        installed_deps: 0,
+        unresolved: Vec::new(),
+    };
+
     match target.as_str() {
-        "mod" => mc_core::instance::install_mod_version(&inst, &dl, &v).await.map_err(err),
+        "mod" => match (mc_version.as_deref(), loader.as_deref()) {
+            (Some(mc), Some(ld)) => {
+                let report =
+                    mc_core::instance::install_mod_version_with_deps(&api, &dl, &inst, &v, mc, ld)
+                        .await
+                        .map_err(err)?;
+                // 主文件是 installed 里 project_id 为空的那条;其余即新装的依赖。
+                let file = report
+                    .installed
+                    .iter()
+                    .find(|m| m.project_id.is_empty())
+                    .map(|m| m.file_name.clone())
+                    .unwrap_or_default();
+                let installed_deps =
+                    report.installed.iter().filter(|m| !m.project_id.is_empty()).count();
+                Ok(VersionInstallReport {
+                    file,
+                    installed_deps,
+                    unresolved: report.unresolved,
+                })
+            }
+            _ => mc_core::instance::install_mod_version(&inst, &dl, &v)
+                .await
+                .map(pack_report)
+                .map_err(err),
+        },
         "resourcepack" => {
             mc_core::instance::packs::install_pack_version(&inst, &dl, PackKind::ResourcePack, &v)
                 .await
+                .map(pack_report)
                 .map_err(err)
         }
         "shader" => mc_core::instance::packs::install_pack_version(&inst, &dl, PackKind::Shader, &v)
             .await
+            .map(pack_report)
             .map_err(err),
-        "datapack" => {
-            mc_core::instance::packs::install_pack_version(&inst, &dl, PackKind::Datapack, &v)
-                .await
-                .map_err(err)
-        }
+        "datapack" => mc_core::instance::packs::install_pack_version(&inst, &dl, PackKind::Datapack, &v)
+            .await
+            .map(pack_report)
+            .map_err(err),
         other => Err(format!("不支持的安装目标: {other}")),
     }
 }

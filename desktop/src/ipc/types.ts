@@ -342,6 +342,16 @@ export interface GameLog {
   level?: "info" | "warn" | "error";
 }
 
+/** 显式选版安装的结果(install_version_file 返回):主文件 + mod 依赖摘要。 */
+export interface VersionInstallReport {
+  /** 主文件落盘名。 */
+  file: string;
+  /** 新装入的 required 依赖数量(仅 mod)。 */
+  installed_deps: number;
+  /** 未能解决的 required 依赖 project_id(仅 mod)。 */
+  unresolved: string[];
+}
+
 /** 进程真正 spawn 成功事件 payload(event: "game://started") */
 export interface GameStarted {
   /** 实例 id */

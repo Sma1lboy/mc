@@ -124,8 +124,23 @@ const ProjectInstallDetail: Component<{
     }
     setInstallingVersion(version.id);
     try {
-      const file = await api.installVersionFile(activeRoot(), inst.id, meta().target, version.id);
-      toast({ type: "success", message: `已安装 ${version.version_number} 到「${inst.name || inst.id}」:${file}` });
+      // mod 传 mc/loader 以便一并解析 required 依赖;packs 不需要。
+      const isMod = props.kind === "mod";
+      const report = await api.installVersionFile(
+        activeRoot(),
+        inst.id,
+        meta().target,
+        version.id,
+        isMod ? inst.mc_version : null,
+        isMod ? inst.loader : null,
+      );
+      const parts = [`已安装 ${version.version_number} 到「${inst.name || inst.id}」`];
+      if (report.installed_deps > 0) parts.push(`+${report.installed_deps} 个依赖`);
+      if (report.unresolved.length > 0) parts.push(`${report.unresolved.length} 个依赖未解决`);
+      toast({
+        type: report.unresolved.length > 0 ? "warn" : "success",
+        message: parts.join(","),
+      });
     } catch (e) {
       toast({ type: "error", message: `安装失败:${e}` });
     } finally {

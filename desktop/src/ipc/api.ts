@@ -23,6 +23,7 @@ import type {
   GameLog,
   GameStarted,
   GameExit,
+  VersionInstallReport,
   ImportOutcome,
   ModrinthVersion,
   ModrinthProject,
@@ -94,8 +95,26 @@ export const api = {
   },
 
   /** 安装一个指定版本(by version id)到实例对应位置,返回落盘文件名(不解析依赖) */
-  installVersionFile(root: string, id: string, target: string, versionId: string): Promise<string> {
-    return invoke<string>("install_version_file", { root, id, target, versionId });
+  /**
+   * 安装指定版本(version id)到实例对应位置。mod 会一并解析 required 依赖
+   * (需传 mcVersion + loader);packs 不涉及依赖。返回主文件名 + 依赖摘要。
+   */
+  installVersionFile(
+    root: string,
+    id: string,
+    target: string,
+    versionId: string,
+    mcVersion?: string | null,
+    loader?: string | null,
+  ): Promise<VersionInstallReport> {
+    return invoke<VersionInstallReport>("install_version_file", {
+      root,
+      id,
+      target,
+      versionId,
+      mcVersion: mcVersion ?? null,
+      loader: loader ?? null,
+    });
   },
 
   /** 检查实例里已启用 mod 的更新(对每个 jar 的 sha1 问 Modrinth 最新兼容版) */

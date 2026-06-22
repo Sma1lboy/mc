@@ -63,8 +63,20 @@ export const ProjectDetailPanel: Component<{
     }
     setInstalling(v.id);
     try {
-      const file = await api.installVersionFile(activeRoot(), props.instanceId, props.target, v.id);
-      toast({ type: "success", message: `已安装 ${v.version_number}(${file})` });
+      // mod 传 mc/loader 以便一并解析 required 依赖;资源包/光影/数据包不需要。
+      const isMod = props.target === "mod";
+      const report = await api.installVersionFile(
+        activeRoot(),
+        props.instanceId,
+        props.target,
+        v.id,
+        isMod ? props.mcVersion : null,
+        isMod ? props.loader : null,
+      );
+      const parts = [`已安装 ${v.version_number}`];
+      if (report.installed_deps > 0) parts.push(`+${report.installed_deps} 个依赖`);
+      if (report.unresolved.length > 0) parts.push(`${report.unresolved.length} 个依赖未解决`);
+      toast({ type: report.unresolved.length > 0 ? "warn" : "success", message: parts.join(",") });
       props.onInstalled();
     } catch (e) {
       toast({ type: "error", message: `安装失败:${e}` });

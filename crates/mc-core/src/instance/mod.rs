@@ -19,7 +19,9 @@ pub mod update;
 pub mod world;
 
 pub use config::InstanceConfig;
-pub use install_mod::{install_mod, install_mod_version, InstallReport};
+pub use install_mod::{
+    install_mod, install_mod_version, install_mod_version_with_deps, InstallReport,
+};
 pub use mods::{list_mods, ModInfo};
 pub use packs::{install_pack, list_packs, PackInfo, PackKind};
 pub use screenshots::{list_screenshots, read_screenshot, ScreenshotInfo};

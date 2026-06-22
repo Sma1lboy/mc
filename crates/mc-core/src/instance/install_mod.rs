@@ -118,6 +118,46 @@ pub async fn install_mod_version(
     Ok(file.filename.clone())
 }
 
+/// 安装一个**指定版本**的 mod,并解析它声明的 required 依赖(取各依赖最新兼容版本)。
+///
+/// 与 [`install_mod`](crate::instance::install_mod)「装最新版 + 解析依赖」对称:用户从版本
+/// 列表显式选版安装时,也应把缺的前置(如 Fabric API)一并补上,而不是装个孤立的 jar。
+/// 主文件先装(其 `project_id` 未知,留空);随后对每个 required 依赖走与 install_mod 相同的
+/// 递归安装(防环 / 去重 / unresolved 记账)。
+pub async fn install_mod_version_with_deps(
+    api: &ModrinthApi,
+    dl: &Downloader,
+    inst: &Instance,
+    version: &ProjectVersion,
+    mc_version: &str,
+    loader: &str,
+) -> Result<InstallReport> {
+    let mut report = InstallReport::default();
+    let mut visited: HashSet<String> = HashSet::new();
+
+    let file_name = install_mod_version(inst, dl, version).await?;
+    report.installed.push(InstalledMod {
+        project_id: String::new(),
+        file_name,
+    });
+
+    let dep_ids: Vec<String> = version
+        .dependencies
+        .iter()
+        .filter(|d| d.dependency_type == "required")
+        .filter_map(|d| d.project_id.clone())
+        .collect();
+
+    for dep_id in dep_ids {
+        install_rec(
+            api, dl, inst, &dep_id, mc_version, loader, true, &mut visited, &mut report,
+        )
+        .await?;
+    }
+
+    Ok(report)
+}
+
 /// 安装某个 Modrinth 项目(及可选的 required 依赖)到实例的 `mods/` 目录。
 ///
 /// 流程:`get_versions(project_id, mc, loader)` → [`pick_version`] →
