@@ -50,9 +50,71 @@ export const CLASSIC_THEME: ThemeConfig = {
   lightness: 45,
 };
 
+const LEGACY_CLASSIC_ACCENTS = [
+  { hue: 214, saturation: 88, lightness: 52 },
+  { hue: 214, saturation: 90, lightness: 51 },
+];
+
 /** 取某布局相称的默认主题。 */
 export function themeForLayout(layout: "workspace" | "classic"): ThemeConfig {
   return layout === "classic" ? CLASSIC_THEME : WORKSPACE_THEME;
+}
+
+function sameTheme(a: ThemeConfig, b: ThemeConfig): boolean {
+  return (
+    a.mode === b.mode &&
+    Math.abs(a.hue - b.hue) < 0.5 &&
+    Math.abs(a.saturation - b.saturation) < 0.5 &&
+    Math.abs(a.lightness - b.lightness) < 0.5
+  );
+}
+
+function sameAccent(
+  a: Pick<ThemeConfig, "hue" | "saturation" | "lightness">,
+  b: Pick<ThemeConfig, "hue" | "saturation" | "lightness">,
+): boolean {
+  return (
+    Math.abs(a.hue - b.hue) < 0.5 &&
+    Math.abs(a.saturation - b.saturation) < 0.5 &&
+    Math.abs(a.lightness - b.lightness) < 0.5
+  );
+}
+
+function numberOrDefault(value: unknown, fallback: number): number {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+}
+
+function sanitizeThemeConfig(cfg: Partial<ThemeConfig> | null | undefined): ThemeConfig {
+  return {
+    mode: cfg?.mode === "light" || cfg?.mode === "system" ? cfg.mode : "dark",
+    hue: clampRange(numberOrDefault(cfg?.hue, DEFAULT_THEME.hue), 0, 360),
+    saturation: clampRange(numberOrDefault(cfg?.saturation, DEFAULT_THEME.saturation), 0, 100),
+    lightness: clampRange(numberOrDefault(cfg?.lightness, DEFAULT_THEME.lightness), 20, 70),
+  };
+}
+
+export function normalizeThemeConfig(
+  cfg: Partial<ThemeConfig> | null | undefined,
+  layout?: "workspace" | "classic",
+): { config: ThemeConfig; changed: boolean } {
+  const safe = sanitizeThemeConfig(cfg);
+  const rawChanged =
+    !cfg ||
+    cfg.mode !== safe.mode ||
+    cfg.hue !== safe.hue ||
+    cfg.saturation !== safe.saturation ||
+    cfg.lightness !== safe.lightness;
+
+  if (LEGACY_CLASSIC_ACCENTS.some((accent) => sameAccent(safe, accent))) {
+    return { config: CLASSIC_THEME, changed: true };
+  }
+
+  if (layout === "classic" && sameTheme(safe, DEFAULT_THEME)) {
+    return { config: CLASSIC_THEME, changed: true };
+  }
+
+  return { config: safe, changed: rawChanged };
 }
 
 /* ----------------------------------------------------------------------------
@@ -189,27 +251,18 @@ export const PRESETS: {
  * 后端不可用(开发期未起 Tauri / 命令未实现)时,回落默认主题,保证 UI 可用。
  * 返回实际生效的配置,供设置页初始化滑块。
  */
-export async function initTheme(): Promise<ThemeConfig> {
+export async function initTheme(layout?: "workspace" | "classic"): Promise<ThemeConfig> {
   try {
     const cfg = await invoke<ThemeConfig>("get_theme");
-    // 防御:后端字段缺失时逐项回落默认值,避免注入 NaN / 非法 mode。
-    const safe: ThemeConfig = {
-      mode:
-        cfg?.mode === "light" || cfg?.mode === "system" ? cfg.mode : "dark",
-      hue: Number.isFinite(cfg?.hue) ? cfg.hue : DEFAULT_THEME.hue,
-      saturation: Number.isFinite(cfg?.saturation)
-        ? cfg.saturation
-        : DEFAULT_THEME.saturation,
-      lightness: Number.isFinite(cfg?.lightness)
-        ? cfg.lightness
-        : DEFAULT_THEME.lightness,
-    };
-    applyTheme(safe);
-    return safe;
+    const { config, changed } = normalizeThemeConfig(cfg, layout);
+    applyTheme(config);
+    if (changed) void invoke("set_theme", { cfg: config }).catch(() => {});
+    return config;
   } catch {
     // get_theme 失败(如非 Tauri 环境):用默认主题兜底,不抛错阻塞渲染。
-    applyTheme(DEFAULT_THEME);
-    return DEFAULT_THEME;
+    const fallback = layout ? themeForLayout(layout) : DEFAULT_THEME;
+    applyTheme(fallback);
+    return fallback;
   }
 }
 
@@ -218,7 +271,8 @@ export async function initTheme(): Promise<ThemeConfig> {
  * 写盘失败时仍保留前端已生效的视觉变更,但向上抛错以便调用方提示。
  */
 export async function saveTheme(cfg: ThemeConfig): Promise<void> {
+  const { config } = normalizeThemeConfig(cfg);
   // 先本地生效,换肤即时无延迟。
-  applyTheme(cfg);
-  await invoke("set_theme", { cfg });
+  applyTheme(config);
+  await invoke("set_theme", { cfg: config });
 }

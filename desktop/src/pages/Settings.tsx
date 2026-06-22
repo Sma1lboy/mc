@@ -1,7 +1,14 @@
 import { Component, createMemo, createResource, createSignal, For, Show, onMount } from "solid-js";
 import { Button, Spinner, Select, Tooltip, toast } from "../components";
 import { Info } from "lucide-solid";
-import { applyThemeColor, setMode, saveTheme, PRESETS, themeForLayout } from "../theme/theme";
+import {
+  applyThemeColor,
+  setMode,
+  saveTheme,
+  PRESETS,
+  themeForLayout,
+  normalizeThemeConfig,
+} from "../theme/theme";
 import { api } from "../ipc/api";
 import { layoutMode, switchLayout } from "../store";
 import type { ThemeConfig, ThemeMode, GlobalSettings } from "../ipc/types";
@@ -22,13 +29,18 @@ const Settings: Component = () => {
   // 初始化:从后端取当前主题 + 全局设置。
   onMount(async () => {
     try {
-      const cfg = await api.getTheme();
+      const { config: cfg, changed } = normalizeThemeConfig(await api.getTheme(), layoutMode());
       setModeSig(cfg.mode);
       setHue(cfg.hue);
       setSat(cfg.saturation);
       setLight(cfg.lightness);
+      if (changed) void saveTheme(cfg).catch(() => {});
     } catch {
-      /* 用默认值 */
+      const cfg = themeForLayout(layoutMode());
+      setModeSig(cfg.mode);
+      setHue(cfg.hue);
+      setSat(cfg.saturation);
+      setLight(cfg.lightness);
     }
     try {
       setSettings(await api.getSettings());
