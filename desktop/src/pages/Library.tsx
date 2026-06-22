@@ -1,5 +1,6 @@
 import { Component, createResource, createSignal, For, Show, onCleanup } from "solid-js";
 import {
+  InstanceManageDialog,
   InstanceRow,
   Button,
   Spinner,
@@ -8,7 +9,7 @@ import {
   type InstanceRowData,
 } from "../components";
 import { api, onInstallProgress } from "../ipc/api";
-import { activeRoot } from "../store";
+import { activeRoot, isRunning } from "../store";
 import { openInstanceDir, exportInstanceMrpack, deleteInstance } from "../util/instanceActions";
 import type { InstanceSummary, ManifestVersion } from "../ipc/types";
 
@@ -52,6 +53,29 @@ const Library: Component = () => {
     const q = filter().toLowerCase();
     return (versions() ?? []).filter((v) => v.id.toLowerCase().includes(q)).slice(0, 60);
   };
+
+  // 当前在「管理」弹窗里的实例(null = 关闭)。
+  const [manageInst, setManageInst] = createSignal<InstanceSummary | null>(null);
+  const openManage = (id: string) =>
+    setManageInst((instances() ?? []).find((i) => i.id === id) ?? null);
+
+  async function play(id: string) {
+    // 运行中再点 = 停止;否则启动。成功/退出/崩溃反馈由 store 统一处理。
+    if (isRunning(id)) {
+      try {
+        await api.stopInstance(id);
+      } catch (e) {
+        toast({ type: "error", message: `停止失败:${e}` });
+      }
+      return;
+    }
+    try {
+      await api.launchInstance(activeRoot(), id, "Player", false);
+      toast({ type: "success", message: "已启动" });
+    } catch (e) {
+      toast({ type: "error", message: `启动失败:${e}` });
+    }
+  }
 
   async function install(v: ManifestVersion) {
     setInstalling(v.id);
@@ -122,12 +146,8 @@ const Library: Component = () => {
               {(inst) => (
                 <InstanceRow
                   instance={toRowData(inst)}
-                  onPlay={(id) =>
-                    api
-                      .launchInstance(activeRoot(), id, "Player", false)
-                      .then(() => toast({ type: "info", message: `启动 ${id}` }))
-                      .catch((e) => toast({ type: "error", message: `${e}` }))
-                  }
+                  onPlay={play}
+                  onManage={openManage}
                   onOpenDir={(id) => void openInstanceDir(activeRoot(), id)}
                   onExport={() => void exportInstanceMrpack(activeRoot(), toRowData(inst))}
                   onDelete={async (id) => {
@@ -140,6 +160,17 @@ const Library: Component = () => {
           </div>
         </Show>
       </Show>
+
+      <InstanceManageDialog
+        open={!!manageInst()}
+        instance={manageInst()}
+        onClose={() => setManageInst(null)}
+        onChanged={() => void refetch()}
+        onCopied={() => {
+          setManageInst(null);
+          void refetch();
+        }}
+      />
     </div>
   );
 };

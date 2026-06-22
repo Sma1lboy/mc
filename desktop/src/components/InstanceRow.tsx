@@ -27,6 +27,7 @@ export interface InstanceRowData {
 export interface InstanceRowProps {
   instance: InstanceRowData;
   onPlay?: (id: string) => void;
+  onManage?: (id: string) => void;
   onOpenDir?: (id: string) => void;
   onExport?: (id: string) => void;
   onDelete?: (id: string) => void;
@@ -60,6 +61,7 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
   const onSelectAction = (value: string) => {
     const id = inst().id;
     if (value === "play") props.onPlay?.(id);
+    else if (value === "manage") props.onManage?.(id);
     else if (value === "open") props.onOpenDir?.(id);
     else if (value === "export") props.onExport?.(id);
     else if (value === "delete") setConfirmOpen(true);
@@ -112,7 +114,8 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
               </svg>
             </Menu.Trigger>
             <Menu.Content>
-              <Menu.Item value="play">启动</Menu.Item>
+              <Menu.Item value="play">{running() ? "停止" : "启动"}</Menu.Item>
+              <Menu.Item value="manage">管理实例</Menu.Item>
               <Menu.Item value="open">打开游戏目录</Menu.Item>
               <Menu.Item value="export">导出整合包(.mrpack)</Menu.Item>
               <Menu.Separator />
