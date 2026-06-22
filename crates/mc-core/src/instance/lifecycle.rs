@@ -43,12 +43,16 @@ use crate::paths::GamePaths;
 /// 与整合包导入**共用** [`crate::loader::install_core`] 装核心,故 Forge/Fabric/Quilt/
 /// NeoForge 都支持;`loader == None` 即纯原版实例。建好后 mods/资源包/设置等照常按实例管理
 /// (`install_mod` / `list_mods` / `list_packs` / `InstanceConfig`)。
+#[allow(clippy::too_many_arguments)]
 pub async fn create_instance(
     dl: &Downloader,
     paths: &GamePaths,
     name: &str,
     mc_version: &str,
     loader: Option<(LoaderKind, String)>,
+    // 新实例默认内存(MB)与 Java 路径,通常来自全局设置(default_memory_mb / java_path)。
+    default_memory_mb: u32,
+    default_java_path: Option<String>,
     progress: Option<watch::Sender<Progress>>,
 ) -> Result<String> {
     // 1. 装核心,拿到实例应继承的版本 id。
@@ -67,9 +71,14 @@ pub async fn create_instance(
         crate::fs::write_atomic(&paths.version_json(&instance_id), raw.as_bytes())?;
     }
 
-    // 4. 写实例配置:展示名 + 默认值(内存/Java/窗口取 InstanceConfig::default)。
+    // 4. 写实例配置:展示名 + 全局默认(内存/Java 取自全局设置,其余取 InstanceConfig::default)。
     let inst = Instance::new(&instance_id, paths.root().to_path_buf());
-    inst.save_config(&InstanceConfig { name: Some(name.to_string()), ..InstanceConfig::default() })?;
+    inst.save_config(&InstanceConfig {
+        name: Some(name.to_string()),
+        memory_mb: if default_memory_mb > 0 { default_memory_mb } else { InstanceConfig::default().memory_mb },
+        java_path: default_java_path.filter(|p| !p.is_empty()),
+        ..InstanceConfig::default()
+    })?;
 
     Ok(instance_id)
 }

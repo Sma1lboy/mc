@@ -34,6 +34,10 @@ pub struct LaunchSpec {
     /// (`<data_dir>/java`, holding `jre-{major}/` per major). `None` disables
     /// auto-install and a missing Java surfaces as [`CoreError::JavaNotFound`].
     pub runtimes_dir: Option<PathBuf>,
+    /// Global default Java path (from settings). Used when neither the explicit
+    /// override nor the per-instance config specify one — i.e. precedence is
+    /// `java_path` > instance config > this > auto-detect > auto-provision.
+    pub global_java_path: Option<PathBuf>,
 }
 
 /// A loader closure that reads `versions/<id>/<id>.json` from disk for the
@@ -212,6 +216,12 @@ async fn resolve_java(
     if let Some(p) = &config.java_path {
         if !p.is_empty() {
             return Ok(PathBuf::from(p));
+        }
+    }
+    // 实例没单独指定 Java 时,跟随全局设置的 Java 路径(让设置页「Java 路径」真正生效)。
+    if let Some(p) = &spec.global_java_path {
+        if !p.as_os_str().is_empty() {
+            return Ok(p.clone());
         }
     }
     let major = java::required_major(mc_version, profile.java_major);

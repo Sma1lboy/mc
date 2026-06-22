@@ -151,9 +151,20 @@ pub async fn create_instance(
     };
     let (tx, rx) = watch::channel(Progress::new("准备"));
     forward_progress(app, "install://progress", rx);
-    mc_core::instance::lifecycle::create_instance(&dl, &paths, &name, &mc_version, loader_opt, Some(tx))
-        .await
-        .map_err(err)
+    // 新实例的默认内存/Java 取自全局设置,让设置页的「默认内存 / Java 路径」真正生效。
+    let g = settings_global();
+    mc_core::instance::lifecycle::create_instance(
+        &dl,
+        &paths,
+        &name,
+        &mc_version,
+        loader_opt,
+        g.default_memory_mb,
+        g.java_path.clone(),
+        Some(tx),
+    )
+    .await
+    .map_err(err)
 }
 
 /// 读取某实例的配置(名字/内存/Java/JVM 参数/窗口…)。文件缺失返回默认值。
@@ -724,6 +735,7 @@ pub async fn launch_instance(
         launcher_version: LAUNCHER_VERSION.to_string(),
         online,
         runtimes_dir: Some(data_dir().join("java")),
+        global_java_path: settings_global().java_path.filter(|p| !p.is_empty()).map(PathBuf::from),
     };
 
     let (tx, rx) = watch::channel(Progress::new("准备"));

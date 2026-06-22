@@ -458,8 +458,10 @@ async fn cmd_create(
     println!("从零创建实例「{name}」(MC {mc_version} · {loader_desc}) …");
 
     let tx = live_progress();
+    // 新实例默认内存/Java 取自全局设置(与桌面端一致)。
+    let g = GlobalSettings::load(&data_dir()).unwrap_or_default();
     let id = mc_core::instance::lifecycle::create_instance(
-        &dl, &paths, name, mc_version, loader_opt, Some(tx),
+        &dl, &paths, name, mc_version, loader_opt, g.default_memory_mb, g.java_path.clone(), Some(tx),
     )
     .await?;
     println!("✓ 已创建实例: {id}");
@@ -694,6 +696,11 @@ async fn cmd_launch(
         launcher_version: LAUNCHER_VERSION.to_string(),
         online,
         runtimes_dir: Some(data_dir().join("java")),
+        global_java_path: GlobalSettings::load(&data_dir())
+            .unwrap_or_default()
+            .java_path
+            .filter(|p| !p.is_empty())
+            .map(std::path::PathBuf::from),
     };
 
     let (tx, mut rx) = tokio::sync::watch::channel(mc_core::types::Progress::new("准备"));
