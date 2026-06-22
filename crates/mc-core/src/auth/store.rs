@@ -45,6 +45,10 @@ pub struct StoredAccount {
     /// 是否拥有正版游戏(仅微软账号有意义)。
     #[serde(default)]
     pub owns_game: bool,
+    /// access_token 的预计过期时间(Unix 秒)。微软账号据此判断是否需要用 refresh_token
+    /// 续期;`None`(老数据 / 离线)视为「未知」,需要时直接尝试续期。
+    #[serde(default)]
+    pub expires_at: Option<i64>,
 }
 
 impl StoredAccount {
@@ -58,6 +62,23 @@ impl StoredAccount {
             xuid: self.xuid.clone(),
         }
     }
+
+    /// access_token 是否（接近）过期:留 `margin_secs` 提前量,避免临界点启动时刚好失效。
+    /// `expires_at` 为 `None`（未知)时一律视为已过期,促使尽早续期。
+    pub fn is_expired(&self, now_unix: i64, margin_secs: i64) -> bool {
+        match self.expires_at {
+            Some(exp) => now_unix >= exp - margin_secs,
+            None => true,
+        }
+    }
+}
+
+/// 当前 Unix 时间(秒)。系统时钟早于纪元的极端情况回退 0。
+pub fn now_unix() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 /// 磁盘上的存储格式(账号列表 + 选中项)。单独成型,便于将来演进 schema。
@@ -220,6 +241,19 @@ impl AccountStore {
 mod tests {
     use super::*;
 
+    #[test]
+    fn is_expired_respects_margin_and_unknown() {
+        let mut a = offline("x", "u");
+        a.expires_at = Some(1_000);
+        // 1000 到期、margin 60:940 起即视为(接近)过期。
+        assert!(!a.is_expired(939, 60));
+        assert!(a.is_expired(940, 60));
+        assert!(a.is_expired(1_000, 60));
+        // expires_at 未知 → 一律视为过期(促使续期)。
+        a.expires_at = None;
+        assert!(a.is_expired(0, 0));
+    }
+
     fn offline(name: &str, uuid: &str) -> StoredAccount {
         StoredAccount {
             kind: AccountKind::Offline,
@@ -230,6 +264,7 @@ mod tests {
             xuid: String::new(),
             user_type: "legacy".to_string(),
             owns_game: false,
+            expires_at: None,
         }
     }
 
@@ -333,6 +368,7 @@ mod tests {
             xuid: "xuid123".to_string(),
             user_type: "msa".to_string(),
             owns_game: true,
+            expires_at: None,
         });
         s.select("uuid-ms").unwrap();
         s.save().unwrap();

@@ -17,5 +17,60 @@ pub mod yggdrasil;
 
 pub use msa::{DeviceCodeInfo, MsaClient, MsaToken};
 pub use offline::offline_session;
-pub use store::{AccountStore, StoredAccount};
+pub use store::{now_unix, AccountStore, StoredAccount};
 pub use yggdrasil::{YggdrasilClient, YggdrasilSession};
+
+use crate::error::Result;
+use mc_types::AccountKind;
+
+/// Minecraft access token 的典型有效期(约 24 小时)。续期后据此重置 `expires_at`。
+pub const MC_TOKEN_TTL_SECS: i64 = 86_400;
+
+/// 若当前选中的是(接近)过期的微软账号且有 refresh_token,就用它免浏览器续期,
+/// 刷新后的账号写回 `store` 并保持选中。返回是否真的执行了续期。
+///
+/// 非微软 / 仍新鲜 / 无 refresh_token 时直接返回 `Ok(false)`(no-op)。续期失败
+/// (refresh_token 失效、网络故障)以 `Err` 上抛:启动路径可best-effort 忽略并用旧
+/// token 继续,显式「刷新登录」入口则把错误展示给用户提示重新登录。
+pub async fn refresh_selected_microsoft(
+    store: &mut AccountStore,
+    msa: &MsaClient,
+    margin_secs: i64,
+) -> Result<bool> {
+    let (refresh_token, owns_game) = match store.selected_account() {
+        Some(a)
+            if a.kind == AccountKind::Microsoft
+                && a.is_expired(now_unix(), margin_secs)
+                && a.refresh_token.is_some() =>
+        {
+            (a.refresh_token.clone().unwrap(), a.owns_game)
+        }
+        _ => return Ok(false),
+    };
+
+    let token = msa.refresh(&refresh_token).await?;
+    let session = msa.authenticate(&token.access_token).await?;
+
+    let updated = StoredAccount {
+        kind: AccountKind::Microsoft,
+        username: session.username.clone(),
+        uuid: session.uuid.clone(),
+        access_token: session.access_token.clone(),
+        // 刷新端点可能不返回新的 refresh_token,这种情况下继续沿用旧的。
+        refresh_token: Some(if token.refresh_token.is_empty() {
+            refresh_token
+        } else {
+            token.refresh_token
+        }),
+        xuid: session.xuid.clone(),
+        user_type: session.user_type.clone(),
+        owns_game,
+        expires_at: Some(now_unix() + MC_TOKEN_TTL_SECS),
+    };
+
+    let uuid = updated.uuid.clone();
+    store.add(updated); // 按 uuid 原地更新
+    let _ = store.select(&uuid); // 保持选中
+    store.save()?;
+    Ok(true)
+}

@@ -596,6 +596,8 @@ pub async fn msa_login_poll(device_code: String, interval: u64) -> CmdResult<Acc
         xuid: session.xuid,
         user_type: session.user_type,
         owns_game: true,
+        // Minecraft access token 约 24h 有效;到期前用 refresh_token 自动续期。
+        expires_at: Some(mc_core::auth::now_unix() + 86_400),
     })
 }
 
@@ -616,6 +618,7 @@ pub fn add_offline_account(name: String) -> CmdResult<AccountSummary> {
         xuid: session.xuid,
         user_type: session.user_type,
         owns_game: false,
+        expires_at: None,
     })
 }
 
@@ -633,6 +636,17 @@ pub fn remove_account(uuid: String) -> CmdResult<()> {
     let mut store = AccountStore::load(accounts_path()).map_err(err)?;
     store.remove(&uuid);
     store.save().map_err(err)
+}
+
+/// 显式刷新当前选中的微软账号的登录(免浏览器,用 refresh_token)。返回是否执行了续期。
+/// 失败(refresh_token 失效)时返回错误,UI 据此提示重新登录。
+#[tauri::command]
+pub async fn refresh_account() -> CmdResult<bool> {
+    let mut store = AccountStore::load(accounts_path()).map_err(err)?;
+    // 显式刷新:用极大 margin 强制对选中的微软账号尝试续期,不看剩余有效期。
+    auth::refresh_selected_microsoft(&mut store, &msa_client(), i64::MAX / 2)
+        .await
+        .map_err(err)
 }
 
 #[tauri::command]
@@ -778,8 +792,15 @@ pub async fn launch_instance(
     let paths = root_paths(&root);
     let dl = make_downloader()?;
 
+    // 选中的微软账号若(接近)过期,先用 refresh_token 免浏览器续期(best-effort:
+    // 失败就用现有 token 继续启动,不阻断游戏)。
+    let accounts_path = data_dir().join("accounts.json");
+    if let Ok(mut store) = AccountStore::load(&accounts_path) {
+        let _ = auth::refresh_selected_microsoft(&mut store, &msa_client(), 600).await;
+    }
+
     // Prefer the selected stored account; fall back to an offline session.
-    let session = AccountStore::load(data_dir().join("accounts.json"))
+    let session = AccountStore::load(&accounts_path)
         .ok()
         .and_then(|s| s.selected_session())
         .unwrap_or_else(|| auth::offline_session(&name));

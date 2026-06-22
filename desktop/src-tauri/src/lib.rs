@@ -47,6 +47,7 @@ pub fn run() {
             commands::add_offline_account,
             commands::select_account,
             commands::remove_account,
+            commands::refresh_account,
             commands::detect_java,
             commands::modrinth_search,
             commands::get_theme,

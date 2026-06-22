@@ -271,6 +271,11 @@ export const api = {
     return invoke<AccountSummary>("add_offline_account", { name });
   },
 
+  /** 刷新当前选中的微软账号登录(免浏览器续期);返回是否执行了续期。失败抛错(需重新登录) */
+  refreshAccount(): Promise<boolean> {
+    return invoke<boolean>("refresh_account");
+  },
+
   /** 切换当前账号 */
   selectAccount(uuid: string): Promise<void> {
     return invoke<void>("select_account", { uuid });

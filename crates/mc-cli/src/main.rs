@@ -770,6 +770,7 @@ async fn cmd_login() -> Result<()> {
         xuid: session.xuid.clone(),
         user_type: session.user_type.clone(),
         owns_game: true,
+        expires_at: Some(mc_core::auth::now_unix() + 86_400),
     });
     store.select(&session.uuid)?;
     store.save()?;
