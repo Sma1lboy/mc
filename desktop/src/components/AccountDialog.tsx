@@ -1,10 +1,17 @@
-import { Component, createSignal, Show, onCleanup } from "solid-js";
+import { Component, createResource, createSignal, For, Show, onCleanup } from "solid-js";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { Spinner } from "./Spinner";
 import { Dialog } from "./Dialog";
+import { Avatar } from "./Avatar";
 import { toast } from "./Toast";
 import { api } from "../ipc/api";
-import type { AccountSummary, DeviceCode } from "../ipc/types";
+import type { AccountKind, AccountSummary, DeviceCode } from "../ipc/types";
+
+const KIND_LABEL: Record<AccountKind, string> = {
+  offline: "离线",
+  microsoft: "微软",
+  yggdrasil: "外置登录",
+};
 
 /** 登录弹窗状态机:选择方式 → 微软设备码 / 离线用户名。 */
 type Step = "menu" | "msa" | "offline";
@@ -25,6 +32,34 @@ export const AccountDialog: Component<{
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [offlineName, setOfflineName] = createSignal("");
+
+  // 已有账号:菜单步顶部列出,可切换/删除(两套布局共用的账号管理入口)。
+  const [accounts, { refetch: refetchAccounts }] = createResource(() => api.listAccounts());
+  const accountList = () => accounts() ?? [];
+
+  async function selectExisting(acc: AccountSummary) {
+    if (acc.selected) {
+      props.onDone(acc);
+      return;
+    }
+    try {
+      await api.selectAccount(acc.uuid);
+      props.onDone(acc);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function removeExisting(acc: AccountSummary, e: MouseEvent) {
+    e.stopPropagation();
+    try {
+      await api.removeAccount(acc.uuid);
+      toast({ type: "success", message: `已移除账号:${acc.username}` });
+      void refetchAccounts();
+    } catch (err) {
+      toast({ type: "error", message: `移除失败:${err}` });
+    }
+  }
 
   // 弹窗关闭后别再回调(微软 poll 可能仍在后台轮询)。
   let closed = false;
@@ -106,6 +141,42 @@ export const AccountDialog: Component<{
       {/* --- 选择登录方式 --- */}
       <Show when={step() === "menu"}>
         <div class="p-[18px] flex flex-col gap-[12px]">
+          {/* 已有账号:切换(点击)或移除(✕)。当前账号打勾。 */}
+          <Show when={accountList().length > 0}>
+            <div class="flex flex-col gap-[6px]">
+              <For each={accountList()}>
+                {(acc) => (
+                  <div
+                    class="group flex items-center gap-[10px] px-[10px] py-[8px] rounded-ctl border border-n-6 bg-card cursor-pointer transition-[background-color,border-color] duration-150 hover:bg-a-1 hover:border-a-4"
+                    classList={{ "!border-a-4 !bg-a-1": acc.selected }}
+                    onClick={() => selectExisting(acc)}
+                  >
+                    <span class="w-[30px] h-[30px] flex-[0_0_30px] rounded-xs grid place-items-center text-white text-[13px] font-semibold bg-[linear-gradient(135deg,var(--a-3),var(--a-5))]">
+                      <Avatar kind={acc.kind} uuid={acc.uuid} />
+                    </span>
+                    <span class="min-w-0 flex-1">
+                      <span class="block text-[13px] font-semibold text-fg whitespace-nowrap overflow-hidden text-ellipsis">
+                        {acc.username}
+                      </span>
+                      <span class="block text-[11px] text-dim">{KIND_LABEL[acc.kind]}</span>
+                    </span>
+                    <Show when={acc.selected}>
+                      <span class="text-a-6 text-[14px]" aria-hidden="true">✓</span>
+                    </Show>
+                    <button
+                      class="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150 text-[12px] text-[#e5848a] px-[6px] py-[3px] rounded-xs hover:bg-[rgba(229,132,138,0.14)]"
+                      title="移除账号"
+                      onClick={(e) => removeExisting(acc, e)}
+                    >
+                      移除
+                    </button>
+                  </div>
+                )}
+              </For>
+              <div class="text-[11px] text-dim mt-[2px]">或添加新账号:</div>
+            </div>
+          </Show>
+
           <button
             class="flex items-center gap-[14px] px-[16px] py-[14px] border border-n-6 rounded-ctl bg-card cursor-pointer text-left transition-[background-color,border-color,transform] duration-150 ease-app hover:bg-a-1 hover:border-a-4 hover:-translate-y-px"
             onClick={startMsa}
