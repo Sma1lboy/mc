@@ -5,6 +5,7 @@ import { activeRoot } from "../store";
 import { openInstanceDir } from "../util/instanceActions";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import type { AccountSummary, InstanceSummary } from "../ipc/types";
+import type { InstanceManageTab } from "../components/InstanceManageDialog";
 import PclAccountDialog from "./PclAccountDialog";
 import "./PclLaunch.css";
 
@@ -16,8 +17,19 @@ const kindLabel = (k: string) =>
 
 /** 右侧主区视图:新闻主页 / 版本选择 / 实例详情 / 启动日志(照抄 PCL CE 的 启动页交互)。 */
 type RightView = "news" | "versions" | "instance" | "log";
-/** 实例详情内的子标签:首页(概览)/ 设置(实例管理)。 */
-type InstanceTab = "home" | "settings";
+/** 实例详情内的子标签:首页(概览)+ 实例管理各页,资源子类不再藏到二级 tab。 */
+type InstanceTab = "home" | InstanceManageTab;
+
+const INSTANCE_TABS: { key: InstanceTab; label: string }[] = [
+  { key: "home", label: "首页" },
+  { key: "settings", label: "设置" },
+  { key: "mods", label: "Mods" },
+  { key: "resource_pack", label: "资源包" },
+  { key: "shader", label: "光影" },
+  { key: "datapack", label: "数据包" },
+  { key: "worlds", label: "存档" },
+  { key: "screenshots", label: "截图" },
+];
 
 /**
  * PclLaunch —— 1:1 照抄 PCL CE 启动页逻辑(非 Modrinth 那种列表页):
@@ -43,6 +55,8 @@ const PclLaunch: Component = () => {
   const [newsOpen, setNewsOpen] = createSignal<Record<string, boolean>>({ snapshot: true });
   const [showLogin, setShowLogin] = createSignal(false);
   const [showNew, setShowNew] = createSignal(false);
+  const activeManageTab = (): InstanceManageTab =>
+    instanceTab() === "home" ? "settings" : (instanceTab() as InstanceManageTab);
 
   // 打开某个实例的详情视图(右栏),默认落在「首页」标签。
   function openInstance(inst: InstanceSummary) {
@@ -356,11 +370,11 @@ const PclLaunch: Component = () => {
           </div>
         </Show>
 
-        {/* --- 实例详情:首页(概览)/ 设置(实例管理) --- */}
+        {/* --- 实例详情:首页(概览)+ 实例管理各页 --- */}
         <Show when={rightView() === "instance" && selected()}>
           {(inst) => (
             <div class="flex flex-col min-h-0 flex-1 gap-[12px]">
-              {/* 头部:图标 + 名称 + 版本信息 + 首页/设置 标签 */}
+              {/* 头部:图标 + 名称 + 版本信息 + 同级实例标签 */}
               <div class="bg-pcl-card rounded-[5px] shadow-pcl overflow-hidden">
                 <div class="flex items-center gap-[14px] p-[16px]">
                   <div class="w-[52px] h-[52px] rounded-[8px] overflow-hidden bg-pcl-blue-bg2 grid place-items-center shrink-0">
@@ -385,21 +399,18 @@ const PclLaunch: Component = () => {
                     </div>
                   </div>
                 </div>
-                <div class="flex gap-[4px] px-[12px] border-t border-pcl-line">
-                  <button
-                    class="px-[16px] py-[9px] text-[13px] font-semibold cursor-pointer border-b-2 border-b-transparent text-pcl-text3 hover:text-pcl-text transition-colors duration-150"
-                    classList={{ "!text-pcl-blue !border-b-pcl-blue": instanceTab() === "home" }}
-                    onClick={() => setInstanceTab("home")}
-                  >
-                    首页
-                  </button>
-                  <button
-                    class="px-[16px] py-[9px] text-[13px] font-semibold cursor-pointer border-b-2 border-b-transparent text-pcl-text3 hover:text-pcl-text transition-colors duration-150"
-                    classList={{ "!text-pcl-blue !border-b-pcl-blue": instanceTab() === "settings" }}
-                    onClick={() => setInstanceTab("settings")}
-                  >
-                    设置
-                  </button>
+                <div class="flex gap-[4px] px-[12px] border-t border-pcl-line overflow-x-auto">
+                  <For each={INSTANCE_TABS}>
+                    {(item) => (
+                      <button
+                        class="px-[16px] py-[9px] text-[13px] font-semibold cursor-pointer border-b-2 border-b-transparent text-pcl-text3 hover:text-pcl-text transition-colors duration-150 whitespace-nowrap"
+                        classList={{ "!text-pcl-blue !border-b-pcl-blue": instanceTab() === item.key }}
+                        onClick={() => setInstanceTab(item.key)}
+                      >
+                        {item.label}
+                      </button>
+                    )}
+                  </For>
                 </div>
               </div>
 
@@ -450,13 +461,16 @@ const PclLaunch: Component = () => {
                 </div>
               </Show>
 
-              {/* 设置:内嵌实例管理面板(其内含 设置/Mods/资源/存档/截图 子标签) */}
-              <Show when={instanceTab() === "settings"}>
+              {/* 实例管理:tab 由上方同级导航控制,面板内不再重复套一层。 */}
+              <Show when={instanceTab() !== "home"}>
                 <div class="bg-pcl-card rounded-[5px] shadow-pcl flex-1 min-h-0 overflow-hidden">
                   <InstanceManageDialog
                     embedded
+                    hideTabs
                     open
                     instance={inst()}
+                    tab={activeManageTab()}
+                    onTabChange={(tab) => setInstanceTab(tab)}
                     onClose={() => {}}
                     onChanged={async () => {
                       const list = await refetchInstances();

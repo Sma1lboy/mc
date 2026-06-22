@@ -43,9 +43,29 @@ const LABEL = "text-[12px] text-dim";
 const TAB =
   "px-[14px] py-[7px] text-[13px] font-semibold cursor-pointer border-b-2 border-b-transparent " +
   "text-n-6 hover:text-n-8 transition-colors duration-150";
-const TAB_ACTIVE = "!text-a-6 !border-b-a-5";
+const TAB_ACTIVE = "!text-a-4 !border-b-a-4";
 
-type Tab = "settings" | "mods" | "resources" | "worlds" | "screenshots";
+export type InstanceManageTab =
+  | "settings"
+  | "mods"
+  | "resource_pack"
+  | "shader"
+  | "datapack"
+  | "worlds"
+  | "screenshots";
+
+const TABS: { key: InstanceManageTab; label: string }[] = [
+  { key: "settings", label: "设置" },
+  { key: "mods", label: "Mods" },
+  { key: "resource_pack", label: "资源包" },
+  { key: "shader", label: "光影" },
+  { key: "datapack", label: "数据包" },
+  { key: "worlds", label: "存档" },
+  { key: "screenshots", label: "截图" },
+];
+
+const isPackTab = (tab: InstanceManageTab): tab is PackKind =>
+  tab === "resource_pack" || tab === "shader" || tab === "datapack";
 
 /** 截图栅格上限:只展示最新 N 张,避免一次性加载海量大图。 */
 const SCREENSHOT_CAP = 60;
@@ -634,12 +654,22 @@ export const InstanceManageDialog: Component<{
   /** 内嵌模式:不套 Dialog,直接铺在父容器里(PCL 右栏的「设置」标签用),
    *  隐藏实例名头部与「完成」按钮,父组件只在需要时挂载本组件即等于「打开」。 */
   embedded?: boolean;
+  /** 受控 tab:启动页把实例管理页签提升到实例头部时使用。 */
+  tab?: InstanceManageTab;
+  onTabChange?: (tab: InstanceManageTab) => void;
+  /** 隐藏本组件自带 tab 条,由外层渲染同级导航。 */
+  hideTabs?: boolean;
 }> = (props) => {
-  const [tab, setTab] = createSignal<Tab>("settings");
+  const [internalTab, setInternalTab] = createSignal<InstanceManageTab>("settings");
   const [cfg, setCfg] = createSignal<InstanceConfig | null>(null);
   const [copying, setCopying] = createSignal(false);
-  // 资源标签内的子类型:资源包 / 光影 / 数据包。
-  const [resKind, setResKind] = createSignal<PackKind>("resource_pack");
+
+  const tab = () => props.tab ?? internalTab();
+  const setTab = (next: InstanceManageTab) => {
+    setInternalTab(next);
+    props.onTabChange?.(next);
+  };
+  const packKind = (): PackKind => (isPackTab(tab()) ? tab() : "resource_pack");
 
   // 是否「活动」(应加载数据 / 接受拖放):弹窗模式看 open,内嵌模式只要挂载即活动。
   const active = () => props.embedded || props.open;
@@ -793,27 +823,27 @@ export const InstanceManageDialog: Component<{
 
   // ---- 拖拽导入 ----
   // Tauri 启用了原生文件拖放,HTML5 ondrop 不触发,改用 webview 的 onDragDropEvent。
-  // 整个弹窗作为拖放区,目标类型由当前标签 + 资源子类型决定。
+  // 整个弹窗作为拖放区,目标类型由当前标签决定。
   const [dragOver, setDragOver] = createSignal(false);
   const [importTick, setImportTick] = createSignal(0);
   const [worldTick, setWorldTick] = createSignal(0);
 
   /** 当前标签接受拖拽吗(设置标签不接受)。 */
   function dropAccepted(): boolean {
-    return tab() === "mods" || tab() === "resources" || tab() === "worlds";
+    return tab() === "mods" || isPackTab(tab()) || tab() === "worlds";
   }
 
-  /** mods/资源标签的导入目标类型(存档走单独的 zip 导入命令,这里返回 null)。 */
+  /** mods/资源包/光影/数据包的导入目标类型(存档走单独的 zip 导入命令,这里返回 null)。 */
   function resourceTarget(): string | null {
     if (tab() === "mods") return "mod";
-    if (tab() === "resources") return resKind() === "resource_pack" ? "resourcepack" : resKind();
+    if (isPackTab(tab())) return tab() === "resource_pack" ? "resourcepack" : tab();
     return null;
   }
 
   async function handleDrop(paths: string[]) {
     const inst = props.instance;
     if (!inst || !dropAccepted()) {
-      toast({ type: "info", message: "请切到 Mods / 资源 / 存档标签再拖入文件" });
+      toast({ type: "info", message: "请切到 Mods / 资源包 / 光影 / 数据包 / 存档标签再拖入文件" });
       return;
     }
     let ok = 0;
@@ -921,26 +951,20 @@ export const InstanceManageDialog: Component<{
           </div>
         </Show>
 
-        <div class="flex gap-[4px] px-[16px] border-b border-n-3 mt-[10px]">
-          <button class={`${TAB} ${tab() === "settings" ? TAB_ACTIVE : ""}`} onClick={() => setTab("settings")}>
-            设置
-          </button>
-          <button class={`${TAB} ${tab() === "mods" ? TAB_ACTIVE : ""}`} onClick={() => setTab("mods")}>
-            Mods
-          </button>
-          <button class={`${TAB} ${tab() === "resources" ? TAB_ACTIVE : ""}`} onClick={() => setTab("resources")}>
-            资源
-          </button>
-          <button class={`${TAB} ${tab() === "worlds" ? TAB_ACTIVE : ""}`} onClick={() => setTab("worlds")}>
-            存档
-          </button>
-          <button
-            class={`${TAB} ${tab() === "screenshots" ? TAB_ACTIVE : ""}`}
-            onClick={() => setTab("screenshots")}
-          >
-            截图
-          </button>
-        </div>
+        <Show when={!props.hideTabs}>
+          <div class="flex gap-[4px] px-[16px] border-b border-n-3 mt-[10px] overflow-x-auto">
+            <For each={TABS}>
+              {(item) => (
+                <button
+                  class={`${TAB} whitespace-nowrap ${tab() === item.key ? TAB_ACTIVE : ""}`}
+                  onClick={() => setTab(item.key)}
+                >
+                  {item.label}
+                </button>
+              )}
+            </For>
+          </div>
+        </Show>
 
         <div class="p-[20px] flex flex-col gap-[14px] overflow-y-auto">
           {/* ---- 设置 ---- */}
@@ -1253,37 +1277,11 @@ export const InstanceManageDialog: Component<{
             </Show>
           </Show>
 
-          {/* ---- 资源(资源包 / 光影)---- */}
-          <Show when={tab() === "resources" && props.instance}>
+          {/* ---- 资源包 / 光影 / 数据包 ---- */}
+          <Show when={isPackTab(tab()) && props.instance}>
             {(inst) => (
               <>
-                <div class="flex gap-[6px]">
-                  <button
-                    class={`px-[12px] h-[28px] rounded-ctl text-[12px] cursor-pointer transition-colors duration-150 ${
-                      resKind() === "resource_pack" ? "bg-a-4 text-white" : "bg-n-3 text-dim hover:text-fg"
-                    }`}
-                    onClick={() => setResKind("resource_pack")}
-                  >
-                    资源包
-                  </button>
-                  <button
-                    class={`px-[12px] h-[28px] rounded-ctl text-[12px] cursor-pointer transition-colors duration-150 ${
-                      resKind() === "shader" ? "bg-a-4 text-white" : "bg-n-3 text-dim hover:text-fg"
-                    }`}
-                    onClick={() => setResKind("shader")}
-                  >
-                    光影
-                  </button>
-                  <button
-                    class={`px-[12px] h-[28px] rounded-ctl text-[12px] cursor-pointer transition-colors duration-150 ${
-                      resKind() === "datapack" ? "bg-a-4 text-white" : "bg-n-3 text-dim hover:text-fg"
-                    }`}
-                    onClick={() => setResKind("datapack")}
-                  >
-                    数据包
-                  </button>
-                </div>
-                <Show when={resKind() === "resource_pack"}>
+                <Show when={packKind() === "resource_pack"}>
                   <PacksPanel
                     instance={inst()}
                     kind="resource_pack"
@@ -1292,7 +1290,7 @@ export const InstanceManageDialog: Component<{
                     tick={importTick()}
                   />
                 </Show>
-                <Show when={resKind() === "shader"}>
+                <Show when={packKind() === "shader"}>
                   <PacksPanel
                     instance={inst()}
                     kind="shader"
@@ -1301,7 +1299,7 @@ export const InstanceManageDialog: Component<{
                     tick={importTick()}
                   />
                 </Show>
-                <Show when={resKind() === "datapack"}>
+                <Show when={packKind() === "datapack"}>
                   <PacksPanel
                     instance={inst()}
                     kind="datapack"

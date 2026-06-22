@@ -155,13 +155,23 @@ export function oklchToHex(L: number, C: number, H: number, alpha = 1): string {
 /** 一份生成好的调色板:CSS 变量名 → 颜色字符串(hex / hex+alpha)。 */
 export type Palette = Record<string, string>;
 
+const LIGHT_NEUTRALS: Record<string, string> = {
+  "--n-1": "#ffffff",
+  "--n-2": "#f5f5f5",
+  "--n-3": "#fafafa",
+  "--n-4": "#ffffff",
+  "--n-5": "#f0f0f0",
+  "--n-6": "#e0e0e0",
+  "--n-7": "#737373",
+  "--n-8": "#343d4a",
+};
+
 /**
  * 从 ToneProfile + ThemeAccent 生成完整调色板(--n-* / --a-* / 叠层 / 强调表面)。
  *
- * 中性(--n-*):移植 `_CalculateGrays`,8 个亮度锚 L1..8 在 chroma 0 下取灰。
- * PCL 的 Gray1..8 在两套档里亮度走向相反(浅档暗→亮、深档亮→暗);我们的既有语义恒为
- * 「--n-1=最暗底 → --n-8=最亮前景」,故用 `9 - i` 把 L 列**反向**映射进 --n-i,
- * 让深/浅两档都满足该语义(无需各写一套)。
+ * 中性(--n-*):深色档按 ToneProfile 亮度锚生成;浅色档保留 tokens.css 的 PCL
+ * 语义色阶(白底/白卡/浅灰输入/深色文字)。直接用浅档 L1..8 会把卡片和搜索框算成
+ * 中灰,偏离 PCL 的默认浅色界面。
  *
  * 强调(--a-*):移植 `_CalculateColors`,逐级用非对称 _AdjustLinear 调 L/C 后按 hue
  * 染色。a-1 特例(lightAdj*0.1、chromaAdj*0.25)沿用 PCL,保「最深选中底」稳。
@@ -171,11 +181,16 @@ export function generatePalette(tone: ToneProfile, accent: ThemeAccent): Palette
   const { hue, lightAdjust: la, chromaAdjust: ca } = accent;
   const out: Palette = {};
 
-  // ---- 中性 --n-1..8(chroma=0;L 列反向映射以贴合既有语义)----
+  // ---- 中性 --n-1..8 ----
   const grayL = [tone.L1, tone.L2, tone.L3, tone.L4, tone.L5, tone.L6, tone.L7, tone.L8];
-  for (let i = 1; i <= 8; i++) {
-    const L = grayL[8 - i]; // --n-1 ← L8 …… --n-8 ← L1
-    out[`--n-${i}`] = oklchToHex(L, 0, 0, 1);
+  const ascending = tone.L1 <= tone.L8; // 浅档为真(升序),深档为假(降序)。
+  if (ascending) {
+    Object.assign(out, LIGHT_NEUTRALS);
+  } else {
+    for (let i = 1; i <= 8; i++) {
+      const L = grayL[8 - i]; // --n-1 ← L8 …… --n-8 ← L1
+      out[`--n-${i}`] = oklchToHex(L, 0, 0, 1);
+    }
   }
 
   // ---- 纯白/前景叠层(半透明白,供亚克力/分隔线等)----
@@ -190,7 +205,6 @@ export function generatePalette(tone: ToneProfile, accent: ThemeAccent): Palette
   // (见 tokens.css),与明暗模式无关。故按「最深锚点 → a-1」对齐:浅档 L 已升序,直接
   // 取;深档 L 降序,反向取。这样保留 PCL 的 L/C 配对与「a-1 特例旋钮」落在真正最深的
   // 那一级,又满足我们恒定的 a-1→a-8 由深到浅契约(深/浅档都对味)。
-  const ascending = tone.L1 <= tone.L8; // 浅档为真(升序),深档为假(降序)。
   // src[k] = 第 k 深锚点(k=0 最深)对应的源序号(1..8)。
   const srcOrder = ascending
     ? [1, 2, 3, 4, 5, 6, 7, 8]

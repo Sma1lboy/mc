@@ -45,9 +45,9 @@ export const DEFAULT_THEME: ThemeConfig = {
 export const MODRINTH_THEME: ThemeConfig = DEFAULT_THEME;
 export const PCL_THEME: ThemeConfig = {
   mode: "light",
-  hue: 214,
-  saturation: 88,
-  lightness: 52,
+  hue: 255,
+  saturation: 40,
+  lightness: 45,
 };
 
 /** 取某布局相称的默认主题。 */
@@ -178,7 +178,7 @@ export const PRESETS: {
   lightness: number;
 }[] = [
   { name: "绿", hue: 150, saturation: 60, lightness: 45 }, // Modrinth 绿(默认)
-  { name: "蓝", hue: 214, saturation: 88, lightness: 52 }, // PCL 蓝
+  { name: "蓝", hue: 255, saturation: 40, lightness: 45 }, // PCL CatBlue
   { name: "粉", hue: 330, saturation: 70, lightness: 58 },
   { name: "紫", hue: 265, saturation: 60, lightness: 58 },
   { name: "橙", hue: 28, saturation: 85, lightness: 54 },
