@@ -276,8 +276,8 @@ const ProjectInstallDetail: Component<{
               }
             >
               <Show when={versionList().length > 0} fallback={<div class="text-n-6 text-[13px] py-[10px]">没有可用版本。</div>}>
-                <div class="flex flex-col gap-[6px] max-h-[320px] overflow-y-auto">
-                  <For each={versionList().slice(0, 24)}>
+                <div class="flex flex-col gap-[6px] max-h-[360px] overflow-y-auto">
+                  <For each={versionList()}>
                     {(version) => {
                       const inst = () => selectedInstance();
                       const compatible = () => {

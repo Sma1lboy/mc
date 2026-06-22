@@ -183,10 +183,14 @@ const ScreenshotsPanel: Component<{ instance: InstanceSummary }> = (props) => {
   const lightboxImages = () =>
     capped().map((s) => ({ url: urls[s.file_name] ?? "", title: s.file_name }));
 
-  // 打开/切换灯箱时确保目标图已加载(其缩略图可能还没滚动到、未触发懒加载)。
+  // 打开/切换灯箱时确保目标图及左右相邻图已加载(缩略图可能还没滚动到、未触发懒加载),
+  // 避免主图/缩略图条出现空白或裂图。
   function openLightbox(i: number) {
-    const f = capped()[i]?.file_name;
-    if (f) void loadUrl(f);
+    const list = capped();
+    for (const j of [i, i - 1, i + 1]) {
+      const f = list[j]?.file_name;
+      if (f) void loadUrl(f);
+    }
     setLightbox(i);
   }
 
