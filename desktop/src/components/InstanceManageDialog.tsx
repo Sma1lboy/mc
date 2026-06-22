@@ -13,6 +13,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Dialog } from "./Dialog";
 import Lightbox from "./Lightbox";
+import { ProjectDetailPanel } from "./ProjectDetailPanel";
 import { Spinner } from "./Spinner";
 import { toast } from "./Toast";
 import { api } from "../ipc/api";
@@ -245,6 +246,7 @@ const PacksPanel: Component<{
   const [query, setQuery] = createSignal("");
   const [debounced, setDebounced] = createSignal("");
   const [installing, setInstalling] = createSignal<string | null>(null);
+  const [detail, setDetail] = createSignal<{ id: string; title: string; icon?: string | null } | null>(null);
   let timer: number | undefined;
   function onInput(v: string) {
     setQuery(v);
@@ -336,6 +338,12 @@ const PacksPanel: Component<{
                   </div>
                 </div>
                 <button
+                  class={OPEN_BTN}
+                  onClick={() => setDetail({ id: h.project_id, title: h.title, icon: h.icon_url })}
+                >
+                  详情
+                </button>
+                <button
                   class={INSTALL_BTN}
                   disabled={installing() !== null}
                   onClick={() => install(h.project_id, h.title)}
@@ -413,6 +421,22 @@ const PacksPanel: Component<{
             </For>
           </div>
         </Show>
+      </Show>
+
+      <Show when={detail()}>
+        {(d) => (
+          <ProjectDetailPanel
+            projectId={d().id}
+            title={d().title}
+            iconUrl={d().icon}
+            target={props.searchKind}
+            instanceId={props.instance.id}
+            mcVersion={props.instance.mc_version}
+            loader={null}
+            onClose={() => setDetail(null)}
+            onInstalled={() => refetch()}
+          />
+        )}
       </Show>
     </div>
   );
@@ -660,6 +684,7 @@ export const InstanceManageDialog: Component<{
   const [query, setQuery] = createSignal("");
   const [debounced, setDebounced] = createSignal("");
   const [installing, setInstalling] = createSignal<string | null>(null);
+  const [modDetail, setModDetail] = createSignal<{ id: string; title: string; icon?: string | null } | null>(null);
   let debounceTimer: number | undefined;
 
   function onQueryInput(v: string) {
@@ -1094,6 +1119,12 @@ export const InstanceManageDialog: Component<{
                           </div>
                         </div>
                         <button
+                          class={OPEN_BTN}
+                          onClick={() => setModDetail({ id: h.project_id, title: h.title, icon: h.icon_url })}
+                        >
+                          详情
+                        </button>
+                        <button
                           class="shrink-0 h-[28px] px-[12px] rounded-ctl bg-a-4 text-white text-[12px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90 disabled:opacity-50 disabled:cursor-default"
                           disabled={installing() !== null}
                           onClick={() => installHit(h.project_id, h.title)}
@@ -1285,6 +1316,21 @@ export const InstanceManageDialog: Component<{
           {/* ---- 截图 ---- */}
           <Show when={tab() === "screenshots" && props.instance}>
             {(inst) => <ScreenshotsPanel instance={inst()} />}
+          </Show>
+
+          {/* Mods 搜索结果的项目详情(覆盖整个弹窗) */}
+          <Show when={modDetail() && props.instance}>
+            <ProjectDetailPanel
+              projectId={modDetail()!.id}
+              title={modDetail()!.title}
+              iconUrl={modDetail()!.icon}
+              target="mod"
+              instanceId={props.instance!.id}
+              mcVersion={props.instance!.mc_version}
+              loader={searchLoader()}
+              onClose={() => setModDetail(null)}
+              onInstalled={() => refetchMods()}
+            />
           </Show>
         </div>
 

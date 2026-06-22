@@ -219,6 +219,39 @@ pub async fn install_mod(
         .map_err(err)
 }
 
+/// 安装一个**指定版本**(by Modrinth version id)到实例对应位置,返回落盘文件名。
+/// target = "mod" / "resourcepack" / "shader" / "datapack"。
+/// 注意:显式选版安装不做依赖解析(用户已自行决定要哪个版本)。
+#[tauri::command]
+pub async fn install_version_file(
+    root: String,
+    id: String,
+    target: String,
+    version_id: String,
+) -> CmdResult<String> {
+    use mc_core::instance::PackKind;
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let dl = make_downloader()?;
+    let v = ModrinthApi::new().get_version(&version_id).await.map_err(err)?;
+    match target.as_str() {
+        "mod" => mc_core::instance::install_mod_version(&inst, &dl, &v).await.map_err(err),
+        "resourcepack" => {
+            mc_core::instance::packs::install_pack_version(&inst, &dl, PackKind::ResourcePack, &v)
+                .await
+                .map_err(err)
+        }
+        "shader" => mc_core::instance::packs::install_pack_version(&inst, &dl, PackKind::Shader, &v)
+            .await
+            .map_err(err),
+        "datapack" => {
+            mc_core::instance::packs::install_pack_version(&inst, &dl, PackKind::Datapack, &v)
+                .await
+                .map_err(err)
+        }
+        other => Err(format!("不支持的安装目标: {other}")),
+    }
+}
+
 /// 检查实例里已启用 mod 的更新(对每个 jar 的 sha1 问 Modrinth 当前 loader/版本下的最新版)。
 #[tauri::command]
 pub async fn check_mod_updates(

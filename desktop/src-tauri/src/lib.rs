@@ -23,6 +23,7 @@ pub fn run() {
             commands::set_mod_enabled,
             commands::delete_mod,
             commands::install_mod,
+            commands::install_version_file,
             commands::check_mod_updates,
             commands::apply_mod_update,
             commands::import_local_resource,

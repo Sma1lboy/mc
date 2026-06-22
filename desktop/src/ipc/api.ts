@@ -91,6 +91,11 @@ export const api = {
     return invoke<void>("delete_mod", { root, id, fileName });
   },
 
+  /** 安装一个指定版本(by version id)到实例对应位置,返回落盘文件名(不解析依赖) */
+  installVersionFile(root: string, id: string, target: string, versionId: string): Promise<string> {
+    return invoke<string>("install_version_file", { root, id, target, versionId });
+  },
+
   /** 检查实例里已启用 mod 的更新(对每个 jar 的 sha1 问 Modrinth 最新兼容版) */
   checkModUpdates(root: string, id: string, mcVersion: string, loader: string): Promise<ModUpdate[]> {
     return invoke<ModUpdate[]>("check_mod_updates", { root, id, mcVersion, loader });
