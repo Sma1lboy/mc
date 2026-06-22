@@ -8,6 +8,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .manage(commands::RunningGames::default())
         .invoke_handler(tauri::generate_handler![
             commands::list_roots,
             commands::list_instances,
@@ -52,6 +53,8 @@ pub fn run() {
             commands::set_theme,
             commands::install_version,
             commands::launch_instance,
+            commands::stop_instance,
+            commands::running_instances,
             commands::import_modpack,
             commands::export_modpack,
             commands::install_modrinth_modpack,

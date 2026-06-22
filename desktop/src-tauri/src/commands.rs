@@ -2,7 +2,9 @@
 //! request to a core call and serialises the result; long operations stream
 //! progress / logs back as Tauri events. No launcher logic lives here.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use mc_core::auth::{AccountStore, MsaClient, StoredAccount};
 use mc_core::download::Downloader;
@@ -15,8 +17,8 @@ use mc_core::types::{
 };
 use mc_core::{auth, java, meta, paths, LAUNCHER_NAME, LAUNCHER_VERSION};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
-use tokio::sync::watch;
+use tauri::{AppHandle, Emitter, State};
+use tokio::sync::{oneshot, watch};
 
 type CmdResult<T> = Result<T, String>;
 
@@ -651,14 +653,53 @@ pub async fn install_version(app: AppHandle, root: String, id: String) -> CmdRes
         .map_err(err)
 }
 
+/// 运行中的游戏进程表:instance id → 给该进程 reaper 任务发「请停止」的一次性信号。
+///
+/// 进程自然退出时由 reaper 自己把条目移除;[`stop_instance`] 主动停止时把 sender 取出
+/// 并发信号。用 `Arc` 包裹以便克隆进 `'static` 的后台任务里(自然退出后自我注销)。
+#[derive(Clone, Default)]
+pub struct RunningGames {
+    inner: Arc<Mutex<HashMap<String, oneshot::Sender<()>>>>,
+}
+
+impl RunningGames {
+    fn register(&self, id: String, kill: oneshot::Sender<()>) {
+        self.inner.lock().unwrap().insert(id, kill);
+    }
+    fn unregister(&self, id: &str) {
+        self.inner.lock().unwrap().remove(id);
+    }
+    fn is_running(&self, id: &str) -> bool {
+        self.inner.lock().unwrap().contains_key(id)
+    }
+    /// 取出并移除某实例的停止信号(若在运行)。
+    fn take(&self, id: &str) -> Option<oneshot::Sender<()>> {
+        self.inner.lock().unwrap().remove(id)
+    }
+    fn ids(&self) -> Vec<String> {
+        self.inner.lock().unwrap().keys().cloned().collect()
+    }
+}
+
+/// 启动一个实例。进程被登记进 [`RunningGames`];生命周期通过事件回传 UI:
+/// 进度走 `launch://progress`,日志走 `game://log`,**真正 spawn 成功**后发
+/// `game://started { id }`,进程退出后发 `game://exit { id, code, success, reason }`
+/// (非零退出会跑崩溃诊断,把人话原因 + 建议一并带回)。
+///
+/// 同一实例已在运行时直接拒绝,避免重复开多个 JVM。
 #[tauri::command]
 pub async fn launch_instance(
     app: AppHandle,
+    state: State<'_, RunningGames>,
     root: String,
     id: String,
     name: String,
     online: bool,
 ) -> CmdResult<()> {
+    if state.is_running(&id) {
+        return Err(format!("实例「{id}」已经在运行了"));
+    }
+
     let paths = root_paths(&root);
     let dl = make_downloader()?;
 
@@ -682,38 +723,127 @@ pub async fn launch_instance(
 
     let mut child = launch::launch(spec, &dl, Some(tx)).await.map_err(err)?;
 
+    // 滚动保留最近若干行输出,供进程退出后的崩溃诊断使用(崩溃原因多在 stderr 末尾)。
+    let log_tail: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+
     // Stream the game's stdout/stderr as log events (also drains the pipes so the
     // child never blocks on a full buffer).
     use tokio::io::{AsyncBufReadExt, BufReader};
     if let Some(out) = child.stdout.take() {
         let app = app.clone();
+        let tail = log_tail.clone();
         tokio::spawn(async move {
             let mut lines = BufReader::new(out).lines();
             while let Ok(Some(line)) = lines.next_line().await {
+                push_tail(&tail, &line);
                 let _ = app.emit("game://log", GameLog { line, level: "info" });
             }
         });
     }
     if let Some(e) = child.stderr.take() {
         let app = app.clone();
+        let tail = log_tail.clone();
         tokio::spawn(async move {
             let mut lines = BufReader::new(e).lines();
             while let Ok(Some(line)) = lines.next_line().await {
+                push_tail(&tail, &line);
                 let _ = app.emit("game://log", GameLog { line, level: "error" });
             }
         });
     }
-    // Reap the process in the background so it doesn't become a zombie.
+
+    // 登记进程 + 通知 UI「真的起来了」(成功提示应以此为准,而非第一行日志)。
+    let (kill_tx, kill_rx) = oneshot::channel::<()>();
+    state.register(id.clone(), kill_tx);
+    let _ = app.emit("game://started", GameStarted { id: id.clone() });
+
+    // 后台 reaper:等待自然退出或停止信号,reap 进程,注销登记,并回传退出/崩溃信息。
+    let registry = state.inner_handle();
     tokio::spawn(async move {
-        let _ = child.wait().await;
+        let status = tokio::select! {
+            s = child.wait() => s.ok(),
+            _ = kill_rx => {
+                let _ = child.start_kill();
+                child.wait().await.ok()
+            }
+        };
+        registry.unregister(&id);
+
+        let code = status.and_then(|s| s.code());
+        let success = status.map(|s| s.success()).unwrap_or(false);
+        let analysis = if success {
+            None
+        } else {
+            let tail = log_tail.lock().unwrap().join("\n");
+            mc_core::diagnostics::analyze_exit(code.unwrap_or(-1), &tail)
+        };
+        let (reason, suggestions) = match analysis {
+            Some(a) => (Some(a.reason), a.suggestions),
+            None => (None, Vec::new()),
+        };
+        let _ = app.emit(
+            "game://exit",
+            GameExit { id, code, success, reason, suggestions },
+        );
     });
+
     Ok(())
+}
+
+/// 停止一个正在运行的实例(向其 reaper 发停止信号;reaper 杀进程并广播 `game://exit`)。
+/// 实例不在运行时为 no-op。
+#[tauri::command]
+pub fn stop_instance(state: State<'_, RunningGames>, id: String) -> CmdResult<()> {
+    if let Some(kill) = state.take(&id) {
+        let _ = kill.send(());
+    }
+    Ok(())
+}
+
+/// 当前正在运行的实例 id 列表(供 UI 挂载时同步运行态)。
+#[tauri::command]
+pub fn running_instances(state: State<'_, RunningGames>) -> CmdResult<Vec<String>> {
+    Ok(state.ids())
+}
+
+impl RunningGames {
+    /// 克隆出可移动进 `'static` 后台任务的句柄(共享同一张表)。
+    fn inner_handle(&self) -> RunningGames {
+        self.clone()
+    }
+}
+
+/// 把一行输出追加进滚动日志尾部,封顶 400 行,避免长会话无限增长。
+fn push_tail(tail: &Arc<Mutex<Vec<String>>>, line: &str) {
+    let mut t = tail.lock().unwrap();
+    t.push(line.to_string());
+    if t.len() > 400 {
+        let overflow = t.len() - 400;
+        t.drain(0..overflow);
+    }
 }
 
 #[derive(Serialize, Clone)]
 struct GameLog {
     line: String,
     level: &'static str,
+}
+
+#[derive(Serialize, Clone)]
+struct GameStarted {
+    id: String,
+}
+
+#[derive(Serialize, Clone)]
+struct GameExit {
+    id: String,
+    /// 进程退出码(被信号杀死时可能为 `None`)。
+    code: Option<i32>,
+    success: bool,
+    /// 非零退出时的人话崩溃原因(诊断命中才有)。
+    reason: Option<String>,
+    /// 崩溃诊断给出的可执行建议(可能为空)。
+    suggestions: Vec<String>,
 }
 
 /// Diagnostic: the webview reports boot/errors here so they surface in stderr
