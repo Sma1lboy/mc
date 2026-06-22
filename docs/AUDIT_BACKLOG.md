@@ -3,6 +3,18 @@
 Generated 2026-06-22 from a multi-agent end-to-end audit (10 chains, adversarially verified).
 38 confirmed gaps. Ranked by user-value / effort; correctness bugs kept high.
 
+## Shipped 2026-06-22
+
+- **#1** Workspace-layout account login — `AccountDialog` (theme-neutral) reachable from ContextBar + Rail.
+- **#2** Export writes the clean loader build (`47.2.0`), not the dir-id, so Forge/NeoForge mrpacks re-import.
+- **#3** Installing a mod version removes the superseded jar (no duplicate-modid crash). `mods::remove_superseded`.
+- **#4 + #5** Process registry + `game://started`/`game://exit` events: real running state, Stop, crash diagnostics, no success-on-first-log, double-spawn guard.
+- **#6** Auto-provision a matching Temurin JRE on launch when none is installed (`LaunchSpec.runtimes_dir`).
+- **#7** World backup uses save-as (no silent overwrite). **#23** rename re-entrancy guard.
+- **#15** Incompatible mod versions can't be installed (button blocked + backend-agnostic guard).
+
+Remaining: see ranks #8–#14, #16–#22, #24–#31 below.
+
 ## Cross-cutting themes
 
 - No exit/crash/process lifecycle anywhere: the spawned child is detached and never tracked (commands.rs:706-708), so 'running' is permanently false, the Stop UI is dead, exit codes are discarded, no game://exit event exists, and the success toast fires on the first log line — fix all of these with one process-registry + exit-event sweep (ranks 4, 5).
