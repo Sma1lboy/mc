@@ -179,9 +179,9 @@ export const api = {
     return invoke<void>("delete_world", { root, id, folder });
   },
 
-  /** 把一个存档打成 zip 备份到 destDir,返回写出的 zip 绝对路径 */
-  backupWorld(root: string, id: string, folder: string, destDir: string): Promise<string> {
-    return invoke<string>("backup_world", { root, id, folder, destDir });
+  /** 把一个存档打成 zip 备份到 destPath(完整 .zip 路径,通常由另存为对话框给出),返回写出路径 */
+  backupWorld(root: string, id: string, folder: string, destPath: string): Promise<string> {
+    return invoke<string>("backup_world", { root, id, folder, destPath });
   },
 
   /** 重命名存档的显示名(改 level.dat 的 LevelName,不改文件夹名) */

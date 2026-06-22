@@ -399,11 +399,12 @@ pub fn delete_world(root: String, id: String, folder: String) -> CmdResult<()> {
     mc_core::instance::world::delete_world(&inst, &folder).map_err(err)
 }
 
-/// 把一个存档打成 zip 备份到 dest_dir,返回写出的 zip 绝对路径。
+/// 把一个存档打成 zip 备份到 dest_path(完整 .zip 文件路径,由 UI 的另存为对话框给出),
+/// 返回写出的 zip 绝对路径。
 #[tauri::command]
-pub fn backup_world(root: String, id: String, folder: String, dest_dir: String) -> CmdResult<String> {
+pub fn backup_world(root: String, id: String, folder: String, dest_path: String) -> CmdResult<String> {
     let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
-    mc_core::instance::world::backup_world(&inst, &folder, std::path::Path::new(&dest_dir))
+    mc_core::instance::world::backup_world(&inst, &folder, std::path::Path::new(&dest_path))
         .map(|p| p.to_string_lossy().into_owned())
         .map_err(err)
 }

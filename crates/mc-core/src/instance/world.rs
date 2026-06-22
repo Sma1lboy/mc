@@ -262,17 +262,20 @@ fn zip_dir_recursive<W: std::io::Write + std::io::Seek>(
     Ok(())
 }
 
-/// 把世界目录打成 zip 备份到 `dest_dir/<folder>-backup.zip`,返回该 zip 路径。
+/// 把世界目录打成 zip 备份到 `dest_path`(一个完整的 `.zip` 文件路径),返回该路径。
 ///
+/// 由调用方(UI 的另存为对话框)决定确切的文件名与位置 —— 这样用户能给每次备份起不同
+/// 名字,系统的另存为对话框也会在覆盖同名文件前给出确认,避免静默覆盖上一次的备份。
 /// 归档内部以世界文件夹名为根目录(便于解压后直接是一个可用的 `saves/<folder>/`)。
-/// 自动创建 `dest_dir`。使用 Deflated 压缩(存档主要是文本/小文件,压缩收益明显)。
-pub fn backup_world(inst: &Instance, folder: &str, dest_dir: &Path) -> Result<PathBuf> {
+/// 自动创建 `dest_path` 的父目录。Deflated 压缩(存档多为文本/小文件,收益明显)。
+pub fn backup_world(inst: &Instance, folder: &str, dest_path: &Path) -> Result<PathBuf> {
     let src = world_dir(inst, folder)?;
 
-    std::fs::create_dir_all(dest_dir).with_path(dest_dir)?;
-    let zip_path = dest_dir.join(format!("{folder}-backup.zip"));
+    if let Some(parent) = dest_path.parent() {
+        std::fs::create_dir_all(parent).with_path(parent)?;
+    }
 
-    let file = std::fs::File::create(&zip_path).with_path(&zip_path)?;
+    let file = std::fs::File::create(dest_path).with_path(dest_path)?;
     let mut writer = ZipWriter::new(file);
     let options =
         SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
@@ -280,7 +283,7 @@ pub fn backup_world(inst: &Instance, folder: &str, dest_dir: &Path) -> Result<Pa
     zip_dir_recursive(&mut writer, &src, &src, options)?;
 
     writer.finish().map_err(|e| CoreError::Zip(e.to_string()))?;
-    Ok(zip_path)
+    Ok(dest_path.to_path_buf())
 }
 
 /// 删除整个世界目录。
@@ -508,8 +511,7 @@ mod tests {
         write_world(&inst, "world1", &build_level_value("Round Trip", 0, 123, 9));
 
         // 备份得到 world1-backup.zip(zip 内根目录为 world1/)。
-        let backup_dir = root.path.join("backups");
-        let zip = backup_world(&inst, "world1", &backup_dir).unwrap();
+        let zip = backup_world(&inst, "world1", &root.path.join("backups/world1-backup.zip")).unwrap();
         assert!(zip.is_file());
 
         // 导入:文件名去 -backup → world1,已存在 → 唯一化为 world1-2。
@@ -640,7 +642,7 @@ mod tests {
         std::fs::create_dir_all(&region).unwrap();
         std::fs::write(region.join("r.0.0.mca"), b"chunk-bytes").unwrap();
 
-        let dest = root.path.join("backups");
+        let dest = root.path.join("backups").join("w-backup.zip");
         let zip_path = backup_world(&inst, "w", &dest).unwrap();
 
         assert!(zip_path.exists());

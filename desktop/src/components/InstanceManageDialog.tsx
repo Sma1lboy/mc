@@ -9,7 +9,7 @@ import {
   Show,
 } from "solid-js";
 import { createStore } from "solid-js/store";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Dialog } from "./Dialog";
 import Lightbox from "./Lightbox";
@@ -508,11 +508,16 @@ const WorldsPanel: Component<{ instance: InstanceSummary; tick?: number }> = (pr
   }
 
   async function backup(w: WorldInfo) {
-    const dir = await openDialog({ directory: true, title: "选择备份保存位置" });
-    if (typeof dir !== "string") return; // 取消
+    // 另存为:用户自定文件名/位置;同名文件由系统对话框确认覆盖,不会静默盖掉上次备份。
+    const dest = await saveDialog({
+      title: "备份存档为…",
+      defaultPath: `${(w.name || w.folder).replace(/[\\/:*?"<>|]/g, "_")}-backup.zip`,
+      filters: [{ name: "Zip 备份", extensions: ["zip"] }],
+    });
+    if (!dest) return; // 取消
     setBusy(w.folder);
     try {
-      const zip = await api.backupWorld(activeRoot(), props.instance.id, w.folder, dir);
+      const zip = await api.backupWorld(activeRoot(), props.instance.id, w.folder, dest);
       toast({ type: "success", message: `已备份到 ${zip}` });
     } catch (e) {
       toast({ type: "error", message: `备份失败:${e}` });
@@ -527,6 +532,10 @@ const WorldsPanel: Component<{ instance: InstanceSummary; tick?: number }> = (pr
   }
 
   async function commitRename(w: WorldInfo) {
+    // 防重入:Enter 提交成功后会 setEditing(null),输入框卸载又触发 onBlur 二次调用;
+    // Escape 也先 setEditing(null) 再触发 onBlur。两种情况此时 editing() 已不是本行,
+    // 直接返回 —— 避免重复重命名/重复 toast,以及「Escape 反而保存」。
+    if (editing() !== w.folder) return;
     const name = draft().trim();
     if (!name || name === w.name) {
       setEditing(null);
