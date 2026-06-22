@@ -30,6 +30,10 @@ pub struct LaunchSpec {
     pub launcher_version: String,
     /// When false, skip the network "ensure files" step (offline play).
     pub online: bool,
+    /// Where to auto-provision a JRE when no compatible local Java is found
+    /// (`<data_dir>/java`, holding `jre-{major}/` per major). `None` disables
+    /// auto-install and a missing Java surfaces as [`CoreError::JavaNotFound`].
+    pub runtimes_dir: Option<PathBuf>,
 }
 
 /// A loader closure that reads `versions/<id>/<id>.json` from disk for the
@@ -187,11 +191,19 @@ pub async fn install_version(
     ensure_files(dl, paths, &profile, &ctx, progress).await
 }
 
-/// Pick a Java install: explicit override → config → auto-detect by required major.
+/// Pick a Java install: explicit override → config → auto-detect by required major
+/// → auto-provision (download a Temurin JRE of that major) when nothing local fits.
+///
+/// Auto-provisioning is what makes "just press Play" hold across the Java-8/17/21
+/// split: a user with only Java 21 installed can still launch a 1.12 instance. It's
+/// idempotent (a previously downloaded `jre-{major}` is reused, no re-download) and
+/// only kicks in when [`LaunchSpec::runtimes_dir`] is set.
 async fn resolve_java(
     spec: &LaunchSpec,
     profile: &LaunchProfile,
     mc_version: &str,
+    dl: &Downloader,
+    progress: Option<&watch::Sender<Progress>>,
 ) -> Result<PathBuf> {
     if let Some(p) = &spec.java_path {
         return Ok(p.clone());
@@ -204,9 +216,20 @@ async fn resolve_java(
     }
     let major = java::required_major(mc_version, profile.java_major);
     let installs: Vec<JavaInstall> = java::detect_all().await;
-    java::select(&installs, major)
-        .map(|j| j.path.clone())
-        .ok_or(CoreError::JavaNotFound { major })
+    if let Some(j) = java::select(&installs, major) {
+        return Ok(j.path.clone());
+    }
+
+    // Nothing local matches the required major — provision one if we're allowed to.
+    match &spec.runtimes_dir {
+        Some(dir) => {
+            if let Some(tx) = progress {
+                let _ = tx.send(Progress::new(format!("下载 Java {major} 运行时(首次较慢)")));
+            }
+            java::install::install_jre(dl, dir, major).await
+        }
+        None => Err(CoreError::JavaNotFound { major }),
+    }
 }
 
 /// Run the full launch pipeline and return the spawned child process.
@@ -236,8 +259,8 @@ pub async fn launch(
         ensure_files(dl, &paths, &profile, &ctx, progress.clone()).await?;
     }
 
-    // 3. Java
-    let java_path = resolve_java(&spec, &profile, &mc_version).await?;
+    // 3. Java (auto-provision a matching JRE if none is installed)
+    let java_path = resolve_java(&spec, &profile, &mc_version, dl, progress.as_ref()).await?;
 
     // 4. natives
     extract_natives(&profile, &paths, &ctx)?;

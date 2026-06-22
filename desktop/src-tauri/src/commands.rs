@@ -716,6 +716,7 @@ pub async fn launch_instance(
         launcher_name: LAUNCHER_NAME.to_string(),
         launcher_version: LAUNCHER_VERSION.to_string(),
         online,
+        runtimes_dir: Some(data_dir().join("java")),
     };
 
     let (tx, rx) = watch::channel(Progress::new("准备"));

@@ -693,6 +693,7 @@ async fn cmd_launch(
         launcher_name: LAUNCHER_NAME.to_string(),
         launcher_version: LAUNCHER_VERSION.to_string(),
         online,
+        runtimes_dir: Some(data_dir().join("java")),
     };
 
     let (tx, mut rx) = tokio::sync::watch::channel(mc_core::types::Progress::new("准备"));
