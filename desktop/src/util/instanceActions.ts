@@ -16,6 +16,16 @@ export async function openInstanceDir(root: string, id: string): Promise<void> {
   }
 }
 
+/** 打开实例的某个子目录(mods/resourcepacks/saves/screenshots…),后端确保目录存在。 */
+export async function openInstanceSubdir(root: string, id: string, sub: string): Promise<void> {
+  try {
+    const dir = await api.instanceSubdir(root, id, sub);
+    await shellOpen(dir);
+  } catch (e) {
+    toast({ type: "error", message: `打开目录失败:${e}` });
+  }
+}
+
 /** 删除实例(调用方应已确认)。成功返回 true,供页面刷新列表。 */
 export async function deleteInstance(
   root: string,

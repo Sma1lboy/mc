@@ -95,6 +95,26 @@ pub fn instance_dir(root: String, id: String) -> CmdResult<String> {
     Ok(dir.to_string_lossy().to_string())
 }
 
+/// 取实例某个子目录的绝对路径并确保其存在(供「打开目录」用前端 shell.open 打开)。
+/// sub = "mods" / "resourcepacks" / "shaderpacks" / "datapacks" / "saves" / "screenshots" / "config"。
+#[tauri::command]
+pub fn instance_subdir(root: String, id: String, sub: String) -> CmdResult<String> {
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let dir = match sub.as_str() {
+        "mods" => inst.mods_dir(),
+        "resourcepacks" => inst.resourcepacks_dir(),
+        "shaderpacks" => inst.shaderpacks_dir(),
+        "datapacks" => inst.datapacks_dir(),
+        "saves" => inst.saves_dir(),
+        "screenshots" => inst.screenshots_dir(),
+        "config" => inst.game_dir().join("config"),
+        other => return Err(format!("未知子目录: {other}")),
+    };
+    // 目录可能尚未被游戏创建过;先建好,避免 shell.open 打开不存在的路径失败。
+    std::fs::create_dir_all(&dir).map_err(|e| format!("创建目录失败: {e}"))?;
+    Ok(dir.to_string_lossy().into_owned())
+}
+
 /// 删除一个实例。复用 mc-core 的 lifecycle::delete_instance:优先移入系统回收站
 /// (可恢复),无 GUI 时回退永久删除;目录不存在视为已删除(幂等)。前端须先确认。
 #[tauri::command]

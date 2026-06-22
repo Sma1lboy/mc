@@ -56,6 +56,11 @@ export const api = {
     return invoke<string>("instance_dir", { root, id });
   },
 
+  /** 取实例某子目录路径(并确保存在),用于「打开目录」。sub 见后端注释 */
+  instanceSubdir(root: string, id: string, sub: string): Promise<string> {
+    return invoke<string>("instance_subdir", { root, id, sub });
+  },
+
   /** 读取单实例配置(名字/内存/Java/JVM/窗口…) */
   getInstanceConfig(root: string, id: string): Promise<InstanceConfig> {
     return invoke<InstanceConfig>("get_instance_config", { root, id });

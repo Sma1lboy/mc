@@ -16,6 +16,7 @@ import Lightbox from "./Lightbox";
 import { Spinner } from "./Spinner";
 import { toast } from "./Toast";
 import { api } from "../ipc/api";
+import { openInstanceDir, openInstanceSubdir } from "../util/instanceActions";
 import { activeRoot } from "../store";
 import type {
   InstanceConfig,
@@ -146,6 +147,16 @@ const ScreenshotsPanel: Component<{ instance: InstanceSummary }> = (props) => {
 
   return (
     <div class="flex flex-col gap-[8px]">
+      <div class="flex items-center justify-between">
+        <div class={LABEL}>截图</div>
+        <button
+          class={OPEN_BTN}
+          onClick={() => openInstanceSubdir(activeRoot(), props.instance.id, "screenshots")}
+        >
+          打开目录
+        </button>
+      </div>
+
       <Show when={(shots() ?? []).length > SCREENSHOT_CAP}>
         <div class="text-[11px] text-dim">
           共 {shots()!.length} 张,仅展示最新 {SCREENSHOT_CAP} 张(其余可在「打开目录」里查看)。
@@ -210,6 +221,8 @@ const INSTALL_BTN =
   "transition-opacity duration-150 hover:opacity-90 disabled:opacity-50 disabled:cursor-default";
 const DEL_BTN =
   "shrink-0 text-[12px] text-[#e5848a] px-[8px] py-[4px] rounded-xs cursor-pointer hover:bg-[rgba(229,132,138,0.14)]";
+const OPEN_BTN =
+  "shrink-0 text-[12px] text-dim px-[8px] py-[3px] rounded-xs cursor-pointer hover:text-fg hover:bg-a-4/10";
 
 /**
  * PacksPanel —— 资源包 / 光影的统一面板:Modrinth 搜索安装 + 本地启停/删除。
@@ -336,7 +349,25 @@ const PacksPanel: Component<{
       </Show>
 
       <div class="h-px bg-n-3 my-[2px]" />
-      <div class={LABEL}>已安装</div>
+      <div class="flex items-center justify-between">
+        <div class={LABEL}>已安装</div>
+        <button
+          class={OPEN_BTN}
+          onClick={() =>
+            openInstanceSubdir(
+              activeRoot(),
+              props.instance.id,
+              props.kind === "resource_pack"
+                ? "resourcepacks"
+                : props.kind === "shader"
+                  ? "shaderpacks"
+                  : "datapacks",
+            )
+          }
+        >
+          打开目录
+        </button>
+      </div>
 
       <Show
         when={!packs.loading}
@@ -478,13 +509,21 @@ const WorldsPanel: Component<{ instance: InstanceSummary; tick?: number }> = (pr
     <div class="flex flex-col gap-[8px]">
       <div class="flex items-center justify-between">
         <div class={LABEL}>世界列表(也可把 .zip 拖入此弹窗导入)</div>
-        <button
-          class="text-[12px] text-a-6 px-[8px] py-[3px] rounded-xs cursor-pointer hover:bg-a-4/10 disabled:opacity-50"
-          disabled={importing()}
-          onClick={importZip}
-        >
-          {importing() ? "导入中…" : "导入存档…"}
-        </button>
+        <div class="flex items-center gap-[4px]">
+          <button
+            class={OPEN_BTN}
+            onClick={() => openInstanceSubdir(activeRoot(), props.instance.id, "saves")}
+          >
+            打开目录
+          </button>
+          <button
+            class="text-[12px] text-a-6 px-[8px] py-[3px] rounded-xs cursor-pointer hover:bg-a-4/10 disabled:opacity-50"
+            disabled={importing()}
+            onClick={importZip}
+          >
+            {importing() ? "导入中…" : "导入存档…"}
+          </button>
+        </div>
       </div>
 
       <Show
@@ -989,6 +1028,15 @@ export const InstanceManageDialog: Component<{
                       onChange={(e) => patch({ fullscreen: e.currentTarget.checked })}
                     />
                   </label>
+
+                  <div class="pt-[4px]">
+                    <button
+                      class="h-[30px] px-[12px] border border-n-6 rounded-ctl bg-n-4 text-fg text-[12px] cursor-pointer transition-colors duration-150 hover:bg-n-5"
+                      onClick={() => props.instance && openInstanceDir(activeRoot(), props.instance.id)}
+                    >
+                      打开游戏目录
+                    </button>
+                  </div>
                 </>
               )}
             </Show>
@@ -1061,13 +1109,21 @@ export const InstanceManageDialog: Component<{
               <div class="h-px bg-n-3 my-[2px]" />
               <div class="flex items-center justify-between">
                 <div class={LABEL}>已安装</div>
-                <button
-                  class="text-[12px] text-a-6 px-[8px] py-[3px] rounded-xs cursor-pointer hover:bg-a-4/10 disabled:opacity-50"
-                  disabled={checking() || searchLoader() === null}
-                  onClick={checkUpdates}
-                >
-                  {checking() ? "检查中…" : "检查更新"}
-                </button>
+                <div class="flex items-center gap-[4px]">
+                  <button
+                    class={OPEN_BTN}
+                    onClick={() => openInstanceSubdir(activeRoot(), props.instance!.id, "mods")}
+                  >
+                    打开目录
+                  </button>
+                  <button
+                    class="text-[12px] text-a-6 px-[8px] py-[3px] rounded-xs cursor-pointer hover:bg-a-4/10 disabled:opacity-50"
+                    disabled={checking() || searchLoader() === null}
+                    onClick={checkUpdates}
+                  >
+                    {checking() ? "检查中…" : "检查更新"}
+                  </button>
+                </div>
               </div>
 
               {/* 可更新清单(检查后才出现) */}

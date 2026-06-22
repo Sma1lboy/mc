@@ -12,6 +12,7 @@ pub fn run() {
             commands::list_roots,
             commands::list_instances,
             commands::instance_dir,
+            commands::instance_subdir,
             commands::delete_instance,
             commands::copy_instance,
             commands::create_instance,
