@@ -631,12 +631,18 @@ export const InstanceManageDialog: Component<{
   onChanged?: () => void;
   /** 复制完成回调,带新实例 id;PclLaunch 据此重拉列表并选中新实例。 */
   onCopied?: (newId: string) => void;
+  /** 内嵌模式:不套 Dialog,直接铺在父容器里(PCL 右栏的「设置」标签用),
+   *  隐藏实例名头部与「完成」按钮,父组件只在需要时挂载本组件即等于「打开」。 */
+  embedded?: boolean;
 }> = (props) => {
   const [tab, setTab] = createSignal<Tab>("settings");
   const [cfg, setCfg] = createSignal<InstanceConfig | null>(null);
   const [copying, setCopying] = createSignal(false);
   // 资源标签内的子类型:资源包 / 光影 / 数据包。
   const [resKind, setResKind] = createSignal<PackKind>("resource_pack");
+
+  // 是否「活动」(应加载数据 / 接受拖放):弹窗模式看 open,内嵌模式只要挂载即活动。
+  const active = () => props.embedded || props.open;
 
   async function copyInstance() {
     const inst = props.instance;
@@ -657,13 +663,13 @@ export const InstanceManageDialog: Component<{
   createEffect(() => {
     const inst = props.instance;
     setUpdates(null); // 切换实例/开关时清掉上一个实例的更新检查结果。
-    if (props.open && inst) {
+    if (active() && inst) {
       setCfg(null);
       api
         .getInstanceConfig(activeRoot(), inst.id)
         .then(setCfg)
         .catch((e) => toast({ type: "error", message: `读取配置失败:${e}` }));
-    } else if (!props.open) {
+    } else if (!active()) {
       setCfg(null);
       setTab("settings");
     }
@@ -671,7 +677,7 @@ export const InstanceManageDialog: Component<{
 
   // Mods:仅在 Mods 标签 + 弹窗打开时拉取。
   const [mods, { refetch: refetchMods }] = createResource(
-    () => (props.open && props.instance && tab() === "mods" ? props.instance.id : false),
+    () => (active() && props.instance && tab() === "mods" ? props.instance.id : false),
     (id) => api.instanceMods(activeRoot(), id as string),
   );
 
@@ -697,7 +703,7 @@ export const InstanceManageDialog: Component<{
   // 搜索结果:仅在 Mods 标签 + 有关键词时请求。
   const [hits] = createResource(
     () =>
-      props.open && props.instance && tab() === "mods" && debounced()
+      active() && props.instance && tab() === "mods" && debounced()
         ? ([props.instance.id, debounced()] as const)
         : false,
     () => api.modrinthSearch(debounced(), "mod", props.instance?.mc_version ?? null, searchLoader()),
@@ -829,9 +835,9 @@ export const InstanceManageDialog: Component<{
   }
 
   createEffect(() => {
-    if (!props.open) return;
+    if (!active()) return;
     const unlisten = getCurrentWebview().onDragDropEvent((e) => {
-      if (!props.open) return;
+      if (!active()) return;
       const p = e.payload;
       if (p.type === "enter" || p.type === "over") setDragOver(true);
       else if (p.type === "leave") setDragOver(false);
@@ -895,25 +901,25 @@ export const InstanceManageDialog: Component<{
     }
   }
 
-  return (
-    <Dialog
-      open={props.open}
-      onClose={props.onClose}
-      label="实例管理"
-      contentClass="w-[520px] max-w-[calc(100vw-48px)] bg-card rounded-card shadow-card overflow-hidden focus:outline-none"
-    >
+  const body = (
       <div
-        class="relative flex flex-col max-h-[calc(100vh-100px)] transition-shadow duration-150"
-        classList={{ "ring-2 ring-inset ring-a-4": dragOver() }}
+        class="relative flex flex-col transition-shadow duration-150"
+        classList={{
+          "max-h-[calc(100vh-100px)]": !props.embedded,
+          "h-full": props.embedded,
+          "ring-2 ring-inset ring-a-4": dragOver(),
+        }}
       >
         <Show when={dragOver() && dropAccepted()}>
           <div class="absolute inset-0 z-10 grid place-items-center bg-card/85 pointer-events-none">
             <div class="text-[14px] text-a-6 font-semibold">松手导入到此实例</div>
           </div>
         </Show>
-        <div class="px-[20px] pt-[18px] text-[15px] font-bold text-fg">
-          {props.instance?.name || props.instance?.id}
-        </div>
+        <Show when={!props.embedded}>
+          <div class="px-[20px] pt-[18px] text-[15px] font-bold text-fg">
+            {props.instance?.name || props.instance?.id}
+          </div>
+        </Show>
 
         <div class="flex gap-[4px] px-[16px] border-b border-n-3 mt-[10px]">
           <button class={`${TAB} ${tab() === "settings" ? TAB_ACTIVE : ""}`} onClick={() => setTab("settings")}>
@@ -1342,14 +1348,29 @@ export const InstanceManageDialog: Component<{
           >
             {copying() ? "复制中…" : "复制实例"}
           </button>
-          <button
-            class="h-[34px] px-[16px] border border-n-6 rounded-ctl bg-n-4 text-fg text-[13px] cursor-pointer transition-colors duration-150 hover:bg-n-5"
-            onClick={props.onClose}
-          >
-            完成
-          </button>
+          <Show when={!props.embedded}>
+            <button
+              class="h-[34px] px-[16px] border border-n-6 rounded-ctl bg-n-4 text-fg text-[13px] cursor-pointer transition-colors duration-150 hover:bg-n-5"
+              onClick={props.onClose}
+            >
+              完成
+            </button>
+          </Show>
         </div>
       </div>
+  );
+
+  // 内嵌模式直接铺在父容器;否则套 Dialog 作模态。
+  return props.embedded ? (
+    body
+  ) : (
+    <Dialog
+      open={props.open}
+      onClose={props.onClose}
+      label="实例管理"
+      contentClass="w-[520px] max-w-[calc(100vw-48px)] bg-card rounded-card shadow-card overflow-hidden focus:outline-none"
+    >
+      {body}
     </Dialog>
   );
 };

@@ -2,6 +2,7 @@ import { Component, createResource, createSignal, For, Show, onCleanup } from "s
 import { Avatar, InstanceManageDialog, NewInstanceDialog, Spinner, toast } from "../components";
 import { api, onGameLog, onLaunchProgress } from "../ipc/api";
 import { activeRoot } from "../store";
+import { openInstanceDir } from "../util/instanceActions";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import type { AccountSummary, InstanceSummary } from "../ipc/types";
 import PclAccountDialog from "./PclAccountDialog";
@@ -13,8 +14,10 @@ const loaderLabel = (l: string) =>
 const kindLabel = (k: string) =>
   k === "microsoft" ? "正版验证" : k === "yggdrasil" ? "外置登录" : "离线模式";
 
-/** 右侧主区视图:新闻主页 / 版本选择 / 启动日志(照抄 PCL CE 的 启动页交互)。 */
-type RightView = "news" | "versions" | "log";
+/** 右侧主区视图:新闻主页 / 版本选择 / 实例详情 / 启动日志(照抄 PCL CE 的 启动页交互)。 */
+type RightView = "news" | "versions" | "instance" | "log";
+/** 实例详情内的子标签:首页(概览)/ 设置(实例管理)。 */
+type InstanceTab = "home" | "settings";
 
 /**
  * PclLaunch —— 1:1 照抄 PCL CE 启动页逻辑(非 Modrinth 那种列表页):
@@ -36,10 +39,17 @@ const PclLaunch: Component = () => {
   const [logs, setLogs] = createSignal<string[]>([]);
   const [launching, setLaunching] = createSignal(false);
   const [rightView, setRightView] = createSignal<RightView>("news");
+  const [instanceTab, setInstanceTab] = createSignal<InstanceTab>("home");
   const [newsOpen, setNewsOpen] = createSignal<Record<string, boolean>>({ snapshot: true });
   const [showLogin, setShowLogin] = createSignal(false);
   const [showNew, setShowNew] = createSignal(false);
-  const [showManage, setShowManage] = createSignal(false);
+
+  // 打开某个实例的详情视图(右栏),默认落在「首页」标签。
+  function openInstance(inst: InstanceSummary) {
+    setSelected(inst);
+    setInstanceTab("home");
+    setRightView("instance");
+  }
   // 整合包导入/导出的进行态(禁用按钮 + 文案)。
   const [busy, setBusy] = createSignal<"" | "import" | "export">("");
 
@@ -200,28 +210,18 @@ const PclLaunch: Component = () => {
               </Show>
             </span>
           </button>
-          <div class="grid grid-cols-2 gap-[10px] mt-[10px]">
+          <div class="mt-[10px]">
             <button
-              class="h-[36px] border border-pcl-line rounded-[3px] bg-pcl-card text-pcl-text text-[13px] cursor-pointer transition-[background,border-color,color] duration-150 ease-[ease] hover:bg-pcl-blue-lightest hover:border-pcl-blue-soft"
+              class="w-full h-[36px] border border-pcl-line rounded-[3px] bg-pcl-card text-pcl-text text-[13px] cursor-pointer transition-[background,border-color,color] duration-150 ease-[ease] hover:bg-pcl-blue-lightest hover:border-pcl-blue-soft"
               classList={{
-                "bg-pcl-blue-bg": rightView() === "versions",
-                "border-pcl-blue": rightView() === "versions",
-                "text-pcl-blue": rightView() === "versions",
-                "font-semibold": rightView() === "versions",
+                "bg-pcl-blue-bg": rightView() === "versions" || rightView() === "instance",
+                "border-pcl-blue": rightView() === "versions" || rightView() === "instance",
+                "text-pcl-blue": rightView() === "versions" || rightView() === "instance",
+                "font-semibold": rightView() === "versions" || rightView() === "instance",
               }}
               onClick={() => setRightView(rightView() === "versions" ? "news" : "versions")}
             >
               版本选择
-            </button>
-            <button
-              class="h-[36px] border border-pcl-line rounded-[3px] bg-pcl-card text-pcl-text text-[13px] cursor-pointer transition-[background,border-color,color] duration-150 ease-[ease] hover:bg-pcl-blue-lightest hover:border-pcl-blue-soft"
-              onClick={() =>
-                selected()
-                  ? setShowManage(true)
-                  : toast({ type: "info", message: "先在左侧选择一个实例" })
-              }
-            >
-              版本设置
             </button>
           </div>
           <button
@@ -335,10 +335,7 @@ const PclLaunch: Component = () => {
                           "bg-pcl-blue-bg": selected()?.id === inst.id,
                           "before:bg-pcl-blue": selected()?.id === inst.id,
                         }}
-                        onClick={() => {
-                          setSelected(inst);
-                          setRightView("news");
-                        }}
+                        onClick={() => openInstance(inst)}
                       >
                         <span
                           class="w-[30px] h-[30px] flex-[0_0_30px] rounded-[4px] flex items-center justify-center font-bold text-[14px] text-white bg-pcl-blue data-[loader=forge]:bg-[#c96a1c] data-[loader=neoforge]:bg-[#c96a1c] data-[loader=fabric]:bg-[#a87b3f] data-[loader=quilt]:bg-[#a87b3f]"
@@ -357,6 +354,125 @@ const PclLaunch: Component = () => {
               </Show>
             </div>
           </div>
+        </Show>
+
+        {/* --- 实例详情:首页(概览)/ 设置(实例管理) --- */}
+        <Show when={rightView() === "instance" && selected()}>
+          {(inst) => (
+            <div class="flex flex-col min-h-0 flex-1 gap-[12px]">
+              {/* 头部:图标 + 名称 + 版本信息 + 首页/设置 标签 */}
+              <div class="bg-pcl-card rounded-[5px] shadow-pcl overflow-hidden">
+                <div class="flex items-center gap-[14px] p-[16px]">
+                  <div class="w-[52px] h-[52px] rounded-[8px] overflow-hidden bg-pcl-blue-bg2 grid place-items-center shrink-0">
+                    <Show
+                      when={inst().icon}
+                      fallback={
+                        <span class="text-[24px] font-extrabold text-pcl-blue">
+                          {(inst().name || inst().id)[0]?.toUpperCase()}
+                        </span>
+                      }
+                    >
+                      <img src={inst().icon!} alt="" class="w-full h-full object-cover" />
+                    </Show>
+                  </div>
+                  <div class="min-w-0">
+                    <div class="text-[18px] font-bold text-pcl-text whitespace-nowrap overflow-hidden text-ellipsis">
+                      {inst().name || inst().id}
+                    </div>
+                    <div class="text-[12px] text-pcl-text3">
+                      Minecraft {inst().mc_version} · {loaderLabel(inst().loader)}
+                      <Show when={inst().loader_version}>{` ${inst().loader_version}`}</Show>
+                    </div>
+                  </div>
+                </div>
+                <div class="flex gap-[4px] px-[12px] border-t border-pcl-line">
+                  <button
+                    class="px-[16px] py-[9px] text-[13px] font-semibold cursor-pointer border-b-2 border-b-transparent text-pcl-text3 hover:text-pcl-text transition-colors duration-150"
+                    classList={{ "!text-pcl-blue !border-b-pcl-blue": instanceTab() === "home" }}
+                    onClick={() => setInstanceTab("home")}
+                  >
+                    首页
+                  </button>
+                  <button
+                    class="px-[16px] py-[9px] text-[13px] font-semibold cursor-pointer border-b-2 border-b-transparent text-pcl-text3 hover:text-pcl-text transition-colors duration-150"
+                    classList={{ "!text-pcl-blue !border-b-pcl-blue": instanceTab() === "settings" }}
+                    onClick={() => setInstanceTab("settings")}
+                  >
+                    设置
+                  </button>
+                </div>
+              </div>
+
+              {/* 首页:概览 + 快捷操作 */}
+              <Show when={instanceTab() === "home"}>
+                <div class="flex flex-col gap-[12px]">
+                  <div class="bg-pcl-card rounded-[5px] shadow-pcl py-[14px] px-[16px]">
+                    <div class="text-[13px] font-bold text-pcl-text mb-[8px]">游玩信息</div>
+                    <div class="grid grid-cols-2 gap-y-[6px] text-[13px]">
+                      <span class="text-pcl-text3">游戏版本</span>
+                      <span class="text-pcl-text2">{inst().mc_version}</span>
+                      <span class="text-pcl-text3">加载器</span>
+                      <span class="text-pcl-text2">
+                        {loaderLabel(inst().loader)}
+                        <Show when={inst().loader_version}>{` ${inst().loader_version}`}</Show>
+                      </span>
+                      <span class="text-pcl-text3">上次游玩</span>
+                      <span class="text-pcl-text2">
+                        {inst().last_played
+                          ? new Date(inst().last_played!).toLocaleString()
+                          : "从未"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div class="bg-pcl-card rounded-[5px] shadow-pcl py-[14px] px-[16px] flex flex-wrap gap-[10px]">
+                    <button
+                      class="h-[34px] px-[16px] rounded-[3px] bg-pcl-blue text-white text-[13px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90 disabled:opacity-55"
+                      disabled={launching()}
+                      onClick={launch}
+                    >
+                      {launching() ? "启动中…" : "启动游戏"}
+                    </button>
+                    <button
+                      class="h-[34px] px-[16px] rounded-[3px] border border-pcl-line bg-pcl-card text-pcl-text text-[13px] cursor-pointer transition-colors duration-150 hover:bg-pcl-blue-lightest hover:border-pcl-blue-soft"
+                      onClick={() => openInstanceDir(activeRoot(), inst().id)}
+                    >
+                      打开游戏目录
+                    </button>
+                    <button
+                      class="h-[34px] px-[16px] rounded-[3px] border border-pcl-line bg-pcl-card text-pcl-text text-[13px] cursor-pointer transition-colors duration-150 hover:bg-pcl-blue-lightest hover:border-pcl-blue-soft disabled:opacity-50 disabled:cursor-default"
+                      disabled={busy() !== ""}
+                      onClick={exportSelected}
+                    >
+                      {busy() === "export" ? "导出中…" : "导出整合包"}
+                    </button>
+                  </div>
+                </div>
+              </Show>
+
+              {/* 设置:内嵌实例管理面板(其内含 设置/Mods/资源/存档/截图 子标签) */}
+              <Show when={instanceTab() === "settings"}>
+                <div class="bg-pcl-card rounded-[5px] shadow-pcl flex-1 min-h-0 overflow-hidden">
+                  <InstanceManageDialog
+                    embedded
+                    open
+                    instance={inst()}
+                    onClose={() => {}}
+                    onChanged={async () => {
+                      const list = await refetchInstances();
+                      const cur = selected();
+                      if (cur && list) setSelected(list.find((i) => i.id === cur.id) ?? cur);
+                    }}
+                    onCopied={async (newId) => {
+                      const list = await refetchInstances();
+                      setSelected((list ?? []).find((i) => i.id === newId) ?? null);
+                      setInstanceTab("home");
+                    }}
+                  />
+                </div>
+              </Show>
+            </div>
+          )}
         </Show>
 
         {/* --- 启动日志(启动后) --- */}
@@ -390,32 +506,14 @@ const PclLaunch: Component = () => {
         />
       </Show>
 
-      {/* 从零新建实例 */}
+      {/* 从零新建实例:建好后直接打开它的详情视图 */}
       <NewInstanceDialog
         open={showNew()}
         onClose={() => setShowNew(false)}
         onCreated={async (id) => {
           const list = await refetchInstances();
-          setSelected((list ?? []).find((i) => i.id === id) ?? null);
-        }}
-      />
-
-      {/* 实例设置(内存/Java/JVM/窗口) */}
-      <InstanceManageDialog
-        open={showManage()}
-        instance={selected()}
-        onClose={() => setShowManage(false)}
-        onChanged={async () => {
-          // 重拉列表,并把 selected 同步到刷新后的对象(否则改名/换图标后弹窗与头部仍是旧值)。
-          const list = await refetchInstances();
-          const cur = selected();
-          if (cur && list) setSelected(list.find((i) => i.id === cur.id) ?? cur);
-        }}
-        onCopied={async (newId) => {
-          // 复制完成:重拉列表、选中新实例、关闭弹窗。
-          const list = await refetchInstances();
-          setSelected((list ?? []).find((i) => i.id === newId) ?? null);
-          setShowManage(false);
+          const created = (list ?? []).find((i) => i.id === id);
+          if (created) openInstance(created);
         }}
       />
     </div>
