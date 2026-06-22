@@ -10,6 +10,9 @@
 
 use std::path::PathBuf;
 
+use mc_types::Progress;
+use tokio::sync::watch;
+
 use crate::download::{DownloadItem, Downloader};
 use crate::error::{CoreError, Result};
 use crate::instance::Instance;
@@ -125,8 +128,22 @@ impl ImportEngine {
 
     /// 执行一次完整导入。见模块文档的 10 步管线。
     pub async fn import(&self, src: ImportSource, opts: ImportOptions) -> Result<ImportOutcome> {
+        self.import_with_progress(src, opts, None).await
+    }
+
+    /// 同 [`import`](Self::import),但把各阶段进度发到 `progress`(下载整合包 / 装核心 /
+    /// 下载文件),供 UI 显示进度条 —— 整包下载常达数 GB,没有进度会像卡死。
+    pub async fn import_with_progress(
+        &self,
+        src: ImportSource,
+        opts: ImportOptions,
+        progress: Option<watch::Sender<Progress>>,
+    ) -> Result<ImportOutcome> {
         // ---- 1) 取归档:URL 先下到临时文件,本地文件直接用 ----
         // _tmp 持有临时下载文件的所有权,确保其生命周期覆盖整个导入。
+        if let Some(tx) = &progress {
+            let _ = tx.send(Progress::new("读取整合包"));
+        }
         let (archive_path, _tmp) = self.acquire_archive(&src).await?;
 
         // ---- 2) 打开 zip 一次 → 建 ArchiveIndex → dispatch ----
@@ -161,7 +178,7 @@ impl ImportEngine {
         ensure_dir(&game_dir)?;
 
         let outcome = self
-            .finish_import(&paths, &inst, &instance_id, &game_dir, &plan, &opts, &staging, blocked)
+            .finish_import(&paths, &inst, &instance_id, &game_dir, &plan, &opts, &staging, blocked, progress)
             .await;
 
         match outcome {
@@ -188,6 +205,7 @@ impl ImportEngine {
         opts: &ImportOptions,
         staging: &StagingDir,
         blocked: Vec<BlockedFile>,
+        progress: Option<watch::Sender<Progress>>,
     ) -> Result<ImportOutcome> {
         self.write_instance_config(inst, plan, opts)?;
         if let Some(icon_src) = &opts.icon {
@@ -198,7 +216,10 @@ impl ImportEngine {
         }
 
         // ---- 7) 装核心:loader(或原版)→ 得到实例应继承的版本 id ----
-        let core_id = self.install_core(paths, plan).await?;
+        if let Some(tx) = &progress {
+            let _ = tx.send(Progress::new("安装核心 / 加载器"));
+        }
+        let core_id = self.install_core(paths, plan, progress.clone()).await?;
         // 让整合包实例本身成为**可启动版本**:写一个 inheritsFrom 核心版本的最小 version json,
         // 使 versions/<instance_id>/ 既是版本定义(继承 loader → 原版)又是游戏目录(mods 在此)。
         // 仅当实例 id 与核心 id 不同时才写(原版包且 id==mc_version 时核心 json 已就位)。
@@ -207,7 +228,10 @@ impl ImportEngine {
         }
 
         // ---- 8) 下文件:PlannedFile → DownloadItem → 多源下载(并发 + 校验)----
-        let skipped_optional = self.download_files(game_dir, plan).await?;
+        if let Some(tx) = &progress {
+            let _ = tx.send(Progress::new("下载整合包文件"));
+        }
+        let skipped_optional = self.download_files(game_dir, plan, progress).await?;
 
         // ---- 9) 铺 overrides:逐个 override_root 从 staging 经 safe_join 拷进 game_dir ----
         for root in &plan.override_roots {
@@ -298,9 +322,14 @@ impl ImportEngine {
     /// 各 loader 安装器内部都会「缺原版则先装原版」,故原版安装只在无 loader 时显式触发。
     /// 注:Forge/NeoForge 使用 manifest 钉死的版本;Fabric/Quilt 现取最新稳定 loader
     /// (loader 向后兼容,通常无碍),钉版安装是后续增强。
-    async fn install_core(&self, paths: &GamePaths, plan: &ImportPlan) -> Result<String> {
+    async fn install_core(
+        &self,
+        paths: &GamePaths,
+        plan: &ImportPlan,
+        progress: Option<watch::Sender<Progress>>,
+    ) -> Result<String> {
         // 与「从零建实例」共用同一条装核心路径(见 loader::install_core)。
-        crate::loader::install_core(&self.dl, paths, &plan.mc_version, plan.loader.as_ref(), None)
+        crate::loader::install_core(&self.dl, paths, &plan.mc_version, plan.loader.as_ref(), progress)
             .await
     }
 
@@ -321,7 +350,12 @@ impl ImportEngine {
 
     /// 下载 `plan.files` 到 game_dir;**必备文件**任一失败即整体失败,**可选文件**失败仅记录
     /// 到 `skipped_optional`(尽力而为)。多源故障转移由 [`Downloader`] 处理。
-    async fn download_files(&self, game_dir: &std::path::Path, plan: &ImportPlan) -> Result<Vec<String>> {
+    async fn download_files(
+        &self,
+        game_dir: &std::path::Path,
+        plan: &ImportPlan,
+        progress: Option<watch::Sender<Progress>>,
+    ) -> Result<Vec<String>> {
         let mut required_items: Vec<DownloadItem> = Vec::new();
         let mut optional_items: Vec<(String, DownloadItem)> = Vec::new();
 
@@ -349,9 +383,9 @@ impl ImportEngine {
             }
         }
 
-        // 必备文件:必须全部到位。
+        // 必备文件:必须全部到位。进度走必备文件下载(占整包耗时大头)。
         if !required_items.is_empty() {
-            self.dl.download_all(required_items, None).await?;
+            self.dl.download_all(required_items, progress).await?;
         }
 
         // 可选文件:尽力而为,失败仅记录被跳过的 rel_path。

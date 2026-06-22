@@ -990,6 +990,7 @@ pub struct ImportOutcomeDto {
 /// 建好实例并返回其 id。`blocked` 列出需用户手动下载的 CurseForge 文件。
 #[tauri::command]
 pub async fn import_modpack(
+    app: AppHandle,
     root: String,
     path: String,
     instance_id: Option<String>,
@@ -1004,8 +1005,10 @@ pub async fn import_modpack(
     let mut opts = ImportOptions::new(paths.root().to_path_buf());
     opts.instance_id = instance_id;
 
+    let (tx, rx) = watch::channel(Progress::new("准备"));
+    forward_progress(app, "install://progress", rx);
     let outcome = engine
-        .import(ImportSource::LocalFile(PathBuf::from(path)), opts)
+        .import_with_progress(ImportSource::LocalFile(PathBuf::from(path)), opts, Some(tx))
         .await
         .map_err(err)?;
 
@@ -1119,6 +1122,7 @@ pub async fn export_modpack(
 /// 下载 + 识别 + 安装(原版 + loader + mods + overrides)成一个可启动实例。
 #[tauri::command]
 pub async fn install_modrinth_modpack(
+    app: AppHandle,
     root: String,
     project_id: String,
     instance_id: Option<String>,
@@ -1148,7 +1152,12 @@ pub async fn install_modrinth_modpack(
     let engine = ImportEngine::with_defaults(dl, ProviderRegistry::with_defaults());
     let mut opts = ImportOptions::new(paths.root().to_path_buf());
     opts.instance_id = instance_id;
-    let outcome = engine.import(ImportSource::Url(url), opts).await.map_err(err)?;
+    let (tx, rx) = watch::channel(Progress::new("准备"));
+    forward_progress(app, "install://progress", rx);
+    let outcome = engine
+        .import_with_progress(ImportSource::Url(url), opts, Some(tx))
+        .await
+        .map_err(err)?;
 
     Ok(ImportOutcomeDto {
         instance_id: outcome.instance_id,
@@ -1206,6 +1215,7 @@ pub async fn modrinth_project(
 /// 从一个 `.mrpack` 直链安装整合包(详情页「安装此版本」用)。
 #[tauri::command]
 pub async fn install_modpack_url(
+    app: AppHandle,
     root: String,
     url: String,
     instance_id: Option<String>,
@@ -1218,7 +1228,12 @@ pub async fn install_modpack_url(
     let engine = ImportEngine::with_defaults(dl, ProviderRegistry::with_defaults());
     let mut opts = ImportOptions::new(paths.root().to_path_buf());
     opts.instance_id = instance_id;
-    let outcome = engine.import(ImportSource::Url(url), opts).await.map_err(err)?;
+    let (tx, rx) = watch::channel(Progress::new("准备"));
+    forward_progress(app, "install://progress", rx);
+    let outcome = engine
+        .import_with_progress(ImportSource::Url(url), opts, Some(tx))
+        .await
+        .map_err(err)?;
     Ok(outcome.into())
 }
 

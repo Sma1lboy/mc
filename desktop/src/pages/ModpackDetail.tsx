@@ -1,8 +1,8 @@
-import { Component, createResource, createSignal, For, Show } from "solid-js";
+import { Component, createResource, createSignal, For, Show, onCleanup } from "solid-js";
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { Spinner, toast, Lightbox, type ModpackHit, type LightboxImage } from "../components";
-import { api } from "../ipc/api";
+import { api, onInstallProgress } from "../ipc/api";
 import { activeRoot } from "../store";
 import type { ModrinthVersion, ModrinthProject } from "../ipc/types";
 import { renderMarkdown } from "../util/markdown";
@@ -65,6 +65,13 @@ const ModpackDetail: Component<{
 
   const [openLog, setOpenLog] = createSignal<Record<string, boolean>>({});
   const [installing, setInstalling] = createSignal<string | null>(null);
+  // 安装进度阶段(来自 install://progress);整包动辄数 GB,没有进度像卡死。
+  const [progress, setProgress] = createSignal("");
+  const offProgress = onInstallProgress((p) => {
+    if (!installing()) return;
+    setProgress(p.total > 0 ? `${p.stage} ${p.current}/${p.total}` : p.stage);
+  });
+  onCleanup(offProgress);
 
   // 版本列表虚拟化(热门整合包可达数百版本,只渲染可视区 + overscan)。
   // 行高可变(更新日志可展开),靠 measureElement(ResizeObserver)动态测量。
@@ -101,6 +108,7 @@ const ModpackDetail: Component<{
       return;
     }
     setInstalling(v.id);
+    setProgress("准备…");
     toast({
       type: "info",
       message: `开始安装「${props.hit.title} ${v.version_number}」…首次会下载原版与依赖,可能需要几分钟`,
@@ -120,6 +128,7 @@ const ModpackDetail: Component<{
       toast({ type: "error", message: `安装失败:${e}` });
     } finally {
       setInstalling(null);
+      setProgress("");
     }
   }
 
@@ -375,7 +384,7 @@ const ModpackDetail: Component<{
                               disabled={!v.mrpack_url || installing() !== null}
                               onClick={() => install(v)}
                             >
-                              {installing() === v.id ? "安装中…" : "安装此版本"}
+                              {installing() === v.id ? (progress() || "安装中…") : "安装此版本"}
                             </button>
                           </div>
                         </div>
