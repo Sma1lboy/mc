@@ -709,6 +709,13 @@ pub async fn launch_instance(
         .and_then(|s| s.selected_session())
         .unwrap_or_else(|| auth::offline_session(&name));
 
+    // 是否联网修复文件:选了正版账号就联网(启动前补齐/修复缺损文件),离线账号走纯离线。
+    // 离线 session 由 auth::offline_session 固定写入 access_token = "0" 标识。UI 传入的
+    // online 作为下限,这样三个入口(Home/Library/经典)行为一致,不再因为某个入口硬编码
+    // online=false 而跳过文件修复、导致残缺实例启动后神秘崩溃。
+    let is_offline = session.access_token == "0" || session.access_token.is_empty();
+    let online = online || !is_offline;
+
     let spec = LaunchSpec {
         instance: Instance::new(&id, paths.root().to_path_buf()),
         session,
