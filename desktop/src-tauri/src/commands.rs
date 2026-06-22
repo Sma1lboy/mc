@@ -974,7 +974,10 @@ pub async fn export_modpack(
     input.pack_version = pack_version;
     if let (Some(k), Some(v)) = (loader.as_deref(), loader_version) {
         if let Some(lk) = parse_loader_kind(k) {
-            input.loader = Some((lk, v));
+            // 实例的 loader_version 实为整段版本 id;导出依赖前提取裸构建号,
+            // 否则导出的 Forge/NeoForge 整合包再导入时会匹配不到 loader。
+            let build = mc_core::loader::clean_loader_version(&v, lk, &input.mc_version);
+            input.loader = Some((lk, build));
         }
     }
 
