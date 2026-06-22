@@ -38,7 +38,7 @@ fn data_dir() -> PathBuf {
 }
 
 fn default_root() -> PathBuf {
-    let roots = paths::discover_roots(&exe_dir(), &data_dir(), &[]);
+    let roots = paths::discover_roots(&exe_dir(), &data_dir(), &custom_roots());
     roots
         .first()
         .map(|r| PathBuf::from(&r.path))
@@ -56,6 +56,11 @@ fn root_paths(root: &str) -> paths::GamePaths {
 /// 加载全局设置(损坏/缺失回退默认,绝不报错)。
 fn settings_global() -> mc_core::settings::GlobalSettings {
     mc_core::settings::GlobalSettings::load(&data_dir()).unwrap_or_default()
+}
+
+/// 用户在设置里添加的自定义游戏根目录(让 `custom_roots` 设置真正参与发现)。
+fn custom_roots() -> Vec<PathBuf> {
+    settings_global().custom_roots.iter().map(PathBuf::from).collect()
 }
 
 /// 按全局设置构造下载器:并发数 + 镜像源(官方/BMCLAPI+McIM)都来自用户设置,
@@ -81,7 +86,7 @@ pub struct JavaDto {
 
 #[tauri::command]
 pub fn list_roots() -> CmdResult<Vec<GameRoot>> {
-    Ok(paths::discover_roots(&exe_dir(), &data_dir(), &[]))
+    Ok(paths::discover_roots(&exe_dir(), &data_dir(), &custom_roots()))
 }
 
 #[tauri::command]

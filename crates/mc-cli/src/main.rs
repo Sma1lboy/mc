@@ -243,12 +243,22 @@ fn data_dir() -> PathBuf {
     paths::resolve_data_dir(&exe_dir())
 }
 
+/// 用户在设置里添加的自定义游戏根目录(让 `custom_roots` 设置参与发现)。
+fn custom_roots() -> Vec<PathBuf> {
+    GlobalSettings::load(&data_dir())
+        .unwrap_or_default()
+        .custom_roots
+        .iter()
+        .map(PathBuf::from)
+        .collect()
+}
+
 /// Resolve the game root to operate on.
 fn resolve_root(dir: &Option<PathBuf>) -> GamePaths {
     if let Some(d) = dir {
         return GamePaths::new(d.clone());
     }
-    let roots = paths::discover_roots(&exe_dir(), &data_dir(), &[]);
+    let roots = paths::discover_roots(&exe_dir(), &data_dir(), &custom_roots());
     let path = roots
         .first()
         .map(|r| PathBuf::from(&r.path))
@@ -338,7 +348,7 @@ async fn main() -> Result<()> {
 }
 
 fn cmd_roots() -> Result<()> {
-    let roots = paths::discover_roots(&exe_dir(), &data_dir(), &[]);
+    let roots = paths::discover_roots(&exe_dir(), &data_dir(), &custom_roots());
     if roots.is_empty() {
         println!("(没有发现游戏根目录)");
     }
