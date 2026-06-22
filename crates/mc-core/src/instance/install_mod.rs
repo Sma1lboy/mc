@@ -107,6 +107,10 @@ pub async fn install_mod_version(
     })
     .await?;
 
+    // 装好新版本后,清掉实例里同一个 mod 的旧 jar(否则同 modId 重复会让游戏崩溃)。
+    // 失败不阻断安装本身 —— 文件已经下好,清理是尽力而为。
+    let _ = crate::instance::mods::remove_superseded(inst, &file.filename);
+
     Ok(file.filename.clone())
 }
 

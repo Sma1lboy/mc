@@ -164,6 +164,61 @@ pub fn delete_mod(inst: &Instance, file_name: &str) -> Result<()> {
     Ok(())
 }
 
+/// 读取单个 jar 的内部 `mod_id`(读不出 / 无该字段时返回 `None`)。
+/// 用于「装新版自动清掉同一 mod 的旧 jar」时按 mod_id 配对。
+pub fn read_mod_id(path: &Path) -> Option<String> {
+    read_mod_metadata(path).and_then(|m| m.mod_id)
+}
+
+/// 装好 `keep_file_name` 这个新版本后,清理 `mods/` 里**同一个 mod(相同 `mod_id`)
+/// 但文件名不同**的旧 jar —— 否则两个版本会声明同一 `modId`,导致游戏启动直接崩溃
+/// (duplicate mod id)。返回被清理掉的旧文件名列表。
+///
+/// 安全约束:读不出新文件的 `mod_id` 时**不删除任何东西**(无法可靠判定归属);
+/// 旧文件优先移入回收站(可找回),回收站不可用才硬删。已停用(`.disabled`)的同
+/// mod 旧版同样清理 —— 留着它也会在用户重新启用时再次冲突。
+pub fn remove_superseded(inst: &Instance, keep_file_name: &str) -> Result<Vec<String>> {
+    let mods_dir = inst.mods_dir();
+
+    let keep_id = match read_mod_id(&mods_dir.join(keep_file_name)) {
+        Some(id) => id,
+        None => return Ok(Vec::new()),
+    };
+
+    let entries = match std::fs::read_dir(&mods_dir) {
+        Ok(e) => e,
+        Err(_) => return Ok(Vec::new()),
+    };
+
+    let mut removed = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(s) => s.to_string(),
+            None => continue,
+        };
+        if name == keep_file_name {
+            continue;
+        }
+        // 只看 mod jar(含 .disabled),其它文件忽略。
+        let is_mod_jar = name.ends_with(".jar")
+            || (name.ends_with(DISABLED_SUFFIX) && strip_disabled(&name).ends_with(".jar"));
+        if !is_mod_jar {
+            continue;
+        }
+        if read_mod_id(&path).as_deref() == Some(keep_id.as_str()) {
+            if trash::delete(&path).is_err() {
+                std::fs::remove_file(&path).with_path(&path)?;
+            }
+            removed.push(name);
+        }
+    }
+    Ok(removed)
+}
+
 /// 把一个本地 `.jar` 拖拽导入实例 `mods/` 目录,返回落盘文件名。
 ///
 /// 校验:源必须存在、文件名是 `.jar`(忽略大小写)。重名直接覆盖——用户主动拖入即视为
@@ -783,6 +838,44 @@ displayName = "Neo Mod"
 
         // 再删一次:文件已不存在,应幂等成功。
         delete_mod(&t.inst, "doomed.jar").unwrap();
+    }
+
+    #[test]
+    fn superseded_removes_same_mod_id_only() {
+        let t = TempInst::new("supersede");
+        let dir = t.inst.mods_dir();
+        // 同一个 mod 的两个版本(相同 mod_id "sodium",不同文件名)。
+        write_jar_with_entry(&dir.join("sodium-0.5.3.jar"), "fabric.mod.json", r#"{"id":"sodium","version":"0.5.3"}"#);
+        write_jar_with_entry(&dir.join("sodium-0.5.8.jar"), "fabric.mod.json", r#"{"id":"sodium","version":"0.5.8"}"#);
+        // 无关的另一个 mod,绝不能被动。
+        write_jar_with_entry(&dir.join("fabric-api.jar"), "fabric.mod.json", r#"{"id":"fabric"}"#);
+        // 同 mod 的旧版处于停用态,也应被清理(否则重新启用又冲突)。
+        write_jar_with_entry(&dir.join("sodium-old.jar.disabled"), "fabric.mod.json", r#"{"id":"sodium","version":"0.4.0"}"#);
+
+        let mut removed = remove_superseded(&t.inst, "sodium-0.5.8.jar").unwrap();
+        removed.sort();
+
+        assert!(dir.join("sodium-0.5.8.jar").exists(), "新版本应保留");
+        assert!(dir.join("fabric-api.jar").exists(), "无关 mod 应保留");
+        assert!(!dir.join("sodium-0.5.3.jar").exists(), "同 mod 旧版应清理");
+        assert!(!dir.join("sodium-old.jar.disabled").exists(), "停用的同 mod 旧版也应清理");
+        assert_eq!(
+            removed,
+            vec!["sodium-0.5.3.jar".to_string(), "sodium-old.jar.disabled".to_string()]
+        );
+    }
+
+    #[test]
+    fn superseded_noop_when_new_jar_unreadable() {
+        // 新文件读不出 mod_id(损坏/无元数据)时,不得删除任何东西 —— 无法可靠判定归属。
+        let t = TempInst::new("supersede-unknown");
+        let dir = t.inst.mods_dir();
+        write_jar_with_entry(&dir.join("sodium-0.5.3.jar"), "fabric.mod.json", r#"{"id":"sodium"}"#);
+        fs::write(dir.join("mystery.jar"), b"not a zip").unwrap();
+
+        let removed = remove_superseded(&t.inst, "mystery.jar").unwrap();
+        assert!(removed.is_empty());
+        assert!(dir.join("sodium-0.5.3.jar").exists(), "判定不了时旧文件必须原样保留");
     }
 
     #[test]
