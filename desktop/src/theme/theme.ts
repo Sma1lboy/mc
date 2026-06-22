@@ -60,6 +60,14 @@ export function themeForLayout(layout: "workspace" | "classic"): ThemeConfig {
   return layout === "classic" ? CLASSIC_THEME : WORKSPACE_THEME;
 }
 
+/**
+ * 当前主题是否仍等于某布局的默认(即用户从未自定义过配色)。
+ * 切换布局时据此判断:未自定义才套用新布局默认皮肤,自定义过则原样保留。
+ */
+export function isThemeUntouchedFor(layout: "workspace" | "classic"): boolean {
+  return sameTheme(themeConfig(), themeForLayout(layout));
+}
+
 function sameTheme(a: ThemeConfig, b: ThemeConfig): boolean {
   return (
     a.mode === b.mode &&

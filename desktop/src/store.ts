@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import { saveTheme, themeForLayout } from "./theme/theme";
+import { isThemeUntouchedFor, saveTheme, themeForLayout } from "./theme/theme";
 import { api, onGameExit, onGameStarted } from "./ipc/api";
 import { toast } from "./components/Toast";
 
@@ -71,9 +71,14 @@ export const [layoutMode, setLayoutMode] = createSignal<LayoutMode>(initialLayou
  * 用户之后仍可在设置里单独微调主题色。
  */
 export function switchLayout(mode: LayoutMode) {
+  const prev = layoutMode();
   setLayoutMode(mode);
   persistLayoutMode(mode);
-  void saveTheme(themeForLayout(mode)).catch(() => {});
+  // 仅当用户没自定义过主题(当前主题仍是旧布局默认)时,才套用新布局默认皮肤;
+  // 自定义过则保留 —— 别让「切换布局」把用户调好的配色悄悄重置。
+  if (isThemeUntouchedFor(prev)) {
+    void saveTheme(themeForLayout(mode)).catch(() => {});
+  }
   setCurrentPage(mode === "classic" ? "launch" : "home");
 }
 
