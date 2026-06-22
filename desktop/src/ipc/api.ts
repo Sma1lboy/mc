@@ -163,6 +163,11 @@ export const api = {
     return invoke<void>("rename_world", { root, id, folder, newName });
   },
 
+  /** 从一个 .zip 导入世界到实例 saves/,返回新世界文件夹名 */
+  importWorldZip(root: string, id: string, path: string): Promise<string> {
+    return invoke<string>("import_world_zip", { root, id, path });
+  },
+
   /** 删除实例(移除整个版本目录,含 mods/saves;破坏性,调用方需先确认) */
   deleteInstance(root: string, id: string): Promise<void> {
     return invoke<void>("delete_instance", { root, id });

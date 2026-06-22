@@ -231,16 +231,36 @@ const PacksPanel: Component<{
 /**
  * WorldsPanel —— 存档世界列表 + 备份(导出 zip)/ 重命名(改显示名)/ 删除(走回收站)。
  */
-const WorldsPanel: Component<{ instance: InstanceSummary }> = (props) => {
+const WorldsPanel: Component<{ instance: InstanceSummary; tick?: number }> = (props) => {
   const [worlds, { refetch }] = createResource(
-    () => props.instance.id,
-    (id) => api.instanceWorlds(activeRoot(), id),
+    () => [props.instance.id, props.tick ?? 0] as const,
+    ([id]) => api.instanceWorlds(activeRoot(), id),
   );
 
   // 行内重命名:正在编辑的世界 folder + 草稿名。
   const [editing, setEditing] = createSignal<string | null>(null);
   const [draft, setDraft] = createSignal("");
   const [busy, setBusy] = createSignal<string | null>(null);
+  const [importing, setImporting] = createSignal(false);
+
+  async function importZip() {
+    const picked = await openDialog({
+      multiple: false,
+      filters: [{ name: "存档压缩包", extensions: ["zip"] }],
+      title: "选择世界 .zip",
+    });
+    if (typeof picked !== "string") return;
+    setImporting(true);
+    try {
+      const folder = await api.importWorldZip(activeRoot(), props.instance.id, picked);
+      toast({ type: "success", message: `已导入存档 ${folder}` });
+      refetch();
+    } catch (e) {
+      toast({ type: "error", message: `导入失败:${e}` });
+    } finally {
+      setImporting(false);
+    }
+  }
 
   async function remove(w: WorldInfo) {
     try {
@@ -296,14 +316,26 @@ const WorldsPanel: Component<{ instance: InstanceSummary }> = (props) => {
   };
 
   return (
-    <Show
-      when={!worlds.loading}
-      fallback={
-        <div class="flex items-center gap-[10px] text-dim text-[13px] py-[12px]">
-          <Spinner size={16} /> 扫描存档…
-        </div>
-      }
-    >
+    <div class="flex flex-col gap-[8px]">
+      <div class="flex items-center justify-between">
+        <div class={LABEL}>世界列表(也可把 .zip 拖入此弹窗导入)</div>
+        <button
+          class="text-[12px] text-a-6 px-[8px] py-[3px] rounded-xs cursor-pointer hover:bg-a-4/10 disabled:opacity-50"
+          disabled={importing()}
+          onClick={importZip}
+        >
+          {importing() ? "导入中…" : "导入存档…"}
+        </button>
+      </div>
+
+      <Show
+        when={!worlds.loading}
+        fallback={
+          <div class="flex items-center gap-[10px] text-dim text-[13px] py-[12px]">
+            <Spinner size={16} /> 扫描存档…
+          </div>
+        }
+      >
       <Show
         when={(worlds() ?? []).length > 0}
         fallback={<div class="text-dim text-[13px] py-[12px]">该实例还没有存档。</div>}
@@ -365,7 +397,8 @@ const WorldsPanel: Component<{ instance: InstanceSummary }> = (props) => {
           </For>
         </div>
       </Show>
-    </Show>
+      </Show>
+    </div>
   );
 };
 
@@ -534,24 +567,31 @@ export const InstanceManageDialog: Component<{
   // 整个弹窗作为拖放区,目标类型由当前标签 + 资源子类型决定。
   const [dragOver, setDragOver] = createSignal(false);
   const [importTick, setImportTick] = createSignal(0);
+  const [worldTick, setWorldTick] = createSignal(0);
 
-  function dropTarget(): string | null {
+  /** 当前标签接受拖拽吗(设置标签不接受)。 */
+  function dropAccepted(): boolean {
+    return tab() === "mods" || tab() === "resources" || tab() === "worlds";
+  }
+
+  /** mods/资源标签的导入目标类型(存档走单独的 zip 导入命令,这里返回 null)。 */
+  function resourceTarget(): string | null {
     if (tab() === "mods") return "mod";
     if (tab() === "resources") return resKind() === "resource_pack" ? "resourcepack" : resKind();
-    return null; // 设置/存档标签不接受拖拽导入。
+    return null;
   }
 
   async function handleDrop(paths: string[]) {
     const inst = props.instance;
-    const target = dropTarget();
-    if (!inst || !target) {
-      toast({ type: "info", message: "请切到 Mods 或资源标签再拖入文件" });
+    if (!inst || !dropAccepted()) {
+      toast({ type: "info", message: "请切到 Mods / 资源 / 存档标签再拖入文件" });
       return;
     }
     let ok = 0;
     for (const path of paths) {
       try {
-        await api.importLocalResource(activeRoot(), inst.id, target, path);
+        if (tab() === "worlds") await api.importWorldZip(activeRoot(), inst.id, path);
+        else await api.importLocalResource(activeRoot(), inst.id, resourceTarget()!, path);
         ok += 1;
       } catch (e) {
         toast({ type: "error", message: `导入失败:${e}` });
@@ -559,7 +599,8 @@ export const InstanceManageDialog: Component<{
     }
     if (ok > 0) {
       toast({ type: "success", message: `已导入 ${ok} 个文件` });
-      if (target === "mod") refetchMods();
+      if (tab() === "mods") refetchMods();
+      else if (tab() === "worlds") setWorldTick((t) => t + 1);
       else setImportTick((t) => t + 1);
     }
   }
@@ -642,7 +683,7 @@ export const InstanceManageDialog: Component<{
         class="relative flex flex-col max-h-[calc(100vh-100px)] transition-shadow duration-150"
         classList={{ "ring-2 ring-inset ring-a-4": dragOver() }}
       >
-        <Show when={dragOver() && dropTarget()}>
+        <Show when={dragOver() && dropAccepted()}>
           <div class="absolute inset-0 z-10 grid place-items-center bg-card/85 pointer-events-none">
             <div class="text-[14px] text-a-6 font-semibold">松手导入到此实例</div>
           </div>
@@ -1017,7 +1058,7 @@ export const InstanceManageDialog: Component<{
 
           {/* ---- 存档 ---- */}
           <Show when={tab() === "worlds" && props.instance}>
-            {(inst) => <WorldsPanel instance={inst()} />}
+            {(inst) => <WorldsPanel instance={inst()} tick={worldTick()} />}
           </Show>
         </div>
 

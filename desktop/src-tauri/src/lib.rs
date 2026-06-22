@@ -33,6 +33,7 @@ pub fn run() {
             commands::delete_world,
             commands::backup_world,
             commands::rename_world,
+            commands::import_world_zip,
             commands::list_versions,
             commands::list_accounts,
             commands::msa_login_start,

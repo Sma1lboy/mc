@@ -22,7 +22,7 @@ pub use install_mod::{install_mod, install_mod_version, InstallReport};
 pub use mods::{list_mods, ModInfo};
 pub use packs::{install_pack, list_packs, PackInfo, PackKind};
 pub use update::{apply_mod_update, check_mod_updates, ModUpdate};
-pub use world::{list_worlds, WorldInfo};
+pub use world::{import_world_zip, list_worlds, WorldInfo};
 
 use std::path::{Path, PathBuf};
 

@@ -331,6 +331,13 @@ pub fn backup_world(root: String, id: String, folder: String, dest_dir: String) 
         .map_err(err)
 }
 
+/// 从一个 .zip 导入世界到实例 saves/,返回新世界文件夹名。zip 内需含 level.dat。
+#[tauri::command]
+pub fn import_world_zip(root: String, id: String, path: String) -> CmdResult<String> {
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    mc_core::instance::import_world_zip(&inst, std::path::Path::new(&path)).map_err(err)
+}
+
 /// 重命名存档的显示名(改 level.dat 的 LevelName,不改文件夹名)。
 #[tauri::command]
 pub fn rename_world(root: String, id: String, folder: String, new_name: String) -> CmdResult<()> {

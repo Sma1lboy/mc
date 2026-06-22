@@ -341,6 +341,90 @@ pub fn rename_world(inst: &Instance, folder: &str, new_name: &str) -> Result<()>
     crate::fs::write_atomic(&level_path, &gzipped)
 }
 
+/// 从一个 `.zip` 导入一个世界到实例 `saves/` 下,返回新世界的文件夹名。
+///
+/// 兼容两种常见布局:`level.dat` 在 zip 根(根即世界),或位于单层子目录下
+/// (`<World>/level.dat`,如 [`backup_world`] 导出的备份)。取**最浅**的 `level.dat`
+/// 所在目录作为归档根,把该子树解压到 `saves/<folder>/`(经 zip-slip 收口)。
+///
+/// 文件夹名取 zip 文件名(去 `.zip` 与 `-backup` 后缀)、清洗成文件系统安全名,并在
+/// `saves/` 下唯一化避免覆盖已有世界。zip 内不含 `level.dat` 时报错(不是一个世界存档)。
+pub fn import_world_zip(inst: &Instance, source: &Path) -> Result<String> {
+    use crate::modpack::import::archive::ZipArchiveIndex;
+    use crate::modpack::import::ArchiveIndex;
+
+    let mut idx = ZipArchiveIndex::open(source)?;
+
+    // 在条目里找 level.dat:根级 "level.dat",或某目录下 ".../level.dat"。取最浅的一个。
+    let archive_root = idx
+        .entries()
+        .iter()
+        .filter_map(|e| {
+            if e == LEVEL_DAT {
+                Some(String::new())
+            } else {
+                e.strip_suffix(&format!("/{LEVEL_DAT}")).map(|p| p.to_string())
+            }
+        })
+        .min_by_key(|root| root.matches('/').count())
+        .ok_or_else(|| CoreError::other("zip 内没有 level.dat,不是一个世界存档"))?;
+
+    // 目标文件夹名:zip 文件名去扩展名与 -backup 后缀 → 清洗 → 唯一化。
+    let stem = source.file_stem().and_then(|s| s.to_str()).unwrap_or("World");
+    let base = sanitize_world_folder(stem.strip_suffix("-backup").unwrap_or(stem));
+    let saves = inst.saves_dir();
+    let folder = unique_world_folder(&saves, &base);
+    let dest = saves.join(&folder);
+
+    // 解压子树到目标目录;失败则尽力清掉半成品目录,避免留下不可用的残骸。
+    if let Err(e) = idx.extract_subtree(&archive_root, &dest) {
+        let _ = std::fs::remove_dir_all(&dest);
+        return Err(e);
+    }
+
+    // 兜底校验:确实落出了 level.dat,否则视为导入失败。
+    if !dest.join(LEVEL_DAT).is_file() {
+        let _ = std::fs::remove_dir_all(&dest);
+        return Err(CoreError::other("解压后未找到 level.dat,导入失败"));
+    }
+
+    Ok(folder)
+}
+
+/// 把任意字符串清洗成文件系统安全的世界文件夹名:路径分隔符/保留字/控制符与空白归一为
+/// `-`,去首尾 `-`;空结果回退 `World`。保留 unicode(中文世界名可直接作目录名)。
+fn sanitize_world_folder(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    let mut prev_dash = false;
+    for ch in name.trim().chars() {
+        let bad = ch.is_whitespace()
+            || ch.is_control()
+            || matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|');
+        if bad {
+            if !prev_dash && !out.is_empty() {
+                out.push('-');
+                prev_dash = true;
+            }
+        } else {
+            out.push(ch);
+            prev_dash = false;
+        }
+    }
+    let s = out.trim_matches('-').to_string();
+    if s.is_empty() { "World".to_string() } else { s }
+}
+
+/// 在 `saves` 下为 `base` 找一个不冲突的文件夹名(冲突则追加 `-2`/`-3`…)。
+fn unique_world_folder(saves: &Path, base: &str) -> String {
+    if !saves.join(base).exists() {
+        return base.to_string();
+    }
+    (2u32..)
+        .map(|n| format!("{base}-{n}"))
+        .find(|cand| !saves.join(cand).exists())
+        .unwrap_or_else(|| base.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -415,6 +499,46 @@ mod tests {
         assert_eq!(w.last_played, 1_700_000_000_000);
         assert_eq!(w.seed, Some(42));
         assert!(w.size_bytes > 0, "size should count level.dat bytes");
+    }
+
+    #[test]
+    fn import_world_zip_roundtrips_from_backup() {
+        let root = TempRoot::new("import");
+        let inst = root.instance();
+        write_world(&inst, "world1", &build_level_value("Round Trip", 0, 123, 9));
+
+        // 备份得到 world1-backup.zip(zip 内根目录为 world1/)。
+        let backup_dir = root.path.join("backups");
+        let zip = backup_world(&inst, "world1", &backup_dir).unwrap();
+        assert!(zip.is_file());
+
+        // 导入:文件名去 -backup → world1,已存在 → 唯一化为 world1-2。
+        let folder = import_world_zip(&inst, &zip).unwrap();
+        assert_eq!(folder, "world1-2");
+        assert!(inst.saves_dir().join("world1-2").join(LEVEL_DAT).is_file());
+
+        // 现在有两个世界,导入的那个元数据可正常解析。
+        let worlds = list_worlds(&inst);
+        assert_eq!(worlds.len(), 2);
+        let imported = worlds.iter().find(|w| w.folder == "world1-2").unwrap();
+        assert_eq!(imported.name, "Round Trip");
+    }
+
+    #[test]
+    fn import_world_zip_rejects_non_world() {
+        let root = TempRoot::new("import-bad");
+        let inst = root.instance();
+        // 造一个不含 level.dat 的 zip。
+        let zip_path = root.path.join("notworld.zip");
+        let f = std::fs::File::create(&zip_path).unwrap();
+        let mut zw = ZipWriter::new(f);
+        zw.start_file("readme.txt", SimpleFileOptions::default()).unwrap();
+        zw.write_all(b"hi").unwrap();
+        zw.finish().unwrap();
+
+        assert!(import_world_zip(&inst, &zip_path).is_err());
+        // 失败不应留下任何世界目录。
+        assert!(list_worlds(&inst).is_empty());
     }
 
     #[test]
