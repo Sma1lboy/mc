@@ -37,15 +37,17 @@ function fmtSize(size: number | null): string {
   return size >= 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(size / 1024)} KB`;
 }
 
+function versionMatches(version: ModrinthVersion, inst: InstanceSummary, kind: InstallableKind): boolean {
+  if (!version.game_versions.includes(inst.mc_version)) return false;
+  return kind !== "mod" || (inst.loader !== "vanilla" && version.loaders.includes(inst.loader));
+}
+
 function compatibleVersionsFor(
   versions: ModrinthVersion[],
   inst: InstanceSummary,
   kind: InstallableKind,
 ): ModrinthVersion[] {
-  return versions.filter((version) => {
-    if (!version.game_versions.includes(inst.mc_version)) return false;
-    return kind !== "mod" || (inst.loader !== "vanilla" && version.loaders.includes(inst.loader));
-  });
+  return versions.filter((version) => versionMatches(version, inst, kind));
 }
 
 const ProjectInstallDetail: Component<{
@@ -56,6 +58,7 @@ const ProjectInstallDetail: Component<{
   const meta = () => KIND_META[props.kind];
   const [selectedId, setSelectedId] = createSignal<string | null>(null);
   const [installing, setInstalling] = createSignal(false);
+  const [installingVersion, setInstallingVersion] = createSignal<string | null>(null);
   const [openAbout, setOpenAbout] = createSignal(true);
 
   const [instances] = createResource(() => activeRoot(), (root) => api.listInstances(root));
@@ -107,9 +110,24 @@ const ProjectInstallDetail: Component<{
     );
   };
 
+  // 显式选版安装(走 install_version_file,不解析依赖)到当前选中的实例。
+  async function installVersion(version: ModrinthVersion) {
+    const inst = selectedInstance();
+    if (!inst || installing() || installingVersion()) return;
+    setInstallingVersion(version.id);
+    try {
+      const file = await api.installVersionFile(activeRoot(), inst.id, meta().target, version.id);
+      toast({ type: "success", message: `已安装 ${version.version_number} 到「${inst.name || inst.id}」:${file}` });
+    } catch (e) {
+      toast({ type: "error", message: `安装失败:${e}` });
+    } finally {
+      setInstallingVersion(null);
+    }
+  }
+
   async function installLatest() {
     const inst = selectedInstance();
-    if (!inst || installing()) return;
+    if (!inst || installing() || installingVersion()) return;
     if (!canInstallTo(inst)) {
       toast({ type: "error", message: "当前实例没有兼容版本,请换一个实例" });
       return;
@@ -237,24 +255,43 @@ const ProjectInstallDetail: Component<{
               <Show when={versionList().length > 0} fallback={<div class="text-n-6 text-[13px] py-[10px]">没有可用版本。</div>}>
                 <div class="flex flex-col gap-[6px] max-h-[320px] overflow-y-auto">
                   <For each={versionList().slice(0, 24)}>
-                    {(version) => (
-                      <div class="flex items-center gap-[10px] rounded-ctl bg-n-2 border border-n-3 px-[10px] py-[8px]">
-                        <div class="min-w-0 flex-1">
-                          <div class="text-[13px] font-semibold text-n-8 whitespace-nowrap overflow-hidden text-ellipsis">
-                            {version.version_number}
-                            <span class="ml-[6px] text-[11px] font-medium text-n-6">{typeLabel(version.version_type)}</span>
+                    {(version) => {
+                      const inst = () => selectedInstance();
+                      const compatible = () => {
+                        const i = inst();
+                        return i ? versionMatches(version, i, props.kind) : false;
+                      };
+                      const busy = () => installing() || installingVersion() !== null;
+                      return (
+                        <div
+                          class="flex items-center gap-[10px] rounded-ctl bg-n-2 border border-n-3 px-[10px] py-[8px]"
+                          classList={{ "opacity-55": !!inst() && !compatible() }}
+                        >
+                          <div class="min-w-0 flex-1">
+                            <div class="text-[13px] font-semibold text-n-8 whitespace-nowrap overflow-hidden text-ellipsis">
+                              {version.version_number}
+                              <span class="ml-[6px] text-[11px] font-medium text-n-6">{typeLabel(version.version_type)}</span>
+                            </div>
+                            <div class="mt-[2px] text-[11px] text-n-6 whitespace-nowrap overflow-hidden text-ellipsis">
+                              {version.game_versions.slice(0, 5).join(", ")}
+                              <Show when={version.loaders.length}>{" · " + version.loaders.join(" / ")}</Show>
+                              {" · "}
+                              {fmtDate(version.date_published)}
+                              <Show when={version.file_size}>{" · " + fmtSize(version.file_size)}</Show>
+                            </div>
                           </div>
-                          <div class="mt-[2px] text-[11px] text-n-6 whitespace-nowrap overflow-hidden text-ellipsis">
-                            {version.game_versions.slice(0, 5).join(", ")}
-                            <Show when={version.loaders.length}>{" · " + version.loaders.join(" / ")}</Show>
-                            {" · "}
-                            {fmtDate(version.date_published)}
-                            <Show when={version.file_size}>{" · " + fmtSize(version.file_size)}</Show>
-                          </div>
+                          <span class="text-[11px] text-n-6 whitespace-nowrap">⬇ {version.downloads.toLocaleString()}</span>
+                          <button
+                            class="shrink-0 h-[28px] rounded-ctl border border-n-3 bg-card px-[12px] text-[12px] font-semibold text-a-6 cursor-pointer transition-[background-color] duration-150 hover:bg-a-1 disabled:opacity-50 disabled:cursor-default"
+                            disabled={busy() || !inst()}
+                            title={inst() ? "" : "先在右侧选择一个实例"}
+                            onClick={() => installVersion(version)}
+                          >
+                            {installingVersion() === version.id ? "安装中…" : "安装"}
+                          </button>
                         </div>
-                        <span class="text-[11px] text-n-6">⬇ {version.downloads.toLocaleString()}</span>
-                      </div>
-                    )}
+                      );
+                    }}
                   </For>
                 </div>
               </Show>
@@ -330,10 +367,10 @@ const ProjectInstallDetail: Component<{
                   </div>
                   <button
                     class="h-[36px] rounded-ctl border-none bg-a-5 px-[14px] text-white text-[13px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90 disabled:opacity-50 disabled:cursor-default"
-                    disabled={installing() || !canInstallTo(inst())}
+                    disabled={installing() || installingVersion() !== null || !canInstallTo(inst())}
                     onClick={installLatest}
                   >
-                    {installing() ? "安装中…" : `安装${meta().title}`}
+                    {installing() ? "安装中…" : `安装最新${meta().title}`}
                   </button>
                   <Show when={props.kind === "mod" && inst().loader === "vanilla"}>
                     <div class="text-[12px] leading-[1.6] text-n-6">原版实例没有 Mod 加载器，不能安装 Mod。</div>
