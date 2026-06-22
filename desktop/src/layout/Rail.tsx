@@ -1,6 +1,6 @@
-import { Component, JSX, For, Show, createResource } from "solid-js";
+import { Component, JSX, For, Show, createResource, createSignal } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
-import { Avatar } from "../components";
+import { AccountDialog, Avatar } from "../components";
 import { currentPage, setCurrentPage } from "../store";
 import type { AccountSummary } from "../ipc/types";
 import "./Rail.css";
@@ -98,9 +98,16 @@ const RAIL_ICON = "grid place-items-center [&_svg]:w-[22px] [&_svg]:h-[22px]";
 
 const Rail: Component = () => {
   // 拉取账号用于底部头像。失败/空态都要稳:取 selected 账号,否则取第一个。
-  const [accounts] = createResource<AccountSummary[]>(async () => {
+  const [accounts, { refetch }] = createResource<AccountSummary[]>(async () => {
     return await invoke<AccountSummary[]>("list_accounts");
   });
+
+  // 没有任何账号时,点头像直接弹登录(首次启动的主登录入口);已有账号则进 Home 的账号面板。
+  const [loginOpen, setLoginOpen] = createSignal(false);
+  const onAvatarClick = () => {
+    if ((accounts()?.length ?? 0) === 0) setLoginOpen(true);
+    else setCurrentPage("home");
+  };
 
   // 当前账号(用于头像首字母)。无数据时返回 undefined,渲染占位。
   const activeAccount = (): AccountSummary | undefined => {
@@ -181,11 +188,11 @@ const Rail: Component = () => {
           );
         })()}
 
-        {/* 账号头像:点击进设置(账号管理也在设置/右栏)。加载中显示占位环。 */}
+        {/* 账号头像:无账号→弹登录;有账号→进 Home 账号面板。加载中显示占位环。 */}
         <button
           class="w-[36px] h-[36px] border border-n-6 bg-n-4 rounded-full cursor-pointer grid place-items-center overflow-hidden transition-[border-color,transform] duration-200 ease-app motion-reduce:transition-none hover:border-a-4 active:scale-[0.94]"
-          title={activeAccount()?.username ?? "账号"}
-          onClick={() => setCurrentPage("settings")}
+          title={activeAccount()?.username ?? "登录 / 添加账号"}
+          onClick={onAvatarClick}
         >
           <Show
             when={!accounts.loading}
@@ -204,6 +211,16 @@ const Rail: Component = () => {
           </Show>
         </button>
       </div>
+
+      <Show when={loginOpen()}>
+        <AccountDialog
+          onClose={() => setLoginOpen(false)}
+          onDone={() => {
+            setLoginOpen(false);
+            void refetch();
+          }}
+        />
+      </Show>
     </nav>
   );
 };

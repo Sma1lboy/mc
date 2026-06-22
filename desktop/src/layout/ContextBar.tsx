@@ -6,7 +6,7 @@ import {
   createSignal,
 } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
-import { Avatar, Menu } from "../components";
+import { AccountDialog, Avatar, Menu } from "../components";
 import type { AccountSummary, AccountKind } from "../ipc/types";
 import "./ContextBar.css"; // 残留:@keyframes ctx-pulse(骨架脉冲)
 
@@ -59,6 +59,13 @@ const ContextBar: Component = () => {
 
   // 切换账号时的错误提示(后端命令缺失/失败时显示,不崩 UI)
   const [switchErr, setSwitchErr] = createSignal<string | null>(null);
+  // 登录弹窗(工作台布局的账号入口 —— 之前这里只有「前往设置登录」却无处可登录)。
+  const [loginOpen, setLoginOpen] = createSignal(false);
+
+  const onLoggedIn = () => {
+    setLoginOpen(false);
+    void refetch();
+  };
 
   // 当前账号:优先 selected,否则第一个。
   const current = (): AccountSummary | undefined => {
@@ -118,9 +125,17 @@ const ContextBar: Component = () => {
             <Show
               when={(accounts()?.length ?? 0) > 0}
               fallback={
-                <div class="flex flex-col gap-[2px] p-[14px] border border-dashed border-n-6 rounded-ctl bg-n-3">
-                  <span class="text-[var(--fs-base)] text-fg">尚未添加账号</span>
-                  <span class="text-[12px] text-dim">前往设置登录</span>
+                <div class="flex flex-col gap-[10px] p-[14px] border border-dashed border-n-6 rounded-ctl bg-n-3">
+                  <div class="flex flex-col gap-[2px]">
+                    <span class="text-[var(--fs-base)] text-fg">尚未添加账号</span>
+                    <span class="text-[12px] text-dim">登录微软正版,或添加一个离线账号</span>
+                  </div>
+                  <button
+                    class="h-[34px] rounded-ctl border-none bg-a-5 text-white text-[13px] font-semibold cursor-pointer transition-opacity duration-[var(--dur)] ease-app hover:opacity-90 motion-reduce:transition-none"
+                    onClick={() => setLoginOpen(true)}
+                  >
+                    登录 / 添加账号
+                  </button>
                 </div>
               }
             >
@@ -128,6 +143,10 @@ const ContextBar: Component = () => {
               <Menu.Root
                 positioning={{ placement: "bottom", sameWidth: true }}
                 onSelect={(d: { value: string }) => {
+                  if (d.value === "__add__") {
+                    setLoginOpen(true);
+                    return;
+                  }
                   const acc = accounts()?.find((a) => a.uuid === d.value);
                   if (acc) void pick(acc);
                 }}
@@ -174,6 +193,15 @@ const ContextBar: Component = () => {
                       </Menu.ItemRaw>
                     )}
                   </For>
+                  <Menu.ItemRaw
+                    value="__add__"
+                    class="flex items-center gap-[10px] p-[8px] mt-[2px] rounded-xs cursor-pointer select-none border-t border-n-6 text-a-6 transition-[background] duration-[var(--dur)] ease-app data-[highlighted]:bg-n-5 motion-reduce:transition-none"
+                  >
+                    <span class="w-[30px] h-[30px] flex-shrink-0 rounded-xs grid place-items-center text-[18px] font-semibold bg-n-4" aria-hidden="true">
+                      +
+                    </span>
+                    <span class="text-[13px] font-medium">登录 / 添加账号</span>
+                  </Menu.ItemRaw>
                 </Menu.Content>
               </Menu.Root>
 
@@ -205,6 +233,10 @@ const ContextBar: Component = () => {
           <span class="text-[11px] text-n-7">敬请期待</span>
         </div>
       </section>
+
+      <Show when={loginOpen()}>
+        <AccountDialog onClose={() => setLoginOpen(false)} onDone={onLoggedIn} />
+      </Show>
     </aside>
   );
 };
