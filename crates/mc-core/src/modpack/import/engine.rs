@@ -155,8 +155,41 @@ impl ImportEngine {
         let instance_id = self.choose_instance_id(&paths, &opts, &plan);
         let inst = Instance::new(instance_id.clone(), paths.root().to_path_buf());
         let game_dir = inst.game_dir();
+        // 事务性:记录本次是否「新建」了这个版本目录。若是且后续装核心/下载中途失败,
+        // 回滚删除它 —— 否则会在库里留下一个可启动却残缺、与正常实例无法区分的坏实例。
+        let created_dir = !paths.version_dir(&instance_id).exists();
         ensure_dir(&game_dir)?;
-        self.write_instance_config(&inst, &plan, &opts)?;
+
+        let outcome = self
+            .finish_import(&paths, &inst, &instance_id, &game_dir, &plan, &opts, &staging, blocked)
+            .await;
+
+        match outcome {
+            Ok(o) => Ok(o),
+            Err(e) => {
+                if created_dir {
+                    let _ = std::fs::remove_dir_all(paths.version_dir(&instance_id));
+                }
+                Err(e)
+            }
+        }
+    }
+
+    /// 步骤 7–9:写配置/图标 → 装核心 + 溯源 → 下文件 → 铺 overrides。抽出来便于上层在
+    /// 任一步失败时统一回滚已新建的实例目录(见 [`import`](Self::import))。
+    #[allow(clippy::too_many_arguments)]
+    async fn finish_import(
+        &self,
+        paths: &GamePaths,
+        inst: &Instance,
+        instance_id: &str,
+        game_dir: &std::path::Path,
+        plan: &ImportPlan,
+        opts: &ImportOptions,
+        staging: &StagingDir,
+        blocked: Vec<BlockedFile>,
+    ) -> Result<ImportOutcome> {
+        self.write_instance_config(inst, plan, opts)?;
         if let Some(icon_src) = &opts.icon {
             // 图标拷到实例目录 icon.png(失败不致命,仅记录)。
             if let Err(e) = std::fs::copy(icon_src, game_dir.join("icon.png")) {
@@ -165,25 +198,29 @@ impl ImportEngine {
         }
 
         // ---- 7) 装核心:loader(或原版)→ 得到实例应继承的版本 id ----
-        let core_id = self.install_core(&paths, &plan).await?;
+        let core_id = self.install_core(paths, plan).await?;
         // 让整合包实例本身成为**可启动版本**:写一个 inheritsFrom 核心版本的最小 version json,
         // 使 versions/<instance_id>/ 既是版本定义(继承 loader → 原版)又是游戏目录(mods 在此)。
         // 仅当实例 id 与核心 id 不同时才写(原版包且 id==mc_version 时核心 json 已就位)。
         if core_id != instance_id {
-            self.write_instance_version_json(&paths, &instance_id, &core_id)?;
+            self.write_instance_version_json(paths, instance_id, &core_id)?;
         }
 
         // ---- 8) 下文件:PlannedFile → DownloadItem → 多源下载(并发 + 校验)----
-        let skipped_optional = self.download_files(&game_dir, &plan).await?;
+        let skipped_optional = self.download_files(game_dir, plan).await?;
 
         // ---- 9) 铺 overrides:逐个 override_root 从 staging 经 safe_join 拷进 game_dir ----
         for root in &plan.override_roots {
             // override 根是 staging 下的子目录(解压子树时已落地)。
             let src_root = staging.path().join(root);
-            overlay_dir_safe(&src_root, &game_dir)?;
+            overlay_dir_safe(&src_root, game_dir)?;
         }
 
-        Ok(ImportOutcome { instance_id, blocked, skipped_optional })
+        Ok(ImportOutcome {
+            instance_id: instance_id.to_string(),
+            blocked,
+            skipped_optional,
+        })
     }
 
     // -----------------------------------------------------------------------
