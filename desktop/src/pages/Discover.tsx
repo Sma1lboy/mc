@@ -29,9 +29,19 @@ function toHit(h: SearchHit): ModpackHit {
   };
 }
 
+function isDesktopBackendUnavailable(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes("__TAURI_INTERNALS__") ||
+    message.includes("reading 'invoke'") ||
+    message.includes("Cannot read properties of undefined")
+  );
+}
+
 const Discover: Component = () => {
   const [query, setQuery] = createSignal("");
   const [kind, setKind] = createSignal<ProjectKind>("modpack");
+  const [backendUnavailable, setBackendUnavailable] = createSignal(false);
   // 防抖后的查询键,作为 resource 的 source。
   const [debounced, setDebounced] = createSignal("");
   let timer: number | undefined;
@@ -44,11 +54,17 @@ const Discover: Component = () => {
 
   const [results] = createResource(
     () => [debounced(), kind()] as const,
-    ([q, k]) =>
-      api.modrinthSearch(q, k, null, null).catch((e) => {
+    async ([q, k]) => {
+      setBackendUnavailable(false);
+      return api.modrinthSearch(q, k, null, null).catch((e) => {
+        if (isDesktopBackendUnavailable(e)) {
+          setBackendUnavailable(true);
+          return [] as SearchHit[];
+        }
         toast({ type: "error", message: `搜索失败:${e}` });
         return [] as SearchHit[];
-      }),
+      });
+    },
   );
 
   // 当前打开详情的整合包(null = 显示搜索网格)。点击卡片进入详情页,而非直接下载。
@@ -95,7 +111,16 @@ const Discover: Component = () => {
       <Show when={!results.loading} fallback={<div class="flex justify-center p-[40px]"><Spinner /></div>}>
         <Show
           when={(results() ?? []).length > 0}
-          fallback={<div class="p-[32px] text-dim text-center">没有结果,换个关键词试试。</div>}
+          fallback={
+            <div class="p-[32px] text-dim text-center">
+              <Show
+                when={!backendUnavailable()}
+                fallback={"浏览器预览未连接桌面后端。打开桌面应用后即可搜索 Modrinth。"}
+              >
+                {debounced().trim() ? "没有结果,换个关键词试试。" : "输入关键词搜索 Modrinth。"}
+              </Show>
+            </div>
+          }
         >
           <div class="flex flex-col gap-[8px]">
             <For each={results()}>

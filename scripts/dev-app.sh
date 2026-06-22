@@ -2,12 +2,12 @@
 # dev-app.sh — build & (re)start the mc-launcher desktop app for testing.
 #
 # What it does, in order:
-#   1. Ensure the vite dev server is listening on :1420 (the debug binary loads
-#      its devUrl from there; start it if it's down).
+#   1. Ensure the vite dev server is listening on :1420 for browser preview.
 #   2. (optional, `server` arg) Ensure the mc-server auth backend is on :8787.
-#   3. Rebuild the debug Tauri binary (skip with `ui` — HMR covers frontend).
-#   4. Stop the old desktop app process and relaunch the fresh binary.
-#   5. Best-effort bring the window to the front, then print status + log paths.
+#   3. Rebuild the frontend bundle used by the directly launched debug binary.
+#   4. Rebuild the debug Tauri binary (skip with `ui` for frontend-only work).
+#   5. Stop the old desktop app process and relaunch the fresh binary.
+#   6. Best-effort bring the window to the front, then print status + log paths.
 #
 # Usage:
 #   scripts/dev-app.sh            # full: rebuild Rust + restart app
@@ -74,9 +74,17 @@ if [ "$WITH_SERVER" = 1 ]; then
   fi
 fi
 
-# 3) build the debug binary ---------------------------------------------------
+# 3) build the frontend bundle ------------------------------------------------
+# Directly running target/debug/mc-launcher-desktop loads frontendDist, not the
+# full `tauri dev` harness. Refresh dist so UI-only iterations are not stale.
+echo "→ npm build (frontend bundle)…"
+if ! ( cd "$DESKTOP" && npm run build ); then
+  echo "✗ frontend build failed — leaving the running app untouched"; exit 1
+fi
+
+# 4) build the debug binary ---------------------------------------------------
 if [ "$SKIP_BUILD" = 1 ]; then
-  echo "↷ skipping cargo build (ui mode — vite HMR handles frontend changes)"
+  echo "↷ skipping cargo build (ui mode — frontend bundle refreshed)"
 else
   echo "→ cargo build (desktop shell)…"
   if ! ( cd "$TAURI" && cargo build ); then
@@ -88,7 +96,7 @@ if [ ! -x "$BIN" ]; then
   echo "✗ binary not found: $BIN  (run without 'ui' to build it first)"; exit 1
 fi
 
-# 4) restart the desktop app --------------------------------------------------
+# 5) restart the desktop app --------------------------------------------------
 OLD=$(pgrep -f mc-launcher-desktop)
 if [ -n "$OLD" ]; then
   echo "→ stopping old app (pid $(echo "$OLD" | tr '\n' ' '))"

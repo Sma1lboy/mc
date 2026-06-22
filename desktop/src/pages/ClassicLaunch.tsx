@@ -1,4 +1,4 @@
-import { Component, createResource, createSignal, For, Show, onCleanup } from "solid-js";
+import { Component, createEffect, createResource, createSignal, For, Show, onCleanup } from "solid-js";
 import { Avatar, InstanceManageDialog, NewInstanceDialog, Spinner, toast } from "../components";
 import { api, onGameLog, onLaunchProgress } from "../ipc/api";
 import { activeRoot } from "../store";
@@ -68,10 +68,12 @@ const ClassicLaunch: Component = () => {
   const [busy, setBusy] = createSignal<"" | "import" | "export">("");
 
   // 默认选中第一个版本(供启动按钮的副标题与启动用)。
-  const pickDefault = (list: InstanceSummary[]) => {
-    if (!selected() && list.length > 0) setSelected(list[0]);
-    return list;
-  };
+  createEffect(() => {
+    const list = instances();
+    if (!selected() && list && list.length > 0) setSelected(list[0]);
+  });
+
+  const recentInstances = () => (instances() ?? []).slice(0, 4);
 
   // 当前账号:优先 selected,否则第一个。
   const activeAccount = (): AccountSummary | undefined => {
@@ -185,33 +187,60 @@ const ClassicLaunch: Component = () => {
   return (
     <div class="grid grid-cols-[300px_1fr] h-full min-h-0 bg-classic-gray-bg">
       {/* ===== 左栏:账号卡 + 启动区(Classic 固定窄栏) ===== */}
-      <aside class="grid grid-rows-[1fr_auto] min-h-0 bg-classic-card border-r border-classic-line">
+      <aside class="flex min-h-0 flex-col bg-classic-card border-r border-classic-line">
         {/* 账号卡:皮肤头像 + 用户名 + 验证方式,点击打开登录/切换弹窗 */}
         <button
-          class="flex flex-col items-center justify-center gap-[10px] p-[24px] text-center w-full border-none bg-transparent cursor-pointer transition-[background] duration-150 ease-[ease] hover:bg-classic-blue-lightest"
+          class="flex w-full items-center gap-[12px] border-none bg-transparent px-[18px] py-[16px] text-left cursor-pointer transition-[background] duration-150 ease-[ease] hover:bg-classic-blue-lightest"
           onClick={() => setShowLogin(true)}
           title="点击登录 / 切换账号"
         >
           <Show
             when={!accounts.loading}
             fallback={
-              <div class="w-[84px] h-[84px] rounded-[10px] flex items-center justify-center text-[34px] font-extrabold text-white shadow-classic [image-rendering:pixelated] bg-classic-blue-bg2 animate-[classic-pulse_1.3s_ease-in-out_infinite]" />
+              <div class="w-[58px] h-[58px] flex-[0_0_58px] rounded-[10px] flex items-center justify-center text-[24px] font-extrabold text-white shadow-classic [image-rendering:pixelated] bg-classic-blue-bg2 animate-[classic-pulse_1.3s_ease-in-out_infinite]" />
             }
           >
-            <div class="w-[84px] h-[84px] rounded-[10px] flex items-center justify-center text-[34px] font-extrabold text-white shadow-classic [image-rendering:pixelated] bg-[linear-gradient(135deg,var(--classic-blue-hover),var(--classic-blue))]">
+            <div class="w-[58px] h-[58px] flex-[0_0_58px] rounded-[10px] flex items-center justify-center text-[24px] font-extrabold text-white shadow-classic [image-rendering:pixelated] bg-[linear-gradient(135deg,var(--classic-blue-hover),var(--classic-blue))]">
               <Avatar kind={activeAccount()?.kind} uuid={activeAccount()?.uuid} />
             </div>
-            <div class="text-[18px] font-bold text-classic-text max-w-full whitespace-nowrap overflow-hidden text-ellipsis">
-              {activeAccount()?.username ?? "未登录"}
-            </div>
-            <div class="text-[12px] text-classic-text3">
-              {activeAccount() ? kindLabel(activeAccount()!.kind) : "点击登录账号"}
+            <div class="min-w-0">
+              <div class="text-[16px] font-bold text-classic-text max-w-full whitespace-nowrap overflow-hidden text-ellipsis">
+                {activeAccount()?.username ?? "未登录"}
+              </div>
+              <div class="text-[12px] text-classic-text3 mt-[3px]">
+                {activeAccount() ? kindLabel(activeAccount()!.kind) : "点击登录账号"}
+              </div>
             </div>
           </Show>
         </button>
 
-        {/* 启动区:招牌按钮(描边 + 版本副标题)+ 版本选择/版本设置 */}
-        <div class="pt-[14px] px-[20px] pb-[18px]">
+        <div class="border-t border-classic-line px-[18px] py-[14px]">
+          <div class="text-[12px] font-semibold text-classic-text3 mb-[8px]">当前版本</div>
+          <Show
+            when={selected()}
+            fallback={<div class="text-[13px] text-classic-text3 leading-[1.6]">还没有选择版本</div>}
+          >
+            <div class="flex items-center gap-[10px] min-w-0">
+              <span
+                class="w-[34px] h-[34px] flex-[0_0_34px] rounded-[4px] flex items-center justify-center font-bold text-[14px] text-white bg-classic-blue data-[loader=forge]:bg-[#c96a1c] data-[loader=neoforge]:bg-[#c96a1c] data-[loader=fabric]:bg-[#a87b3f] data-[loader=quilt]:bg-[#a87b3f]"
+                data-loader={selected()!.loader}
+              >
+                {(selected()!.name || selected()!.id)[0]?.toUpperCase()}
+              </span>
+              <span class="flex flex-col min-w-0">
+                <span class="text-[13px] font-semibold text-classic-text whitespace-nowrap overflow-hidden text-ellipsis">
+                  {selected()!.name || selected()!.id}
+                </span>
+                <span class="text-[11px] text-classic-text3">
+                  {selected()!.mc_version} · {loaderLabel(selected()!.loader)}
+                </span>
+              </span>
+            </div>
+          </Show>
+        </div>
+
+        {/* 启动区:招牌按钮(描边 + 版本副标题)+ 版本选择/新建实例 */}
+        <div class="px-[18px] pb-[14px]">
           <button
             class="w-full h-[54px] flex flex-col items-center justify-center gap-px border-[1.5px] border-classic-blue rounded-[3px] bg-classic-blue-lightest cursor-pointer transition-[background,box-shadow,transform] duration-150 ease-[ease] enabled:hover:bg-classic-blue-bg enabled:hover:shadow-[0_3px_10px_rgba(19,112,243,0.2)] enabled:active:scale-[0.99] disabled:opacity-[0.55] disabled:cursor-not-allowed"
             disabled={launching()}
@@ -244,6 +273,57 @@ const ClassicLaunch: Component = () => {
           >
             + 新建实例
           </button>
+        </div>
+
+        <div class="min-h-0 flex-1 border-t border-classic-line px-[18px] py-[14px] overflow-y-auto">
+          <div class="flex items-center justify-between mb-[10px]">
+            <span class="text-[12px] font-semibold text-classic-text3">最近版本</span>
+            <button
+              class="border-none bg-transparent p-0 text-[12px] text-classic-blue cursor-pointer hover:underline"
+              onClick={() => setRightView("versions")}
+            >
+              全部
+            </button>
+          </div>
+          <Show when={!instances.loading} fallback={<div class="flex justify-center p-[12px]"><Spinner /></div>}>
+            <Show
+              when={recentInstances().length > 0}
+              fallback={
+                <div class="rounded-[5px] border border-dashed border-classic-line bg-classic-gray-bg px-[12px] py-[14px] text-[12px] leading-[1.7] text-classic-text3">
+                  还没有版本。去「下载」安装，或新建一个实例。
+                </div>
+              }
+            >
+              <div class="flex flex-col gap-[6px]">
+                <For each={recentInstances()}>
+                  {(inst) => (
+                    <button
+                      class="flex items-center gap-[8px] w-full border border-transparent rounded-[4px] bg-transparent px-[8px] py-[7px] text-left cursor-pointer transition-[background,border-color] duration-150 hover:bg-classic-blue-lightest hover:border-classic-blue-soft"
+                      classList={{
+                        "bg-classic-blue-bg border-classic-blue-soft": selected()?.id === inst.id,
+                      }}
+                      onClick={() => openInstance(inst)}
+                    >
+                      <span
+                        class="w-[26px] h-[26px] flex-[0_0_26px] rounded-[4px] flex items-center justify-center font-bold text-[12px] text-white bg-classic-blue data-[loader=forge]:bg-[#c96a1c] data-[loader=neoforge]:bg-[#c96a1c] data-[loader=fabric]:bg-[#a87b3f] data-[loader=quilt]:bg-[#a87b3f]"
+                        data-loader={inst.loader}
+                      >
+                        {(inst.name || inst.id)[0]?.toUpperCase()}
+                      </span>
+                      <span class="flex flex-col min-w-0">
+                        <span class="text-[12px] font-semibold text-classic-text whitespace-nowrap overflow-hidden text-ellipsis">
+                          {inst.name || inst.id}
+                        </span>
+                        <span class="text-[11px] text-classic-text3">
+                          {inst.mc_version} · {loaderLabel(inst.loader)}
+                        </span>
+                      </span>
+                    </button>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </Show>
         </div>
       </aside>
 
@@ -341,7 +421,7 @@ const ClassicLaunch: Component = () => {
                   when={(instances() ?? []).length > 0}
                   fallback={<div class="py-[28px] px-[16px] text-classic-text3 text-[13px] text-center leading-[1.9]">还没有版本<br />去「下载」装一个</div>}
                 >
-                  <For each={pickDefault(instances() ?? [])}>
+                  <For each={instances() ?? []}>
                     {(inst) => (
                       <button
                         class="relative flex items-center gap-[10px] w-full h-[46px] pl-[16px] pr-[18px] border-none bg-transparent cursor-pointer text-left transition-[background] duration-150 ease-[ease] hover:bg-classic-blue-bg2 before:content-[''] before:absolute before:left-0 before:top-[7px] before:bottom-[7px] before:w-[3px] before:rounded-[0_2px_2px_0] before:bg-transparent before:transition-[background] before:duration-150 before:ease-[ease] hover:before:bg-classic-blue-soft"

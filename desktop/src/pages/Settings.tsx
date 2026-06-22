@@ -177,7 +177,7 @@ const Settings: Component = () => {
       <div class="w-full">
         <h1 class="text-[24px] font-bold text-fg mt-0 mb-[20px] mx-0">设置</h1>
 
-        <div class="grid grid-cols-1 gap-[18px] xl:grid-cols-[minmax(0,1fr)_minmax(360px,420px)] items-start">
+        <div class="grid grid-cols-[minmax(0,1fr)_minmax(300px,360px)] gap-[18px] items-start max-[860px]:grid-cols-1">
           <div class="flex min-w-0 flex-col gap-[18px]">
             <section class={SECTION_CLASS}>
               <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">界面布局</h2>
