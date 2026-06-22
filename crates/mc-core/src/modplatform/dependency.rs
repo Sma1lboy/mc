@@ -205,7 +205,13 @@ fn pick_best_version<'a>(
     loader: &str,
 ) -> Option<&'a ProjectVersion> {
     let mc_ok = |v: &ProjectVersion| v.game_versions.iter().any(|g| g == mc_version);
-    let loader_ok = |v: &ProjectVersion| v.loaders.iter().any(|l| l.eq_ignore_ascii_case(loader));
+    // Quilt 实例接受 fabric 版本;其余 loader 即自身。
+    let accepted = super::accepted_loaders(loader);
+    let loader_ok = |v: &ProjectVersion| {
+        v.loaders
+            .iter()
+            .any(|l| accepted.iter().any(|a| a.eq_ignore_ascii_case(l)))
+    };
 
     versions
         .iter()

@@ -5,6 +5,7 @@ import { api } from "../ipc/api";
 import { activeRoot } from "../store";
 import type { InstanceSummary, ModrinthProject, ModrinthVersion, PackKind, ProjectKind } from "../ipc/types";
 import { renderMarkdown } from "../util/markdown";
+import { acceptedLoaders } from "../util/loaders";
 import "./ModpackDetail.css";
 
 type InstallableKind = Exclude<ProjectKind, "modpack">;
@@ -39,7 +40,10 @@ function fmtSize(size: number | null): string {
 
 function versionMatches(version: ModrinthVersion, inst: InstanceSummary, kind: InstallableKind): boolean {
   if (!version.game_versions.includes(inst.mc_version)) return false;
-  return kind !== "mod" || (inst.loader !== "vanilla" && version.loaders.includes(inst.loader));
+  if (kind !== "mod") return true;
+  if (inst.loader === "vanilla") return false;
+  // Quilt 实例也接受 fabric 版本。
+  return acceptedLoaders(inst.loader).some((l) => version.loaders.includes(l));
 }
 
 function compatibleVersionsFor(

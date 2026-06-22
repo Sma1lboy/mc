@@ -64,9 +64,13 @@ pub fn pick_version<'a>(
     mc_version: &str,
     loader: &str,
 ) -> Option<&'a ProjectVersion> {
+    // Quilt 实例接受 fabric 版本(accepted_loaders 展开),其余 loader 即自身精确匹配。
+    let accepted = crate::modplatform::accepted_loaders(loader);
     versions.iter().find(|v| {
         v.game_versions.iter().any(|g| g == mc_version)
-            && v.loaders.iter().any(|l| l == loader)
+            && v.loaders
+                .iter()
+                .any(|l| accepted.iter().any(|a| a.eq_ignore_ascii_case(l)))
     })
 }
 
@@ -291,6 +295,16 @@ mod tests {
     fn pick_version_empty_list_is_none() {
         let versions: Vec<ProjectVersion> = Vec::new();
         assert!(pick_version(&versions, "1.20.1", "fabric").is_none());
+    }
+
+    #[test]
+    fn quilt_instance_accepts_fabric_only_mod() {
+        // 一个只发布 fabric 版本的 mod:quilt 实例也应能选中它(Quilt 兼容 Fabric)。
+        let versions = vec![version("fab-only", &["1.20.1"], &["fabric"], vec![])];
+        assert_eq!(pick_version(&versions, "1.20.1", "quilt").unwrap().id, "fab-only");
+        // 反之 fabric 实例不接受 quilt-only 版本。
+        let quilt_only = vec![version("q-only", &["1.20.1"], &["quilt"], vec![])];
+        assert!(pick_version(&quilt_only, "1.20.1", "fabric").is_none());
     }
 
     #[test]

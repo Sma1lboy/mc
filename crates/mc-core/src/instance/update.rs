@@ -81,13 +81,10 @@ pub async fn check_mod_updates(
         return Ok(Vec::new());
     }
 
+    // Quilt 实例同时接受 fabric mod 的更新;其余 loader 即自身。
+    let loaders = crate::modplatform::accepted_loaders(loader);
     let latest = api
-        .latest_versions_from_hashes(
-            &hashes,
-            "sha1",
-            &[loader.to_string()],
-            &[mc_version.to_string()],
-        )
+        .latest_versions_from_hashes(&hashes, "sha1", &loaders, &[mc_version.to_string()])
         .await?;
 
     let mut out: Vec<ModUpdate> = Vec::new();

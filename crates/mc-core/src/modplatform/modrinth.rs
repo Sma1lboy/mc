@@ -112,7 +112,12 @@ impl ModrinthApi {
         let url = format!("{}/project/{}/version", self.base, project_id);
 
         // query 的 value 需是 json 数组字符串。用 to_owned 持有,使引用活到请求结束。
-        let loaders_param = loader.map(|l| json_string_array(&[l]));
+        // Quilt 实例同时接受 fabric 版本;其余 loader 返回单元素,查询与之前完全一致。
+        let loaders_vec = loader.map(super::accepted_loaders).filter(|v| !v.is_empty());
+        let loaders_param = loaders_vec.as_ref().map(|v| {
+            let refs: Vec<&str> = v.iter().map(String::as_str).collect();
+            json_string_array(&refs)
+        });
         let versions_param = game_version.map(|g| json_string_array(&[g]));
 
         let mut req = self.client.get(&url);
@@ -330,7 +335,13 @@ fn build_facets(kind: ResourceKind, game_version: Option<&str>, loader: Option<&
         groups.push(facet_group(&[&format!("versions:{v}")]));
     }
     if let Some(l) = loader {
-        groups.push(facet_group(&[&format!("categories:{l}")]));
+        // Quilt 同时匹配 fabric category;其余 loader 为单元素,facet 与之前一致。
+        let accepted = super::accepted_loaders(l);
+        if !accepted.is_empty() {
+            let items: Vec<String> = accepted.iter().map(|x| format!("categories:{x}")).collect();
+            let refs: Vec<&str> = items.iter().map(String::as_str).collect();
+            groups.push(facet_group(&refs));
+        }
     }
 
     format!("[{}]", groups.join(","))

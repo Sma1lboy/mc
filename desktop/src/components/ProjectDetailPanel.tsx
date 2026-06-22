@@ -4,6 +4,7 @@ import { activeRoot } from "../store";
 import { toast } from "./Toast";
 import { Spinner } from "./Spinner";
 import { renderMarkdown } from "../util/markdown";
+import { acceptedLoaders } from "../util/loaders";
 import type { ModrinthVersion } from "../ipc/types";
 import "../pages/ModpackDetail.css"; // 复用 .md markdown 排版
 
@@ -40,7 +41,9 @@ export const ProjectDetailPanel: Component<{
 
   function compatible(v: ModrinthVersion): boolean {
     const okGame = v.game_versions.includes(props.mcVersion);
-    const okLoader = props.loader == null || v.loaders.includes(props.loader);
+    // loader 为 null(资源包/光影)不按加载器分;Quilt 实例同时接受 fabric 版本。
+    const okLoader =
+      props.loader == null || acceptedLoaders(props.loader).some((l) => v.loaders.includes(l));
     return okGame && okLoader;
   }
   // 默认只显示兼容版本;没有兼容版本时回退显示全部(否则空列表会让人误以为没版本)。

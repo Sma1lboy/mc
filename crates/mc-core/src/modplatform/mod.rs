@@ -19,6 +19,21 @@ pub mod provider;
 
 use serde::{Deserialize, Serialize};
 
+/// 一个实例 loader 实际能加载的 mod loader 集合(全小写)。
+///
+/// Quilt 在设计上向后兼容 Fabric:绝大多数 Fabric mod 能直接在 Quilt 上运行,而很多
+/// 项目只发布 `fabric` 版本。因此 Quilt 实例搜索/安装/查更新时应**同时**接受 `fabric`,
+/// 否则整个 Fabric 生态对 Quilt 用户都不可见。其余 loader 只接受自身,行为与之前完全一致。
+///
+/// 输入按 ASCII 小写归一;空串返回空集(调用方据此视为"不按 loader 过滤")。
+pub fn accepted_loaders(loader: &str) -> Vec<String> {
+    match loader.trim().to_ascii_lowercase().as_str() {
+        "" => Vec::new(),
+        "quilt" => vec!["quilt".to_string(), "fabric".to_string()],
+        other => vec![other.to_string()],
+    }
+}
+
 /// 资源类型。对应 Modrinth 的 `project_type` 取值。
 ///
 /// 注意:Modrinth 把"数据包"也归在 `mod` 类型下(用 category `datapack` 区分),
@@ -194,4 +209,29 @@ pub struct ResolvedFile {
     pub project_name: Option<String>,
     pub project_slug: Option<String>,
     pub authors: Vec<String>,
+}
+
+#[cfg(test)]
+mod accepted_loaders_tests {
+    use super::accepted_loaders;
+
+    #[test]
+    fn quilt_also_accepts_fabric() {
+        assert_eq!(accepted_loaders("quilt"), vec!["quilt", "fabric"]);
+        // 大小写归一。
+        assert_eq!(accepted_loaders("Quilt"), vec!["quilt", "fabric"]);
+    }
+
+    #[test]
+    fn other_loaders_accept_only_self() {
+        assert_eq!(accepted_loaders("fabric"), vec!["fabric"]);
+        assert_eq!(accepted_loaders("forge"), vec!["forge"]);
+        assert_eq!(accepted_loaders("neoforge"), vec!["neoforge"]);
+    }
+
+    #[test]
+    fn empty_is_empty() {
+        assert!(accepted_loaders("").is_empty());
+        assert!(accepted_loaders("  ").is_empty());
+    }
 }
