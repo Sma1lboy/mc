@@ -5,8 +5,8 @@ import {
   createResource,
   createSignal,
 } from "solid-js";
-import { invoke } from "@tauri-apps/api/core";
 import { AccountDialog, Avatar, EmptyState, Menu } from "../components";
+import { api } from "../ipc/api";
 import type { AccountSummary, AccountKind } from "../ipc/types";
 import "./ContextBar.css"; // 残留:@keyframes ctx-pulse(骨架脉冲)
 
@@ -18,7 +18,7 @@ import "./ContextBar.css"; // 残留:@keyframes ctx-pulse(骨架脉冲)
  *   2. Friends    —— 好友列表占位(社交功能未接入时给空态)。
  *   3. News       —— 新闻/动态占位。
  *
- * 数据:createResource(() => invoke('list_accounts'))。loading / 空 / 错误三态都处理。
+ * 数据:createResource(() => api.listAccounts())。loading / 空 / 错误三态都处理。
  * 背景 --n-2,左侧分隔(border-left)。
  */
 
@@ -49,9 +49,7 @@ const ChevronDown = () => (
 
 const ContextBar: Component = () => {
   // 账号列表。refetch 用于切换账号后刷新 selected 标记。
-  const [accounts, { refetch }] = createResource<AccountSummary[]>(async () => {
-    return await invoke<AccountSummary[]>("list_accounts");
-  });
+  const [accounts, { refetch }] = createResource<AccountSummary[]>(() => api.listAccounts());
 
   // 切换账号时的错误提示(后端命令缺失/失败时显示,不崩 UI)
   const [switchErr, setSwitchErr] = createSignal<string | null>(null);
@@ -77,7 +75,7 @@ const ContextBar: Component = () => {
     setSwitchErr(null);
     if (acc.selected) return;
     try {
-      await invoke("select_account", { uuid: acc.uuid });
+      await api.selectAccount(acc.uuid);
       await refetch();
     } catch (e) {
       setSwitchErr(typeof e === "string" ? e : "切换账号失败");

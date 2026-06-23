@@ -1,5 +1,4 @@
 import { Component, JSX, For, Show, createResource, createSignal } from "solid-js";
-import { invoke } from "@tauri-apps/api/core";
 import { AccountDialog, Avatar, NewInstanceDialog } from "../components";
 import { currentPage, setCurrentPage, activeRoot, openInstance, currentInstanceId } from "../store";
 import { api } from "../ipc/api";
@@ -119,9 +118,7 @@ const RAIL_ICON = "grid place-items-center [&_svg]:w-[22px] [&_svg]:h-[22px]";
 
 const Rail: Component = () => {
   // 拉取账号用于底部头像。失败/空态都要稳:取 selected 账号,否则取第一个。
-  const [accounts, { refetch }] = createResource<AccountSummary[]>(async () => {
-    return await invoke<AccountSummary[]>("list_accounts");
-  });
+  const [accounts, { refetch }] = createResource<AccountSummary[]>(() => api.listAccounts());
 
   // 最近实例:按上次游玩排序取前 3,作为 rail 快捷入口(点击进详情)。
   const [instances, { refetch: refetchInstances }] = createResource(
