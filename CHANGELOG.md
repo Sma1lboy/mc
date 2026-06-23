@@ -31,8 +31,10 @@ First public build of kobeMC — a from-scratch, cross-platform Minecraft launch
   the selected root persists across restarts.
 - **Two UIs** — a dark "workspace" layout and a PCL-faithful light "classic" layout, switchable
   at runtime; HSL live theming and an adjustable window veil.
-- **Quality of life** — Chinese UI throughout, instance search & recent-first ordering, a
-  unified daily-rolling log, and confirmations before destructive actions.
+- **Bilingual UI** — full 中文 / English via @solid-primitives/i18n (default Chinese), switchable
+  in Settings and persisted.
+- **Quality of life** — instance search & recent-first ordering, a unified daily-rolling log,
+  and confirmations before destructive actions.
 
 [Unreleased]: https://github.com/Sma1lboy/mc/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/Sma1lboy/mc/releases/tag/v0.1.0
