@@ -210,7 +210,12 @@ export async function playInstance(id: string): Promise<void> {
   if (isLaunching(id)) return; // 防重复启动
   markLaunching(id, true);
   try {
-    await api.launchInstance(activeRoot(), id, "Player", false);
+    // 用当前选中账号启动(此前硬编码 "Player"/offline,会无视已登录账号)。
+    const accounts = await api.listAccounts().catch(() => []);
+    const acc = accounts.find((a) => a.selected) ?? accounts[0];
+    const name = acc?.username ?? "Player";
+    const online = !!acc && acc.kind !== "offline";
+    await api.launchInstance(activeRoot(), id, name, online);
     toast({ type: "info", message: "正在启动…" });
   } catch (e) {
     markLaunching(id, false);
