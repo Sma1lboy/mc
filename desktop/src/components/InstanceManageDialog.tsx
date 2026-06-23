@@ -317,6 +317,7 @@ const PacksPanel: Component<{
 
   const [installing, setInstalling] = createSignal<string | null>(null);
   const [detail, setDetail] = createSignal<{ id: string; title: string; icon?: string | null } | null>(null);
+  const [browse, setBrowse] = createSignal(false);
 
   async function install(projectId: string, title: string) {
     setInstalling(projectId);
@@ -385,20 +386,25 @@ const PacksPanel: Component<{
         </Show>
       </Show>
 
-      {/* 搜索体验复用 <ContentBrowser>;「添加」装最新兼容版到本实例,点击行打开详情。
-          资源包/光影/数据包在 Modrinth 不按加载器细分,loader 传 null。 */}
-      <ContentBrowser
-        kind={props.searchKind}
-        mcVersion={props.instance.mc_version}
-        loader={null}
-        adding={installing()}
-        onAdd={(hit) => install(hit.id, hit.title)}
-        onOpenDetail={(hit) =>
-          setDetail({ id: hit.id, title: hit.title, icon: hit.icon_url ?? null })
-        }
-        disabledReason={() => (isDatapack() && !world() ? "先选择目标存档" : null)}
-        placeholder={`搜索 Modrinth(${props.instance.mc_version})`}
-      />
+      {/* 默认不显示搜索;点「添加」才展开浏览,点结果进详情选版本安装。 */}
+      <button
+        class="self-start h-[30px] px-[12px] rounded-ctl bg-a-4 text-white text-[12px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90"
+        onClick={() => setBrowse((b) => !b)}
+      >
+        {browse() ? "收起搜索" : "+ 添加"}
+      </button>
+      <Show when={browse()}>
+        <ContentBrowser
+          kind={props.searchKind}
+          mcVersion={props.instance.mc_version}
+          loader={null}
+          compact
+          onOpenDetail={(hit) =>
+            setDetail({ id: hit.id, title: hit.title, icon: hit.icon_url ?? null })
+          }
+          placeholder={`搜索 Modrinth(${props.instance.mc_version})`}
+        />
+      </Show>
 
       <div class="h-px bg-glass-divider my-[2px]" />
       <div class="flex items-center justify-between">
@@ -773,6 +779,7 @@ export const InstanceManageDialog: Component<{
   };
   const [installing, setInstalling] = createSignal<string | null>(null);
   const [modDetail, setModDetail] = createSignal<{ id: string; title: string; icon?: string | null } | null>(null);
+  const [browseMods, setBrowseMods] = createSignal(false);
 
   async function installHit(projectId: string, title: string) {
     const inst = props.instance;
@@ -1150,17 +1157,25 @@ export const InstanceManageDialog: Component<{
                   </div>
                 }
               >
-                <ContentBrowser
-                  kind="mod"
-                  mcVersion={props.instance?.mc_version ?? ""}
-                  loader={searchLoader()}
-                  adding={installing()}
-                  onAdd={(hit) => installHit(hit.id, hit.title)}
-                  onOpenDetail={(hit) =>
-                    setModDetail({ id: hit.id, title: hit.title, icon: hit.icon_url ?? null })
-                  }
-                  placeholder={`搜索 Modrinth mod(${props.instance?.mc_version ?? ""} · ${searchLoader() ?? "无加载器"})`}
-                />
+                {/* 默认不显示搜索;点「添加 Mod」才展开浏览,点结果进详情选版本安装。 */}
+                <button
+                  class="self-start h-[30px] px-[12px] rounded-ctl bg-a-4 text-white text-[12px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90"
+                  onClick={() => setBrowseMods((b) => !b)}
+                >
+                  {browseMods() ? "收起搜索" : "+ 添加 Mod"}
+                </button>
+                <Show when={browseMods()}>
+                  <ContentBrowser
+                    kind="mod"
+                    mcVersion={props.instance?.mc_version ?? ""}
+                    loader={searchLoader()}
+                    compact
+                    onOpenDetail={(hit) =>
+                      setModDetail({ id: hit.id, title: hit.title, icon: hit.icon_url ?? null })
+                    }
+                    placeholder={`搜索 Modrinth mod(${props.instance?.mc_version ?? ""} · ${searchLoader() ?? "无加载器"})`}
+                  />
+                </Show>
               </Show>
 
               <div class="h-px bg-glass-divider my-[2px]" />

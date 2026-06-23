@@ -49,8 +49,10 @@ export interface ContentBrowserProps {
   mcVersion: string;
   /** 加载器(fabric/forge/…);资源包/光影/数据包不细分加载器,传 null。 */
   loader: string | null;
-  /** 点击某行的「添加/下载」按钮:传入命中项(hit.id 即 project_id)。 */
-  onAdd: (hit: ModpackHit) => void;
+  /** 点击某行的「添加/下载」按钮:传入命中项(hit.id 即 project_id)。缺省则不渲染该按钮,点击行进详情。 */
+  onAdd?: (hit: ModpackHit) => void;
+  /** 紧凑模式:结果区限高内滚,避免在标签页里把下方区块(已安装等)顶没。 */
+  compact?: boolean;
   /** 正在安装的 project_id(= hit.id);用于把该行按钮置为「安装中…」并禁用全部按钮。 */
   adding?: string | null;
   /** 点击行主体(非按钮)时打开详情;缺省则整行点击等同 onAdd。 */
@@ -150,25 +152,33 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
             </div>
           }
         >
-          <div class="flex flex-col gap-[8px]">
+          <div
+            class={
+              "flex flex-col gap-[8px]" +
+              (props.compact ? " max-h-[340px] overflow-y-auto pr-[2px]" : "")
+            }
+          >
             <For each={results()}>
               {(raw) => {
                 const hit = toHit(raw);
                 const reason = () => props.disabledReason?.(hit) ?? null;
                 const disabled = () => props.adding != null || reason() != null;
+                const onAdd = props.onAdd;
                 return (
                   <ModpackListItem
                     hit={hit}
-                    onClick={props.onOpenDetail ?? props.onAdd}
+                    onClick={props.onOpenDetail ?? onAdd ?? (() => {})}
                     action={
-                      <button
-                        class={ADD_BTN}
-                        disabled={disabled()}
-                        title={reason() ?? ""}
-                        onClick={() => props.onAdd(hit)}
-                      >
-                        {props.adding === hit.id ? "安装中…" : "添加"}
-                      </button>
+                      onAdd ? (
+                        <button
+                          class={ADD_BTN}
+                          disabled={disabled()}
+                          title={reason() ?? ""}
+                          onClick={() => onAdd(hit)}
+                        >
+                          {props.adding === hit.id ? "安装中…" : "添加"}
+                        </button>
+                      ) : undefined
                     }
                   />
                 );
