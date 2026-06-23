@@ -1,6 +1,7 @@
-import { Component, createResource, For, Show, onCleanup } from "solid-js";
+import { Component, createResource, createSignal, For, Show, onCleanup } from "solid-js";
 import {
   EmptyState,
+  ExportModpackDialog,
   InstanceRow,
   ModpackCard,
   Spinner,
@@ -10,7 +11,7 @@ import {
 } from "../components";
 import { api, onLaunchProgress } from "../ipc/api";
 import { activeRoot, openInstance, setCurrentPage, openDiscover, playInstance } from "../store";
-import { openInstanceDir, exportInstanceMrpack, deleteInstance } from "../util/instanceActions";
+import { openInstanceDir, deleteInstance } from "../util/instanceActions";
 import { sortByRecent } from "../util/instances";
 import { t } from "../i18n";
 import type { InstanceSummary, SearchHit } from "../ipc/types";
@@ -60,6 +61,9 @@ const Home: Component = () => {
   const [packs] = createResource(() =>
     api.modrinthSearch("", "modpack", null, null, null, null).catch(() => [] as SearchHit[]),
   );
+
+  // 导出整合包:选格式弹窗(非空 = 打开,目标实例即其值)。
+  const [exportRow, setExportRow] = createSignal<InstanceRowData | null>(null);
 
   // 启动反馈:仅订阅进度提示。成功/退出/崩溃的 toast 与运行态由 store 统一处理
   //(基于真实的 game://started/exit 事件,而非「第一行日志」这种会把崩溃误报成成功的信号)。
@@ -112,7 +116,7 @@ const Home: Component = () => {
                     onOpen={openInstance}
                     onManage={openInstance}
                     onOpenDir={(id) => void openInstanceDir(activeRoot(), id)}
-                    onExport={() => void exportInstanceMrpack(activeRoot(), toRowData(inst))}
+                    onExport={() => setExportRow(toRowData(inst))}
                     onDelete={async (id) => {
                       if (await deleteInstance(activeRoot(), { id, name: toRowData(inst).name }))
                         refetchInstances();
@@ -149,6 +153,12 @@ const Home: Component = () => {
         </Show>
       </section>
 
+      <ExportModpackDialog
+        open={!!exportRow()}
+        root={activeRoot()}
+        instance={exportRow()}
+        onClose={() => setExportRow(null)}
+      />
     </div>
   );
 };

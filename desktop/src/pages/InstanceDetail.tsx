@@ -1,10 +1,10 @@
 import { Component, createResource, createSignal, onCleanup, onMount, Show } from "solid-js";
-import { InstanceManageDialog, Dialog, toast, type InstanceRowData } from "../components";
+import { InstanceManageDialog, Dialog, ExportModpackDialog, toast, type InstanceRowData } from "../components";
 import { PlayButton } from "../components/PlayButton";
 import { Menu } from "../components/Menu";
 import { formatRelativeTime } from "../components/format";
 import { api, onInstallProgress } from "../ipc/api";
-import { openInstanceDir, exportInstanceMrpack, deleteInstance } from "../util/instanceActions";
+import { openInstanceDir, deleteInstance } from "../util/instanceActions";
 import { loaderLabel as fmtLoader } from "../util/loaders";
 import { activeRoot, isRunning, isLaunching, playInstance, currentInstanceId, closeInstance, openInstance } from "../store";
 import { t } from "../i18n";
@@ -73,6 +73,8 @@ const InstanceDetail: Component = () => {
   const [browsing, setBrowsing] = createSignal(false);
   // 删除实例前确认(与实例行的删除确认一致,避免 ⋮ 菜单一点就删)。
   const [confirmDel, setConfirmDel] = createSignal(false);
+  // 导出整合包:选格式弹窗(非空 = 打开)。
+  const [exportRow, setExportRow] = createSignal<InstanceRowData | null>(null);
 
   // Esc 返回上一页(与详情页导航一致);浏览模式有自己的 Esc,正在输入文本时不抢。
   onMount(() => {
@@ -140,7 +142,7 @@ const InstanceDetail: Component = () => {
     if (!i || !row) return;
     if (value === "open") void openInstanceDir(activeRoot(), i.id);
     else if (value === "copy") await copyCurrent();
-    else if (value === "export") void exportInstanceMrpack(activeRoot(), row);
+    else if (value === "export") setExportRow(row);
     else if (value === "delete") setConfirmDel(true);
   }
 
@@ -275,6 +277,13 @@ const InstanceDetail: Component = () => {
           </div>
         </div>
       </Dialog>
+
+      <ExportModpackDialog
+        open={!!exportRow()}
+        root={activeRoot()}
+        instance={exportRow()}
+        onClose={() => setExportRow(null)}
+      />
 
       <Dialog
         open={updateOpen()}

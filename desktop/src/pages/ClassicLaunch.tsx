@@ -1,5 +1,5 @@
 import { Component, createEffect, createResource, createSignal, For, Show, onCleanup } from "solid-js";
-import { Avatar, BlockedFilesDialog, ImportModpackDialog, InstanceManageDialog, NewInstanceDialog, Spinner, toast } from "../components";
+import { Avatar, BlockedFilesDialog, ImportModpackDialog, ExportModpackDialog, InstanceManageDialog, NewInstanceDialog, Spinner, toast, type ExportInstanceRef } from "../components";
 import { LOADER_BADGE_TINT } from "../components/styles";
 import { api, onGameLog, onLaunchProgress } from "../ipc/api";
 import { activeRoot, isRunning, isLaunching, playInstance } from "../store";
@@ -7,7 +7,6 @@ import { openInstanceDir } from "../util/instanceActions";
 import { loaderLabel } from "../util/loaders";
 import { accountKindLabel } from "../util/accounts";
 import { t } from "../i18n";
-import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import type { AccountSummary, ImportOutcome, InstanceSummary } from "../ipc/types";
 import type { InstanceManageTab } from "../components/InstanceManageDialog";
 import ClassicAccountDialog from "./ClassicAccountDialog";
@@ -70,8 +69,8 @@ const ClassicLaunch: Component = () => {
     setInstanceTab("home");
     setRightView("instance");
   }
-  // 整合包导入/导出的进行态(禁用按钮 + 文案)。
-  const [busy, setBusy] = createSignal<"" | "import" | "export">("");
+  // 导出整合包:选格式弹窗(非空 = 打开)。
+  const [exportRef, setExportRef] = createSignal<ExportInstanceRef | null>(null);
 
   // 默认选中第一个版本(供启动按钮的副标题与启动用)。
   createEffect(() => {
@@ -138,39 +137,21 @@ const ClassicLaunch: Component = () => {
     }
   }
 
-  // 导出当前选中版本为 .mrpack(本地未能反查到的文件落入 overrides/)。
-  async function exportSelected() {
-    if (busy()) return;
+  // 导出当前选中版本:打开选格式弹窗(Modrinth / CurseForge / mod 清单)。
+  function exportSelected() {
     const inst = selected();
     if (!inst) {
       toast({ type: "error", message: t("classic.export.selectFirst") });
       setRightView("versions");
       return;
     }
-    const dest = await saveDialog({
-      title: t("classic.export.dialogTitle"),
-      defaultPath: `${inst.name || inst.id}.mrpack`,
-      filters: [{ name: t("classic.export.fileType"), extensions: ["mrpack"] }],
+    setExportRef({
+      id: inst.id,
+      name: inst.name || inst.id,
+      mc_version: inst.mc_version,
+      loader: inst.loader,
+      loader_version: inst.loader_version,
     });
-    if (!dest) return;
-    setBusy("export");
-    try {
-      const out = await api.exportModpack({
-        root: activeRoot(),
-        instanceId: inst.id,
-        target: "modrinth",
-        dest,
-        packName: inst.name || inst.id,
-        mcVersion: inst.mc_version,
-        loader: inst.loader,
-        loaderVersion: inst.loader_version || null,
-      });
-      toast({ type: "success", message: t("classic.export.done", { path: out }) });
-    } catch (e) {
-      toast({ type: "error", message: t("classic.export.failed", { error: String(e) }) });
-    } finally {
-      setBusy("");
-    }
   }
 
   return (
@@ -415,17 +396,16 @@ const ClassicLaunch: Component = () => {
               <span class="flex gap-[6px]">
                 <button
                   class="border border-classic-blue text-classic-blue bg-transparent rounded-[3px] py-[4px] px-[10px] text-[12px] font-semibold cursor-pointer transition-[background,color] duration-[var(--mo-dur-fast,150ms)] ease-[var(--mo-ease-out,ease)] enabled:hover:bg-classic-blue enabled:hover:text-white disabled:opacity-50 disabled:cursor-default"
-                  disabled={busy() !== ""}
                   onClick={() => setImportOpen(true)}
                 >
                   {t("classic.versions.import")}
                 </button>
                 <button
                   class="border border-classic-blue text-classic-blue bg-transparent rounded-[3px] py-[4px] px-[10px] text-[12px] font-semibold cursor-pointer transition-[background,color] duration-[var(--mo-dur-fast,150ms)] ease-[var(--mo-ease-out,ease)] enabled:hover:bg-classic-blue enabled:hover:text-white disabled:opacity-50 disabled:cursor-default"
-                  disabled={busy() !== "" || !selected()}
+                  disabled={!selected()}
                   onClick={exportSelected}
                 >
-                  {busy() === "export" ? t("classic.versions.exporting") : t("classic.versions.export")}
+                  {t("classic.versions.export")}
                 </button>
               </span>
             </div>
@@ -546,10 +526,10 @@ const ClassicLaunch: Component = () => {
                     </button>
                     <button
                       class="h-[34px] px-[16px] rounded-[3px] border border-glass-border bg-glass-card text-classic-text text-[13px] cursor-pointer transition-colors duration-150 hover:bg-classic-blue-lightest hover:border-classic-blue-soft disabled:opacity-50 disabled:cursor-default"
-                      disabled={busy() !== "" || !selected()}
+                      disabled={!selected()}
                       onClick={exportSelected}
                     >
-                      {busy() === "export" ? t("classic.versions.exporting") : t("classic.versions.export")}
+                      {t("classic.versions.export")}
                     </button>
                   </div>
                 </div>
@@ -619,6 +599,13 @@ const ClassicLaunch: Component = () => {
         root={activeRoot()}
         onClose={() => setImportOpen(false)}
         onImported={handleImported}
+      />
+
+      <ExportModpackDialog
+        open={!!exportRef()}
+        root={activeRoot()}
+        instance={exportRef()}
+        onClose={() => setExportRef(null)}
       />
 
       <Show when={importOutcome()}>

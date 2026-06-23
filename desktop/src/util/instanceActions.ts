@@ -1,10 +1,9 @@
 // 实例操作 —— Home / Library 等页面共享的实例上下文菜单动作实现。
 // InstanceRow 只发出 onPlay/onOpenDir/onExport/onDelete 事件,真正的副作用
 // (打开目录、导出、删除)集中在这里,避免在每个页面重复一遍。
-import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { api } from "../ipc/api";
 import { isRunning } from "../store";
-import { toast, type InstanceRowData } from "../components";
+import { toast } from "../components";
 import { t } from "../i18n";
 
 /** 打开实例的游戏目录(向后端取路径后用系统文件管理器打开)。 */
@@ -44,34 +43,5 @@ export async function deleteInstance(
   } catch (e) {
     toast({ type: "error", message: t("store.instance.deleteFailed", { error: String(e) }) });
     return false;
-  }
-}
-
-/** 导出实例为 .mrpack(弹保存对话框选目标路径,走 Modrinth 目标)。 */
-export async function exportInstanceMrpack(
-  root: string,
-  row: InstanceRowData,
-): Promise<void> {
-  try {
-    const dest = await saveDialog({
-      title: t("store.instance.exportModpack"),
-      defaultPath: `${row.name}.mrpack`,
-      filters: [{ name: t("store.instance.exportFilter"), extensions: ["mrpack"] }],
-    });
-    if (!dest) return; // 用户取消
-    toast({ type: "info", message: t("store.instance.exporting") });
-    const out = await api.exportModpack({
-      root,
-      instanceId: row.id,
-      target: "modrinth",
-      dest,
-      packName: row.name,
-      mcVersion: row.mc_version,
-      loader: row.loader || null,
-      loaderVersion: row.loader_version || null,
-    });
-    toast({ type: "success", message: t("store.instance.exported", { path: out }) });
-  } catch (e) {
-    toast({ type: "error", message: t("store.instance.exportFailed", { error: String(e) }) });
   }
 }

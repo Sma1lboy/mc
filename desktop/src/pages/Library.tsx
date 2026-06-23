@@ -4,6 +4,7 @@ import {
   Button,
   BlockedFilesDialog,
   ImportModpackDialog,
+  ExportModpackDialog,
   EmptyState,
   ErrorState,
   Spinner,
@@ -13,7 +14,7 @@ import {
 } from "../components";
 import { api, onInstallProgress } from "../ipc/api";
 import { activeRoot, openInstance, playInstance } from "../store";
-import { openInstanceDir, exportInstanceMrpack, deleteInstance } from "../util/instanceActions";
+import { openInstanceDir, deleteInstance } from "../util/instanceActions";
 import { sortByRecent } from "../util/instances";
 import { t } from "../i18n";
 import type { InstanceSummary, ManifestVersion, ImportOutcome } from "../ipc/types";
@@ -52,6 +53,8 @@ const Library: Component = () => {
   // 导入整合包:统一弹窗(展示支持格式 / 拖入提示 / 须知);产物里有需手动下载或跳过的文件再摊开。
   const [importOpen, setImportOpen] = createSignal(false);
   const [importOutcome, setImportOutcome] = createSignal<ImportOutcome | null>(null);
+  // 导出整合包:选格式弹窗(非空 = 打开)。
+  const [exportRow, setExportRow] = createSignal<InstanceRowData | null>(null);
 
   function handleImported(out: ImportOutcome) {
     refetch();
@@ -184,7 +187,7 @@ const Library: Component = () => {
                   onOpen={openInstance}
                   onManage={openInstance}
                   onOpenDir={(id) => void openInstanceDir(activeRoot(), id)}
-                  onExport={() => void exportInstanceMrpack(activeRoot(), toRowData(inst))}
+                  onExport={() => setExportRow(toRowData(inst))}
                   onDelete={async (id) => {
                     if (await deleteInstance(activeRoot(), { id, name: toRowData(inst).name }))
                       refetch();
@@ -202,6 +205,13 @@ const Library: Component = () => {
         root={activeRoot()}
         onClose={() => setImportOpen(false)}
         onImported={handleImported}
+      />
+
+      <ExportModpackDialog
+        open={!!exportRow()}
+        root={activeRoot()}
+        instance={exportRow()}
+        onClose={() => setExportRow(null)}
       />
 
       <Show when={importOutcome()}>

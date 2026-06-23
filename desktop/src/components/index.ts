@@ -46,6 +46,8 @@ export { InstanceManageDialog } from "./InstanceManageDialog";
 export { AccountDialog } from "./AccountDialog";
 export { BlockedFilesDialog } from "./BlockedFilesDialog";
 export { ImportModpackDialog } from "./ImportModpackDialog";
+export { ExportModpackDialog } from "./ExportModpackDialog";
+export type { ExportInstanceRef } from "./ExportModpackDialog";
 
 // 复合行/卡片
 export { InstanceRow } from "./InstanceRow";
