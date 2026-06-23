@@ -19,7 +19,7 @@ const ClassicMore: Component = () => {
           MC
         </div>
         <div>
-          <div class="text-[20px] font-bold text-classic-text">MC Launcher</div>
+          <div class="text-[20px] font-bold text-classic-text">kobeMC</div>
           <div class="text-[13px] text-classic-text2 mt-[4px]">
             Rust 核心 + Tauri 外壳 · 经典视图
           </div>

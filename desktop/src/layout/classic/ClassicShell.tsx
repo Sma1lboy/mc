@@ -46,7 +46,7 @@ const ClassicShell: Component = () => {
       >
         <div class="flex items-center gap-[9px]" data-tauri-drag-region>
           <span class="flex w-[28px] h-[28px] flex-[0_0_28px] [filter:drop-shadow(0_1px_3px_rgba(11,91,203,0.35))] [&_svg]:w-full [&_svg]:h-full"><ClassicLogo /></span>
-          <span class="text-[19px] font-extrabold tracking-[1px] self-center" translate="no">MC Launcher</span>
+          <span class="text-[19px] font-extrabold tracking-[1px] self-center" translate="no">kobeMC</span>
         </div>
 
         <nav class="flex gap-[2px] h-full items-center [-webkit-app-region:no-drag]">

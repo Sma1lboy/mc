@@ -350,7 +350,7 @@ const ClassicLaunch: Component = () => {
             <div class="glass-card rounded-[5px] py-[14px] px-[16px] flex items-center gap-[12px] bg-[linear-gradient(90deg,var(--classic-blue-lightest),var(--classic-card))] border-l-[3px] border-classic-blue">
               <span class="text-[22px]">📰</span>
               <div>
-                <div class="text-[14px] font-bold text-classic-text">欢迎使用 MC Launcher</div>
+                <div class="text-[14px] font-bold text-classic-text">欢迎使用 kobeMC</div>
                 <div class="text-[12px] text-classic-text3 mt-[3px]">左侧选择账号与版本,点「启动游戏」即可开玩。</div>
               </div>
             </div>

@@ -155,7 +155,7 @@ const Rail: Component = () => {
       {/* 顶部 Logo */}
       <button
         class="w-[40px] h-[40px] mb-[6px] p-[6px] border-0 bg-transparent rounded-ctl cursor-pointer grid place-items-center transition-[background-color,transform] duration-200 ease-app motion-reduce:transition-none hover:bg-[color-mix(in_srgb,var(--a-4)_14%,transparent)] active:scale-[0.94] [&_svg]:w-[26px] [&_svg]:h-[26px]"
-        title="MC Launcher"
+        title="kobeMC"
         onClick={() => setCurrentPage("home")}
       >
         <LogoMark />
