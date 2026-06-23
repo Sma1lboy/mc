@@ -434,7 +434,7 @@ const Settings: Component = () => {
 
             <section class={SECTION_CLASS}>
               <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">Java</h2>
-              <Show when={!javas.loading} fallback={<Spinner />}>
+              <Show when={!javas.loading} fallback={<div class="flex justify-center p-[20px]"><Spinner /></div>}>
                 <Show
                   when={(javas() ?? []).length > 0}
                   fallback={
