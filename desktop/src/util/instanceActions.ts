@@ -3,6 +3,7 @@
 // (打开目录、导出、删除)集中在这里,避免在每个页面重复一遍。
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { api } from "../ipc/api";
+import { isRunning } from "../store";
 import { toast, type InstanceRowData } from "../components";
 
 /** 打开实例的游戏目录(向后端取路径后用系统文件管理器打开)。 */
@@ -30,6 +31,11 @@ export async function deleteInstance(
   root: string,
   inst: { id: string; name: string },
 ): Promise<boolean> {
+  // 运行中的实例不能删:游戏正占着目录里的文件(Windows 会锁定、各平台都可能删半截)。
+  if (isRunning(inst.id)) {
+    toast({ type: "error", message: "请先停止运行中的游戏,再删除该实例" });
+    return false;
+  }
   try {
     await api.deleteInstance(root, inst.id);
     toast({ type: "success", message: `已删除实例「${inst.name}」` });
