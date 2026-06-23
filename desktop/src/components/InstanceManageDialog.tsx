@@ -3,6 +3,7 @@ import {
   createSignal,
   createResource,
   createEffect,
+  on,
   onMount,
   onCleanup,
   For,
@@ -15,7 +16,8 @@ import { Dialog } from "./Dialog";
 import Lightbox from "./Lightbox";
 import { ContentBrowser } from "./ContentBrowser";
 import { ModpackOverview } from "./ModpackOverview";
-import { ProjectDetailPanel } from "./ProjectDetailPanel";
+import type { ModpackHit } from "./ModpackCard";
+import ProjectInstallDetail from "../pages/ProjectInstallDetail";
 import { Spinner } from "./Spinner";
 import { Select } from "./Select";
 import { toast } from "./Toast";
@@ -138,7 +140,7 @@ const ScreenshotTile: Component<{
         <img src={props.url} alt={props.info.file_name} width="320" height="180" class="w-full h-full object-cover" />
       </Show>
       <button
-        class="absolute top-[4px] right-[4px] opacity-0 group-hover:opacity-100 transition-opacity duration-150 text-[11px] text-white px-[6px] py-[2px] rounded-xs bg-[rgba(0,0,0,0.55)] hover:bg-[rgba(229,132,138,0.9)]"
+        class="absolute top-[4px] right-[4px] opacity-0 group-hover:opacity-100 transition-opacity duration-150 text-[11px] text-white px-[6px] py-[2px] rounded-xs bg-[rgba(0,0,0,0.55)] hover:bg-danger"
         onClick={props.onDelete}
       >
         删除
@@ -275,7 +277,7 @@ const INSTALL_BTN =
   "shrink-0 h-[28px] px-[12px] rounded-ctl bg-a-4 text-white text-[12px] font-semibold cursor-pointer " +
   "transition-opacity duration-150 hover:opacity-90 disabled:opacity-50 disabled:cursor-default";
 const DEL_BTN =
-  "shrink-0 text-[12px] text-[#e5848a] px-[8px] py-[4px] rounded-xs cursor-pointer hover:bg-[rgba(229,132,138,0.14)]";
+  "shrink-0 text-[12px] text-danger-text px-[8px] py-[4px] rounded-xs cursor-pointer hover:bg-danger-soft";
 const OPEN_BTN =
   "shrink-0 text-[12px] text-dim px-[8px] py-[3px] rounded-xs cursor-pointer hover:text-fg hover:bg-a-4/10";
 
@@ -291,6 +293,9 @@ const PacksPanel: Component<{
   emptyHint: string;
   /** 外部导入计数:递增即触发重扫(拖拽导入后由父组件 bump)。 */
   tick?: number;
+  /** 受控的「浏览/添加」模式(由父组件统一持有,用于隐藏详情页头部)。 */
+  browse: boolean;
+  onBrowse: (v: boolean) => void;
 }> = (props) => {
   // 数据包逐存档生效:落到 saves/<world>/datapacks。其它包类型无 world 概念。
   const isDatapack = () => props.kind === "datapack";
@@ -316,12 +321,20 @@ const PacksPanel: Component<{
     ([id, kind, , w]) => api.instancePacks(activeRoot(), id, kind, w),
   );
 
-  const [installing, setInstalling] = createSignal<string | null>(null);
-  const [detail, setDetail] = createSignal<{ id: string; title: string; icon?: string | null } | null>(null);
-  const [browse, setBrowse] = createSignal(false);
+  const [detail, setDetail] = createSignal<ModpackHit | null>(null);
+  // 后台并行安装:正在安装的 project_id 集合(不阻塞其它行)。
+  const [installing, setInstalling] = createSignal<Set<string>>(new Set());
+  // 本次浏览已添加的 project_id:行按钮即时变「已添加」。
+  const [added, setAdded] = createSignal<Set<string>>(new Set());
+  const startBrowse = () => {
+    setAdded(new Set<string>());
+    props.onBrowse(true);
+  };
 
+  // 行内「下载」:直接装最新兼容版(资源包/光影/数据包不分加载器),后台并行不阻塞其它行。
   async function install(projectId: string, title: string) {
-    setInstalling(projectId);
+    if (installing().has(projectId)) return;
+    setInstalling((s) => new Set(s).add(projectId));
     try {
       const file = await api.installPack(
         activeRoot(),
@@ -332,11 +345,16 @@ const PacksPanel: Component<{
         worldArg(),
       );
       toast({ type: "success", message: `已安装 ${title}(${file})` });
+      setAdded((s) => new Set(s).add(projectId));
       refetch();
     } catch (e) {
       toast({ type: "error", message: `安装失败:${e}` });
     } finally {
-      setInstalling(null);
+      setInstalling((s) => {
+        const n = new Set(s);
+        n.delete(projectId);
+        return n;
+      });
     }
   }
 
@@ -387,110 +405,145 @@ const PacksPanel: Component<{
         </Show>
       </Show>
 
-      {/* 默认不显示搜索;点「添加」才展开浏览,点结果进详情选版本安装。 */}
-      <button
-        class="self-start h-[30px] px-[12px] rounded-ctl bg-a-4 text-white text-[12px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90"
-        onClick={() => setBrowse((b) => !b)}
-      >
-        {browse() ? "收起搜索" : "+ 添加"}
-      </button>
-      <Show when={browse()}>
-        <ContentBrowser
-          kind={props.searchKind}
-          mcVersion={props.instance.mc_version}
-          loader={null}
-          compact
-          onOpenDetail={(hit) =>
-            setDetail({ id: hit.id, title: hit.title, icon: hit.icon_url ?? null })
-          }
-          placeholder={`搜索 Modrinth(${props.instance.mc_version})`}
-        />
-      </Show>
-
-      <div class="h-px bg-glass-divider my-[2px]" />
-      <div class="flex items-center justify-between">
-        <div class={LABEL}>已安装</div>
-        <button
-          class={OPEN_BTN}
-          onClick={() =>
-            openInstanceSubdir(
-              activeRoot(),
-              props.instance.id,
-              props.kind === "resource_pack"
-                ? "resourcepacks"
-                : props.kind === "shader"
-                  ? "shaderpacks"
-                  : world()
-                    ? `saves/${world()}/datapacks`
-                    : "datapacks",
-            )
-          }
-        >
-          打开目录
-        </button>
-      </div>
-
       <Show
-        when={!packs.loading}
+        when={props.browse}
         fallback={
-          <div class="flex items-center gap-[10px] text-dim text-[13px] py-[12px]">
-            <Spinner size={16} /> 扫描中…
-          </div>
+          <>
+            {/* 默认:「已安装」标题行,右侧聚拢动作(打开目录 + 紧凑「添加」)。 */}
+            <div class="flex items-center justify-between">
+              <div class={LABEL}>已安装</div>
+              <div class="flex items-center gap-[6px]">
+                <button
+                  class={OPEN_BTN}
+                  onClick={() =>
+                    openInstanceSubdir(
+                      activeRoot(),
+                      props.instance.id,
+                      props.kind === "resource_pack"
+                        ? "resourcepacks"
+                        : props.kind === "shader"
+                          ? "shaderpacks"
+                          : world()
+                            ? `saves/${world()}/datapacks`
+                            : "datapacks",
+                    )
+                  }
+                >
+                  打开目录
+                </button>
+                <button
+                  class="shrink-0 h-[28px] px-[10px] rounded-ctl bg-a-4 text-white text-[12px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90"
+                  onClick={startBrowse}
+                >
+                  + 添加
+                </button>
+              </div>
+            </div>
+
+            <Show
+              when={!packs.loading}
+              fallback={
+                <div class="flex items-center gap-[10px] text-dim text-[13px] py-[12px]">
+                  <Spinner size={16} /> 扫描中…
+                </div>
+              }
+            >
+              <Show
+                when={(packs() ?? []).length > 0}
+                fallback={
+                  <div class="flex flex-col items-center justify-center gap-[12px] py-[40px] text-center">
+                    <div class="text-dim text-[13px]">{props.emptyHint}</div>
+                    <button
+                      class="h-[34px] px-[16px] rounded-ctl bg-a-4 text-white text-[13px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90"
+                      onClick={startBrowse}
+                    >
+                      + 添加
+                    </button>
+                  </div>
+                }
+              >
+                <div class="flex flex-col gap-[6px]">
+                  <For each={packs()}>
+                    {(p) => (
+                      <div
+                        class="flex items-center gap-[10px] py-[8px] px-[10px] rounded-ctl bg-glass-card"
+                        classList={{ "opacity-55": !p.enabled }}
+                      >
+                        <div class="flex-1 min-w-0">
+                          <div class="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">
+                            {p.file_name.replace(/\.disabled$/, "")}
+                          </div>
+                          <div class="text-[11px] text-dim whitespace-nowrap overflow-hidden text-ellipsis">
+                            {[p.description, fmtSize(p.size)].filter(Boolean).join(" · ")}
+                          </div>
+                        </div>
+                        <label class="flex items-center gap-[5px] text-[11px] text-dim cursor-pointer shrink-0">
+                          <input
+                            type="checkbox"
+                            class="w-[15px] h-[15px] accent-[var(--a-4)] cursor-pointer"
+                            checked={p.enabled}
+                            onChange={(e) => toggle(p, e.currentTarget.checked)}
+                          />
+                          启用
+                        </label>
+                        <button class={DEL_BTN} onClick={() => remove(p)}>
+                          删除
+                        </button>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
+            </Show>
+          </>
         }
       >
+        {/* 浏览模式 = 复用探索页:搜索列表 →(点进)详情安装,装完回到已安装。 */}
         <Show
-          when={(packs() ?? []).length > 0}
-          fallback={<div class="text-dim text-[13px] py-[12px]">{props.emptyHint}</div>}
+          when={detail()}
+          fallback={
+            <>
+              <button
+                class="self-start inline-flex items-center gap-[4px] h-[28px] px-[10px] rounded-ctl border-none bg-transparent text-dim text-[12px] cursor-pointer transition-colors duration-150 hover:bg-glass-hover hover:text-fg"
+                onClick={() => {
+                  setDetail(null);
+                  props.onBrowse(false);
+                }}
+              >
+                ← 返回已安装
+              </button>
+              <ContentBrowser
+                kind={props.searchKind}
+                mcVersion={props.instance.mc_version}
+                loader={null}
+                onOpenDetail={setDetail}
+                onAdd={(hit) => install(hit.id, hit.title)}
+                addingIds={installing()}
+                addedIds={added()}
+                disabledReason={
+                  isDatapack() ? (() => (worldArg() ? null : "先选择目标存档")) : undefined
+                }
+                autofocus
+                onEscape={() => props.onBrowse(false)}
+                placeholder={`搜索 Modrinth(${props.instance.mc_version})`}
+              />
+            </>
+          }
         >
-          <div class="flex flex-col gap-[6px]">
-            <For each={packs()}>
-              {(p) => (
-                <div
-                  class="flex items-center gap-[10px] py-[8px] px-[10px] rounded-ctl bg-glass-card"
-                  classList={{ "opacity-55": !p.enabled }}
-                >
-                  <div class="flex-1 min-w-0">
-                    <div class="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">
-                      {p.file_name.replace(/\.disabled$/, "")}
-                    </div>
-                    <div class="text-[11px] text-dim whitespace-nowrap overflow-hidden text-ellipsis">
-                      {[p.description, fmtSize(p.size)].filter(Boolean).join(" · ")}
-                    </div>
-                  </div>
-                  <label class="flex items-center gap-[5px] text-[11px] text-dim cursor-pointer shrink-0">
-                    <input
-                      type="checkbox"
-                      class="w-[15px] h-[15px] accent-[var(--a-4)] cursor-pointer"
-                      checked={p.enabled}
-                      onChange={(e) => toggle(p, e.currentTarget.checked)}
-                    />
-                    启用
-                  </label>
-                  <button class={DEL_BTN} onClick={() => remove(p)}>
-                    删除
-                  </button>
-                </div>
-              )}
-            </For>
-          </div>
+          {(d) => (
+            <ProjectInstallDetail
+              hit={d()}
+              kind={props.searchKind as Exclude<ProjectKind, "modpack">}
+              lockedInstance={props.instance}
+              onBack={() => setDetail(null)}
+              onInstalled={() => {
+                refetch();
+                const d = detail();
+                if (d) setAdded((s) => new Set(s).add(d.id));
+              }}
+            />
+          )}
         </Show>
-      </Show>
-
-      <Show when={detail()}>
-        {(d) => (
-          <ProjectDetailPanel
-            projectId={d().id}
-            title={d().title}
-            iconUrl={d().icon}
-            target={props.searchKind}
-            instanceId={props.instance.id}
-            mcVersion={props.instance.mc_version}
-            loader={null}
-            world={worldArg()}
-            onClose={() => setDetail(null)}
-            onInstalled={() => refetch()}
-          />
-        )}
       </Show>
     </div>
   );
@@ -779,7 +832,8 @@ const AddLoaderPanel: Component<{
 export const InstanceManageDialog: Component<{
   open: boolean;
   instance: InstanceSummary | null;
-  onClose: () => void;
+  /** 关闭(仅非内嵌的 Dialog 模式使用;内嵌详情页无「完成」按钮)。 */
+  onClose?: () => void;
   onChanged?: () => void;
   /** 复制完成回调,带新实例 id;ClassicLaunch 据此重拉列表并选中新实例。 */
   onCopied?: (newId: string) => void;
@@ -791,10 +845,16 @@ export const InstanceManageDialog: Component<{
   onTabChange?: (tab: InstanceManageTab) => void;
   /** 隐藏本组件自带 tab 条,由外层渲染同级导航。 */
   hideTabs?: boolean;
+  /** 进入/退出「添加」浏览模式(复用探索页占满内容区)时通知外层,详情页据此隐藏头部。 */
+  onBrowsingChange?: (browsing: boolean) => void;
 }> = (props) => {
   const [internalTab, setInternalTab] = createSignal<InstanceManageTab>("settings");
   const [cfg, setCfg] = createSignal<InstanceConfig | null>(null);
   const [copying, setCopying] = createSignal(false);
+  // 「浏览/添加」模式:任一内容标签点「+ 添加」即进入,占满内容区(复用探索页)。
+  // 切换标签时复位;变化时通知外层(详情页隐藏头部 + 本组件隐藏 tab 条)。
+  const [browsing, setBrowsing] = createSignal(false);
+  createEffect(() => props.onBrowsingChange?.(browsing()));
 
   const tab = () => props.tab ?? internalTab();
   const setTab = (next: InstanceManageTab) => {
@@ -864,38 +924,45 @@ export const InstanceManageDialog: Component<{
     const l = props.instance?.loader;
     return l && l !== "vanilla" ? l : null;
   };
-  const [installing, setInstalling] = createSignal<string | null>(null);
-  const [modDetail, setModDetail] = createSignal<{ id: string; title: string; icon?: string | null } | null>(null);
-  const [browseMods, setBrowseMods] = createSignal(false);
+  const [modDetail, setModDetail] = createSignal<ModpackHit | null>(null);
+  // 后台并行安装:正在安装的 project_id 集合(不阻塞其它行)。
+  const [installing, setInstalling] = createSignal<Set<string>>(new Set());
+  // 本次浏览已添加的 mod project_id:行按钮即时变「已添加」,无需返回已安装确认。
+  const [addedMods, setAddedMods] = createSignal<Set<string>>(new Set());
+  const startBrowse = () => {
+    setAddedMods(new Set<string>());
+    setBrowsing(true);
+  };
+  // 切换标签(含外层受控切换)即退出浏览/添加模式并清掉详情,避免浏览态串到别的标签。
+  createEffect(on(tab, () => {
+    setBrowsing(false);
+    setModDetail(null);
+  }, { defer: true }));
 
+  // 行内「下载」:直接装最新兼容版(解析依赖),不进详情;后台并行,不阻塞其它行。
   async function installHit(projectId: string, title: string) {
     const inst = props.instance;
-    if (!inst) return;
-    setInstalling(projectId);
+    if (!inst || installing().has(projectId)) return;
+    setInstalling((s) => new Set(s).add(projectId));
     try {
-      const report = await api.installMod(
-        activeRoot(),
-        inst.id,
-        projectId,
-        inst.mc_version,
-        searchLoader() ?? "",
-      );
+      const report = await api.installMod(activeRoot(), inst.id, projectId, inst.mc_version, searchLoader() ?? "");
       if (report.installed.length === 0 && report.unresolved.length === 0) {
         toast({ type: "info", message: `${title} 已存在,无需重复安装` });
       } else {
         const parts = [`已装入 ${report.installed.length} 个文件`];
-        if (report.unresolved.length > 0)
-          parts.push(`${report.unresolved.length} 个依赖未解决`);
-        toast({
-          type: report.unresolved.length > 0 ? "warn" : "success",
-          message: `${title}:${parts.join(",")}`,
-        });
+        if (report.unresolved.length > 0) parts.push(`${report.unresolved.length} 个依赖未解决`);
+        toast({ type: report.unresolved.length > 0 ? "warn" : "success", message: `${title}:${parts.join(",")}` });
       }
+      setAddedMods((s) => new Set(s).add(projectId));
       refetchMods();
     } catch (e) {
       toast({ type: "error", message: `安装失败:${e}` });
     } finally {
-      setInstalling(null);
+      setInstalling((s) => {
+        const n = new Set(s);
+        n.delete(projectId);
+        return n;
+      });
     }
   }
 
@@ -979,7 +1046,7 @@ export const InstanceManageDialog: Component<{
     for (const path of paths) {
       try {
         if (tab() === "worlds") await api.importWorldZip(activeRoot(), inst.id, path);
-        else await api.importLocalResource(activeRoot(), inst.id, resourceTarget()!, path);
+        else await api.importLocalResource(activeRoot(), inst.id, resourceTarget()!, path, null);
         ok += 1;
       } catch (e) {
         toast({ type: "error", message: `导入失败:${e}` });
@@ -1080,7 +1147,7 @@ export const InstanceManageDialog: Component<{
           </div>
         </Show>
 
-        <Show when={!props.hideTabs}>
+        <Show when={!props.hideTabs && !browsing()}>
           <div class="flex gap-[4px] px-[16px] border-b border-glass-divider mt-[10px] overflow-x-auto">
             <For each={visibleTabs()}>
               {(item) => (
@@ -1174,7 +1241,7 @@ export const InstanceManageDialog: Component<{
                     <span class={LABEL}>额外 JVM 参数(空格分隔)</span>
                     <input
                       class={FIELD}
-                      value={c().jvm_args.join(" ")}
+                      value={(c().jvm_args ?? []).join(" ")}
                       onChange={(e) =>
                         patch({ jvm_args: e.currentTarget.value.split(/\s+/).filter(Boolean) })
                       }
@@ -1248,135 +1315,179 @@ export const InstanceManageDialog: Component<{
                   />
                 }
               >
-                {/* 默认不显示搜索;点「添加 Mod」才展开浏览,点结果进详情选版本安装。 */}
-                <button
-                  class="self-start h-[30px] px-[12px] rounded-ctl bg-a-4 text-white text-[12px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90"
-                  onClick={() => setBrowseMods((b) => !b)}
+                <Show
+                  when={browsing()}
+                  fallback={
+                    <>
+                      {/* 默认:「已安装」标题行,右侧聚拢动作(打开目录 + 检查更新 + 紧凑「添加」)。 */}
+                      <div class="flex items-center justify-between">
+                        <div class={LABEL}>已安装</div>
+                        <div class="flex items-center gap-[6px]">
+                          <button
+                            class={OPEN_BTN}
+                            onClick={() => openInstanceSubdir(activeRoot(), props.instance!.id, "mods")}
+                          >
+                            打开目录
+                          </button>
+                          <button
+                            class="text-[12px] text-a-6 px-[8px] py-[3px] rounded-xs cursor-pointer hover:bg-a-4/10 disabled:opacity-50"
+                            disabled={checking() || searchLoader() === null}
+                            onClick={checkUpdates}
+                          >
+                            {checking() ? "检查中…" : "检查更新"}
+                          </button>
+                          <button
+                            class="shrink-0 h-[28px] px-[10px] rounded-ctl bg-a-4 text-white text-[12px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90"
+                            onClick={startBrowse}
+                          >
+                            + 添加
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* 可更新清单(检查后才出现) */}
+                      <Show when={(updates() ?? []).length > 0}>
+                        <div class="flex flex-col gap-[6px] rounded-ctl bg-a-4/10 p-[8px]">
+                          <div class="flex items-center justify-between">
+                            <span class="text-[12px] text-fg font-semibold">
+                              {updates()!.length} 个可更新
+                            </span>
+                            <button
+                              class={INSTALL_BTN}
+                              disabled={updatingFile() !== null}
+                              onClick={applyAllUpdates}
+                            >
+                              全部更新
+                            </button>
+                          </div>
+                          <For each={updates()}>
+                            {(u) => (
+                              <div class="glass-card flex items-center gap-[10px] py-[6px] px-[8px] rounded-ctl">
+                                <div class="flex-1 min-w-0">
+                                  <div class="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">
+                                    {u.name}
+                                  </div>
+                                  <div class="text-[11px] text-dim whitespace-nowrap overflow-hidden text-ellipsis">
+                                    {(u.current_version ?? "当前") + " → " + u.new_version}
+                                  </div>
+                                </div>
+                                <button
+                                  class={INSTALL_BTN}
+                                  disabled={updatingFile() !== null}
+                                  onClick={() => applyUpdate(u)}
+                                >
+                                  {updatingFile() === u.file_name ? "更新中…" : "更新"}
+                                </button>
+                              </div>
+                            )}
+                          </For>
+                        </div>
+                      </Show>
+
+                      {/* 已安装 mod 列表 */}
+                      <Show
+                        when={!mods.loading}
+                        fallback={
+                          <div class="flex items-center gap-[10px] text-dim text-[13px] py-[12px]">
+                            <Spinner size={16} /> 扫描 mods…
+                          </div>
+                        }
+                      >
+                        <Show
+                          when={(mods() ?? []).length > 0}
+                          fallback={
+                            <div class="flex flex-col items-center justify-center gap-[12px] py-[40px] text-center">
+                              <div class="text-dim text-[13px]">该实例还没有 mod。</div>
+                              <button
+                                class="h-[34px] px-[16px] rounded-ctl bg-a-4 text-white text-[13px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90"
+                                onClick={startBrowse}
+                              >
+                                + 添加 Mod
+                              </button>
+                            </div>
+                          }
+                        >
+                          <div class="flex flex-col gap-[6px]">
+                            <For each={mods()}>
+                              {(m) => (
+                                <div
+                                  class="flex items-center gap-[10px] py-[8px] px-[10px] rounded-ctl bg-glass-card"
+                                  classList={{ "opacity-55": !m.enabled }}
+                                >
+                                  <div class="flex-1 min-w-0">
+                                    <div class="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">
+                                      {m.name}
+                                    </div>
+                                    <div class="text-[11px] text-dim whitespace-nowrap overflow-hidden text-ellipsis">
+                                      {[m.version, m.loader, m.file_name].filter(Boolean).join(" · ")}
+                                    </div>
+                                  </div>
+                                  <label class="flex items-center gap-[5px] text-[11px] text-dim cursor-pointer shrink-0">
+                                    <input
+                                      type="checkbox"
+                                      class="w-[15px] h-[15px] accent-[var(--a-4)] cursor-pointer"
+                                      checked={m.enabled}
+                                      onChange={(e) => toggleMod(m, e.currentTarget.checked)}
+                                    />
+                                    启用
+                                  </label>
+                                  <button
+                                    class="shrink-0 text-[12px] text-danger-text px-[8px] py-[4px] rounded-xs cursor-pointer hover:bg-danger-soft"
+                                    onClick={() => removeMod(m)}
+                                  >
+                                    删除
+                                  </button>
+                                </div>
+                              )}
+                            </For>
+                          </div>
+                        </Show>
+                      </Show>
+                    </>
+                  }
                 >
-                  {browseMods() ? "收起搜索" : "+ 添加 Mod"}
-                </button>
-                <Show when={browseMods()}>
-                  <ContentBrowser
-                    kind="mod"
-                    mcVersion={props.instance?.mc_version ?? ""}
-                    loader={searchLoader()}
-                    compact
-                    onOpenDetail={(hit) =>
-                      setModDetail({ id: hit.id, title: hit.title, icon: hit.icon_url ?? null })
+                  {/* 浏览模式 = 复用探索页:搜索列表 →(点进)详情安装,装完回到已安装。 */}
+                  <Show
+                    when={modDetail()}
+                    fallback={
+                      <>
+                        <button
+                          class="self-start inline-flex items-center gap-[4px] h-[28px] px-[10px] rounded-ctl border-none bg-transparent text-dim text-[12px] cursor-pointer transition-colors duration-150 hover:bg-glass-hover hover:text-fg"
+                          onClick={() => setBrowsing(false)}
+                        >
+                          ← 返回已安装
+                        </button>
+                        <ContentBrowser
+                          kind="mod"
+                          mcVersion={props.instance?.mc_version ?? ""}
+                          loader={searchLoader()}
+                          onOpenDetail={setModDetail}
+                          onAdd={(hit) => installHit(hit.id, hit.title)}
+                          addingIds={installing()}
+                          addedIds={addedMods()}
+                          autofocus
+                          onEscape={() => setBrowsing(false)}
+                          placeholder={`搜索 Modrinth mod(${props.instance?.mc_version ?? ""} · ${searchLoader() ?? "无加载器"})`}
+                        />
+                      </>
                     }
-                    placeholder={`搜索 Modrinth mod(${props.instance?.mc_version ?? ""} · ${searchLoader() ?? "无加载器"})`}
-                  />
+                  >
+                    {(d) => (
+                      <ProjectInstallDetail
+                        hit={d()}
+                        kind="mod"
+                        lockedInstance={props.instance!}
+                        onBack={() => setModDetail(null)}
+                        onInstalled={() => {
+                          refetchMods();
+                          setAddedMods((s) => new Set(s).add(d().id));
+                        }}
+                      />
+                    )}
+                  </Show>
                 </Show>
               </Show>
-
-              <div class="h-px bg-glass-divider my-[2px]" />
-              <div class="flex items-center justify-between">
-                <div class={LABEL}>已安装</div>
-                <div class="flex items-center gap-[4px]">
-                  <button
-                    class={OPEN_BTN}
-                    onClick={() => openInstanceSubdir(activeRoot(), props.instance!.id, "mods")}
-                  >
-                    打开目录
-                  </button>
-                  <button
-                    class="text-[12px] text-a-6 px-[8px] py-[3px] rounded-xs cursor-pointer hover:bg-a-4/10 disabled:opacity-50"
-                    disabled={checking() || searchLoader() === null}
-                    onClick={checkUpdates}
-                  >
-                    {checking() ? "检查中…" : "检查更新"}
-                  </button>
-                </div>
-              </div>
-
-              {/* 可更新清单(检查后才出现) */}
-              <Show when={(updates() ?? []).length > 0}>
-                <div class="flex flex-col gap-[6px] rounded-ctl bg-a-4/10 p-[8px]">
-                  <div class="flex items-center justify-between">
-                    <span class="text-[12px] text-fg font-semibold">
-                      {updates()!.length} 个可更新
-                    </span>
-                    <button
-                      class={INSTALL_BTN}
-                      disabled={updatingFile() !== null}
-                      onClick={applyAllUpdates}
-                    >
-                      全部更新
-                    </button>
-                  </div>
-                  <For each={updates()}>
-                    {(u) => (
-                      <div class="glass-card flex items-center gap-[10px] py-[6px] px-[8px] rounded-ctl">
-                        <div class="flex-1 min-w-0">
-                          <div class="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">
-                            {u.name}
-                          </div>
-                          <div class="text-[11px] text-dim whitespace-nowrap overflow-hidden text-ellipsis">
-                            {(u.current_version ?? "当前") + " → " + u.new_version}
-                          </div>
-                        </div>
-                        <button
-                          class={INSTALL_BTN}
-                          disabled={updatingFile() !== null}
-                          onClick={() => applyUpdate(u)}
-                        >
-                          {updatingFile() === u.file_name ? "更新中…" : "更新"}
-                        </button>
-                      </div>
-                    )}
-                  </For>
-                </div>
-              </Show>
             </div>
-
-            <Show
-              when={!mods.loading}
-              fallback={
-                <div class="flex items-center gap-[10px] text-dim text-[13px] py-[12px]">
-                  <Spinner size={16} /> 扫描 mods…
-                </div>
-              }
-            >
-              <Show
-                when={(mods() ?? []).length > 0}
-                fallback={<div class="text-dim text-[13px] py-[12px]">该实例还没有 mod。</div>}
-              >
-                <div class="flex flex-col gap-[6px]">
-                  <For each={mods()}>
-                    {(m) => (
-                      <div
-                        class="flex items-center gap-[10px] py-[8px] px-[10px] rounded-ctl bg-glass-card"
-                        classList={{ "opacity-55": !m.enabled }}
-                      >
-                        <div class="flex-1 min-w-0">
-                          <div class="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">
-                            {m.name}
-                          </div>
-                          <div class="text-[11px] text-dim whitespace-nowrap overflow-hidden text-ellipsis">
-                            {[m.version, m.loader, m.file_name].filter(Boolean).join(" · ")}
-                          </div>
-                        </div>
-                        <label class="flex items-center gap-[5px] text-[11px] text-dim cursor-pointer shrink-0">
-                          <input
-                            type="checkbox"
-                            class="w-[15px] h-[15px] accent-[var(--a-4)] cursor-pointer"
-                            checked={m.enabled}
-                            onChange={(e) => toggleMod(m, e.currentTarget.checked)}
-                          />
-                          启用
-                        </label>
-                        <button
-                          class="shrink-0 text-[12px] text-[#e5848a] px-[8px] py-[4px] rounded-xs cursor-pointer hover:bg-[rgba(229,132,138,0.14)]"
-                          onClick={() => removeMod(m)}
-                        >
-                          删除
-                        </button>
-                      </div>
-                    )}
-                  </For>
-                </div>
-              </Show>
-            </Show>
           </Show>
 
           {/* ---- 资源包 / 光影 / 数据包 ---- */}
@@ -1390,6 +1501,8 @@ export const InstanceManageDialog: Component<{
                     searchKind="resourcepack"
                     emptyHint="该实例还没有资源包。"
                     tick={importTick()}
+                    browse={browsing()}
+                    onBrowse={setBrowsing}
                   />
                 </Show>
                 <Show when={packKind() === "shader"}>
@@ -1399,6 +1512,8 @@ export const InstanceManageDialog: Component<{
                     searchKind="shader"
                     emptyHint="该实例还没有光影。"
                     tick={importTick()}
+                    browse={browsing()}
+                    onBrowse={setBrowsing}
                   />
                 </Show>
                 <Show when={packKind() === "datapack"}>
@@ -1408,6 +1523,8 @@ export const InstanceManageDialog: Component<{
                     searchKind="datapack"
                     emptyHint="该实例还没有数据包。"
                     tick={importTick()}
+                    browse={browsing()}
+                    onBrowse={setBrowsing}
                   />
                 </Show>
               </>
@@ -1423,40 +1540,26 @@ export const InstanceManageDialog: Component<{
           <Show when={tab() === "screenshots" && props.instance}>
             {(inst) => <ScreenshotsPanel instance={inst()} />}
           </Show>
-
-          {/* Mods 搜索结果的项目详情(覆盖整个弹窗) */}
-          <Show when={modDetail() && props.instance}>
-            <ProjectDetailPanel
-              projectId={modDetail()!.id}
-              title={modDetail()!.title}
-              iconUrl={modDetail()!.icon}
-              target="mod"
-              instanceId={props.instance!.id}
-              mcVersion={props.instance!.mc_version}
-              loader={searchLoader()}
-              onClose={() => setModDetail(null)}
-              onInstalled={() => refetchMods()}
-            />
-          </Show>
         </div>
 
-        <div class="flex justify-between items-center px-[20px] py-[14px] border-t border-glass-divider">
-          <button
-            class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-transparent text-dim text-[13px] cursor-pointer transition-colors duration-150 hover:text-fg hover:bg-glass-hover disabled:opacity-50"
-            disabled={copying() || !props.instance}
-            onClick={copyInstance}
-          >
-            {copying() ? "复制中…" : "复制实例"}
-          </button>
-          <Show when={!props.embedded}>
+        {/* 内嵌模式(实例详情页)不渲染底部栏:复制实例移到详情页头部 ⋮ 菜单,完成本就不显示。 */}
+        <Show when={!props.embedded}>
+          <div class="flex justify-between items-center px-[20px] py-[14px] border-t border-glass-divider">
+            <button
+              class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-transparent text-dim text-[13px] cursor-pointer transition-colors duration-150 hover:text-fg hover:bg-glass-hover disabled:opacity-50"
+              disabled={copying() || !props.instance}
+              onClick={copyInstance}
+            >
+              {copying() ? "复制中…" : "复制实例"}
+            </button>
             <button
               class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-glass-card text-fg text-[13px] cursor-pointer transition-colors duration-150 hover:bg-glass-hover"
-              onClick={props.onClose}
+              onClick={() => props.onClose?.()}
             >
               完成
             </button>
-          </Show>
-        </div>
+          </div>
+        </Show>
       </div>
   );
 
@@ -1466,7 +1569,7 @@ export const InstanceManageDialog: Component<{
   ) : (
     <Dialog
       open={props.open}
-      onClose={props.onClose}
+      onClose={() => props.onClose?.()}
       label="实例管理"
       contentClass="glass-pop w-[520px] max-w-[calc(100vw-48px)] rounded-card overflow-hidden"
     >

@@ -1,6 +1,8 @@
-import { Component, createEffect, createResource, createSignal, For, Show } from "solid-js";
+import { Component, createEffect, createResource, createSignal, onCleanup, onMount, For, Show } from "solid-js";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
-import { Spinner, toast, type ModpackHit } from "../components";
+import { Spinner } from "../components/Spinner";
+import { toast } from "../components/Toast";
+import type { ModpackHit } from "../components/ModpackCard";
 import { api } from "../ipc/api";
 import { activeRoot } from "../store";
 import type { InstanceSummary, ModrinthProject, ModrinthVersion, PackKind, ProjectKind } from "../ipc/types";
@@ -58,14 +60,35 @@ const ProjectInstallDetail: Component<{
   hit: ModpackHit;
   kind: InstallableKind;
   onBack: () => void;
+  /** 锁定安装目标:从实例详情进入时传入,隐藏「安装到实例」选择器,只装到该实例。 */
+  lockedInstance?: InstanceSummary;
+  /** 安装成功回调:实例模式下用来刷新「已安装」列表。 */
+  onInstalled?: () => void;
 }> = (props) => {
   const meta = () => KIND_META[props.kind];
+  const lockMode = () => !!props.lockedInstance;
+
+  // Esc 返回上一层(与列表/灯箱一致的导航直觉)。
+  onMount(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        props.onBack();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    onCleanup(() => document.removeEventListener("keydown", onKey));
+  });
   const [selectedId, setSelectedId] = createSignal<string | null>(null);
   const [installing, setInstalling] = createSignal(false);
   const [installingVersion, setInstallingVersion] = createSignal<string | null>(null);
   const [openAbout, setOpenAbout] = createSignal(true);
 
-  const [instances] = createResource(() => activeRoot(), (root) => api.listInstances(root));
+  // 锁定模式不拉全部实例列表(目标已定);全局模式才拉,供右侧选择器。
+  const [instances] = createResource(
+    () => (props.lockedInstance ? false : activeRoot()),
+    (root) => api.listInstances(root as string),
+  );
   const [project] = createResource(
     () => props.hit.id,
     (id) =>
@@ -98,7 +121,7 @@ const ProjectInstallDetail: Component<{
   });
   const worldArg = () => (isDatapack() ? world() : null);
 
-  const list = () => instances() ?? [];
+  const list = () => (props.lockedInstance ? [props.lockedInstance] : instances() ?? []);
   const versionList = () => versions() ?? [];
   const selectedInstance = () => list().find((inst) => inst.id === selectedId()) ?? null;
   const compatibleFor = (inst: InstanceSummary) => compatibleVersionsFor(versionList(), inst, props.kind);
@@ -163,6 +186,7 @@ const ProjectInstallDetail: Component<{
         type: report.unresolved.length > 0 || conflicts > 0 ? "warn" : "success",
         message: parts.join(","),
       });
+      props.onInstalled?.();
     } catch (e) {
       toast({ type: "error", message: `安装失败:${e}` });
     } finally {
@@ -197,6 +221,7 @@ const ProjectInstallDetail: Component<{
         const file = await api.installPack(activeRoot(), inst.id, meta().packKind!, props.hit.id, inst.mc_version, worldArg());
         toast({ type: "success", message: `已安装到「${inst.name || inst.id}」:${file}` });
       }
+      props.onInstalled?.();
     } catch (e) {
       toast({ type: "error", message: `安装失败:${e}` });
     } finally {
@@ -354,84 +379,62 @@ const ProjectInstallDetail: Component<{
         </div>
 
         <aside class="flex flex-col gap-[12px]">
-          <section class="glass-panel rounded-card px-[14px] py-[14px]">
-            <h2 class="m-0 mb-[10px] text-[15px] font-bold text-n-8">安装到实例</h2>
-            <Show
-              when={!instances.loading}
-              fallback={
-                <div class="flex items-center gap-[10px] text-n-6 text-[13px]">
-                  <Spinner size={16} /> 加载实例…
-                </div>
-              }
-            >
+          {/* 全局模式才显示实例选择器;实例详情进入时目标已锁定。 */}
+          <Show when={!lockMode()}>
+            <section class="glass-panel rounded-card px-[14px] py-[14px]">
+              <h2 class="m-0 mb-[10px] text-[15px] font-bold text-n-8">安装到实例</h2>
               <Show
-                when={list().length > 0}
-                fallback={<div class="text-[13px] leading-[1.7] text-n-6">还没有实例。先去启动页新建或安装一个版本。</div>}
-              >
-                <div class="flex flex-col gap-[6px] max-h-[310px] overflow-y-auto">
-                  <For each={list()}>
-                    {(inst) => {
-                      const disabled = !canInstallTo(inst);
-                      const compatCount = () => compatibleFor(inst).length;
-                      return (
-                        <button
-                          class="glass-card flex w-full items-center gap-[9px] rounded-ctl border border-glass-border px-[9px] py-[8px] text-left cursor-pointer transition-[border-color,background-color] duration-150 hover:border-a-4 disabled:cursor-not-allowed disabled:opacity-50"
-                          classList={{
-                            "!border-a-4 !bg-a-1": selectedId() === inst.id,
-                          }}
-                          disabled={disabled}
-                          onClick={() => setSelectedId(inst.id)}
-                        >
-                          <span
-                            class="w-[30px] h-[30px] flex-[0_0_30px] rounded-[5px] grid place-items-center bg-a-4 text-white text-[13px] font-bold data-[loader=forge]:bg-[#c96a1c] data-[loader=neoforge]:bg-[#c96a1c] data-[loader=fabric]:bg-[#a87b3f] data-[loader=quilt]:bg-[#a87b3f]"
-                            data-loader={inst.loader}
-                          >
-                            {(inst.name || inst.id)[0]?.toUpperCase()}
-                          </span>
-                          <span class="min-w-0 flex-1">
-                            <span class="block text-[13px] font-semibold text-n-8 whitespace-nowrap overflow-hidden text-ellipsis">
-                              {inst.name || inst.id}
-                            </span>
-                            <span class="block text-[11px] text-n-6 whitespace-nowrap overflow-hidden text-ellipsis">
-                              {inst.mc_version} · {loaderLabel(inst.loader)}
-                              <Show when={props.kind === "mod" && inst.loader !== "vanilla"}>
-                                {" · " + compatCount() + " 个匹配版本"}
-                              </Show>
-                            </span>
-                          </span>
-                        </button>
-                      );
-                    }}
-                  </For>
-                </div>
-              </Show>
-            </Show>
-
-            {/* 数据包目标存档:数据包逐存档生效,必须先选一个存档。 */}
-            <Show when={isDatapack() && selectedInstance()}>
-              <Show
-                when={(worlds() ?? []).length > 0}
+                when={!instances.loading}
                 fallback={
-                  <div class="mt-[10px] text-[12px] leading-[1.7] text-n-6">
-                    该实例还没有存档。数据包按存档生效,先进游戏新建世界或在「存档」里导入一个。
+                  <div class="flex items-center gap-[10px] text-n-6 text-[13px]">
+                    <Spinner size={16} /> 加载实例…
                   </div>
                 }
               >
-                <label class="mt-[10px] flex items-center gap-[8px] text-[12px] text-n-6">
-                  <span class="shrink-0">目标存档</span>
-                  <select
-                    class="glass-input flex-1 rounded-ctl border border-glass-border px-[8px] py-[6px] text-[12px] text-n-8"
-                    value={world() ?? ""}
-                    onChange={(e) => setWorld(e.currentTarget.value)}
-                  >
-                    <For each={worlds()}>
-                      {(w) => <option value={w.folder}>{w.name || w.folder}</option>}
+                <Show
+                  when={list().length > 0}
+                  fallback={<div class="text-[13px] leading-[1.7] text-n-6">还没有实例。先去启动页新建或安装一个版本。</div>}
+                >
+                  <div class="flex flex-col gap-[6px] max-h-[310px] overflow-y-auto">
+                    <For each={list()}>
+                      {(inst) => {
+                        const disabled = !canInstallTo(inst);
+                        const compatCount = () => compatibleFor(inst).length;
+                        return (
+                          <button
+                            class="glass-card flex w-full items-center gap-[9px] rounded-ctl border border-glass-border px-[9px] py-[8px] text-left cursor-pointer transition-[border-color,background-color] duration-150 hover:border-a-4 disabled:cursor-not-allowed disabled:opacity-50"
+                            classList={{
+                              "!border-a-4 !bg-a-1": selectedId() === inst.id,
+                            }}
+                            disabled={disabled}
+                            onClick={() => setSelectedId(inst.id)}
+                          >
+                            <span
+                              class="w-[30px] h-[30px] flex-[0_0_30px] rounded-ctl grid place-items-center bg-a-4 text-white text-[13px] font-bold data-[loader=forge]:bg-[#c96a1c] data-[loader=neoforge]:bg-[#c96a1c] data-[loader=fabric]:bg-[#a87b3f] data-[loader=quilt]:bg-[#a87b3f]"
+                              data-loader={inst.loader}
+                            >
+                              {(inst.name || inst.id)[0]?.toUpperCase()}
+                            </span>
+                            <span class="min-w-0 flex-1">
+                              <span class="block text-[13px] font-semibold text-n-8 whitespace-nowrap overflow-hidden text-ellipsis">
+                                {inst.name || inst.id}
+                              </span>
+                              <span class="block text-[11px] text-n-6 whitespace-nowrap overflow-hidden text-ellipsis">
+                                {inst.mc_version} · {loaderLabel(inst.loader)}
+                                <Show when={props.kind === "mod" && inst.loader !== "vanilla"}>
+                                  {" · " + compatCount() + " 个匹配版本"}
+                                </Show>
+                              </span>
+                            </span>
+                          </button>
+                        );
+                      }}
                     </For>
-                  </select>
-                </label>
+                  </div>
+                </Show>
               </Show>
-            </Show>
-          </section>
+            </section>
+          </Show>
 
           <section class="glass-panel rounded-card px-[14px] py-[14px]">
             <Show when={selectedInstance()} fallback={<div class="text-[13px] text-n-6">选择一个实例后安装。</div>}>
@@ -444,6 +447,32 @@ const ProjectInstallDetail: Component<{
                       Minecraft {inst().mc_version} · {loaderLabel(inst().loader)}
                     </div>
                   </div>
+
+                  {/* 数据包目标存档:数据包逐存档生效,必须先选一个存档。 */}
+                  <Show when={isDatapack()}>
+                    <Show
+                      when={(worlds() ?? []).length > 0}
+                      fallback={
+                        <div class="text-[12px] leading-[1.7] text-n-6">
+                          该实例还没有存档。数据包按存档生效,先进游戏新建世界或在「存档」里导入一个。
+                        </div>
+                      }
+                    >
+                      <label class="flex items-center gap-[8px] text-[12px] text-n-6">
+                        <span class="shrink-0">目标存档</span>
+                        <select
+                          class="glass-input flex-1 rounded-ctl border border-glass-border px-[8px] py-[6px] text-[12px] text-n-8"
+                          value={world() ?? ""}
+                          onChange={(e) => setWorld(e.currentTarget.value)}
+                        >
+                          <For each={worlds()}>
+                            {(w) => <option value={w.folder}>{w.name || w.folder}</option>}
+                          </For>
+                        </select>
+                      </label>
+                    </Show>
+                  </Show>
+
                   <button
                     class="h-[36px] rounded-ctl border-none bg-a-5 px-[14px] text-white text-[13px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90 disabled:opacity-50 disabled:cursor-default"
                     disabled={installing() || installingVersion() !== null || !canInstallTo(inst()) || (isDatapack() && !world())}

@@ -1,5 +1,6 @@
 import { Component, createEffect, createSignal, For, Show } from "solid-js";
-import { ModpackListItem, type ModpackHit } from "./ModpackListItem";
+import { ModpackListItem } from "./ModpackListItem";
+import type { ModpackHit } from "./ModpackCard";
 import { SearchBox } from "./SearchBox";
 import { Spinner } from "./Spinner";
 import { toast } from "./Toast";
@@ -21,7 +22,7 @@ const PAGE = 30;
 /** SearchHit → ModpackHit(列表项契约)。 */
 function toHit(h: SearchHit): ModpackHit {
   return {
-    id: h.project_id,
+    id: h.id,
     slug: h.slug,
     title: h.title,
     description: h.description,
@@ -53,19 +54,28 @@ export interface ContentBrowserProps {
   onAdd?: (hit: ModpackHit) => void;
   /** 紧凑模式:结果区限高内滚,避免在标签页里把下方区块(已安装等)顶没。 */
   compact?: boolean;
-  /** 正在安装的 project_id(= hit.id);用于把该行按钮置为「安装中…」并禁用全部按钮。 */
-  adding?: string | null;
+  /** 正在安装的 project_id 集合(= hit.id);只把这些行置「安装中…」并禁用,其它行照常可点(后台并行)。 */
+  addingIds?: Set<string>;
   /** 点击行主体(非按钮)时打开详情;缺省则整行点击等同 onAdd。 */
   onOpenDetail?: (hit: ModpackHit) => void;
   /** 自定义搜索框占位文案。 */
   placeholder?: string;
   /** 某行按钮在禁用时的悬停提示(如数据包未选存档)。返回非空串则该行禁用并展示该提示。 */
   disabledReason?: (hit: ModpackHit) => string | null;
+  /** 挂载即聚焦搜索框(进入浏览/添加模式时直接可打字)。 */
+  autofocus?: boolean;
+  /** 搜索框为空时按 Esc 的回调(如退出浏览返回已安装);有内容时 Esc 先清空。 */
+  onEscape?: () => void;
+  /** 本次浏览已添加的 project_id 集合:这些行按钮显示「已添加」并禁用,给即时反馈。 */
+  addedIds?: Set<string>;
 }
 
 const ADD_BTN =
   "shrink-0 h-[28px] px-[12px] rounded-ctl bg-a-4 text-white text-[12px] font-semibold cursor-pointer " +
   "transition-opacity duration-[var(--dur)] ease-app hover:opacity-90 disabled:opacity-50 disabled:cursor-default";
+// 已添加:幽灵态(描边 + accent 文字),明确「装过了」且不可再点。
+const ADDED_BTN =
+  "shrink-0 h-[28px] px-[12px] rounded-ctl border border-glass-border bg-transparent text-a-6 text-[12px] font-semibold cursor-default";
 
 export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
   const [query, setQuery] = createSignal("");
@@ -83,6 +93,8 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
   const [loading, setLoading] = createSignal(true);
   const [loadingMore, setLoadingMore] = createSignal(false);
   const [reachedEnd, setReachedEnd] = createSignal(false);
+  // 搜索失败(非「后端未连」)单独成态:区分「真的没结果」与「搜挂了」,后者给重试。
+  const [searchError, setSearchError] = createSignal<string | null>(null);
 
   async function fetchPage(q: string, offset: number): Promise<SearchHit[] | null> {
     try {
@@ -100,7 +112,9 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
       if (isDesktopBackendUnavailable(e)) {
         setBackendUnavailable(true);
       } else {
-        toast({ type: "error", message: `搜索失败:${e}` });
+        // 翻页失败仍 toast(已有列表在);首屏失败走 searchError 占位 + 重试。
+        if (offset > 0) toast({ type: "error", message: `搜索失败:${e}` });
+        else setSearchError(e instanceof Error ? e.message : String(e));
       }
       return null;
     }
@@ -114,6 +128,7 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
     void props.mcVersion;
     void props.loader;
     setBackendUnavailable(false);
+    setSearchError(null);
     setLoading(true);
     setReachedEnd(false);
     void fetchPage(q, 0).then((hits) => {
@@ -121,6 +136,17 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
       setLoading(false);
     });
   });
+
+  // 首屏失败后的重试:清错、重拉第一页。
+  function retry() {
+    setSearchError(null);
+    setLoading(true);
+    setReachedEnd(false);
+    void fetchPage(debounced(), 0).then((hits) => {
+      setResults(hits ?? []);
+      setLoading(false);
+    });
+  }
 
   async function loadMore() {
     if (loadingMore() || reachedEnd()) return;
@@ -135,6 +161,16 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
       <SearchBox
         value={query()}
         onInput={onInput}
+        autofocus={props.autofocus}
+        onEscape={() => {
+          // 有搜索词先清空;已空则上抛(退出浏览)。
+          if (query()) {
+            setQuery("");
+            setDebounced("");
+          } else {
+            props.onEscape?.();
+          }
+        }}
         placeholder={props.placeholder ?? "搜索 Modrinth…"}
       />
 
@@ -142,6 +178,20 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
         <Show
           when={results().length > 0}
           fallback={
+            <Show
+              when={!searchError()}
+              fallback={
+                <div class="flex flex-col items-center justify-center gap-[12px] py-[36px] text-center">
+                  <div class="text-dim text-[13px]">搜索失败,请检查网络后重试。</div>
+                  <button
+                    class="h-[34px] px-[16px] rounded-ctl border border-glass-border bg-glass-card text-fg text-[13px] cursor-pointer transition-[background-color] duration-[var(--dur)] ease-app hover:bg-glass-hover"
+                    onClick={retry}
+                  >
+                    重试
+                  </button>
+                </div>
+              }
+            >
             <div class="p-[24px] text-dim text-center text-[13px]">
               <Show
                 when={!backendUnavailable()}
@@ -150,6 +200,7 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
                 {debounced().trim() ? "没有结果,换个关键词试试。" : "输入关键词搜索 Modrinth。"}
               </Show>
             </div>
+            </Show>
           }
         >
           <div
@@ -162,7 +213,10 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
               {(raw) => {
                 const hit = toHit(raw);
                 const reason = () => props.disabledReason?.(hit) ?? null;
-                const disabled = () => props.adding != null || reason() != null;
+                const added = () => props.addedIds?.has(hit.id) ?? false;
+                const busy = () => props.addingIds?.has(hit.id) ?? false;
+                // 只禁用「这一行」(已添加 / 该行安装中 / 该行有禁用原因);其它行后台并行不受影响。
+                const disabled = () => reason() != null || added() || busy();
                 const onAdd = props.onAdd;
                 return (
                   <ModpackListItem
@@ -171,12 +225,12 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
                     action={
                       onAdd ? (
                         <button
-                          class={ADD_BTN}
+                          class={added() ? ADDED_BTN : ADD_BTN}
                           disabled={disabled()}
                           title={reason() ?? ""}
                           onClick={() => onAdd(hit)}
                         >
-                          {props.adding === hit.id ? "安装中…" : "添加"}
+                          {added() ? "已添加" : busy() ? "安装中…" : "添加"}
                         </button>
                       ) : undefined
                     }
