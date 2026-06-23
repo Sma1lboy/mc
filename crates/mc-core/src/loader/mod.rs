@@ -9,12 +9,14 @@ pub mod forge;
 pub mod installer;
 pub mod neoforge;
 pub mod quilt;
+pub mod versions;
 
 pub use core::install_core;
 pub use fabric::install_fabric;
 pub use forge::install_forge;
 pub use neoforge::install_neoforge;
 pub use quilt::install_quilt;
+pub use versions::list_loader_versions;
 
 use mc_types::LoaderKind;
 

@@ -1,4 +1,11 @@
-import { Component, createSignal, createResource, createMemo, Show } from "solid-js";
+import {
+  Component,
+  createSignal,
+  createResource,
+  createMemo,
+  createEffect,
+  Show,
+} from "solid-js";
 import { Dialog } from "./Dialog";
 import { Select } from "./Select";
 import { Spinner } from "./Spinner";
@@ -44,6 +51,31 @@ export const NewInstanceDialog: Component<{
   );
 
   const needsLoaderVersion = () => loader() === "forge" || loader() === "neoforge";
+
+  // Forge/NeoForge 的可用构建号由 daemon 拉真实 maven 元数据,免去手填精确 build。
+  // 仅在选了 loader + MC 版本时请求;失败/为空时下面回退到手填输入框,绝不卡住用户。
+  const [loaderVersions] = createResource(
+    () => (needsLoaderVersion() && mcVersion() ? ([loader(), mcVersion()] as const) : null),
+    async ([ld, mc]) => {
+      try {
+        return await api.listLoaderVersions(ld, mc);
+      } catch {
+        return [] as string[];
+      }
+    },
+  );
+  const loaderVersionOptions = createMemo(() =>
+    (loaderVersions() ?? []).map((v) => ({ label: v, value: v })),
+  );
+  // 列表到手即预选最新(第一个);用户未手动改过时随版本变化刷新默认值。
+  createEffect(() => {
+    const list = loaderVersions();
+    if (!needsLoaderVersion()) return;
+    if (list && list.length > 0 && !list.includes(loaderVersion())) {
+      setLoaderVersion(list[0]);
+    }
+  });
+
   const canCreate = () =>
     !creating() &&
     name().trim() !== "" &&
@@ -119,18 +151,41 @@ export const NewInstanceDialog: Component<{
         <Show when={needsLoaderVersion()}>
           <label class="flex flex-col gap-[5px]">
             <span class="text-[12px] text-dim">
-              {loader() === "forge" ? "Forge build(如 47.2.0)" : "NeoForge 版本(如 20.4.237)"}
+              {loader() === "forge" ? "Forge 版本" : "NeoForge 版本"}
             </span>
-            <input
-              class={FIELD}
-              name="loaderVersion"
-              autocomplete="off"
-              spellcheck={false}
-              placeholder={loader() === "forge" ? "例如 47.2.0…" : "例如 20.4.237…"}
-              value={loaderVersion()}
-              onInput={(e) => setLoaderVersion(e.currentTarget.value)}
-              disabled={creating()}
-            />
+            <Show
+              when={!loaderVersions.loading && loaderVersionOptions().length > 0}
+              fallback={
+                <Show
+                  when={!loaderVersions.loading}
+                  fallback={
+                    <div class="flex items-center gap-[8px] h-[36px] px-[12px] text-[12px] text-dim">
+                      <Spinner size={14} />
+                      <span>加载可用版本中…</span>
+                    </div>
+                  }
+                >
+                  {/* 拉取失败 / 该版本无可用构建 → 退回手填,绝不卡住用户。 */}
+                  <input
+                    class={FIELD}
+                    name="loaderVersion"
+                    autocomplete="off"
+                    spellcheck={false}
+                    placeholder={loader() === "forge" ? "例如 47.2.0…" : "例如 20.4.237…"}
+                    value={loaderVersion()}
+                    onInput={(e) => setLoaderVersion(e.currentTarget.value)}
+                    disabled={creating()}
+                  />
+                </Show>
+              }
+            >
+              <Select
+                value={loaderVersion()}
+                onChange={setLoaderVersion}
+                options={loaderVersionOptions()}
+                placeholder="选择版本"
+              />
+            </Show>
           </label>
         </Show>
 

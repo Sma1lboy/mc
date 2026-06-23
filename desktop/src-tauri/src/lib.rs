@@ -9,6 +9,87 @@ mod logging;
 
 use tauri_specta::{collect_commands, Builder};
 
+/// Construct the tauri-specta [`Builder`] holding every command + event type.
+///
+/// Extracted so the TS bindings can be regenerated **without launching the GUI**:
+/// the `export` test below builds this and writes `src/ipc/bindings.ts`. The
+/// debug-launch export in [`run`] uses the same builder, so both paths stay in
+/// lock-step and bindings never drift from the registered command set.
+pub fn specta_builder() -> Builder<tauri::Wry> {
+    // tauri-specta:收集所有命令(同时承载类型),debug 下把 TS 绑定写回前端 ipc 目录。
+    // u64/i64(下载数、时间戳、字节数)按 number 导出,与既有前端一致(量级在 JS 安全整数内)。
+    Builder::<tauri::Wry>::new()
+        .dangerously_cast_bigints_to_number()
+        // 事件 payload 类型也纳入生成(emit/listen 机制不变,仅消除手写事件类型漂移)。
+        .typ::<mc_types::Progress>()
+        .typ::<commands::GameLog>()
+        .typ::<commands::GameStarted>()
+        .typ::<commands::GameExit>()
+        .commands(collect_commands![
+            commands::list_roots,
+            commands::list_instances,
+            commands::instance_dir,
+            commands::instance_subdir,
+            commands::reveal_path,
+            commands::delete_instance,
+            commands::copy_instance,
+            commands::create_instance,
+            commands::install_loader,
+            commands::list_loader_versions,
+            commands::get_instance_config,
+            commands::set_instance_config,
+            commands::set_instance_icon,
+            commands::instance_mods,
+            commands::set_mod_enabled,
+            commands::delete_mod,
+            commands::install_mod,
+            commands::install_version_file,
+            commands::check_mod_updates,
+            commands::apply_mod_update,
+            commands::import_local_resource,
+            commands::instance_packs,
+            commands::set_pack_enabled,
+            commands::delete_pack,
+            commands::install_pack,
+            commands::instance_screenshots,
+            commands::read_screenshot,
+            commands::delete_screenshot,
+            commands::instance_worlds,
+            commands::delete_world,
+            commands::backup_world,
+            commands::rename_world,
+            commands::import_world_zip,
+            commands::list_versions,
+            commands::list_accounts,
+            commands::msa_login_start,
+            commands::msa_login_poll,
+            commands::add_offline_account,
+            commands::yggdrasil_login,
+            commands::select_account,
+            commands::remove_account,
+            commands::refresh_account,
+            commands::detect_java,
+            commands::modrinth_search,
+            commands::get_theme,
+            commands::set_theme,
+            commands::install_version,
+            commands::launch_instance,
+            commands::stop_instance,
+            commands::running_instances,
+            commands::import_modpack,
+            commands::export_modpack,
+            commands::install_modrinth_modpack,
+            commands::install_modpack_url,
+            commands::modrinth_versions,
+            commands::modrinth_project,
+            commands::get_settings,
+            commands::set_settings,
+            commands::log_boot,
+            commands::client_log,
+            commands::open_logs_dir,
+        ])
+}
+
 /// Build and run the Tauri application.
 pub fn run() {
     // 先装日志:全局目录 <data_dir>/logs,client 与 daemon 两路统一收集。守卫持有到 run 结束
@@ -22,77 +103,7 @@ pub fn run() {
     let _log_guard = logging::init(&logs_dir);
     tracing::info!(target: "daemon", "mc-launcher 启动,日志目录 {}", logs_dir.display());
 
-    // tauri-specta:收集所有命令(同时承载类型),debug 下把 TS 绑定写回前端 ipc 目录。
-    // u64/i64(下载数、时间戳、字节数)按 number 导出,与既有前端一致(量级在 JS 安全整数内)。
-    let builder = Builder::<tauri::Wry>::new()
-        .dangerously_cast_bigints_to_number()
-        // 事件 payload 类型也纳入生成(emit/listen 机制不变,仅消除手写事件类型漂移)。
-        .typ::<mc_types::Progress>()
-        .typ::<commands::GameLog>()
-        .typ::<commands::GameStarted>()
-        .typ::<commands::GameExit>()
-        .commands(collect_commands![
-        commands::list_roots,
-        commands::list_instances,
-        commands::instance_dir,
-        commands::instance_subdir,
-        commands::reveal_path,
-        commands::delete_instance,
-        commands::copy_instance,
-        commands::create_instance,
-        commands::install_loader,
-        commands::get_instance_config,
-        commands::set_instance_config,
-        commands::set_instance_icon,
-        commands::instance_mods,
-        commands::set_mod_enabled,
-        commands::delete_mod,
-        commands::install_mod,
-        commands::install_version_file,
-        commands::check_mod_updates,
-        commands::apply_mod_update,
-        commands::import_local_resource,
-        commands::instance_packs,
-        commands::set_pack_enabled,
-        commands::delete_pack,
-        commands::install_pack,
-        commands::instance_screenshots,
-        commands::read_screenshot,
-        commands::delete_screenshot,
-        commands::instance_worlds,
-        commands::delete_world,
-        commands::backup_world,
-        commands::rename_world,
-        commands::import_world_zip,
-        commands::list_versions,
-        commands::list_accounts,
-        commands::msa_login_start,
-        commands::msa_login_poll,
-        commands::add_offline_account,
-        commands::yggdrasil_login,
-        commands::select_account,
-        commands::remove_account,
-        commands::refresh_account,
-        commands::detect_java,
-        commands::modrinth_search,
-        commands::get_theme,
-        commands::set_theme,
-        commands::install_version,
-        commands::launch_instance,
-        commands::stop_instance,
-        commands::running_instances,
-        commands::import_modpack,
-        commands::export_modpack,
-        commands::install_modrinth_modpack,
-        commands::install_modpack_url,
-        commands::modrinth_versions,
-        commands::modrinth_project,
-        commands::get_settings,
-        commands::set_settings,
-        commands::log_boot,
-        commands::client_log,
-        commands::open_logs_dir,
-    ]);
+    let builder = specta_builder();
 
     // 路径在编译期锚定到 crate 目录(运行时 CWD 不定,相对路径会写错地方)。
     #[cfg(debug_assertions)]
@@ -134,4 +145,20 @@ pub fn run() {
         .invoke_handler(builder.invoke_handler())
         .run(tauri::generate_context!())
         .expect("error while running mc-launcher");
+}
+
+#[cfg(test)]
+mod export {
+    /// Regenerate `src/ipc/bindings.ts` from the registered commands without a
+    /// GUI launch. Run via `cargo test -p mc-launcher export_bindings`; keeps the
+    /// hand-mirror-free contract enforced in CI / headless dev.
+    #[test]
+    fn export_bindings() {
+        super::specta_builder()
+            .export(
+                specta_typescript::Typescript::default(),
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../src/ipc/bindings.ts"),
+            )
+            .expect("failed to export typescript bindings");
+    }
 }

@@ -37,6 +37,12 @@ export const commands = {
 	 *  相同,但「实例目录本身就是裸原版」的退化情形会返回一个新 id(避免自环)。
 	 */
 	installLoader: (root: string, id: string, mcVersion: string, loader: string, loaderVersion: string | null) => typedError<string, string>(__TAURI_INVOKE("install_loader", { root, id, mcVersion, loader, loaderVersion })),
+	/**
+	 *  列出某 loader 在指定 MC 版本下的可用构建号(新建实例的版本选择器用)。
+	 *  loader = "forge" / "neoforge" / "fabric" / "quilt";其它(vanilla 等)返回空。
+	 *  返回值按「新→旧」排序,前端默认选第一个。网络/解析失败时由前端回退到手填输入框。
+	 */
+	listLoaderVersions: (loader: string, mcVersion: string) => typedError<string[], string>(__TAURI_INVOKE("list_loader_versions", { loader, mcVersion })),
 	/**  读取某实例的配置(名字/内存/Java/JVM 参数/窗口…)。文件缺失返回默认值。 */
 	getInstanceConfig: (root: string, id: string) => typedError<InstanceConfig_Serialize, string>(__TAURI_INVOKE("get_instance_config", { root, id })),
 	/**  写某实例的配置(原子写入 instance.json)。 */
