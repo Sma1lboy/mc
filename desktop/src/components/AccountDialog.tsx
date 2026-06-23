@@ -21,6 +21,11 @@ const ACCOUNT_CANCEL_BTN =
 const ACCOUNT_SUBMIT_BTN =
   "h-[36px] px-[18px] rounded-xs bg-a-5 text-white border border-a-5 text-[13px] cursor-pointer " +
   "transition-opacity duration-[var(--dur)] ease-app hover:not-disabled:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed";
+// 账号表单输入框(离线用户名 + 外置登录三项)统一样式,避免逐个内联漂移。
+const ACCOUNT_INPUT =
+  "h-[38px] px-[14px] border border-glass-border rounded-xs text-[13px] text-fg glass-input " +
+  "transition-[border-color,background-color,box-shadow] duration-150 ease-app " +
+  "focus-visible:outline-none focus-visible:border-a-4 focus-visible:bg-glass-card focus-visible:ring-2 focus-visible:ring-a-4/25";
 
 /** 登录弹窗状态机:选择方式 → 微软设备码 / 离线用户名 / 外置登录。 */
 type Step = "menu" | "msa" | "offline" | "yggdrasil";
@@ -328,7 +333,7 @@ export const AccountDialog: Component<{
           <input
             id="account-dialog-offline-name"
             name="offlineAccountName"
-            class="h-[40px] px-[14px] border border-glass-border rounded-xs text-[14px] text-fg glass-input transition-[border-color,background-color,box-shadow] duration-150 ease-app focus-visible:outline-none focus-visible:border-a-4 focus-visible:bg-glass-card focus-visible:ring-2 focus-visible:ring-a-4/25"
+            class={ACCOUNT_INPUT}
             placeholder="输入用户名,例如 Steve…"
             autocomplete="off"
             spellcheck={false}
@@ -359,7 +364,7 @@ export const AccountDialog: Component<{
       <Show when={step() === "yggdrasil"}>
         <form class="p-[18px] flex flex-col gap-[10px]" onSubmit={submitYggdrasil}>
           <input
-            class="h-[38px] px-[14px] border border-glass-border rounded-xs text-[13px] text-fg glass-input focus-visible:outline-none focus-visible:border-a-4 focus-visible:bg-glass-card focus-visible:ring-2 focus-visible:ring-a-4/25"
+            class={ACCOUNT_INPUT}
             placeholder="皮肤站 API 地址,如 https://littleskin.cn/api/yggdrasil"
             autocomplete="off"
             spellcheck={false}
@@ -367,7 +372,7 @@ export const AccountDialog: Component<{
             onInput={(e) => setYgBase(e.currentTarget.value)}
           />
           <input
-            class="h-[38px] px-[14px] border border-glass-border rounded-xs text-[13px] text-fg glass-input focus-visible:outline-none focus-visible:border-a-4 focus-visible:bg-glass-card focus-visible:ring-2 focus-visible:ring-a-4/25"
+            class={ACCOUNT_INPUT}
             placeholder="邮箱 / 用户名"
             autocomplete="username"
             value={ygUser()}
@@ -375,7 +380,7 @@ export const AccountDialog: Component<{
           />
           <input
             type="password"
-            class="h-[38px] px-[14px] border border-glass-border rounded-xs text-[13px] text-fg glass-input focus-visible:outline-none focus-visible:border-a-4 focus-visible:bg-glass-card focus-visible:ring-2 focus-visible:ring-a-4/25"
+            class={ACCOUNT_INPUT}
             placeholder="密码"
             autocomplete="current-password"
             value={ygPass()}
