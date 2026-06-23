@@ -6,6 +6,7 @@ import {
   createSignal,
 } from "solid-js";
 import { AccountDialog, Avatar, EmptyState, Menu } from "../components";
+import { ACCENT_BTN } from "../components/styles";
 import { api } from "../ipc/api";
 import type { AccountSummary, AccountKind } from "../ipc/types";
 import "./ContextBar.css"; // 残留:@keyframes ctx-pulse(骨架脉冲)
@@ -124,10 +125,7 @@ const ContextBar: Component = () => {
                     <span class="text-[var(--fs-base)] text-fg">尚未添加账号</span>
                     <span class="text-[12px] text-dim">登录微软正版,或添加一个离线账号</span>
                   </div>
-                  <button
-                    class="h-[34px] rounded-ctl border-none bg-a-5 text-white text-[13px] font-semibold cursor-pointer transition-opacity duration-[var(--dur)] ease-app hover:opacity-90 motion-reduce:transition-none"
-                    onClick={() => setLoginOpen(true)}
-                  >
+                  <button class={`${ACCENT_BTN} motion-reduce:transition-none`} onClick={() => setLoginOpen(true)}>
                     登录 / 添加账号
                   </button>
                 </div>

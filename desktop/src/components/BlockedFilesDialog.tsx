@@ -1,6 +1,7 @@
 import { Component, For, Show } from "solid-js";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { Dialog } from "./Dialog";
+import { ACCENT_BTN } from "./styles";
 import type { BlockedFile } from "../ipc/types";
 
 /**
@@ -66,10 +67,7 @@ export const BlockedFilesDialog: Component<{
         </Show>
 
         <div class="flex justify-end">
-          <button
-            class="h-[34px] px-[16px] rounded-ctl border-none bg-a-5 text-white text-[13px] font-semibold cursor-pointer hover:opacity-90"
-            onClick={props.onClose}
-          >
+          <button class={ACCENT_BTN} onClick={props.onClose}>
             知道了
           </button>
         </div>
