@@ -18,6 +18,30 @@ pub fn run() {
     tracing::info!(target: "daemon", "mc-launcher 启动,日志目录 {}", logs_dir.display());
 
     tauri::Builder::default()
+        .setup(|app| {
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::Manager;
+                use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = apply_vibrancy(
+                        &win,
+                        NSVisualEffectMaterial::HudWindow,
+                        Some(NSVisualEffectState::Active),
+                        None,
+                    );
+                }
+            }
+            #[cfg(target_os = "windows")]
+            {
+                use tauri::Manager;
+                use window_vibrancy::apply_acrylic;
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = apply_acrylic(&win, Some((18, 18, 22, 160)));
+                }
+            }
+            Ok(())
+        })
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(commands::RunningGames::default())
