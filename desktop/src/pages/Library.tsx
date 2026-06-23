@@ -3,6 +3,7 @@ import {
   InstanceRow,
   Button,
   BlockedFilesDialog,
+  ImportModpackDialog,
   EmptyState,
   ErrorState,
   Spinner,
@@ -12,12 +13,7 @@ import {
 } from "../components";
 import { api, onInstallProgress } from "../ipc/api";
 import { activeRoot, openInstance, playInstance } from "../store";
-import {
-  openInstanceDir,
-  exportInstanceMrpack,
-  deleteInstance,
-  importModpackFile,
-} from "../util/instanceActions";
+import { openInstanceDir, exportInstanceMrpack, deleteInstance } from "../util/instanceActions";
 import { sortByRecent } from "../util/instances";
 import { t } from "../i18n";
 import type { InstanceSummary, ManifestVersion, ImportOutcome } from "../ipc/types";
@@ -53,25 +49,14 @@ const Library: Component = () => {
   const [instQuery, setInstQuery] = createSignal("");
   const [installing, setInstalling] = createSignal<string | null>(null);
   const [progress, setProgress] = createSignal("");
-  // 本地导入(.mrpack/.zip)进行态 + 需手动下载文件的产物弹窗。
-  const [importing, setImporting] = createSignal(false);
+  // 导入整合包:统一弹窗(展示支持格式 / 拖入提示 / 须知);产物里有需手动下载或跳过的文件再摊开。
+  const [importOpen, setImportOpen] = createSignal(false);
   const [importOutcome, setImportOutcome] = createSignal<ImportOutcome | null>(null);
 
-  async function importLocal() {
-    if (importing()) return;
-    setImporting(true);
-    try {
-      const out = await importModpackFile(activeRoot());
-      if (!out) return; // 取消或失败(失败已 toast)
-      refetch();
-      if (out.blocked.length > 0 || out.skipped_optional.length > 0) {
-        setImportOutcome(out); // 摊开需手动下载 / 被跳过的文件
-      } else {
-        toast({ type: "success", message: t("library.imported", { id: out.instance_id }) });
-      }
-    } finally {
-      setImporting(false);
-    }
+  function handleImported(out: ImportOutcome) {
+    refetch();
+    if (out.blocked.length > 0 || out.skipped_optional.length > 0) setImportOutcome(out);
+    else toast({ type: "success", message: t("library.imported", { id: out.instance_id }) });
   }
 
   const off = onInstallProgress((p) => {
@@ -119,8 +104,8 @@ const Library: Component = () => {
       <div class="flex items-center justify-between mb-[18px]">
         <h1 class="text-[24px] font-bold text-fg m-0">{t("library.title")}</h1>
         <div class="flex items-center gap-[10px]">
-          <Button variant="ghost" disabled={importing()} onClick={() => void importLocal()}>
-            {importing() ? t("library.importing") : t("library.importModpack")}
+          <Button variant="ghost" onClick={() => setImportOpen(true)}>
+            {t("library.importModpack")}
           </Button>
           <Button variant="primary" onClick={() => setShowInstall((s) => !s)}>
             {showInstall() ? t("library.close") : t("library.installNewVersion")}
@@ -211,6 +196,13 @@ const Library: Component = () => {
           </Show>
         </Show>
       </Show>
+
+      <ImportModpackDialog
+        open={importOpen()}
+        root={activeRoot()}
+        onClose={() => setImportOpen(false)}
+        onImported={handleImported}
+      />
 
       <Show when={importOutcome()}>
         {(o) => (

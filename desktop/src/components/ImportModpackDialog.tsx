@@ -1,0 +1,181 @@
+import { Component, createEffect, createSignal, For, onCleanup, Show } from "solid-js";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { Dialog } from "./Dialog";
+import { Icon } from "./Icon";
+import { Spinner } from "./Spinner";
+import { toast } from "./Toast";
+import { ACCENT_BTN } from "./styles";
+import { api, onInstallProgress } from "../ipc/api";
+import { t } from "../i18n";
+import type { ImportOutcome } from "../ipc/types";
+
+/**
+ * ImportModpackDialog —— 导入整合包的统一入口(两套布局共用)。把之前「点按钮直接弹系统文件框」
+ * 的隐式流程显式化:展示**支持的格式**(Modrinth / CurseForge / MultiMC / MCBBS)、**拖入提示**
+ * 与**导入须知**,并同时支持「拖入文件」与「点击选择」两种方式。
+ *
+ * Tauri 启用原生文件拖放,HTML5 ondrop 不触发,故走 webview 的 onDragDropEvent(仅在打开时监听)。
+ */
+
+// label/tip 必须在渲染期(getter)调 t(),放模块常量会冻结语言(见 i18n 备忘)。
+const FORMAT_EXT: { mrpack: string; zip: string } = { mrpack: ".mrpack", zip: ".zip" };
+
+export const ImportModpackDialog: Component<{
+  open: boolean;
+  root: string;
+  onClose: () => void;
+  onImported: (out: ImportOutcome) => void;
+}> = (props) => {
+  const [importing, setImporting] = createSignal(false);
+  const [progress, setProgress] = createSignal("");
+  const [dragOver, setDragOver] = createSignal(false);
+
+  const formats = () => [
+    { ext: FORMAT_EXT.mrpack, label: t("components.import.fmtModrinth") },
+    { ext: FORMAT_EXT.zip, label: t("components.import.fmtCurseforge") },
+    { ext: FORMAT_EXT.zip, label: t("components.import.fmtMultimc") },
+    { ext: FORMAT_EXT.zip, label: t("components.import.fmtMcbbs") },
+  ];
+  const tips = () => [
+    t("components.import.tipFormats"),
+    t("components.import.tipCurseforge"),
+    t("components.import.tipProgress"),
+    t("components.import.tipPreserve"),
+  ];
+
+  async function runImport(path: string) {
+    if (importing()) return;
+    setImporting(true);
+    setProgress("");
+    const off = onInstallProgress((p) =>
+      setProgress(p.total > 0 ? `${p.stage} ${p.current}/${p.total}` : p.stage),
+    );
+    try {
+      const out = await api.importModpack(props.root, path, null);
+      props.onImported(out);
+      props.onClose();
+    } catch (e) {
+      toast({ type: "error", message: t("components.import.failed", { err: String(e) }) });
+    } finally {
+      off();
+      setImporting(false);
+      setProgress("");
+    }
+  }
+
+  async function pick() {
+    if (importing()) return;
+    const picked = await openDialog({
+      multiple: false,
+      filters: [{ name: t("components.import.filter"), extensions: ["mrpack", "zip"] }],
+    });
+    if (typeof picked === "string") void runImport(picked);
+  }
+
+  // 原生文件拖放:仅在弹窗打开时监听;拖入非 .mrpack/.zip 提示,多个只取第一个。
+  createEffect(() => {
+    if (!props.open) {
+      setDragOver(false);
+      return;
+    }
+    const unlisten = getCurrentWebview().onDragDropEvent((e) => {
+      if (!props.open) return;
+      const p = e.payload;
+      if (p.type === "enter" || p.type === "over") setDragOver(true);
+      else if (p.type === "leave") setDragOver(false);
+      else if (p.type === "drop") {
+        setDragOver(false);
+        const first = p.paths.find((x) => /\.(mrpack|zip)$/i.test(x));
+        if (!first) {
+          toast({ type: "info", message: t("components.import.unsupported") });
+          return;
+        }
+        if (p.paths.length > 1) toast({ type: "info", message: t("components.import.onlyFirst") });
+        void runImport(first);
+      }
+    });
+    onCleanup(() => void unlisten.then((f) => f()));
+  });
+
+  return (
+    <Dialog
+      open={props.open}
+      onClose={() => !importing() && props.onClose()}
+      label={t("components.import.title")}
+      contentClass="w-[460px] max-w-[calc(100vw-48px)] glass-pop rounded-card overflow-hidden"
+    >
+      <div class="flex flex-col gap-[16px] p-[20px]">
+        <div class="text-[15px] font-bold text-fg">{t("components.import.title")}</div>
+
+        {/* 拖入区(点击选择 / 拖入文件)。拖到窗口时高亮。 */}
+        <button
+          type="button"
+          disabled={importing()}
+          onClick={() => void pick()}
+          class="flex flex-col items-center justify-center gap-[10px] rounded-card border-2 border-dashed px-[20px] py-[28px] text-center cursor-pointer transition-colors duration-150 disabled:cursor-default"
+          classList={{
+            "border-a-4 bg-a-1": dragOver(),
+            "border-glass-border bg-glass-card hover:bg-glass-hover": !dragOver(),
+          }}
+        >
+          <Show when={!importing()} fallback={<Spinner />}>
+            <Icon name="download" size={26} class="text-a-5" />
+          </Show>
+          <div class="text-[13px] font-semibold text-fg">
+            {importing() ? t("components.import.importing") : t("components.import.dropHint")}
+          </div>
+          <div class="text-[11px] text-dim truncate max-w-full">
+            {importing()
+              ? progress() || t("components.import.importing")
+              : t("components.import.clickHint")}
+          </div>
+        </button>
+
+        {/* 支持的格式 */}
+        <div>
+          <div class="text-[12px] font-semibold text-dim mb-[6px]">
+            {t("components.import.formatsTitle")}
+          </div>
+          <div class="flex flex-col gap-[5px]">
+            <For each={formats()}>
+              {(f) => (
+                <div class="flex items-center gap-[8px] text-[12px]">
+                  <span class="inline-flex items-center h-[18px] px-[6px] rounded-[5px] bg-a-1 text-a-7 font-mono text-[11px]">
+                    {f.ext}
+                  </span>
+                  <span class="text-fg">{f.label}</span>
+                </div>
+              )}
+            </For>
+          </div>
+        </div>
+
+        {/* 导入须知 */}
+        <div class="rounded-ctl bg-glass-card px-[12px] py-[10px]">
+          <div class="flex items-center gap-[6px] text-[12px] font-semibold text-dim mb-[5px]">
+            <Icon name="info" size={14} /> {t("components.import.tipsTitle")}
+          </div>
+          <ul class="m-0 pl-[16px] flex flex-col gap-[3px] text-[11px] leading-[1.6] text-n-6">
+            <For each={tips()}>{(tip) => <li>{tip}</li>}</For>
+          </ul>
+        </div>
+
+        <div class="flex justify-end gap-[10px]">
+          <button
+            disabled={importing()}
+            class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-glass-card text-fg text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-glass-hover disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={() => props.onClose()}
+          >
+            {t("components.import.close")}
+          </button>
+          <button class={ACCENT_BTN} disabled={importing()} onClick={() => void pick()}>
+            {t("components.import.choose")}
+          </button>
+        </div>
+      </div>
+    </Dialog>
+  );
+};
+
+export default ImportModpackDialog;

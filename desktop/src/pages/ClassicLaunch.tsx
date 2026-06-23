@@ -1,9 +1,9 @@
 import { Component, createEffect, createResource, createSignal, For, Show, onCleanup } from "solid-js";
-import { Avatar, BlockedFilesDialog, InstanceManageDialog, NewInstanceDialog, Spinner, toast } from "../components";
+import { Avatar, BlockedFilesDialog, ImportModpackDialog, InstanceManageDialog, NewInstanceDialog, Spinner, toast } from "../components";
 import { LOADER_BADGE_TINT } from "../components/styles";
 import { api, onGameLog, onLaunchProgress } from "../ipc/api";
 import { activeRoot, isRunning, isLaunching, playInstance } from "../store";
-import { openInstanceDir, importModpackFile } from "../util/instanceActions";
+import { openInstanceDir } from "../util/instanceActions";
 import { loaderLabel } from "../util/loaders";
 import { accountKindLabel } from "../util/accounts";
 import { t } from "../i18n";
@@ -125,23 +125,16 @@ const ClassicLaunch: Component = () => {
     await playInstance(inst.id);
   }
 
-  // 导入整合包:选文件(.mrpack/.zip,自动识别格式)→ 建实例 → 刷新版本列表。
-  // 选文件 + 调用 + 失败提示走共用的 importModpackFile,和工作台库一致。
-  async function importModpack() {
-    if (busy()) return;
-    setBusy("import");
-    try {
-      const out = await importModpackFile(activeRoot());
-      if (!out) return; // 取消或失败(失败已 toast)
-      await refetchInstances();
-      setRightView("versions");
-      if (out.blocked.length > 0 || out.skipped_optional.length > 0) {
-        setImportOutcome(out); // 弹窗摊开需手动下载 / 被跳过的文件
-      } else {
-        toast({ type: "success", message: t("classic.import.done", { id: out.instance_id }) });
-      }
-    } finally {
-      setBusy("");
+  // 导入整合包:统一弹窗(展示支持格式 / 拖入提示 / 须知);导入完成后刷新版本列表。
+  const [importOpen, setImportOpen] = createSignal(false);
+
+  async function handleImported(out: ImportOutcome) {
+    await refetchInstances();
+    setRightView("versions");
+    if (out.blocked.length > 0 || out.skipped_optional.length > 0) {
+      setImportOutcome(out); // 弹窗摊开需手动下载 / 被跳过的文件
+    } else {
+      toast({ type: "success", message: t("classic.import.done", { id: out.instance_id }) });
     }
   }
 
@@ -423,9 +416,9 @@ const ClassicLaunch: Component = () => {
                 <button
                   class="border border-classic-blue text-classic-blue bg-transparent rounded-[3px] py-[4px] px-[10px] text-[12px] font-semibold cursor-pointer transition-[background,color] duration-[var(--mo-dur-fast,150ms)] ease-[var(--mo-ease-out,ease)] enabled:hover:bg-classic-blue enabled:hover:text-white disabled:opacity-50 disabled:cursor-default"
                   disabled={busy() !== ""}
-                  onClick={importModpack}
+                  onClick={() => setImportOpen(true)}
                 >
-                  {busy() === "import" ? t("classic.versions.importing") : t("classic.versions.import")}
+                  {t("classic.versions.import")}
                 </button>
                 <button
                   class="border border-classic-blue text-classic-blue bg-transparent rounded-[3px] py-[4px] px-[10px] text-[12px] font-semibold cursor-pointer transition-[background,color] duration-[var(--mo-dur-fast,150ms)] ease-[var(--mo-ease-out,ease)] enabled:hover:bg-classic-blue enabled:hover:text-white disabled:opacity-50 disabled:cursor-default"
@@ -620,6 +613,13 @@ const ClassicLaunch: Component = () => {
           }}
         />
       </Show>
+
+      <ImportModpackDialog
+        open={importOpen()}
+        root={activeRoot()}
+        onClose={() => setImportOpen(false)}
+        onImported={handleImported}
+      />
 
       <Show when={importOutcome()}>
         {(o) => (
