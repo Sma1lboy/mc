@@ -87,7 +87,7 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
             <Show when={running()}>
               <span
                 class="absolute right-[2px] bottom-[2px] w-[11px] h-[11px] rounded-full bg-a-5 shadow-[0_0_0_2px_var(--bg-card)]"
-                title="Running"
+                title="运行中"
               />
             </Show>
           </div>
