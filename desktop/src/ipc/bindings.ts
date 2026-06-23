@@ -207,6 +207,11 @@ export const commands = {
 	readLogTail: (lines: number) => typedError<string, string>(__TAURI_INVOKE("read_log_tail", { lines })),
 	/**  拉取轻量后端(mc-server)的新闻/公告。后端未运行/不可达时返回错误,UI 降级到空/错误态。 */
 	fetchNews: () => typedError<NewsItem[], string>(__TAURI_INVOKE("fetch_news")),
+	/**
+	 *  检查某实例(由 Modrinth 整合包安装)是否有更新:返回比当前来源版本更新的版本列表。
+	 *  非整合包来源 / 非 modrinth / 缺 project_id 时返回空(前端据此不显示更新提示)。
+	 */
+	checkModpackUpdates: (root: string, id: string) => typedError<VersionDetail[], string>(__TAURI_INVOKE("check_modpack_updates", { root, id })),
 };
 
 /* Types */

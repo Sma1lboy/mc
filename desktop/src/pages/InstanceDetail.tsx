@@ -25,6 +25,20 @@ const InstanceDetail: Component = () => {
     },
   );
   const inst = () => data() ?? null;
+  // 整合包更新检查(仅对由 Modrinth 整合包安装的实例返回非空);失败/无来源都安静返回空。
+  const [updates] = createResource(
+    () => currentInstanceId(),
+    (id) => (id ? api.checkModpackUpdates(activeRoot(), id).catch(() => []) : []),
+  );
+  const [cfg] = createResource(
+    () => currentInstanceId(),
+    (id) => (id ? api.getInstanceConfig(activeRoot(), id).catch(() => null) : null),
+  );
+  const latestUpdate = () => (updates() ?? [])[0];
+  const modrinthUrl = () => {
+    const pid = cfg()?.source?.project_id;
+    return pid ? `https://modrinth.com/project/${pid}` : null;
+  };
   // 进入「添加」浏览模式时整页让给复用的探索视图,隐藏头部(返回路径用视图内的「← 返回已安装」)。
   const [browsing, setBrowsing] = createSignal(false);
   // 删除实例前确认(与实例行的删除确认一致,避免 ⋮ 菜单一点就删)。
@@ -145,6 +159,17 @@ const InstanceDetail: Component = () => {
                 <div class="text-[12px] text-dim whitespace-nowrap overflow-hidden text-ellipsis">
                   {loaderLabel()} · {playedLabel()}
                 </div>
+                {/* 整合包更新提示:有更新且能定位到 Modrinth 项目时给个可点击的小药丸,跳到项目页查看/下载。 */}
+                <Show when={latestUpdate() && modrinthUrl()}>
+                  <a
+                    href={modrinthUrl()!}
+                    class="inline-flex items-center gap-[5px] mt-[5px] h-[22px] pl-[8px] pr-[9px] rounded-full bg-a-1 border border-a-4/40 text-a-7 text-[11px] font-semibold no-underline cursor-pointer transition-colors duration-150 hover:bg-a-2"
+                    title={t("instance.updateAvailableHint")}
+                  >
+                    <span class="w-[6px] h-[6px] rounded-full bg-a-5 shrink-0" aria-hidden="true" />
+                    {t("instance.updateAvailable", { version: latestUpdate()!.version_number })}
+                  </a>
+                </Show>
               </div>
               <PlayButton running={isRunning(i().id)} disabled={isLaunching(i().id)} onClick={() => void playInstance(i().id)} />
               <Menu.Root positioning={{ placement: "bottom-end" }} onSelect={(d: { value: string }) => void onMenuAction(d.value)}>

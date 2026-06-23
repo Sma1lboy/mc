@@ -1456,6 +1456,25 @@ pub async fn modrinth_versions(
     ModrinthApi::new().version_details(&project_id).await.map_err(err)
 }
 
+/// 检查某实例(由 Modrinth 整合包安装)是否有更新:返回比当前来源版本更新的版本列表。
+/// 非整合包来源 / 非 modrinth / 缺 project_id 时返回空(前端据此不显示更新提示)。
+#[tauri::command]
+#[specta::specta]
+pub async fn check_modpack_updates(
+    root: String,
+    id: String,
+) -> CmdResult<Vec<mc_core::modplatform::modrinth::VersionDetail>> {
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let Some(src) = inst.load_config().map_err(err)?.source else {
+        return Ok(Vec::new());
+    };
+    if src.provider != "modrinth" {
+        return Ok(Vec::new());
+    }
+    let all = ModrinthApi::new().version_details(&src.project_id).await.map_err(err)?;
+    Ok(mc_core::modpack::update::newer_versions(all, src.version_id.as_deref()))
+}
+
 /// 取一个 Modrinth 项目的完整详情(简介标签页用:长描述正文 markdown + 画廊 +
 /// 关注数 + 源码/issue/wiki/discord 等外部链接)。
 #[tauri::command]
