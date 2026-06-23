@@ -146,7 +146,7 @@ const ModpackDetail: Component<{
   return (
     <div class="flex flex-col gap-[16px] px-[2px] pt-[4px] pb-[24px] overflow-y-auto">
       <button
-        class="self-start bg-transparent border-none text-a-6 text-[14px] cursor-pointer py-[4px] px-0 transition-opacity duration-[var(--mo-dur-fast)] ease-emph hover:opacity-70"
+        class="self-start bg-transparent border-none text-a-6 text-[14px] cursor-pointer py-[4px] px-0 rounded-xs transition-opacity duration-[var(--mo-dur-fast)] ease-emph hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5"
         onClick={props.onBack}
       >
         ← 返回
@@ -391,7 +391,7 @@ const ModpackDetail: Component<{
                       </Show>
                     </div>
                             <button
-                              class="flex-[0_0_auto] py-[8px] px-[16px] border-none rounded-[4px] bg-a-5 text-white text-[13px] font-semibold cursor-pointer transition-[background-color,opacity] duration-[var(--mo-dur-fast)] ease-emph hover:not-disabled:bg-a-6 disabled:opacity-50 disabled:cursor-default"
+                              class="flex-[0_0_auto] py-[8px] px-[16px] border-none rounded-ctl bg-a-4 text-white text-[13px] font-semibold cursor-pointer transition-[background-color,opacity] duration-[var(--mo-dur-fast)] ease-emph hover:not-disabled:bg-a-5 disabled:opacity-50 disabled:cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5/40"
                               disabled={!v.mrpack_url || installing() !== null}
                               onClick={() => install(v)}
                             >
