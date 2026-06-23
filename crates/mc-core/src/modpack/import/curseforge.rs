@@ -279,10 +279,45 @@ fn source_candidates(primary: &str) -> Vec<String> {
 /// 清洗 CurseForge 文件名:去掉路径分隔符与非法字符,**绝不**允许 `..`/分隔符进 rel_path
 /// (写盘前的第一道闸;引擎随后还会过 safe_join)。
 fn sanitize_filename(name: &str) -> String {
-    name.rsplit(['/', '\\'])
+    let base = name
+        .rsplit(['/', '\\'])
         .next()
         .unwrap_or(name)
         .trim()
-        .replace('\0', "")
+        .replace('\0', "");
+    // `.` / `..` 是目录引用而非文件名:basename 提取保不住这个不变量(`..` 无分隔符会原样返回),
+    // 这里显式兜底成安全占位,兑现"绝不允许 .."的契约(safe_join 是第二道闸,但本函数也该自洽)。
+    if base.is_empty() || base == "." || base == ".." {
+        return "_".to_string();
+    }
+    base
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sanitize_filename;
+
+    #[test]
+    fn strips_path_separators_to_basename() {
+        assert_eq!(sanitize_filename("mods/cool.jar"), "cool.jar");
+        assert_eq!(sanitize_filename("..\\..\\evil.jar"), "evil.jar");
+        assert_eq!(sanitize_filename("a/b/c.zip"), "c.zip");
+    }
+
+    #[test]
+    fn dotdot_and_dot_become_safe_placeholder() {
+        // 这些是目录引用,不能当文件名直接落 rel_path。
+        assert_eq!(sanitize_filename(".."), "_");
+        assert_eq!(sanitize_filename("."), "_");
+        assert_eq!(sanitize_filename("a/b/.."), "_");
+        assert_eq!(sanitize_filename("   "), "_");
+        assert_eq!(sanitize_filename(""), "_");
+    }
+
+    #[test]
+    fn trims_and_drops_nuls() {
+        assert_eq!(sanitize_filename("  name.jar  "), "name.jar");
+        assert_eq!(sanitize_filename("na\0me.jar"), "name.jar");
+    }
 }
 
