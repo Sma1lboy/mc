@@ -14,7 +14,19 @@ To cut a release, move the `[Unreleased]` notes into a stamped version section w
 - **In-app log viewer** — Settings → 诊断 shows the tail of the unified log (bounded read), with refresh.
 - **Skin preview** — full-body player skin render in the workspace account panel.
 - **News feed** — the 动态 / classic news sections now show the launcher feed from mc-server (degrades to empty when the server is unavailable).
-- **Modpack update check** — instances installed from a Modrinth modpack show an "update available" chip in their detail header, linking to the project's page. (In-place apply is planned next.)
+- **Modpack update** — instances installed from a Modrinth modpack show an "update available"
+  chip; clicking it updates the pack in place (re-imports the new version over the existing
+  instance and trashes mods the new version dropped). Worlds, instance config, and
+  user-added mods are preserved.
+
+### Security / hardening
+
+- mrpack download URLs are now restricted to the documented host allowlist
+  (cdn.modrinth.com / github.com / raw.githubusercontent.com / gitlab.com), so a crafted pack
+  can't fetch from arbitrary hosts.
+- Batch downloads now honour the configured concurrency instead of the momentarily-available
+  permit count (no throttling when a Downloader is shared).
+- Server addresses with IPv6 literals (`[::1]:25565`) parse correctly for auto-join.
 
 ## [0.1.0] - 2026-06-23
 
