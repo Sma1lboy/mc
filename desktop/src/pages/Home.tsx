@@ -77,12 +77,12 @@ const Home: Component = () => {
   return (
     <div class="py-[24px] px-[28px] overflow-y-auto h-full">
       <header class="mb-[20px]">
-        <h1 class="text-[28px] font-bold text-fg m-0">Welcome back!</h1>
+        <h1 class="text-[28px] font-bold text-fg m-0">欢迎回来</h1>
       </header>
 
       <section>
         <div class="flex items-center justify-between mb-[14px]">
-          <h2 class="text-[18px] font-semibold text-fg m-0">Jump back in</h2>
+          <h2 class="text-[18px] font-semibold text-fg m-0">继续游玩</h2>
           <Show when={sortedByPlayed().length > RECENT_CAP}>
             <button
               class="text-[13px] text-dim bg-transparent border-none cursor-pointer transition-colors duration-150 hover:text-fg"

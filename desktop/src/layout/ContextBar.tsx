@@ -91,7 +91,7 @@ const ContextBar: Component = () => {
     >
       {/* ===== Playing as ===== */}
       <section class="flex flex-col gap-[8px]">
-        <h3 class={HEADING}>Playing as</h3>
+        <h3 class={HEADING}>当前账号</h3>
 
         <Show
           when={!accounts.loading}
@@ -212,14 +212,14 @@ const ContextBar: Component = () => {
 
       {/* ===== Friends ===== */}
       <section class="flex flex-col gap-[8px]">
-        <h3 class={HEADING}>Friends</h3>
+        <h3 class={HEADING}>好友</h3>
         {/* 社交功能未接入:空态占位。接入后此处渲染好友 + 在线状态点。 */}
         <EmptyState compact title="暂无好友" hint="联机/社交功能开发中" />
       </section>
 
       {/* ===== News ===== */}
       <section class="flex flex-col gap-[8px]">
-        <h3 class={HEADING}>News</h3>
+        <h3 class={HEADING}>动态</h3>
         {/* 新闻 feed 未接入:空态占位。接入后渲染公告/更新卡片列表。 */}
         <EmptyState compact title="暂无动态" hint="敬请期待" />
       </section>
