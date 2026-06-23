@@ -53,7 +53,31 @@ export const [currentPage, setCurrentPage] = createSignal<Page>(
 );
 
 /** 当前选中的游戏根目录(GameRoot.path);null = 未选/未加载。 */
-export const [currentRoot, setCurrentRoot] = createSignal<string | null>(null);
+const ROOT_STORAGE_KEY = "mc-launcher.current-root";
+
+function readInitialRoot(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(ROOT_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+const [currentRoot, setCurrentRootSig] = createSignal<string | null>(readInitialRoot());
+export { currentRoot };
+
+/** 设置当前根并持久化(多根/自定义根场景下让选择跨重启保留)。 */
+export function setCurrentRoot(path: string | null): void {
+  setCurrentRootSig(path);
+  if (typeof window === "undefined") return;
+  try {
+    if (path) window.localStorage.setItem(ROOT_STORAGE_KEY, path);
+    else window.localStorage.removeItem(ROOT_STORAGE_KEY);
+  } catch {
+    /* localStorage 在加固的 WebView 里可能不可用 */
+  }
+}
 
 /**
  * 传给后端的「当前根」:未选时落到 ""(后端据此用默认根)。所有 IPC 调用与

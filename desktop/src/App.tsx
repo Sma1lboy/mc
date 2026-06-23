@@ -5,7 +5,7 @@ import AppShell from "./layout/AppShell";
 import ClassicShell from "./layout/classic/ClassicShell";
 import { ToastContainer } from "./components";
 import { api } from "./ipc/api";
-import { setCurrentRoot, layoutMode } from "./store";
+import { currentRoot, setCurrentRoot, layoutMode } from "./store";
 
 /**
  * 应用根组件。
@@ -27,7 +27,11 @@ const App: Component = () => {
     api
       .listRoots()
       .then((roots) => {
-        if (roots.length > 0) setCurrentRoot(roots[0].path);
+        if (roots.length === 0) return;
+        // 保留上次选中的根(若仍存在),否则落到发现的第一个。
+        const saved = currentRoot();
+        const keep = saved && roots.some((r) => r.path === saved);
+        if (!keep) setCurrentRoot(roots[0].path);
       })
       .catch(() => {
         /* Tauri 后端不可用时忽略,页面会用 "" 落到后端默认根 */
