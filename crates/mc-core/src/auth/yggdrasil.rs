@@ -400,7 +400,10 @@ fn yggdrasil_error(status: u16, value: &Value, ctx: &str) -> CoreError {
 /// 将 32 位无连字符 hex UUID 转为标准 8-4-4-4-12 形式;
 /// 已带连字符或长度异常则原样返回。
 fn dashify_uuid(raw: &str) -> String {
-    if raw.contains('-') || raw.len() != 32 {
+    // 必须是恰好 32 个 ASCII 十六进制字符才分组:`len()` 是字节数,若 raw 含多字节
+    // 字符(异常/恶意皮肤站返回的 32 字节非 ASCII 串),按字节切片会在非字符边界 panic。
+    // 加 ASCII-hex 校验既排除该 panic,又对真实 UUID(永远是 ASCII hex)行为不变。
+    if raw.contains('-') || raw.len() != 32 || !raw.bytes().all(|b| b.is_ascii_hexdigit()) {
         return raw.to_string();
     }
     format!(
@@ -631,5 +634,17 @@ mod tests {
         assert_eq!(dashify_uuid(dashed), dashed);
         // 长度异常:原样。
         assert_eq!(dashify_uuid("abc"), "abc");
+        // 非 hex 的 32 字符串:原样(不强行分组)。
+        assert_eq!(dashify_uuid(&"z".repeat(32)), "z".repeat(32));
+    }
+
+    #[test]
+    fn dashify_non_ascii_32_bytes_does_not_panic() {
+        // 异常/恶意皮肤站可能返回一个**恰好 32 字节**但含多字节字符的角色 id;
+        // 旧实现只检查 `len()==32` 后按字节切片,会在非字符边界 panic。
+        // 构造一个 32 字节、含跨切片边界(byte 8)多字节字符的串,断言原样透传不 panic。
+        let raw = format!("{}{}{}", "a".repeat(7), "é", "b".repeat(23));
+        assert_eq!(raw.len(), 32);
+        assert_eq!(dashify_uuid(&raw), raw);
     }
 }
