@@ -26,7 +26,7 @@ import { Select } from "./Select";
 import { toast } from "./Toast";
 import { api, onInstallProgress } from "../ipc/api";
 import { openInstanceDir, openInstanceSubdir } from "../util/instanceActions";
-import { activeRoot, openInstance } from "../store";
+import { activeRoot, openInstance, isRunning } from "../store";
 import type {
   InstanceConfig,
   InstanceSummary,
@@ -953,6 +953,11 @@ export const InstanceManageDialog: Component<{
   async function copyInstance() {
     const inst = props.instance;
     if (!inst) return;
+    // 运行中复制会把正在写入的存档/文件拷成半截,复制副本可能损坏 —— 先要求停止。
+    if (isRunning(inst.id)) {
+      toast({ type: "error", message: "请先停止运行中的游戏,再复制该实例" });
+      return;
+    }
     setCopying(true);
     try {
       const newId = await api.copyInstance(activeRoot(), inst.id, `${inst.name || inst.id} 副本`);

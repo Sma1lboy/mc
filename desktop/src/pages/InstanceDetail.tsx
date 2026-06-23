@@ -76,6 +76,10 @@ const InstanceDetail: Component = () => {
   async function copyCurrent() {
     const i = inst();
     if (!i) return;
+    if (isRunning(i.id)) {
+      toast({ type: "error", message: "请先停止运行中的游戏,再复制该实例" });
+      return;
+    }
     try {
       const newId = await api.copyInstance(activeRoot(), i.id, `${i.name || i.id} 副本`);
       toast({ type: "success", message: "已复制实例" });
