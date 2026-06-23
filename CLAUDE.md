@@ -68,6 +68,12 @@ mirror to stderr.
   Pages import and read/write signals directly. IPC is funnelled through `desktop/src/ipc/api.ts`.
 - **Two UI layouts** coexist, switched by `layoutMode`: `modrinth` (dark) and `pcl` (light,
   faithful to PCL2). See `desktop/src/layout/`.
+- **Any user-facing string change MUST sync i18n.** No hardcoded display text — every string goes
+  through `t("ns.key")`. When you add/edit/remove a string: add the key to the matching slice in
+  `desktop/src/locales/` for **both** `zh` and `en` (zh is the source of truth; en falls back to zh
+  but add a real translation), and delete keys you orphan. Use getter-scoped `t()` (never a
+  module-level const holding `t()` — it freezes the language). Run `node scripts/check-i18n.mjs`
+  (from `desktop/`) before committing; CI gates it. Default language is Chinese.
 - **Auth** funnels all account kinds (offline / Microsoft / Yggdrasil) into one
   `AuthSession` (`mc-core/src/auth/`). Microsoft uses the device-code flow.
 - **Commits** follow Conventional Commits: `type(scope): subject` (lowercase subject),
