@@ -41,7 +41,7 @@ function SegmentedControl<T extends string>(props: SegmentedControlProps<T>) {
           return (
             <button
               type="button"
-              class="inline-flex h-[30px] items-center justify-center gap-[6px] rounded-xs border-none px-[10px] text-[13px] font-medium leading-none cursor-pointer select-none transition-[background-color,color,box-shadow] duration-[var(--dur)] ease-app focus-visible:ring-2 focus-visible:ring-a-4 focus-visible:ring-offset-2 focus-visible:ring-offset-n-3 disabled:opacity-45 disabled:cursor-not-allowed"
+              class="inline-flex h-[30px] items-center justify-center gap-[6px] rounded-xs border-none px-[10px] text-[13px] font-medium leading-none cursor-pointer select-none transition-[background-color,color,box-shadow] duration-[var(--dur)] ease-app focus-visible:ring-2 focus-visible:ring-a-4 focus-visible:ring-offset-2 focus-visible:ring-offset-n-3 disabled:opacity-50 disabled:cursor-not-allowed"
               classList={{
                 "bg-a-4 text-white": selected(),
                 "bg-transparent text-fg hover:bg-glass-hover": !selected(),

@@ -8,7 +8,7 @@ const BTN_BASE =
   "cursor-pointer select-none whitespace-nowrap " +
   "transition-[background-color,border-color,color,opacity,transform] duration-[var(--dur)] ease-app " +
   // 轻微下压反馈 + 禁用态。
-  "active:enabled:translate-y-px disabled:opacity-45 disabled:cursor-not-allowed";
+  "active:enabled:translate-y-px disabled:opacity-50 disabled:cursor-not-allowed";
 
 // 三种变体:primary(accent 实心白字) / ghost(透明底 hover 中性灰) / danger(红色破坏性)。
 const BTN_VARIANT: Record<string, string> = {
