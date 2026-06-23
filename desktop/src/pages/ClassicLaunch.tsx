@@ -3,10 +3,10 @@ import { Avatar, BlockedFilesDialog, InstanceManageDialog, NewInstanceDialog, Sp
 import { LOADER_BADGE_TINT } from "../components/styles";
 import { api, onGameLog, onLaunchProgress } from "../ipc/api";
 import { activeRoot, isRunning, isLaunching, playInstance } from "../store";
-import { openInstanceDir } from "../util/instanceActions";
+import { openInstanceDir, importModpackFile } from "../util/instanceActions";
 import { loaderLabel } from "../util/loaders";
 import { accountKindLabel } from "../util/accounts";
-import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import type { AccountSummary, ImportOutcome, InstanceSummary } from "../ipc/types";
 import type { InstanceManageTab } from "../components/InstanceManageDialog";
 import ClassicAccountDialog from "./ClassicAccountDialog";
@@ -123,26 +123,20 @@ const ClassicLaunch: Component = () => {
   }
 
   // 导入整合包:选文件(.mrpack/.zip,自动识别格式)→ 建实例 → 刷新版本列表。
+  // 选文件 + 调用 + 失败提示走共用的 importModpackFile,和工作台库一致。
   async function importModpack() {
     if (busy()) return;
-    const picked = await openDialog({
-      title: "选择整合包",
-      multiple: false,
-      filters: [{ name: "整合包", extensions: ["mrpack", "zip"] }],
-    });
-    if (!picked || typeof picked !== "string") return;
     setBusy("import");
     try {
-      const out = await api.importModpack(activeRoot(), picked, null);
+      const out = await importModpackFile(activeRoot());
+      if (!out) return; // 取消或失败(失败已 toast)
+      await refetchInstances();
+      setRightView("versions");
       if (out.blocked.length > 0 || out.skipped_optional.length > 0) {
         setImportOutcome(out); // 弹窗摊开需手动下载 / 被跳过的文件
       } else {
         toast({ type: "success", message: `已导入整合包「${out.instance_id}」` });
       }
-      await refetchInstances();
-      setRightView("versions");
-    } catch (e) {
-      toast({ type: "error", message: `导入失败:${e}` });
     } finally {
       setBusy("");
     }
