@@ -343,7 +343,7 @@ const ClassicLaunch: Component = () => {
       </aside>
 
       {/* ===== 右栏:新闻主页 / 版本选择 / 启动日志 ===== */}
-      <section class="flex flex-col min-h-0 py-[18px] px-[22px] gap-[12px] overflow-auto">
+      <section class="flex flex-col min-h-0 min-w-0 py-[18px] px-[22px] gap-[12px] overflow-auto">
         {/* --- 新闻主页(默认) --- */}
         <Show when={rightView() === "news"}>
           <div class="flex flex-col gap-[12px]">
