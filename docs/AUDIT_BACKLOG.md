@@ -40,6 +40,21 @@ Generated 2026-06-22 from a multi-agent end-to-end audit (10 chains, adversarial
 - **#31** Declared mod incompatibilities surfaced in the install toast (InstallReport.incompatible).
 - **#30 (partial)** `accounts.json` restricted to owner-only (0600) on Unix as interim hardening.
 
+### Shipped 2026-06-23 (round 4)
+
+- **Loader version picker** — `list_loader_versions` command (new `loader/versions.rs`) pulls real
+  Forge/NeoForge maven + Fabric/Quilt meta; New Instance shows a dropdown (forge/neoforge required,
+  fabric/quilt optional → latest). Bindings now regenerate headlessly via
+  `cargo test -p mc-launcher-desktop export_bindings` (extracted `specta_builder()`).
+- **Correctness:** modpack-pinned Fabric/Quilt loader version was silently ignored (`install_core`
+  dropped it → always latest); now honored end-to-end.
+- **#29 (UI complete)** — game-directory switcher + add/remove custom roots in Settings, with the
+  active root persisted across restarts. (Backend discovery was already wired.)
+- **External links** open in the system browser via a global interceptor (markdown description links
+  previously navigated the whole webview away).
+- **Hardening:** `write_atomic` temp-name collision (per-call counter), curseforge `.`/`..` filename →
+  safe placeholder, auth `dashify_uuid` panic on 32-byte non-ASCII UUID, block deleting a running instance.
+
 ### Still open
 
 - **#30 (full keyring migration)** — move access_token / refresh_token / client_token out of plaintext
