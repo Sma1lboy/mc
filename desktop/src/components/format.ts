@@ -2,11 +2,11 @@
 // 设计原则: 无副作用, 无依赖 (不引入 dayjs 等, 保持 bundle 轻量, 契合 03 技术栈"小体积"目标)。
 
 /**
- * 把一个 epoch 毫秒时间戳格式化为相对时间, 如 "5 minutes ago" / "just now" / "in 3 days"。
- * 用于 InstanceRow 的 "Played ... ago"。
+ * 把一个 epoch 毫秒时间戳格式化为中文相对时间, 如 "5 分钟前" / "刚刚" / "3 天后"。
+ * 用于 InstanceRow / InstanceDetail 的 "上次 ..." 元信息。
  *
  * @param epochMs Unix 毫秒时间戳。允许传 0 / NaN / 负数 / 未来时间, 都做了兜底。
- * @returns 人类可读的相对时间字符串。
+ * @returns 中文相对时间字符串;非法/为 0 时返回哨兵 "never"(由调用方渲染为"从未游玩")。
  */
 export function formatRelativeTime(epochMs: number): string {
   // 兜底: 非法输入 (后端 last_played 可能为 0 表示"从未游玩")。
@@ -15,36 +15,31 @@ export function formatRelativeTime(epochMs: number): string {
   const now = Date.now();
   const diffMs = now - epochMs;
   const future = diffMs < 0;
-  // 用绝对值统一计算, 最后按方向拼前缀/后缀 (支持"in X" 与 "X ago")。
+  // 用绝对值统一计算, 最后按方向拼后缀 (前/后)。
   const abs = Math.abs(diffMs);
 
   const sec = Math.floor(abs / 1000);
-  if (sec < 45) return "just now";
+  const suffix = future ? "后" : "前";
+  if (sec < 45) return "刚刚";
 
-  // 时间梯度表: [单位上限秒数, 该单位每个对应的秒数, 单数词]。
-  // 命中第一个 value < 上限的梯度。
+  // 时间梯度表: [单位上限秒数, 该单位每个对应的秒数, 中文单位]。
+  // 命中第一个 value < 上限的梯度;中文无单复数, 直接 "N 单位前/后"。
   const units: [limit: number, divisor: number, name: string][] = [
-    [90, 60, "minute"], // < 90s → "a minute"
-    [45 * 60, 60, "minute"], // < 45min → N minutes
-    [90 * 60, 60 * 60, "hour"], // < 90min → "an hour"
-    [22 * 3600, 3600, "hour"], // < 22h → N hours
-    [36 * 3600, 86400, "day"], // < 36h → "a day"
-    [25 * 86400, 86400, "day"], // < 25d → N days
-    [45 * 86400, 86400 * 30, "month"], // < 45d → "a month"
-    [320 * 86400, 86400 * 30, "month"], // < ~10.5mo → N months
-    [548 * 86400, 86400 * 365, "year"], // < 1.5y → "a year"
-    [Infinity, 86400 * 365, "year"], // else → N years
+    [45 * 60, 60, "分钟"], // < 45min → N 分钟
+    [22 * 3600, 3600, "小时"], // < 22h → N 小时
+    [25 * 86400, 86400, "天"], // < 25d → N 天
+    [320 * 86400, 86400 * 30, "个月"], // < ~10.5mo → N 个月
+    [Infinity, 86400 * 365, "年"], // else → N 年
   ];
 
   for (const [limit, divisor, name] of units) {
     if (sec < limit) {
-      const value = Math.round(sec / divisor);
-      const label = value <= 1 ? `1 ${name}` : `${value} ${name}s`;
-      return future ? `in ${label}` : `${label} ago`;
+      const value = Math.max(1, Math.round(sec / divisor));
+      return `${value} ${name}${suffix}`;
     }
   }
   // 理论不可达 (Infinity 兜底), 保险返回。
-  return future ? "in the future" : "a long time ago";
+  return future ? "未来" : "很久以前";
 }
 
 /**

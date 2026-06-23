@@ -213,7 +213,7 @@ export function ToastContainer(): JSX.Element {
                     "transition-[color,background-color] duration-[var(--dur)] ease-app " +
                     "hover:text-fg hover:bg-glass-hover"
                   }
-                  aria-label="Dismiss"
+                  aria-label="关闭"
                   onClick={() => dismissToast(item.id)}
                 >
                   <svg

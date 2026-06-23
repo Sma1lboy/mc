@@ -64,9 +64,9 @@ export function SearchBox(props: SearchBoxProps): JSX.Element {
         name={props.name ?? "search"}
         autocomplete="off"
         spellcheck={false}
-        aria-label={props.label ?? props.placeholder ?? "Search"}
+        aria-label={props.label ?? props.placeholder ?? "搜索"}
         value={props.value}
-        placeholder={props.placeholder ?? "Search…"}
+        placeholder={props.placeholder ?? "搜索…"}
         // SolidJS: 用原生 input 事件读取 value, 上抛字符串。
         onInput={(e) => props.onInput(e.currentTarget.value)}
         onKeyDown={(e) => {
@@ -85,7 +85,7 @@ export function SearchBox(props: SearchBoxProps): JSX.Element {
           // 清除按钮:18x18 居中、无边框透明底、dim 文字色、指针、xs 圆角、
           // 颜色+背景过渡;hover 转主文字色 + n-6 底。
           class="shrink-0 inline-flex items-center justify-center w-[18px] h-[18px] border-none bg-transparent text-dim cursor-pointer rounded-xs transition-[color,background-color] duration-[var(--dur)] ease-app hover:text-fg hover:bg-glass-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5"
-          aria-label="Clear search"
+          aria-label="清空搜索"
           onClick={() => props.onInput("")}
         >
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">

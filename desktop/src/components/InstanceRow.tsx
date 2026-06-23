@@ -57,7 +57,7 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
 
   const playedLabel = () => {
     const rel = formatRelativeTime(inst().last_played);
-    return rel === "never" ? "Never played" : `Played ${rel}`;
+    return rel === "never" ? "从未游玩" : `上次 ${rel}`;
   };
 
   const onSelectAction = (value: string) => {
