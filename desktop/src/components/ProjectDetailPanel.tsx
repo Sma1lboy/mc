@@ -79,7 +79,9 @@ export const ProjectDetailPanel: Component<{
       const parts = [`已安装 ${v.version_number}`];
       if (report.installed_deps > 0) parts.push(`+${report.installed_deps} 个依赖`);
       if (report.unresolved.length > 0) parts.push(`${report.unresolved.length} 个依赖未解决`);
-      toast({ type: report.unresolved.length > 0 ? "warn" : "success", message: parts.join(",") });
+      const conflicts = report.incompatible?.length ?? 0;
+      if (conflicts > 0) parts.push(`声明与 ${conflicts} 个 mod 冲突`);
+      toast({ type: report.unresolved.length > 0 || conflicts > 0 ? "warn" : "success", message: parts.join(",") });
       props.onInstalled();
     } catch (e) {
       toast({ type: "error", message: `安装失败:${e}` });

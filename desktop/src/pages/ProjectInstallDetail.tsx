@@ -157,8 +157,10 @@ const ProjectInstallDetail: Component<{
       const parts = [`已安装 ${version.version_number} 到「${inst.name || inst.id}」`];
       if (report.installed_deps > 0) parts.push(`+${report.installed_deps} 个依赖`);
       if (report.unresolved.length > 0) parts.push(`${report.unresolved.length} 个依赖未解决`);
+      const conflicts = report.incompatible?.length ?? 0;
+      if (conflicts > 0) parts.push(`声明与 ${conflicts} 个 mod 冲突`);
       toast({
-        type: report.unresolved.length > 0 ? "warn" : "success",
+        type: report.unresolved.length > 0 || conflicts > 0 ? "warn" : "success",
         message: parts.join(","),
       });
     } catch (e) {
@@ -185,8 +187,10 @@ const ProjectInstallDetail: Component<{
         const report = await api.installMod(activeRoot(), inst.id, props.hit.id, inst.mc_version, inst.loader);
         const parts = [`已装入 ${report.installed.length} 个文件`];
         if (report.unresolved.length > 0) parts.push(`${report.unresolved.length} 个依赖未解决`);
+        const conflicts = report.incompatible?.length ?? 0;
+        if (conflicts > 0) parts.push(`声明与 ${conflicts} 个 mod 冲突`);
         toast({
-          type: report.unresolved.length > 0 ? "warn" : "success",
+          type: report.unresolved.length > 0 || conflicts > 0 ? "warn" : "success",
           message: `${props.hit.title}:${parts.join(",")}`,
         });
       } else {

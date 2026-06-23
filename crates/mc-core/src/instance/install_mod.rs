@@ -52,6 +52,23 @@ pub struct InstallReport {
     pub installed: Vec<InstalledMod>,
     pub satisfied: Vec<String>,
     pub unresolved: Vec<String>,
+    /// 所装版本声明为 `incompatible` 的项目 id(冲突)。不阻断安装,交上层提示用户检查。
+    #[serde(default)]
+    pub incompatible: Vec<String>,
+}
+
+/// 把某版本声明为 `incompatible` 的依赖 project_id 收进 `report.incompatible`(去重)。
+/// 仅记账、不阻断安装——是否真冲突由用户结合已装内容判断。
+fn collect_incompatible(version: &ProjectVersion, report: &mut InstallReport) {
+    for d in &version.dependencies {
+        if d.dependency_type == "incompatible" {
+            if let Some(pid) = &d.project_id {
+                if !report.incompatible.contains(pid) {
+                    report.incompatible.push(pid.clone());
+                }
+            }
+        }
+    }
 }
 
 /// 从一组版本里挑出第一个同时兼容 `mc_version` 与 `loader` 的版本。
@@ -140,6 +157,7 @@ pub async fn install_mod_version_with_deps(
         project_id: String::new(),
         file_name,
     });
+    collect_incompatible(version, &mut report);
 
     let dep_ids: Vec<String> = version
         .dependencies
@@ -241,6 +259,7 @@ fn install_rec<'a>(
             project_id: project_id.to_string(),
             file_name,
         });
+        collect_incompatible(chosen, report);
 
         if resolve_deps {
             // 只处理 required 且带 project_id 的依赖;optional/incompatible/embedded
@@ -395,6 +414,7 @@ mod tests {
             }],
             satisfied: vec!["fabric-api".into()],
             unresolved: vec!["missing-lib".into()],
+            incompatible: vec!["conflicting-mod".into()],
         };
         let json = serde_json::to_value(&report).unwrap();
         assert_eq!(json["installed"][0]["project_id"], "AABBCC");

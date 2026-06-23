@@ -249,6 +249,8 @@ export interface InstallReport {
   satisfied: string[];
   /** 找不到兼容版本、需手动处理的 required 依赖 */
   unresolved: string[];
+  /** 所装版本声明为不兼容的项目 project id(冲突;后端老版本可能缺省) */
+  incompatible?: string[];
 }
 
 /** 一个整合包版本的详情(详情页用;对应后端 VersionDetail) */
@@ -350,6 +352,8 @@ export interface VersionInstallReport {
   installed_deps: number;
   /** 未能解决的 required 依赖 project_id(仅 mod)。 */
   unresolved: string[];
+  /** 所装版本声明为不兼容的项目 project_id(冲突;仅 mod)。 */
+  incompatible?: string[];
 }
 
 /** 进程真正 spawn 成功事件 payload(event: "game://started") */

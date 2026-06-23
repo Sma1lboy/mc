@@ -246,6 +246,9 @@ pub struct VersionInstallReport {
     installed_deps: usize,
     /// 找不到兼容版本、未能解决的 required 依赖 project_id(仅 mod)。
     unresolved: Vec<String>,
+    /// 所装版本声明为不兼容的项目 project_id(冲突;仅 mod)。
+    #[serde(default)]
+    incompatible: Vec<String>,
 }
 
 /// 安装一个**指定版本**(by Modrinth version id)到实例对应位置。
@@ -275,6 +278,7 @@ pub async fn install_version_file(
         file,
         installed_deps: 0,
         unresolved: Vec::new(),
+        incompatible: Vec::new(),
     };
 
     match target.as_str() {
@@ -297,6 +301,7 @@ pub async fn install_version_file(
                     file,
                     installed_deps,
                     unresolved: report.unresolved,
+                    incompatible: report.incompatible,
                 })
             }
             _ => mc_core::instance::install_mod_version(&inst, &dl, &v)
