@@ -1,7 +1,15 @@
-# mc-launcher
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/banner-dark.png" />
+    <source media="(prefers-color-scheme: light)" srcset=".github/assets/banner-light.png" />
+    <img alt="kobeMC — a from-scratch, cross-platform Minecraft launcher" src=".github/assets/banner-dark.png" width="840" />
+  </picture>
+</p>
 
-A fast, cross-platform Minecraft launcher. **Rust core + Tauri/SolidJS shell** —
-the architecture designed in [`docs/`](./docs) and built from it.
+<p align="center">
+  A fast, from-scratch, cross-platform Minecraft launcher.<br />
+  <b>Rust core + Tauri v2 + SolidJS shell</b> — the architecture designed in <a href="./docs"><code>docs/</code></a> and built from it.
+</p>
 
 > Status: **working MVP+**. The core engine actually launches Minecraft
 > (vanilla **and** Fabric) end-to-end, verified on macOS arm64. See

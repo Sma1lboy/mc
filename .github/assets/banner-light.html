@@ -1,0 +1,49 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+  * { margin: 0; box-sizing: border-box; }
+  html, body { width: 1280px; height: 360px; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Segoe UI", system-ui, sans-serif;
+    background: radial-gradient(120% 140% at 12% -10%, #eaf1fd 0%, #f4f8fc 50%, #ffffff 100%);
+    color: #16202e;
+    -webkit-font-smoothing: antialiased;
+    position: relative; overflow: hidden;
+  }
+  .glow { position: absolute; inset: 0; background: radial-gradient(40% 80% at 82% 30%, rgba(19,112,243,.14), transparent 70%); }
+  /* faint inner frosted border for the glass feel */
+  .frame { position: absolute; inset: 14px; border: 1px solid rgba(19,112,243,.14);
+            border-radius: 22px; background: rgba(19,112,243,.04); backdrop-filter: blur(2px); }
+  .wrap { position: absolute; inset: 14px; display: flex; align-items: center;
+           padding: 0 60px; gap: 40px; }
+  .left { flex: 1; min-width: 0; }
+  .eyebrow { font-size: 14px; letter-spacing: 4px; font-weight: 700;
+              color: #5d6b7e; text-transform: uppercase; }
+  .word { font-size: 94px; font-weight: 800; letter-spacing: -2px; line-height: 1.02;
+           margin-top: 10px; }
+  .word .mc { color: #1370f3; }
+  .tag-cn { font-size: 23px; font-weight: 600; margin-top: 14px; }
+  .tag-en { font-size: 15px; color: #5d6b7e; margin-top: 5px; letter-spacing: .2px; }
+  .chips { display: flex; gap: 10px; margin-top: 22px; }
+  .chip { font-size: 13px; font-weight: 600; color: #3a567c;
+           background: rgba(19,112,243,.07); border: 1px solid rgba(19,112,243,.18);
+           padding: 7px 14px; border-radius: 999px; }
+  .pix { position: relative; width: 240px; height: 280px; flex: 0 0 240px; }
+  .px { position: absolute; width: 46px; height: 46px; border-radius: 7px;
+         background: #1370f3; box-shadow: 0 6px 18px rgba(0,0,0,.12); }
+</style></head><body>
+  <div class="glow"></div>
+  <div class="frame"></div>
+  <div class="wrap">
+    <div class="left">
+      <div class="eyebrow">Minecraft Launcher</div>
+      <div class="word">kobe<span class="mc">MC</span></div>
+      <div class="tag-cn">从零打造的跨平台 Minecraft 启动器</div>
+      <div class="tag-en">A from-scratch, cross-platform Minecraft launcher</div>
+      <div class="chips">
+        <span class="chip">Rust core</span>
+        <span class="chip">Tauri v2</span>
+        <span class="chip">SolidJS</span>
+      </div>
+    </div>
+    <div class="pix"><div class="px" style="left:0px;top:108px;opacity:0.9"></div><div class="px" style="left:54px;top:108px;opacity:0.55"></div><div class="px" style="left:54px;top:54px;opacity:0.35"></div><div class="px" style="left:108px;top:54px;opacity:0.85"></div><div class="px" style="left:108px;top:0px;opacity:0.3"></div><div class="px" style="left:162px;top:0px;opacity:0.65"></div><div class="px" style="left:162px;top:54px;opacity:0.25"></div><div class="px" style="left:108px;top:108px;opacity:0.25"></div><div class="px" style="left:0px;top:54px;opacity:0.2"></div><div class="px" style="left:162px;top:108px;opacity:0.18"></div><div class="px" style="left:54px;top:0px;opacity:0.15"></div><div class="px" style="left:0px;top:162px;opacity:0.3"></div><div class="px" style="left:54px;top:162px;opacity:0.5"></div><div class="px" style="left:108px;top:162px;opacity:0.22"></div></div>
+  </div>
+</body></html>
