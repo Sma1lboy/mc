@@ -48,28 +48,38 @@ export const AccountDialog: Component<{
   // 已有账号:菜单步顶部列出,可切换/删除(两套布局共用的账号管理入口)。
   const [accounts, { refetch: refetchAccounts }] = createResource(() => api.listAccounts());
   const accountList = () => accounts() ?? [];
+  // 正在切换/移除的账号 uuid:列表常驻可见,异步期间禁用该行防重复触发。
+  const [pendingAcc, setPendingAcc] = createSignal<string | null>(null);
 
   async function selectExisting(acc: AccountSummary) {
     if (acc.selected) {
       props.onDone(acc);
       return;
     }
+    if (pendingAcc()) return;
+    setPendingAcc(acc.uuid);
     try {
       await api.selectAccount(acc.uuid);
       props.onDone(acc);
     } catch (e) {
       setError(String(e));
+    } finally {
+      if (!closed) setPendingAcc(null);
     }
   }
 
   async function removeExisting(acc: AccountSummary, e: MouseEvent) {
     e.stopPropagation();
+    if (pendingAcc()) return;
+    setPendingAcc(acc.uuid);
     try {
       await api.removeAccount(acc.uuid);
       toast({ type: "success", message: `已移除账号:${acc.username}` });
       void refetchAccounts();
     } catch (err) {
       toast({ type: "error", message: `移除失败:${err}` });
+    } finally {
+      if (!closed) setPendingAcc(null);
     }
   }
 
@@ -191,7 +201,8 @@ export const AccountDialog: Component<{
                   <div
                     role="button"
                     tabindex={0}
-                    class="group flex items-center gap-[10px] px-[10px] py-[8px] rounded-ctl glass-card cursor-pointer transition-[background-color,border-color] duration-150 hover:bg-a-1 hover:border-a-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5"
+                    aria-busy={pendingAcc() === acc.uuid}
+                    class="group flex items-center gap-[10px] px-[10px] py-[8px] rounded-ctl glass-card cursor-pointer transition-[background-color,border-color] duration-150 hover:bg-a-1 hover:border-a-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5 aria-[busy=true]:opacity-60 aria-[busy=true]:pointer-events-none"
                     classList={{ "!border-a-4 !bg-a-1": acc.selected }}
                     onClick={() => selectExisting(acc)}
                     onKeyDown={(e) => {
@@ -228,8 +239,9 @@ export const AccountDialog: Component<{
           </Show>
 
           <button
-            class="flex items-center gap-[14px] px-[16px] py-[14px] rounded-ctl glass-card cursor-pointer text-left transition-[background-color,border-color,transform] duration-150 ease-app hover:bg-a-1 hover:border-a-4 hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5"
+            class="flex items-center gap-[14px] px-[16px] py-[14px] rounded-ctl glass-card cursor-pointer text-left transition-[background-color,border-color,transform] duration-150 ease-app hover:bg-a-1 hover:border-a-4 hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5 disabled:opacity-50 disabled:pointer-events-none"
             onClick={startMsa}
+            disabled={busy()}
           >
             <span class="text-[26px]">🪟</span>
             <span class="flex flex-col gap-[2px]">
