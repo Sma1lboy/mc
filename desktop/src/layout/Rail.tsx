@@ -62,11 +62,11 @@ const SettingsIcon = (): JSX.Element => (
   </svg>
 );
 
-// App Logo:简单的方块「方块世界」标记,accent 填充。
+// App Logo:方块「方块世界」标记。固定绿(品牌 logo),不随主题强调色变。
 const LogoMark = (): JSX.Element => (
   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <path d="M12 2 3 7v10l9 5 9-5V7l-9-5Z" fill="var(--a-1)" stroke="var(--a-4)" stroke-width="1.4" stroke-linejoin="round" />
-    <path d="M12 7 7.5 9.5v5L12 17l4.5-2.5v-5L12 7Z" fill="var(--a-4)" />
+    <path d="M12 2 3 7v10l9 5 9-5V7l-9-5Z" fill="#0f3d2a" stroke="#3fbf78" stroke-width="1.4" stroke-linejoin="round" />
+    <path d="M12 7 7.5 9.5v5L12 17l4.5-2.5v-5L12 7Z" fill="#28a062" />
   </svg>
 );
 

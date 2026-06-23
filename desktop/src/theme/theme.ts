@@ -29,12 +29,12 @@ export interface ThemeConfig {
   lightness: number; // 0..100(映射到 OKLCH 亮度旋钮)
 }
 
-/** 默认主题:深色 + 工作台绿(h150 s60 l45)。invoke 失败时的兜底。 */
+/** 默认主题:深色 + 陶土橙(h16 s58 l52,参考 kobe/Claude 暖色)。invoke 失败时的兜底。logo 固定绿,不随此色变。 */
 export const DEFAULT_THEME: ThemeConfig = {
   mode: "dark",
-  hue: 150,
-  saturation: 60,
-  lightness: 45,
+  hue: 16,
+  saturation: 58,
+  lightness: 52,
 };
 
 /**
