@@ -10,7 +10,7 @@ import {
   type InstanceRowData,
 } from "../components";
 import { api, onInstallProgress } from "../ipc/api";
-import { activeRoot, isRunning, openInstance } from "../store";
+import { activeRoot, openInstance, playInstance } from "../store";
 import { openInstanceDir, exportInstanceMrpack, deleteInstance } from "../util/instanceActions";
 import type { InstanceSummary, ManifestVersion } from "../ipc/types";
 
@@ -54,24 +54,6 @@ const Library: Component = () => {
     const q = filter().toLowerCase();
     return (versions() ?? []).filter((v) => v.id.toLowerCase().includes(q)).slice(0, 60);
   };
-
-  async function play(id: string) {
-    // 运行中再点 = 停止;否则启动。成功/退出/崩溃反馈由 store 统一处理。
-    if (isRunning(id)) {
-      try {
-        await api.stopInstance(id);
-      } catch (e) {
-        toast({ type: "error", message: `停止失败:${e}` });
-      }
-      return;
-    }
-    try {
-      await api.launchInstance(activeRoot(), id, "Player", false);
-      toast({ type: "success", message: "已启动" });
-    } catch (e) {
-      toast({ type: "error", message: `启动失败:${e}` });
-    }
-  }
 
   async function install(v: ManifestVersion) {
     setInstalling(v.id);
@@ -151,7 +133,7 @@ const Library: Component = () => {
               {(inst) => (
                 <InstanceRow
                   instance={toRowData(inst)}
-                  onPlay={play}
+                  onPlay={playInstance}
                   onOpen={openInstance}
                   onManage={openInstance}
                   onOpenDir={(id) => void openInstanceDir(activeRoot(), id)}

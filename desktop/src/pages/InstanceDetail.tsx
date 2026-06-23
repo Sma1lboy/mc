@@ -5,7 +5,7 @@ import { Menu } from "../components/Menu";
 import { formatRelativeTime } from "../components/format";
 import { api } from "../ipc/api";
 import { openInstanceDir, exportInstanceMrpack, deleteInstance } from "../util/instanceActions";
-import { activeRoot, isRunning, currentInstanceId, closeInstance, openInstance } from "../store";
+import { activeRoot, isRunning, isLaunching, playInstance, currentInstanceId, closeInstance, openInstance } from "../store";
 
 /**
  * InstanceDetail —— 实例详情页(替代旧的管理弹窗):
@@ -40,24 +40,6 @@ const InstanceDetail: Component = () => {
     onCleanup(() => document.removeEventListener("keydown", onKey));
   });
 
-  async function play() {
-    const i = inst();
-    if (!i) return;
-    if (isRunning(i.id)) {
-      try {
-        await api.stopInstance(i.id);
-      } catch (e) {
-        toast({ type: "error", message: `停止失败:${e}` });
-      }
-      return;
-    }
-    try {
-      await api.launchInstance(activeRoot(), i.id, "Player", false);
-      toast({ type: "success", message: "已启动" });
-    } catch (e) {
-      toast({ type: "error", message: `启动失败:${e}` });
-    }
-  }
 
   const loaderLabel = () => {
     const i = inst();
@@ -152,7 +134,7 @@ const InstanceDetail: Component = () => {
                   {loaderLabel()} · {playedLabel()}
                 </div>
               </div>
-              <PlayButton running={isRunning(i().id)} onClick={play} />
+              <PlayButton running={isRunning(i().id)} disabled={isLaunching(i().id)} onClick={() => void playInstance(i().id)} />
               <Menu.Root positioning={{ placement: "bottom-end" }} onSelect={(d: { value: string }) => void onMenuAction(d.value)}>
                 <Menu.Trigger
                   class="inline-flex items-center justify-center w-[34px] h-[34px] border-none bg-transparent text-dim rounded-ctl cursor-pointer transition-[background-color,color] duration-[var(--dur)] ease-app hover:bg-glass-hover hover:text-fg data-[state=open]:bg-glass-hover data-[state=open]:text-fg"

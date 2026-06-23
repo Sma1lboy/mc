@@ -175,6 +175,50 @@ function markRunning(id: string, running: boolean) {
   });
 }
 
+// 「正在启动」集合:点 Play 到 game://started 之间的中间态,用于禁用按钮防重复启动。
+const [launchingIds, setLaunchingIds] = createSignal<ReadonlySet<string>>(new Set());
+
+/** 某实例是否正在启动(已点 Play 但进程尚未确认起来)。 */
+export function isLaunching(id: string): boolean {
+  return launchingIds().has(id);
+}
+
+function markLaunching(id: string, on: boolean) {
+  setLaunchingIds((prev) => {
+    if (on === prev.has(id)) return prev;
+    const next = new Set(prev);
+    if (on) next.add(id);
+    else next.delete(id);
+    return next;
+  });
+}
+
+/**
+ * 统一的「启动 / 停止」入口:运行中→停止;否则启动并守卫重复点击。
+ * Home / Library / 实例详情共用,避免各页各写一份(且各自缺少防抖)。
+ * 成功 toast 用「正在启动…」(launchInstance 返回 ≠ 游戏就绪);就绪/退出由事件维护。
+ */
+export async function playInstance(id: string): Promise<void> {
+  if (isRunning(id)) {
+    try {
+      await api.stopInstance(id);
+    } catch (e) {
+      toast({ type: "error", message: `停止失败:${e}` });
+    }
+    return;
+  }
+  if (isLaunching(id)) return; // 防重复启动
+  markLaunching(id, true);
+  try {
+    await api.launchInstance(activeRoot(), id, "Player", false);
+    toast({ type: "info", message: "正在启动…" });
+  } catch (e) {
+    markLaunching(id, false);
+    toast({ type: "error", message: `启动失败:${e}` });
+  }
+  // 成功时保持 launching=true,直到 game://started(转 running)或 game://exit 清除。
+}
+
 // 仅在真实 Tauri 环境(有 window)下挂监听并同步初始运行态。
 if (typeof window !== "undefined") {
   // 挂载时同步一次已在运行的实例(热重载 / 页面重建后不丢运行态)。
@@ -183,9 +227,13 @@ if (typeof window !== "undefined") {
     .then((ids) => setRunningIds(new Set(ids)))
     .catch(() => {});
 
-  onGameStarted((e) => markRunning(e.id, true));
+  onGameStarted((e) => {
+    markLaunching(e.id, false);
+    markRunning(e.id, true);
+  });
 
   onGameExit((e) => {
+    markLaunching(e.id, false);
     markRunning(e.id, false);
     if (e.success) {
       toast({ type: "info", message: "游戏已退出" });

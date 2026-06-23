@@ -9,7 +9,7 @@ import {
   type ModpackHit,
 } from "../components";
 import { api, onLaunchProgress } from "../ipc/api";
-import { activeRoot, isRunning, openInstance, setCurrentPage, openDiscover } from "../store";
+import { activeRoot, openInstance, setCurrentPage, openDiscover, playInstance } from "../store";
 import { openInstanceDir, exportInstanceMrpack, deleteInstance } from "../util/instanceActions";
 import type { InstanceSummary, SearchHit } from "../ipc/types";
 
@@ -74,24 +74,6 @@ const Home: Component = () => {
     [...(instances() ?? [])].sort((a, b) => (b.last_played ?? 0) - (a.last_played ?? 0));
   const recent = () => sortedByPlayed().slice(0, RECENT_CAP);
 
-  async function play(id: string) {
-    // 运行中再点 = 停止;否则启动。运行态由 store 依事件维护。
-    if (isRunning(id)) {
-      try {
-        await api.stopInstance(id);
-      } catch (e) {
-        toast({ type: "error", message: `停止失败:${e}` });
-      }
-      return;
-    }
-    try {
-      await api.launchInstance(activeRoot(), id, "Player", false);
-      toast({ type: "success", message: "已启动" });
-    } catch (e) {
-      toast({ type: "error", message: `启动失败:${e}` });
-    }
-  }
-
   return (
     <div class="py-[24px] px-[28px] overflow-y-auto h-full">
       <header class="mb-[20px]">
@@ -125,7 +107,7 @@ const Home: Component = () => {
                 {(inst) => (
                   <InstanceRow
                     instance={toRowData(inst)}
-                    onPlay={play}
+                    onPlay={playInstance}
                     onOpen={openInstance}
                     onManage={openInstance}
                     onOpenDir={(id) => void openInstanceDir(activeRoot(), id)}

@@ -3,7 +3,7 @@ import { PlayButton } from "./PlayButton";
 import { Dialog } from "./Dialog";
 import { Menu } from "./Menu";
 import { formatRelativeTime } from "./format";
-import { isRunning } from "../store";
+import { isRunning, isLaunching } from "../store";
 
 // InstanceRow 接收的实例形状。与后端 InstanceSummary 字段对齐
 // (id,name,mc_version,loader,loader_version,icon,last_played,running)。
@@ -110,7 +110,7 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
 
         {/* 右: Play + ⋮ 菜单(Ark Menu:键盘可达 + 点外部/Esc 关闭)。 */}
         <div class="shrink-0 flex items-center gap-[6px]">
-          <PlayButton running={running()} onClick={() => props.onPlay?.(inst().id)} />
+          <PlayButton running={running()} disabled={isLaunching(inst().id)} onClick={() => props.onPlay?.(inst().id)} />
           <Menu.Root positioning={{ placement: "bottom-end" }} onSelect={(d: { value: string }) => onSelectAction(d.value)}>
             <Menu.Trigger
               class="inline-flex items-center justify-center w-[34px] h-[34px] border-none bg-transparent text-dim rounded-ctl cursor-pointer transition-[background-color,color] duration-[var(--dur)] ease-app hover:bg-glass-hover hover:text-fg data-[state=open]:bg-glass-hover data-[state=open]:text-fg"
