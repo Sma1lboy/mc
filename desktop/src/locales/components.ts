@@ -29,6 +29,7 @@ const dict = {
     // ImportModpackDialog
     "import.title": "导入整合包",
     "import.dropHint": "拖入整合包文件到此处",
+    "import.dropOverlay": "松开以导入整合包",
     "import.clickHint": "或点击选择文件(.mrpack / .zip)",
     "import.importing": "导入中…",
     "import.filter": "整合包 (.mrpack, .zip)",
@@ -138,6 +139,7 @@ const dict = {
     // ImportModpackDialog
     "import.title": "Import modpack",
     "import.dropHint": "Drop a modpack file here",
+    "import.dropOverlay": "Release to import the modpack",
     "import.clickHint": "or click to choose a file (.mrpack / .zip)",
     "import.importing": "Importing…",
     "import.filter": "Modpack (.mrpack, .zip)",

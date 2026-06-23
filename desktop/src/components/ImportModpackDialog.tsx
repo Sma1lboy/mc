@@ -26,10 +26,13 @@ export const ImportModpackDialog: Component<{
   root: string;
   onClose: () => void;
   onImported: (out: ImportOutcome) => void;
+  /** 打开时若带一个文件路径(从页面拖入),自动开始导入它(每个 path 仅触发一次)。 */
+  initialPath?: string | null;
 }> = (props) => {
   const [importing, setImporting] = createSignal(false);
   const [progress, setProgress] = createSignal("");
   const [dragOver, setDragOver] = createSignal(false);
+  const [handledPath, setHandledPath] = createSignal<string | null>(null);
 
   const formats = () => [
     { ext: FORMAT_EXT.mrpack, label: t("components.import.fmtModrinth") },
@@ -72,6 +75,17 @@ export const ImportModpackDialog: Component<{
     });
     if (typeof picked === "string") void runImport(picked);
   }
+
+  // 从页面拖入打开:对带入的 path 自动开始导入,每个 path 仅触发一次;关闭后复位。
+  createEffect(() => {
+    const path = props.initialPath;
+    if (props.open && path && handledPath() !== path) {
+      setHandledPath(path);
+      void runImport(path);
+    } else if (!props.open && handledPath() !== null) {
+      setHandledPath(null);
+    }
+  });
 
   // 原生文件拖放:仅在弹窗打开时监听;拖入非 .mrpack/.zip 提示,多个只取第一个。
   createEffect(() => {

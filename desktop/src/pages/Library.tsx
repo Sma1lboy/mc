@@ -7,11 +7,13 @@ import {
   ExportModpackDialog,
   EmptyState,
   ErrorState,
+  Icon,
   Spinner,
   SearchBox,
   toast,
   type InstanceRowData,
 } from "../components";
+import { useModpackDrop } from "../util/useModpackDrop";
 import { api, onInstallProgress } from "../ipc/api";
 import { activeRoot, openInstance, playInstance } from "../store";
 import { openInstanceDir, deleteInstance } from "../util/instanceActions";
@@ -52,6 +54,7 @@ const Library: Component = () => {
   const [progress, setProgress] = createSignal("");
   // 导入整合包:统一弹窗(展示支持格式 / 拖入提示 / 须知);产物里有需手动下载或跳过的文件再摊开。
   const [importOpen, setImportOpen] = createSignal(false);
+  const [importPath, setImportPath] = createSignal<string | null>(null);
   const [importOutcome, setImportOutcome] = createSignal<ImportOutcome | null>(null);
   // 导出整合包:选格式弹窗(非空 = 打开)。
   const [exportRow, setExportRow] = createSignal<InstanceRowData | null>(null);
@@ -61,6 +64,16 @@ const Library: Component = () => {
     if (out.blocked.length > 0 || out.skipped_optional.length > 0) setImportOutcome(out);
     else toast({ type: "success", message: t("library.imported", { id: out.instance_id }) });
   }
+
+  // 把整合包文件拖到本页任意处即导入:打开弹窗并自动开始导入(弹窗已开时让它自己接管)。
+  const dragOver = useModpackDrop({
+    enabled: () => !importOpen(),
+    onFile: (path) => {
+      setImportPath(path);
+      setImportOpen(true);
+    },
+    onUnsupported: () => toast({ type: "info", message: t("components.import.unsupported") }),
+  });
 
   const off = onInstallProgress((p) => {
     if (p.total > 0) setProgress(`${p.stage} ${p.current}/${p.total}`);
@@ -103,7 +116,15 @@ const Library: Component = () => {
   }
 
   return (
-    <div class="p-[24px_28px] overflow-y-auto h-full">
+    <div class="relative p-[24px_28px] overflow-y-auto h-full">
+      <Show when={dragOver()}>
+        <div class="absolute inset-0 z-30 flex items-center justify-center bg-black/40 backdrop-blur-sm pointer-events-none">
+          <div class="flex flex-col items-center gap-[10px] rounded-card border-2 border-dashed border-a-4 bg-glass-card px-[40px] py-[32px]">
+            <Icon name="download" size={30} class="text-a-5" />
+            <div class="text-[14px] font-semibold text-fg">{t("components.import.dropOverlay")}</div>
+          </div>
+        </div>
+      </Show>
       <div class="flex items-center justify-between mb-[18px]">
         <h1 class="text-[24px] font-bold text-fg m-0">{t("library.title")}</h1>
         <div class="flex items-center gap-[10px]">
@@ -203,7 +224,11 @@ const Library: Component = () => {
       <ImportModpackDialog
         open={importOpen()}
         root={activeRoot()}
-        onClose={() => setImportOpen(false)}
+        initialPath={importPath()}
+        onClose={() => {
+          setImportOpen(false);
+          setImportPath(null);
+        }}
         onImported={handleImported}
       />
 
