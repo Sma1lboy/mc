@@ -567,6 +567,8 @@ const WorldsPanel: Component<{ instance: InstanceSummary; tick?: number }> = (pr
   const [draft, setDraft] = createSignal("");
   const [busy, setBusy] = createSignal<string | null>(null);
   const [importing, setImporting] = createSignal(false);
+  // 删除存档前确认(存档含游玩进度,删除是破坏性的)。
+  const [confirmDel, setConfirmDel] = createSignal<WorldInfo | null>(null);
 
   async function importZip() {
     const picked = await openDialog({
@@ -738,7 +740,7 @@ const WorldsPanel: Component<{ instance: InstanceSummary; tick?: number }> = (pr
                 >
                   重命名
                 </button>
-                <button class={DEL_BTN} onClick={() => remove(w)}>
+                <button class={DEL_BTN} onClick={() => setConfirmDel(w)}>
                   删除
                 </button>
               </div>
@@ -747,6 +749,36 @@ const WorldsPanel: Component<{ instance: InstanceSummary; tick?: number }> = (pr
         </div>
       </Show>
       </Show>
+
+      <Dialog
+        open={confirmDel() !== null}
+        onClose={() => setConfirmDel(null)}
+        label="删除存档"
+        contentClass="w-[360px] max-w-[calc(100vw-48px)] glass-pop rounded-card overflow-hidden"
+      >
+        <div class="p-[20px] flex flex-col gap-[14px]">
+          <div class="text-[15px] font-semibold text-fg">删除存档「{confirmDel()?.name}」?</div>
+          <div class="text-[13px] text-dim leading-[1.6]">该世界的游玩进度将被移入回收站。</div>
+          <div class="flex justify-end gap-[10px]">
+            <button
+              class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-glass-card text-fg text-[13px] cursor-pointer transition-colors duration-150 hover:bg-glass-hover"
+              onClick={() => setConfirmDel(null)}
+            >
+              取消
+            </button>
+            <button
+              class="h-[34px] px-[16px] border-none rounded-ctl bg-danger text-white text-[13px] cursor-pointer transition-colors duration-150 hover:bg-danger-hover"
+              onClick={() => {
+                const w = confirmDel();
+                setConfirmDel(null);
+                if (w) void remove(w);
+              }}
+            >
+              删除
+            </button>
+          </div>
+        </div>
+      </Dialog>
     </div>
   );
 };
