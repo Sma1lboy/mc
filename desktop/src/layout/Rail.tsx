@@ -1,7 +1,8 @@
 import { Component, JSX, For, Show, createResource, createSignal } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
-import { AccountDialog, Avatar } from "../components";
-import { currentPage, setCurrentPage } from "../store";
+import { AccountDialog, Avatar, NewInstanceDialog } from "../components";
+import { currentPage, setCurrentPage, activeRoot, openInstance, currentInstanceId } from "../store";
+import { api } from "../ipc/api";
 import type { AccountSummary } from "../ipc/types";
 import "./Rail.css";
 
@@ -62,6 +63,13 @@ const SettingsIcon = (): JSX.Element => (
   </svg>
 );
 
+const PlusIcon = (): JSX.Element => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M12 5v14M5 12h14" />
+  </svg>
+);
+
 // App Logo:等距 3D 草方块(品牌 mark,与 branding/ 的 iso-cube 同源)。
 // 顶面绿(草)+ 两侧陶土(土)+ 草檐,固定配色不随主题强调色变。
 const LogoMark = (): JSX.Element => (
@@ -114,6 +122,19 @@ const Rail: Component = () => {
   const [accounts, { refetch }] = createResource<AccountSummary[]>(async () => {
     return await invoke<AccountSummary[]>("list_accounts");
   });
+
+  // 最近实例:按上次游玩排序取前 3,作为 rail 快捷入口(点击进详情)。
+  const [instances, { refetch: refetchInstances }] = createResource(
+    () => activeRoot(),
+    (root) => api.listInstances(root),
+  );
+  const pinned = () =>
+    [...(instances() ?? [])]
+      .sort((a, b) => (b.last_played ?? 0) - (a.last_played ?? 0))
+      .slice(0, 3);
+
+  // 新增实例对话框。
+  const [newOpen, setNewOpen] = createSignal(false);
 
   // 没有任何账号时,点头像直接弹登录(首次启动的主登录入口);已有账号则进 Home 的账号面板。
   const [loginOpen, setLoginOpen] = createSignal(false);
@@ -171,12 +192,37 @@ const Rail: Component = () => {
         aria-hidden="true"
       />
 
-      {/* 中部:固定实例占位区(未来拖入置顶实例,可滚动) */}
+      {/* 中部:最近实例快捷入口 + 新增实例(可滚动) */}
       <div
         class="rail-pinned flex-[1_1_auto] w-full flex flex-col items-center gap-[4px] overflow-y-auto overflow-x-hidden min-h-0"
-        aria-label="固定实例"
+        aria-label="最近实例"
       >
-        {/* 暂无固定实例:留空。此区随产品演进填充实例图标按钮。 */}
+        <For each={pinned()}>
+          {(inst) => {
+            const selected = () => currentPage() === "instance" && currentInstanceId() === inst.id;
+            return (
+              <button
+                class={`${RAIL_ITEM}${selected() ? " " + RAIL_ITEM_SELECTED : ""}`}
+                title={inst.name || inst.id}
+                onClick={() => openInstance(inst.id)}
+              >
+                <span class={`${RAIL_BAR}${selected() ? " " + RAIL_BAR_SELECTED : ""}`} aria-hidden="true" />
+                <span class="w-[34px] h-[34px] rounded-ctl overflow-hidden grid place-items-center bg-gradient-to-br from-a-3 to-a-5 text-white font-bold text-[15px] uppercase select-none">
+                  <Show when={inst.icon} fallback={(inst.name || inst.id).charAt(0)}>
+                    <img src={inst.icon!} alt="" width="34" height="34" class="w-full h-full object-cover" />
+                  </Show>
+                </span>
+              </button>
+            );
+          }}
+        </For>
+
+        {/* 新增实例:虚线 + 号,点开新建对话框。 */}
+        <button class={RAIL_ITEM} title="新增实例" onClick={() => setNewOpen(true)}>
+          <span class="grid place-items-center w-[34px] h-[34px] rounded-ctl border border-dashed border-glass-border-strong text-n-7 [&_svg]:w-[18px] [&_svg]:h-[18px]">
+            <PlusIcon />
+          </span>
+        </button>
       </div>
 
       {/* 底部:设置 + 账号头像。flex 把它推到底。 */}
@@ -234,6 +280,15 @@ const Rail: Component = () => {
           }}
         />
       </Show>
+
+      <NewInstanceDialog
+        open={newOpen()}
+        onClose={() => setNewOpen(false)}
+        onCreated={(id) => {
+          void refetchInstances();
+          openInstance(id);
+        }}
+      />
     </nav>
   );
 };
