@@ -1032,6 +1032,7 @@ export const InstanceManageDialog: Component<{
   // Tauri 启用了原生文件拖放,HTML5 ondrop 不触发,改用 webview 的 onDragDropEvent。
   // 整个弹窗作为拖放区,目标类型由当前标签决定。
   const [dragOver, setDragOver] = createSignal(false);
+  const [dropping, setDropping] = createSignal(false);
   const [importTick, setImportTick] = createSignal(0);
   const [worldTick, setWorldTick] = createSignal(0);
 
@@ -1053,21 +1054,30 @@ export const InstanceManageDialog: Component<{
       toast({ type: "info", message: "请切到 Mods / 资源包 / 光影 / 数据包 / 存档标签再拖入文件" });
       return;
     }
-    let ok = 0;
-    for (const path of paths) {
-      try {
-        if (tab() === "worlds") await api.importWorldZip(activeRoot(), inst.id, path);
-        else await api.importLocalResource(activeRoot(), inst.id, resourceTarget()!, path, null);
-        ok += 1;
-      } catch (e) {
-        toast({ type: "error", message: `导入失败:${e}` });
+    const t = tab();
+    setDropping(true);
+    try {
+      // 并行导入(串行会让拖入多个大文件逐个卡住);用 allSettled 汇总成败。
+      const results = await Promise.allSettled(
+        paths.map((path) =>
+          t === "worlds"
+            ? api.importWorldZip(activeRoot(), inst.id, path)
+            : api.importLocalResource(activeRoot(), inst.id, resourceTarget()!, path, null),
+        ),
+      );
+      const ok = results.filter((r) => r.status === "fulfilled").length;
+      const failed = results.length - ok;
+      if (ok > 0) {
+        if (t === "mods") refetchMods();
+        else if (t === "worlds") setWorldTick((x) => x + 1);
+        else setImportTick((x) => x + 1);
       }
-    }
-    if (ok > 0) {
-      toast({ type: "success", message: `已导入 ${ok} 个文件` });
-      if (tab() === "mods") refetchMods();
-      else if (tab() === "worlds") setWorldTick((t) => t + 1);
-      else setImportTick((t) => t + 1);
+      // 单条汇总,而不是每个失败弹一条 + 末尾静默。
+      if (failed === 0) toast({ type: "success", message: `已导入 ${ok} 个文件` });
+      else if (ok === 0) toast({ type: "error", message: `导入失败(${failed} 个)` });
+      else toast({ type: "warn", message: `导入完成:${ok} 成功,${failed} 失败` });
+    } finally {
+      setDropping(false);
     }
   }
 
@@ -1150,6 +1160,13 @@ export const InstanceManageDialog: Component<{
         <Show when={dragOver() && dropAccepted()}>
           <div class="absolute inset-0 z-10 grid place-items-center bg-card/85 pointer-events-none">
             <div class="text-[14px] text-a-6 font-semibold">松手导入到此实例</div>
+          </div>
+        </Show>
+        <Show when={dropping()}>
+          <div class="absolute inset-0 z-10 grid place-items-center bg-card/85">
+            <div class="flex items-center gap-[10px] text-[14px] text-fg font-semibold">
+              <Spinner size={18} /> 导入中…
+            </div>
           </div>
         </Show>
         <Show when={!props.embedded}>
