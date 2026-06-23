@@ -2,7 +2,7 @@ import { Component, Show, createResource, createMemo, onCleanup, onMount } from 
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { currentPage, currentRoot, switchLayout } from "../store";
+import { currentPage, currentRoot } from "../store";
 import type { InstanceSummary } from "../ipc/types";
 
 /**
@@ -136,15 +136,8 @@ const TopBar: Component = () => {
         </span>
       </div>
 
-      {/* 右侧:布局切换 + 运行状态 + 窗口控制 */}
+      {/* 右侧:运行状态 + 窗口控制 */}
       <div class="flex items-center gap-[12px]">
-        {/* 一键切到经典视图(对比两套界面) */}
-        <button
-          class="[-webkit-app-region:no-drag] border border-glass-border bg-glass-card text-dim text-[12px] px-[10px] py-[5px] rounded-ctl cursor-pointer mr-[12px] transition-[background-color,color,border-color] duration-[var(--dur)] ease-app hover:bg-a-4 hover:text-white hover:border-a-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5 focus-visible:ring-offset-2 focus-visible:ring-offset-n-2"
-          onClick={() => switchLayout("classic")}
-        >
-          切到经典视图 ⇄
-        </button>
         {/* 运行状态指示:有实例运行时绿点 + 计数,否则灰点 + 无运行 */}
         <div class="flex items-center gap-[6px]" data-tauri-drag-region>
           <Show
