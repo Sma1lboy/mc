@@ -150,13 +150,13 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
           </div>
           <div class="flex justify-end gap-[10px]">
             <button
-              class="h-[34px] px-[16px] border border-glass-border rounded-xs bg-glass-card text-fg text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-glass-hover"
+              class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-glass-card text-fg text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-glass-hover"
               onClick={() => setConfirmOpen(false)}
             >
               取消
             </button>
             <button
-              class="h-[34px] px-[16px] border-none rounded-xs bg-danger text-white text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-danger-hover"
+              class="h-[34px] px-[16px] border-none rounded-ctl bg-danger text-white text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-danger-hover"
               onClick={() => {
                 setConfirmOpen(false);
                 props.onDelete?.(inst().id);
