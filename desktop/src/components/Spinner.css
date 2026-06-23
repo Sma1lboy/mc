@@ -1,13 +1,23 @@
-/* Spinner.css —— 残留样式:只保留 @keyframes(Tailwind preflight/utility 不覆盖
- * 自定义关键帧)。视觉其余部分已迁到 Spinner.tsx 的 Tailwind 工具类。 */
+/* Spinner.css —— 像素风 loading 的关键帧(Tailwind 不覆盖自定义 @keyframes)。
+ * 8 个方块用同一明灭动画 + 各自负延迟错相,形成绕环彗尾;crispEdges 在 tsx 里保像素硬边。 */
 
-.ui-spinner-rotate {
-  animation: ui-spinner-rotate 0.8s linear infinite;
-  transform-origin: center;
+.ui-pixel-cell {
+  animation: ui-pixel-spin 0.8s linear infinite;
 }
 
-@keyframes ui-spinner-rotate {
-  to {
-    transform: rotate(360deg);
+@keyframes ui-pixel-spin {
+  0% {
+    opacity: 1;
+  }
+  70%,
+  100% {
+    opacity: 0.15;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-pixel-cell {
+    animation: none;
+    opacity: 0.6;
   }
 }
