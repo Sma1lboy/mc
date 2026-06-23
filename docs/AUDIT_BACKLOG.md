@@ -219,3 +219,27 @@ Every other ranked item (#1–#29, #31) is shipped.
 - **Why:** Installing a mod that declares an incompatibility with an already-present mod gives no warning; the conflict-aware resolver exists but is wired into nothing in production — large to route through, modest frequency.
 - **Evidence:** dependency.rs:66-77,177-182 produces DepResolution.incompatible, but grep shows resolve_dependencies/DepResolution have NO production callers (only its own tests). Install uses legacy install_mod whose InstallReport has only installed/satisfied/unresolved (install_mod.rs:50-55) and drops dependency_type=='incompatible' (198-206). UI InstallReport (types.ts:245-252) and handlers read only installed/unresolved counts.
 - **Fix:** Route install through the conflict-aware resolve_dependencies (expose a preview command returning to_install/satisfied/unresolved/incompatible), or add an incompatible list to InstallReport populated in install_rec; render conflicts in the install toast/dialog.
+
+## Backend audit 2026-06-23 (mc-core sweep, worktree fanout)
+
+Found by a parallel mc-core audit. The `dashify_uuid` panic was fixed same day (commit `c4e3dd2`). The rest are noted for human review (none fixed — each is a behavior/policy call or low-impact/latent).
+
+### 32. mrpack download-host allowlist not enforced  `[medium/medium]` (modpack)
+- **Why:** modpack/import/modrinth.rs module doc describes a download-host whitelist (cdn.modrinth.com / github.com / …) but `downloads[]` URLs in `plan_from_index` are passed through unfiltered — an mrpack could fetch from arbitrary hosts. (zip-slip on `files[].path` IS already guarded via `safe_join`.)
+- **Fix:** Enforce the documented host allowlist in plan_from_index; reject/skip entries from non-allowed hosts. Behavior change — confirm it won't break legitimate packs first.
+
+### 33. download_batch reads available_permits instead of configured concurrency  `[low/small]` (download)
+- **Evidence:** download/mod.rs:302 `concurrency = self.sem.available_permits()` reads currently-available permits, not the configured cap; a shared Downloader with another batch holding permits gets throttled.
+- **Fix:** Store the configured concurrency on Downloader and use it here. Verify throughput characteristics don't regress.
+
+### 34. parse_server mishandles IPv6 literals  `[low/small]` (launch)
+- **Evidence:** launch/command.rs:183 `rsplit_once(':')` splits `[::1]:25565` at the wrong colon.
+- **Fix:** Parse bracketed IPv6 host:port explicitly. Needs a spec for accepted server-address formats.
+
+### 35. curseforge sanitize_filename lets a bare `..` through  `[low/small]` (modpack, defense-in-depth)
+- **Evidence:** modpack/import/curseforge.rs:281 — a filename of exactly `..` survives rsplit. `safe_join` still neutralizes it (resolves to game_dir, write fails), so no traversal escape; defense-in-depth gap only.
+- **Fix:** Reject `.`/`..` outright in sanitize_filename.
+
+### 36. write_atomic temp name collision for concurrent writers to same path  `[low/small]` (fs, latent)
+- **Evidence:** fs.rs:135 temp name uses only `std::process::id()`; two concurrent writers to the same target in one process would collide. No current call site does this (paths unique per item) — latent.
+- **Fix:** Add a per-call unique suffix (thread id / atomic counter) to the temp name.
