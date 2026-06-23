@@ -277,7 +277,7 @@ const ClassicLaunch: Component = () => {
                 "text-classic-blue": rightView() === "versions" || rightView() === "instance",
                 "font-semibold": rightView() === "versions" || rightView() === "instance",
               }}
-              onClick={() => setRightView(rightView() === "versions" ? "news" : "versions")}
+              onClick={() => setRightView(rightView() === "news" ? "versions" : "news")}
             >
               版本选择
             </button>
@@ -547,7 +547,7 @@ const ClassicLaunch: Component = () => {
                     </button>
                     <button
                       class="h-[34px] px-[16px] rounded-[3px] border border-glass-border bg-glass-card text-classic-text text-[13px] cursor-pointer transition-colors duration-150 hover:bg-classic-blue-lightest hover:border-classic-blue-soft disabled:opacity-50 disabled:cursor-default"
-                      disabled={busy() !== ""}
+                      disabled={busy() !== "" || !selected()}
                       onClick={exportSelected}
                     >
                       {busy() === "export" ? "导出中…" : "导出整合包"}
