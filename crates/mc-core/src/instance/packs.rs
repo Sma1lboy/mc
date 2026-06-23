@@ -29,7 +29,7 @@ const DISABLED_SUFFIX: &str = ".disabled";
 ///
 /// 与 [`ResourceKind`] 的区别:`PackKind` 只覆盖"放在实例目录、按文件开关"的三类,
 /// 不含 Mod / Modpack(它们的管理逻辑不同);并额外携带"落在哪个子目录"的信息。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum PackKind {
     ResourcePack,
@@ -79,7 +79,7 @@ impl PackKind {
 }
 
 /// 一个已安装包的列表视图。直接派生 `Serialize` 以便经 Tauri command 回传前端。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub struct PackInfo {
     /// 磁盘上的文件(或目录)名,含可能的 `.disabled` 后缀——
     /// 这是后续 enable/disable/delete 操作的定位键。

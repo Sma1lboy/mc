@@ -567,7 +567,7 @@ fn map_version(r: RawVersion) -> ProjectVersion {
 
 /// 一个版本的展示用详情(整合包详情页:含 changelog / 发布时间 / 类型 / 下载数,
 /// 以及该版本的 `.mrpack` 文件地址)。比统一的 [`ProjectVersion`] 多带 UI 信息。
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
 pub struct VersionDetail {
     pub id: String,
     pub version_number: String,
@@ -618,7 +618,7 @@ fn map_version_detail(r: RawVersion) -> VersionDetail {
 /// 一个项目的展示详情(整合包详情页「简介」用):长描述正文(markdown)、
 /// 画廊、外部链接等。比 [`SearchHit`] 多带 `body` / `gallery` / 链接,供详情页
 /// 渲染一个像样的「简介」标签页(而不只是一句话 description)。
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
 pub struct ProjectDetail {
     pub id: String,
     pub slug: String,
@@ -640,7 +640,7 @@ pub struct ProjectDetail {
 }
 
 /// 项目画廊里的一张图。
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
 pub struct GalleryImage {
     pub url: String,
     pub title: Option<String>,

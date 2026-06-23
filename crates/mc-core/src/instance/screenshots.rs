@@ -17,7 +17,7 @@ use crate::error::{CoreError, IoResultExt, Result};
 use crate::instance::Instance;
 
 /// 单张截图的列表视图(不含图片字节)。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
 pub struct ScreenshotInfo {
     /// 磁盘文件名(启停/删除/读取的稳定标识)。
     pub file_name: String,

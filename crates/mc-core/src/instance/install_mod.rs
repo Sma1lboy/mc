@@ -31,7 +31,7 @@ use crate::modplatform::modrinth::ModrinthApi;
 use crate::modplatform::{ProjectVersion, VersionFile};
 
 /// 一个已成功安装的 mod 记录。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
 pub struct InstalledMod {
     /// Modrinth project id。
     pub project_id: String,
@@ -47,7 +47,7 @@ pub struct InstalledMod {
 ///   无需重复下载。
 /// - `unresolved`:声明为 required 的依赖,但在该 mc_version+loader 下找不到任何
 ///   兼容版本,需上层提示用户手动处理。
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, specta::Type)]
 pub struct InstallReport {
     pub installed: Vec<InstalledMod>,
     pub satisfied: Vec<String>,

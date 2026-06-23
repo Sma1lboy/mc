@@ -74,7 +74,7 @@ fn make_downloader() -> CmdResult<Downloader> {
 
 /// JavaInstall with the version flattened to a string (the core keeps it
 /// structured; the UI only displays it).
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 pub struct JavaDto {
     pub path: String,
     pub version: String,
@@ -85,17 +85,20 @@ pub struct JavaDto {
 // --- read-only queries ----------------------------------------------------
 
 #[tauri::command]
+#[specta::specta]
 pub fn list_roots() -> CmdResult<Vec<GameRoot>> {
     Ok(paths::discover_roots(&exe_dir(), &data_dir(), &custom_roots()))
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn list_instances(root: String) -> CmdResult<Vec<InstanceSummary>> {
     Ok(mc_core::instance::list_instances(&root_paths(&root)))
 }
 
 /// 取实例的游戏目录绝对路径(供「打开游戏目录」用前端 shell.open 打开)。
 #[tauri::command]
+#[specta::specta]
 pub fn instance_dir(root: String, id: String) -> CmdResult<String> {
     let paths = root_paths(&root);
     let dir = Instance::new(&id, paths.root().to_path_buf()).dir();
@@ -104,6 +107,7 @@ pub fn instance_dir(root: String, id: String) -> CmdResult<String> {
 
 /// 用系统文件管理器打开一个路径(目录/文件)。直接调 OS,绕开 shell 插件只放行 URL 的作用域。
 #[tauri::command]
+#[specta::specta]
 pub fn reveal_path(path: String) -> CmdResult<()> {
     #[cfg(target_os = "macos")]
     let spawned = std::process::Command::new("open").arg(&path).spawn();
@@ -117,6 +121,7 @@ pub fn reveal_path(path: String) -> CmdResult<()> {
 /// 取实例某个子目录的绝对路径并确保其存在(供「打开目录」用前端 shell.open 打开)。
 /// sub = "mods" / "resourcepacks" / "shaderpacks" / "datapacks" / "saves" / "screenshots" / "config"。
 #[tauri::command]
+#[specta::specta]
 pub fn instance_subdir(root: String, id: String, sub: String) -> CmdResult<String> {
     let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
     let dir = match sub.as_str() {
@@ -137,6 +142,7 @@ pub fn instance_subdir(root: String, id: String, sub: String) -> CmdResult<Strin
 /// 删除一个实例。复用 mc-core 的 lifecycle::delete_instance:优先移入系统回收站
 /// (可恢复),无 GUI 时回退永久删除;目录不存在视为已删除(幂等)。前端须先确认。
 #[tauri::command]
+#[specta::specta]
 pub fn delete_instance(root: String, id: String) -> CmdResult<()> {
     mc_core::instance::lifecycle::delete_instance(&root_paths(&root), &id).map_err(err)
 }
@@ -144,6 +150,7 @@ pub fn delete_instance(root: String, id: String) -> CmdResult<()> {
 /// 复制一个实例:整目录复制 src_id → 新实例(id 由 new_name 唯一化),并把新实例
 /// 的 instance.json name 设为 new_name。返回新实例 id。
 #[tauri::command]
+#[specta::specta]
 pub fn copy_instance(root: String, src_id: String, new_name: String) -> CmdResult<String> {
     mc_core::instance::lifecycle::copy_instance_named(&root_paths(&root), &src_id, &new_name)
         .map_err(err)
@@ -152,6 +159,7 @@ pub fn copy_instance(root: String, src_id: String, new_name: String) -> CmdResul
 /// 从零创建实例:装核心(原版或 + loader)→ 写命名实例。进度走 install://progress。
 /// loader = "vanilla" / "fabric" / "quilt" / "forge" / "neoforge";forge/neoforge 需 loader_version。
 #[tauri::command]
+#[specta::specta]
 pub async fn create_instance(
     app: AppHandle,
     root: String,
@@ -189,6 +197,7 @@ pub async fn create_instance(
 /// forge/neoforge 需 loader_version。返回之后应使用的实例 id —— 多数情况与传入 id
 /// 相同,但「实例目录本身就是裸原版」的退化情形会返回一个新 id(避免自环)。
 #[tauri::command]
+#[specta::specta]
 pub async fn install_loader(
     app: AppHandle,
     root: String,
@@ -221,6 +230,7 @@ pub async fn install_loader(
 
 /// 读取某实例的配置(名字/内存/Java/JVM 参数/窗口…)。文件缺失返回默认值。
 #[tauri::command]
+#[specta::specta]
 pub fn get_instance_config(root: String, id: String) -> CmdResult<mc_core::instance::InstanceConfig> {
     let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
     inst.load_config().map_err(err)
@@ -228,6 +238,7 @@ pub fn get_instance_config(root: String, id: String) -> CmdResult<mc_core::insta
 
 /// 写某实例的配置(原子写入 instance.json)。
 #[tauri::command]
+#[specta::specta]
 pub fn set_instance_config(
     root: String,
     id: String,
@@ -240,6 +251,7 @@ pub fn set_instance_config(
 /// 把任意图片设为实例图标(拷贝到 `versions/<id>/icon.png`)。source 为本地文件绝对路径。
 /// 之后 list_instances 会把它探测为 data URL 回传前端。
 #[tauri::command]
+#[specta::specta]
 pub fn set_instance_icon(root: String, id: String, source: String) -> CmdResult<()> {
     let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
     inst.set_icon(std::path::Path::new(&source)).map_err(err)
@@ -247,6 +259,7 @@ pub fn set_instance_icon(root: String, id: String, source: String) -> CmdResult<
 
 /// 列出某实例 mods 目录里的 mod(含启停态)。
 #[tauri::command]
+#[specta::specta]
 pub fn instance_mods(root: String, id: String) -> CmdResult<Vec<mc_core::instance::ModInfo>> {
     let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
     Ok(mc_core::instance::list_mods(&inst))
@@ -254,6 +267,7 @@ pub fn instance_mods(root: String, id: String) -> CmdResult<Vec<mc_core::instanc
 
 /// 启用/停用一个 mod(改 `.jar` ↔ `.jar.disabled`)。file_name 为 list 返回的稳定标识。
 #[tauri::command]
+#[specta::specta]
 pub fn set_mod_enabled(root: String, id: String, file_name: String, enabled: bool) -> CmdResult<()> {
     let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
     mc_core::instance::mods::set_mod_enabled(&inst, &file_name, enabled).map_err(err)
@@ -261,6 +275,7 @@ pub fn set_mod_enabled(root: String, id: String, file_name: String, enabled: boo
 
 /// 删除一个 mod 文件。
 #[tauri::command]
+#[specta::specta]
 pub fn delete_mod(root: String, id: String, file_name: String) -> CmdResult<()> {
     let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
     mc_core::instance::mods::delete_mod(&inst, &file_name).map_err(err)
@@ -269,6 +284,7 @@ pub fn delete_mod(root: String, id: String, file_name: String) -> CmdResult<()> 
 /// 从 Modrinth 把一个 mod(及其必需依赖)装进实例。loader/mc_version 用于挑兼容版本。
 /// 返回安装报告(已装 / 已满足 / 未解决依赖)。
 #[tauri::command]
+#[specta::specta]
 pub async fn install_mod(
     root: String,
     id: String,
@@ -285,7 +301,7 @@ pub async fn install_mod(
 }
 
 /// 显式选版安装的结果:落盘主文件 + (仅 mod)依赖解析摘要。
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 pub struct VersionInstallReport {
     /// 主文件落盘名。
     file: String,
@@ -305,6 +321,7 @@ pub struct VersionInstallReport {
 /// 行为一致 —— 避免选版安装出一个缺前置、进不去游戏的孤立 jar。需要 `mc_version` + `loader`
 /// 才能给依赖挑兼容版本;缺省时退回只装主文件。packs 不涉及依赖。
 #[tauri::command]
+#[specta::specta]
 pub async fn install_version_file(
     root: String,
     id: String,
@@ -376,6 +393,7 @@ pub async fn install_version_file(
 
 /// 检查实例里已启用 mod 的更新(对每个 jar 的 sha1 问 Modrinth 当前 loader/版本下的最新版)。
 #[tauri::command]
+#[specta::specta]
 pub async fn check_mod_updates(
     root: String,
     id: String,
@@ -391,6 +409,7 @@ pub async fn check_mod_updates(
 
 /// 应用一个 mod 更新:下载新版本进 mods/ 并删掉旧文件。update 为 check_mod_updates 返回的条目。
 #[tauri::command]
+#[specta::specta]
 pub async fn apply_mod_update(
     root: String,
     id: String,
@@ -406,6 +425,7 @@ pub async fn apply_mod_update(
 /// 把一个本地文件拖拽导入实例:按 target 拷贝到对应子目录,返回落盘文件名。
 /// target = "mod" / "resourcepack" / "shader" / "datapack"。
 #[tauri::command]
+#[specta::specta]
 pub fn import_local_resource(
     root: String,
     id: String,
@@ -434,6 +454,7 @@ pub fn import_local_resource(
 
 /// 列出某实例下指定类型的包(资源包 / 光影 / 数据包),含启停态。
 #[tauri::command]
+#[specta::specta]
 pub fn instance_packs(
     root: String,
     id: String,
@@ -446,6 +467,7 @@ pub fn instance_packs(
 
 /// 启用/停用一个包(改 `.zip` ↔ `.zip.disabled`)。
 #[tauri::command]
+#[specta::specta]
 pub fn set_pack_enabled(
     root: String,
     id: String,
@@ -461,6 +483,7 @@ pub fn set_pack_enabled(
 
 /// 删除一个包(移入系统回收站,可找回)。
 #[tauri::command]
+#[specta::specta]
 pub fn delete_pack(
     root: String,
     id: String,
@@ -474,6 +497,7 @@ pub fn delete_pack(
 
 /// 从 Modrinth 安装一个包到实例对应目录,返回落盘文件名。
 #[tauri::command]
+#[specta::specta]
 pub async fn install_pack(
     root: String,
     id: String,
@@ -492,6 +516,7 @@ pub async fn install_pack(
 
 /// 列出某实例的截图(仅元数据,按修改时间倒序)。
 #[tauri::command]
+#[specta::specta]
 pub fn instance_screenshots(
     root: String,
     id: String,
@@ -502,6 +527,7 @@ pub fn instance_screenshots(
 
 /// 按需读取一张截图为 data URL(UI 滚动到哪张才取哪张)。
 #[tauri::command]
+#[specta::specta]
 pub fn read_screenshot(root: String, id: String, file_name: String) -> CmdResult<String> {
     let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
     mc_core::instance::read_screenshot(&inst, &file_name).map_err(err)
@@ -509,6 +535,7 @@ pub fn read_screenshot(root: String, id: String, file_name: String) -> CmdResult
 
 /// 删除一张截图(移入系统回收站,可找回)。
 #[tauri::command]
+#[specta::specta]
 pub fn delete_screenshot(root: String, id: String, file_name: String) -> CmdResult<()> {
     let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
     mc_core::instance::screenshots::delete_screenshot(&inst, &file_name).map_err(err)
@@ -516,6 +543,7 @@ pub fn delete_screenshot(root: String, id: String, file_name: String) -> CmdResu
 
 /// 列出某实例的存档世界(名字/模式/大小/上次游玩…)。
 #[tauri::command]
+#[specta::specta]
 pub fn instance_worlds(root: String, id: String) -> CmdResult<Vec<mc_core::instance::WorldInfo>> {
     let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
     Ok(mc_core::instance::list_worlds(&inst))
@@ -523,6 +551,7 @@ pub fn instance_worlds(root: String, id: String) -> CmdResult<Vec<mc_core::insta
 
 /// 删除一个存档世界(移入系统回收站,可找回)。
 #[tauri::command]
+#[specta::specta]
 pub fn delete_world(root: String, id: String, folder: String) -> CmdResult<()> {
     let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
     mc_core::instance::world::delete_world(&inst, &folder).map_err(err)
@@ -531,6 +560,7 @@ pub fn delete_world(root: String, id: String, folder: String) -> CmdResult<()> {
 /// 把一个存档打成 zip 备份到 dest_path(完整 .zip 文件路径,由 UI 的另存为对话框给出),
 /// 返回写出的 zip 绝对路径。
 #[tauri::command]
+#[specta::specta]
 pub fn backup_world(root: String, id: String, folder: String, dest_path: String) -> CmdResult<String> {
     let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
     mc_core::instance::world::backup_world(&inst, &folder, std::path::Path::new(&dest_path))
@@ -540,6 +570,7 @@ pub fn backup_world(root: String, id: String, folder: String, dest_path: String)
 
 /// 从一个 .zip 导入世界到实例 saves/,返回新世界文件夹名。zip 内需含 level.dat。
 #[tauri::command]
+#[specta::specta]
 pub fn import_world_zip(root: String, id: String, path: String) -> CmdResult<String> {
     let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
     mc_core::instance::import_world_zip(&inst, std::path::Path::new(&path)).map_err(err)
@@ -547,12 +578,14 @@ pub fn import_world_zip(root: String, id: String, path: String) -> CmdResult<Str
 
 /// 重命名存档的显示名(改 level.dat 的 LevelName,不改文件夹名)。
 #[tauri::command]
+#[specta::specta]
 pub fn rename_world(root: String, id: String, folder: String, new_name: String) -> CmdResult<()> {
     let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
     mc_core::instance::world::rename_world(&inst, &folder, &new_name).map_err(err)
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn list_versions(snapshot: bool) -> CmdResult<Vec<ManifestVersion>> {
     let dl = make_downloader()?;
     let all = meta::fetch_manifest(&dl).await.map_err(err)?;
@@ -566,6 +599,7 @@ pub async fn list_versions(snapshot: bool) -> CmdResult<Vec<ManifestVersion>> {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn list_accounts() -> CmdResult<Vec<AccountSummary>> {
     let store = AccountStore::load(data_dir().join("accounts.json")).map_err(err)?;
     Ok(store.list())
@@ -617,7 +651,7 @@ fn msa_client() -> MsaClient {
 
 /// The device-code prompt shown to the user. `device_code` is the opaque handle
 /// passed back to [`msa_login_poll`]; everything else is for display.
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 pub struct DeviceCodeDto {
     pub user_code: String,
     pub verification_uri: String,
@@ -629,6 +663,7 @@ pub struct DeviceCodeDto {
 /// Step ① of Microsoft login: start the device-code flow. The UI shows
 /// `user_code` and opens `verification_uri`, then calls [`msa_login_poll`].
 #[tauri::command]
+#[specta::specta]
 pub async fn msa_login_start() -> CmdResult<DeviceCodeDto> {
     let info = msa_client().device_code_start().await.map_err(err)?;
     Ok(DeviceCodeDto {
@@ -644,6 +679,7 @@ pub async fn msa_login_start() -> CmdResult<DeviceCodeDto> {
 /// run the full Xbox → XSTS → Minecraft → profile chain, then persist and
 /// select the resulting account.
 #[tauri::command]
+#[specta::specta]
 pub async fn msa_login_poll(device_code: String, interval: u64) -> CmdResult<AccountSummary> {
     let client = msa_client();
     let token = client.poll_token(&device_code, interval).await.map_err(err)?;
@@ -666,6 +702,7 @@ pub async fn msa_login_poll(device_code: String, interval: u64) -> CmdResult<Acc
 
 /// Add (or update) an offline account from a username and select it.
 #[tauri::command]
+#[specta::specta]
 pub fn add_offline_account(name: String) -> CmdResult<AccountSummary> {
     let name = name.trim();
     if name.is_empty() {
@@ -690,6 +727,7 @@ pub fn add_offline_account(name: String) -> CmdResult<AccountSummary> {
 /// 外置登录(Yggdrasil / authlib-injector):用 base + 用户名 + 密码登录第三方皮肤站,
 /// 落库为 Yggdrasil 账号并选中。启动时会自动注入 authlib-injector。
 #[tauri::command]
+#[specta::specta]
 pub async fn yggdrasil_login(
     base: String,
     username: String,
@@ -720,6 +758,7 @@ pub async fn yggdrasil_login(
 
 /// Switch the active account.
 #[tauri::command]
+#[specta::specta]
 pub fn select_account(uuid: String) -> CmdResult<()> {
     let mut store = AccountStore::load(accounts_path()).map_err(err)?;
     store.select(&uuid).map_err(err)?;
@@ -728,6 +767,7 @@ pub fn select_account(uuid: String) -> CmdResult<()> {
 
 /// Remove an account by uuid.
 #[tauri::command]
+#[specta::specta]
 pub fn remove_account(uuid: String) -> CmdResult<()> {
     let mut store = AccountStore::load(accounts_path()).map_err(err)?;
     store.remove(&uuid);
@@ -737,6 +777,7 @@ pub fn remove_account(uuid: String) -> CmdResult<()> {
 /// 显式刷新当前选中的微软账号的登录(免浏览器,用 refresh_token)。返回是否执行了续期。
 /// 失败(refresh_token 失效)时返回错误,UI 据此提示重新登录。
 #[tauri::command]
+#[specta::specta]
 pub async fn refresh_account() -> CmdResult<bool> {
     let mut store = AccountStore::load(accounts_path()).map_err(err)?;
     // 显式刷新:用极大 margin 强制对选中的微软账号尝试续期,不看剩余有效期。
@@ -746,6 +787,7 @@ pub async fn refresh_account() -> CmdResult<bool> {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn detect_java() -> CmdResult<Vec<JavaDto>> {
     let installs = java::detect_all().await;
     Ok(installs
@@ -760,6 +802,7 @@ pub async fn detect_java() -> CmdResult<Vec<JavaDto>> {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn modrinth_search(
     query: String,
     kind: String,
@@ -795,6 +838,7 @@ fn theme_path() -> PathBuf {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn get_theme() -> CmdResult<ThemeConfig> {
     match std::fs::read_to_string(theme_path()) {
         Ok(s) => serde_json::from_str(&s).map_err(err),
@@ -803,6 +847,7 @@ pub fn get_theme() -> CmdResult<ThemeConfig> {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn set_theme(cfg: ThemeConfig) -> CmdResult<()> {
     let _ = paths::ensure_dir(&data_dir());
     let s = serde_json::to_string_pretty(&cfg).map_err(err)?;
@@ -822,6 +867,7 @@ fn forward_progress(app: AppHandle, event: &'static str, mut rx: watch::Receiver
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn install_version(app: AppHandle, root: String, id: String) -> CmdResult<()> {
     let paths = root_paths(&root);
     let dl = make_downloader()?;
@@ -873,6 +919,7 @@ impl RunningGames {
 ///
 /// 同一实例已在运行时直接拒绝,避免重复开多个 JVM。
 #[tauri::command]
+#[specta::specta]
 pub async fn launch_instance(
     app: AppHandle,
     state: State<'_, RunningGames>,
@@ -1008,6 +1055,7 @@ pub async fn launch_instance(
 /// 停止一个正在运行的实例(向其 reaper 发停止信号;reaper 杀进程并广播 `game://exit`)。
 /// 实例不在运行时为 no-op。
 #[tauri::command]
+#[specta::specta]
 pub fn stop_instance(state: State<'_, RunningGames>, id: String) -> CmdResult<()> {
     if let Some(kill) = state.take(&id) {
         let _ = kill.send(());
@@ -1017,6 +1065,7 @@ pub fn stop_instance(state: State<'_, RunningGames>, id: String) -> CmdResult<()
 
 /// 当前正在运行的实例 id 列表(供 UI 挂载时同步运行态)。
 #[tauri::command]
+#[specta::specta]
 pub fn running_instances(state: State<'_, RunningGames>) -> CmdResult<Vec<String>> {
     Ok(state.ids())
 }
@@ -1063,6 +1112,7 @@ struct GameExit {
 
 /// 前端 webview 把启动/错误信息报到这里;经全局 tracing 落进统一日志(`[client]` 前缀)。
 #[tauri::command]
+#[specta::specta]
 pub fn log_boot(msg: String) {
     tracing::info!(target: "client", "{msg}");
 }
@@ -1071,6 +1121,7 @@ pub fn log_boot(msg: String) {
 /// 与本地数据层(`[daemon]`)的日志汇到同一处,方便对照排查。
 /// level ∈ `error` / `warn` / `info` / `debug`(其它按 info 处理)。
 #[tauri::command]
+#[specta::specta]
 pub fn client_log(level: String, message: String) {
     match level.as_str() {
         "error" => tracing::error!(target: "client", "{message}"),
@@ -1082,6 +1133,7 @@ pub fn client_log(level: String, message: String) {
 
 /// 返回全局日志目录(`<data_dir>/logs`,必要时创建),前端用 shell 打开它。
 #[tauri::command]
+#[specta::specta]
 pub fn open_logs_dir() -> CmdResult<String> {
     let dir = mc_core::paths::logs_dir(&data_dir());
     paths::ensure_dir(&dir).map_err(err)?;
@@ -1091,7 +1143,7 @@ pub fn open_logs_dir() -> CmdResult<String> {
 // --- modpack import / export (thin glue over mc_core::modpack) ---------------
 
 /// 一个 blocked 文件(CurseForge 作者禁第三方分发)的 UI 视图:需用户手动下载。
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 pub struct BlockedFileDto {
     pub name: String,
     pub website_url: String,
@@ -1100,7 +1152,7 @@ pub struct BlockedFileDto {
 }
 
 /// `import_modpack` 的返回:建好的实例 id + 需手动处理的 blocked 文件 + 跳过的可选文件。
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 pub struct ImportOutcomeDto {
     pub instance_id: String,
     pub blocked: Vec<BlockedFileDto>,
@@ -1110,6 +1162,7 @@ pub struct ImportOutcomeDto {
 /// 导入一个整合包(`.mrpack` / CurseForge zip / MultiMC / MCBBS,自动识别格式),
 /// 建好实例并返回其 id。`blocked` 列出需用户手动下载的 CurseForge 文件。
 #[tauri::command]
+#[specta::specta]
 pub async fn import_modpack(
     app: AppHandle,
     root: String,
@@ -1168,6 +1221,7 @@ fn parse_loader_kind(s: &str) -> Option<mc_core::types::LoaderKind> {
 /// (后者可 `modlist:md|json|csv|txt|html` 选子格式)。`dest` 非空时把产物移到该路径。
 /// 返回最终文件路径。
 #[tauri::command]
+#[specta::specta]
 #[allow(clippy::too_many_arguments)]
 pub async fn export_modpack(
     root: String,
@@ -1242,6 +1296,7 @@ pub async fn export_modpack(
 /// 从 Modrinth 安装一个整合包:取该项目最新版本的 `.mrpack` 下载地址,经导入引擎
 /// 下载 + 识别 + 安装(原版 + loader + mods + overrides)成一个可启动实例。
 #[tauri::command]
+#[specta::specta]
 pub async fn install_modrinth_modpack(
     app: AppHandle,
     root: String,
@@ -1325,6 +1380,7 @@ impl From<mc_core::modpack::import::ImportOutcome> for ImportOutcomeDto {
 /// 列出一个 Modrinth 整合包项目的所有版本详情(详情页用:版本号/类型/MC/loader/
 /// 发布时间/下载数/changelog + 该版本 .mrpack 地址)。
 #[tauri::command]
+#[specta::specta]
 pub async fn modrinth_versions(
     project_id: String,
 ) -> CmdResult<Vec<mc_core::modplatform::modrinth::VersionDetail>> {
@@ -1334,6 +1390,7 @@ pub async fn modrinth_versions(
 /// 取一个 Modrinth 项目的完整详情(简介标签页用:长描述正文 markdown + 画廊 +
 /// 关注数 + 源码/issue/wiki/discord 等外部链接)。
 #[tauri::command]
+#[specta::specta]
 pub async fn modrinth_project(
     project_id: String,
 ) -> CmdResult<mc_core::modplatform::modrinth::ProjectDetail> {
@@ -1342,6 +1399,7 @@ pub async fn modrinth_project(
 
 /// 从一个 `.mrpack` 直链安装整合包(详情页「安装此版本」用)。
 #[tauri::command]
+#[specta::specta]
 pub async fn install_modpack_url(
     app: AppHandle,
     root: String,
@@ -1367,12 +1425,14 @@ pub async fn install_modpack_url(
 
 /// 读取全局设置(下载源/并发/默认内存/Java 路径/语言…)。缺失/损坏回退默认。
 #[tauri::command]
+#[specta::specta]
 pub fn get_settings() -> CmdResult<mc_core::settings::GlobalSettings> {
     mc_core::settings::GlobalSettings::load(&data_dir()).map_err(err)
 }
 
 /// 持久化全局设置(原子写 settings.json)。下载相关项下次构造下载器即生效。
 #[tauri::command]
+#[specta::specta]
 pub fn set_settings(settings: mc_core::settings::GlobalSettings) -> CmdResult<()> {
     settings.save(&data_dir()).map_err(err)
 }

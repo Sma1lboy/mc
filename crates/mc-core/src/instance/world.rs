@@ -37,7 +37,7 @@ const LEVEL_DAT: &str = "level.dat";
 /// 单个世界的概要信息(供 UI 列表展示)。
 ///
 /// 字段全部是"已解算好的展示值",不暴露原始 NBT,UI 层无需了解 NBT 结构。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 pub struct WorldInfo {
     /// 世界在 `saves/` 下的目录名(稳定标识,用于 backup/delete/rename 的入参)。
     pub folder: String,

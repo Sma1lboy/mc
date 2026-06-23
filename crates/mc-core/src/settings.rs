@@ -35,7 +35,7 @@ const DEFAULT_LANGUAGE: &str = "zh-CN";
 ///
 /// 所有字段都有合理默认值(见 [`Default`] 实现),所以即便 `settings.json`
 /// 只写了部分字段,缺失的字段也会通过 serde 默认值补齐(配合 `#[serde(default)]`)。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct GlobalSettings {
     /// 下载源:`"official"`(官方)或 `"bmclapi"`(镜像)。
     #[serde(default = "default_download_source")]

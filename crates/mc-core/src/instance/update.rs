@@ -22,7 +22,7 @@ use crate::modplatform::{ProjectVersion, VersionFile};
 
 /// 一个可用的 mod 更新。携带应用更新所需的全部信息(下载地址 / 校验 / 目标文件名),
 /// 这样 UI 拿到后无需再查一次即可直接调用 [`apply_mod_update`]。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct ModUpdate {
     /// 当前磁盘上的文件名(启用态 `.jar`),应用更新后会被替换/删除。
     pub file_name: String,

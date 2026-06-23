@@ -22,7 +22,7 @@ use crate::error::{CoreError, IoResultExt, Result};
 use crate::instance::Instance;
 
 /// 单个本地 mod 的元数据视图。字段尽量贴近 UI 列表展示所需。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub struct ModInfo {
     /// 磁盘上的实际文件名(含 `.disabled` 后缀,如有)。用作启停/删除的稳定标识。
     pub file_name: String,

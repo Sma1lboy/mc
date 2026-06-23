@@ -66,7 +66,7 @@ impl ResourceKind {
 }
 
 /// 搜索结果中的一个项目(或 `get_project` 的精简视图)。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub struct SearchHit {
     pub id: String,
     pub slug: String,

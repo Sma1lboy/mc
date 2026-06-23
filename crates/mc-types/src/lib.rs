@@ -9,7 +9,7 @@ pub mod platform;
 pub use platform::{Arch, Os, Platform};
 
 /// Progress report emitted by long-running tasks (download, verify, launch).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 pub struct Progress {
     /// Human-readable description of the current stage, e.g. "下载 libraries".
     pub stage: String,
@@ -36,7 +36,7 @@ impl Progress {
 }
 
 /// How a game-root directory was discovered. See `docs/07-directory-model-portability.md`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum RootKind {
     /// Detected next to / inside the launcher executable directory (portable).
@@ -50,7 +50,7 @@ pub enum RootKind {
 }
 
 /// A `.minecraft`-style game directory that holds versions / libraries / assets.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 pub struct GameRoot {
     pub name: String,
     pub path: String,
@@ -58,7 +58,7 @@ pub struct GameRoot {
 }
 
 /// The three kinds of account the launcher supports.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum AccountKind {
     Offline,
@@ -69,7 +69,7 @@ pub enum AccountKind {
 /// The authenticated identity handed to the launch pipeline. This is the single
 /// exit point all account kinds funnel into — the launch code never branches on
 /// account type.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 pub struct AuthSession {
     pub username: String,
     pub uuid: String,
@@ -82,7 +82,7 @@ pub struct AuthSession {
 }
 
 /// A persisted account as shown in the account switcher.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 pub struct AccountSummary {
     pub kind: AccountKind,
     pub username: String,
@@ -96,7 +96,7 @@ pub struct AccountSummary {
 }
 
 /// Mod loader families.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum LoaderKind {
     Vanilla,
@@ -123,7 +123,7 @@ impl LoaderKind {
 }
 
 /// The release channel of a Minecraft version.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum ReleaseKind {
     Release,
@@ -133,7 +133,7 @@ pub enum ReleaseKind {
 }
 
 /// One entry from Mojang's version manifest.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 pub struct ManifestVersion {
     pub id: String,
     pub kind: ReleaseKind,
@@ -147,7 +147,7 @@ pub struct ManifestVersion {
 }
 
 /// A summary of an installed instance for list views.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 pub struct InstanceSummary {
     pub id: String,
     pub name: String,
@@ -169,7 +169,7 @@ pub struct InstanceSummary {
 }
 
 /// UI theme preference.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 pub struct ThemeConfig {
     /// "dark" or "light".
     pub mode: String,

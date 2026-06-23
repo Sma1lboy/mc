@@ -32,6 +32,9 @@ tracing-appender = "0.2"
 # 纯逻辑内核与共享 DTO,经 path 依赖引入(不走父 workspace)。
 mc-core = { path = "../../crates/mc-core" }
 mc-types = { path = "../../crates/mc-types" }
+tauri-specta = { version = "=2.0.0-rc.25", features = ["typescript"] }
+specta-typescript = "0.0.12"
+specta = { version = "=2.0.0-rc.25", features = ["derive", "function"] }
 
 # 让本包脱离父级 mc-launcher workspace 独立成一个 cargo 包。
 # 空 [workspace] 表声明"这里就是 workspace 根",从而不会被 ../../Cargo.toml 收编。

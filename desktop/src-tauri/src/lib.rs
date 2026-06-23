@@ -1,8 +1,13 @@
 //! Tauri application assembly. `main.rs` calls [`run`]; all the launcher logic
 //! is in `mc-core`, reached through the thin commands in [`commands`].
+//!
+//! 命令与 DTO 经 **tauri-specta** 导出为 `desktop/src/ipc/bindings.ts`(debug 构建时刷新),
+//! 前端类型/调用签名从此由 Rust 单一真相生成,杜绝手写 TS 与后端漂移。
 
 mod commands;
 mod logging;
+
+use tauri_specta::{collect_commands, Builder};
 
 /// Build and run the Tauri application.
 pub fn run() {
@@ -16,6 +21,82 @@ pub fn run() {
     let logs_dir = mc_core::paths::logs_dir(&data_dir);
     let _log_guard = logging::init(&logs_dir);
     tracing::info!(target: "daemon", "mc-launcher 启动,日志目录 {}", logs_dir.display());
+
+    // tauri-specta:收集所有命令(同时承载类型),debug 下把 TS 绑定写回前端 ipc 目录。
+    // u64/i64(下载数、时间戳、字节数)按 number 导出,与既有前端一致(量级在 JS 安全整数内)。
+    let builder = Builder::<tauri::Wry>::new()
+        .dangerously_cast_bigints_to_number()
+        .commands(collect_commands![
+        commands::list_roots,
+        commands::list_instances,
+        commands::instance_dir,
+        commands::instance_subdir,
+        commands::reveal_path,
+        commands::delete_instance,
+        commands::copy_instance,
+        commands::create_instance,
+        commands::install_loader,
+        commands::get_instance_config,
+        commands::set_instance_config,
+        commands::set_instance_icon,
+        commands::instance_mods,
+        commands::set_mod_enabled,
+        commands::delete_mod,
+        commands::install_mod,
+        commands::install_version_file,
+        commands::check_mod_updates,
+        commands::apply_mod_update,
+        commands::import_local_resource,
+        commands::instance_packs,
+        commands::set_pack_enabled,
+        commands::delete_pack,
+        commands::install_pack,
+        commands::instance_screenshots,
+        commands::read_screenshot,
+        commands::delete_screenshot,
+        commands::instance_worlds,
+        commands::delete_world,
+        commands::backup_world,
+        commands::rename_world,
+        commands::import_world_zip,
+        commands::list_versions,
+        commands::list_accounts,
+        commands::msa_login_start,
+        commands::msa_login_poll,
+        commands::add_offline_account,
+        commands::yggdrasil_login,
+        commands::select_account,
+        commands::remove_account,
+        commands::refresh_account,
+        commands::detect_java,
+        commands::modrinth_search,
+        commands::get_theme,
+        commands::set_theme,
+        commands::install_version,
+        commands::launch_instance,
+        commands::stop_instance,
+        commands::running_instances,
+        commands::import_modpack,
+        commands::export_modpack,
+        commands::install_modrinth_modpack,
+        commands::install_modpack_url,
+        commands::modrinth_versions,
+        commands::modrinth_project,
+        commands::get_settings,
+        commands::set_settings,
+        commands::log_boot,
+        commands::client_log,
+        commands::open_logs_dir,
+    ]);
+
+    // 路径在编译期锚定到 crate 目录(运行时 CWD 不定,相对路径会写错地方)。
+    #[cfg(debug_assertions)]
+    builder
+        .export(
+            specta_typescript::Typescript::default(),
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../src/ipc/bindings.ts"),
+        )
+        .expect("failed to export typescript bindings");
 
     tauri::Builder::default()
         .setup(|app| {
@@ -45,68 +126,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(commands::RunningGames::default())
-        .invoke_handler(tauri::generate_handler![
-            commands::list_roots,
-            commands::list_instances,
-            commands::instance_dir,
-            commands::instance_subdir,
-            commands::reveal_path,
-            commands::delete_instance,
-            commands::copy_instance,
-            commands::create_instance,
-            commands::install_loader,
-            commands::get_instance_config,
-            commands::set_instance_config,
-            commands::set_instance_icon,
-            commands::instance_mods,
-            commands::set_mod_enabled,
-            commands::delete_mod,
-            commands::install_mod,
-            commands::install_version_file,
-            commands::check_mod_updates,
-            commands::apply_mod_update,
-            commands::import_local_resource,
-            commands::instance_packs,
-            commands::set_pack_enabled,
-            commands::delete_pack,
-            commands::install_pack,
-            commands::instance_screenshots,
-            commands::read_screenshot,
-            commands::delete_screenshot,
-            commands::instance_worlds,
-            commands::delete_world,
-            commands::backup_world,
-            commands::rename_world,
-            commands::import_world_zip,
-            commands::list_versions,
-            commands::list_accounts,
-            commands::msa_login_start,
-            commands::msa_login_poll,
-            commands::add_offline_account,
-            commands::yggdrasil_login,
-            commands::select_account,
-            commands::remove_account,
-            commands::refresh_account,
-            commands::detect_java,
-            commands::modrinth_search,
-            commands::get_theme,
-            commands::set_theme,
-            commands::install_version,
-            commands::launch_instance,
-            commands::stop_instance,
-            commands::running_instances,
-            commands::import_modpack,
-            commands::export_modpack,
-            commands::install_modrinth_modpack,
-            commands::install_modpack_url,
-            commands::modrinth_versions,
-            commands::modrinth_project,
-            commands::get_settings,
-            commands::set_settings,
-            commands::log_boot,
-            commands::client_log,
-            commands::open_logs_dir,
-        ])
+        .invoke_handler(builder.invoke_handler())
         .run(tauri::generate_context!())
         .expect("error while running mc-launcher");
 }

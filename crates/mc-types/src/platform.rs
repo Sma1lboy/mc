@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Operating system, named the way Mojang rules name them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum Os {
     Windows,
@@ -50,7 +50,7 @@ impl Os {
 }
 
 /// CPU architecture, named the way Mojang rules name them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum Arch {
     X86,
@@ -100,7 +100,7 @@ impl Arch {
 }
 
 /// The resolved host platform.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub struct Platform {
     pub os: Os,
     pub arch: Arch,

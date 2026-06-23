@@ -28,6 +28,7 @@ reflink-copy = { workspace = true }
 fs4 = { workspace = true }
 tracing = { workspace = true }
 dirs = { workspace = true }
+specta = { version = "=2.0.0-rc.25", features = ["derive"] }
 
 [dev-dependencies]
 tokio = { workspace = true }

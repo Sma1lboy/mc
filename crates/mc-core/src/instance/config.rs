@@ -13,7 +13,7 @@ use crate::paths::ensure_dir;
 
 /// 单个实例的启动设置。所有字段在 json 缺失时回退到 [`Default`],
 /// 因此向 `instance.json` 增量添加字段不会破坏旧文件。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(default)]
 pub struct InstanceConfig {
     /// 实例展示名;缺省时由上层用版本 id 兜底。
@@ -41,7 +41,7 @@ pub struct InstanceConfig {
 }
 
 /// 实例的整合包来源溯源:它从哪个平台的哪个项目/版本安装而来。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 pub struct InstanceSource {
     /// 平台标识(如 `"modrinth"`)。
     pub provider: String,
