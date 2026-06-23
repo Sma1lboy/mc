@@ -1,10 +1,10 @@
 import { Component, createEffect, createResource, createSignal, For, Show, onCleanup } from "solid-js";
-import { Avatar, InstanceManageDialog, NewInstanceDialog, Spinner, toast } from "../components";
+import { Avatar, BlockedFilesDialog, InstanceManageDialog, NewInstanceDialog, Spinner, toast } from "../components";
 import { api, onGameLog, onLaunchProgress } from "../ipc/api";
 import { activeRoot, isRunning } from "../store";
 import { openInstanceDir } from "../util/instanceActions";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
-import type { AccountSummary, InstanceSummary } from "../ipc/types";
+import type { AccountSummary, ImportOutcome, InstanceSummary } from "../ipc/types";
 import type { InstanceManageTab } from "../components/InstanceManageDialog";
 import ClassicAccountDialog from "./ClassicAccountDialog";
 import "./ClassicLaunch.css";
@@ -51,6 +51,7 @@ const ClassicLaunch: Component = () => {
   const [logs, setLogs] = createSignal<string[]>([]);
   const [launching, setLaunching] = createSignal(false);
   const [rightView, setRightView] = createSignal<RightView>("news");
+  const [importOutcome, setImportOutcome] = createSignal<ImportOutcome | null>(null);
   const [instanceTab, setInstanceTab] = createSignal<InstanceTab>("home");
   const [newsOpen, setNewsOpen] = createSignal<Record<string, boolean>>({ snapshot: true });
   const [showLogin, setShowLogin] = createSignal(false);
@@ -147,14 +148,11 @@ const ClassicLaunch: Component = () => {
     setBusy("import");
     try {
       const out = await api.importModpack(activeRoot(), picked, null);
-      const blocked = out.blocked.length;
-      toast({
-        type: blocked > 0 ? "info" : "success",
-        message:
-          blocked > 0
-            ? `已导入「${out.instance_id}」(${blocked} 个文件需手动下载)`
-            : `已导入整合包「${out.instance_id}」`,
-      });
+      if (out.blocked.length > 0 || out.skipped_optional.length > 0) {
+        setImportOutcome(out); // 弹窗摊开需手动下载 / 被跳过的文件
+      } else {
+        toast({ type: "success", message: `已导入整合包「${out.instance_id}」` });
+      }
       await refetchInstances();
       setRightView("versions");
     } catch (e) {
@@ -615,6 +613,17 @@ const ClassicLaunch: Component = () => {
             refetchAccounts();
           }}
         />
+      </Show>
+
+      <Show when={importOutcome()}>
+        {(o) => (
+          <BlockedFilesDialog
+            instanceId={o().instance_id}
+            blocked={o().blocked}
+            skipped={o().skipped_optional}
+            onClose={() => setImportOutcome(null)}
+          />
+        )}
       </Show>
 
       {/* 从零新建实例:建好后直接打开它的详情视图 */}

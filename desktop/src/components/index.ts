@@ -40,6 +40,7 @@ export { Menu } from "./Menu";
 export { NewInstanceDialog } from "./NewInstanceDialog";
 export { InstanceManageDialog } from "./InstanceManageDialog";
 export { AccountDialog } from "./AccountDialog";
+export { BlockedFilesDialog } from "./BlockedFilesDialog";
 
 // 复合行/卡片
 export { InstanceRow } from "./InstanceRow";

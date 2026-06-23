@@ -1,10 +1,10 @@
 import { Component, createResource, createSignal, For, Show, onCleanup } from "solid-js";
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
-import { Spinner, toast, Lightbox, type ModpackHit, type LightboxImage } from "../components";
+import { BlockedFilesDialog, Spinner, toast, Lightbox, type ModpackHit, type LightboxImage } from "../components";
 import { api, onInstallProgress } from "../ipc/api";
 import { activeRoot } from "../store";
-import type { ModrinthVersion, ModrinthProject } from "../ipc/types";
+import type { ImportOutcome, ModrinthVersion, ModrinthProject } from "../ipc/types";
 import { renderMarkdown } from "../util/markdown";
 import "./ModpackDetail.css"; // 残留:.md ... (innerHTML markdown 标记)
 
@@ -72,6 +72,8 @@ const ModpackDetail: Component<{
     setProgress(p.total > 0 ? `${p.stage} ${p.current}/${p.total}` : p.stage);
   });
   onCleanup(offProgress);
+  // 装完后若有需手动下载 / 被跳过的文件,弹窗摊开给用户(而不是只在 toast 里报个数字)。
+  const [outcome, setOutcome] = createSignal<ImportOutcome | null>(null);
 
   // 版本列表虚拟化(热门整合包可达数百版本,只渲染可视区 + overscan)。
   // 行高可变(更新日志可展开),靠 measureElement(ResizeObserver)动态测量。
@@ -115,14 +117,11 @@ const ModpackDetail: Component<{
     });
     try {
       const out = await api.installModpackUrl(activeRoot(), v.mrpack_url, null);
-      const blocked = out.blocked.length;
-      toast({
-        type: blocked > 0 ? "info" : "success",
-        message:
-          blocked > 0
-            ? `已安装「${out.instance_id}」(${blocked} 个文件需手动下载),去启动页选择它`
-            : `已安装「${out.instance_id}」,去启动页选择它即可开玩`,
-      });
+      if (out.blocked.length > 0 || out.skipped_optional.length > 0) {
+        setOutcome(out); // 弹窗摊开需手动下载 / 被跳过的文件
+      } else {
+        toast({ type: "success", message: `已安装「${out.instance_id}」,去启动页选择它即可开玩` });
+      }
       props.onInstalled?.();
     } catch (e) {
       toast({ type: "error", message: `安装失败:${e}` });
@@ -406,6 +405,17 @@ const ModpackDetail: Component<{
           onIndex={setLbIndex}
           onClose={() => setLbIndex(null)}
         />
+      </Show>
+
+      <Show when={outcome()}>
+        {(o) => (
+          <BlockedFilesDialog
+            instanceId={o().instance_id}
+            blocked={o().blocked}
+            skipped={o().skipped_optional}
+            onClose={() => setOutcome(null)}
+          />
+        )}
       </Show>
     </div>
   );
