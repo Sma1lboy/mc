@@ -21,6 +21,7 @@ import {
   setCurrentRoot,
 } from "../store";
 import type { LayoutMode } from "../store";
+import { t, locale, setLocale, type Locale } from "../i18n";
 import type { ThemeConfig, ThemeMode, GlobalSettings } from "../ipc/types";
 import "./Settings.css";
 
@@ -98,6 +99,11 @@ const Settings: Component = () => {
       setSettingsError(true);
     }
   }
+
+  const languageOptions: SegmentOption<Locale>[] = [
+    { value: "zh", label: "中文" },
+    { value: "en", label: "English" },
+  ];
 
   const layoutOptions: SegmentOption<LayoutMode>[] = [
     { value: "workspace", label: "工作台视图" },
@@ -240,6 +246,15 @@ const Settings: Component = () => {
           <div class="settings-page__main">
             <section class={SECTION_CLASS}>
               <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">界面布局</h2>
+              <div class="flex items-center justify-between mb-[14px] text-fg text-[14px]">
+                <span>{t("settings.language")}</span>
+                <SegmentedControl
+                  ariaLabel="语言 / Language"
+                  value={locale()}
+                  options={languageOptions}
+                  onChange={setLocale}
+                />
+              </div>
               <div class="flex items-center justify-between mb-[14px] text-fg text-[14px]">
                 <span>风格</span>
                 <SegmentedControl
