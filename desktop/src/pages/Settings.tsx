@@ -78,6 +78,17 @@ const Settings: Component = () => {
 
   // 全局设置(下载源/并发/默认内存/Java)—— 全部来自后端 daemon。
   const [settings, setSettings] = createSignal<GlobalSettings | null>(null);
+  const [settingsError, setSettingsError] = createSignal(false);
+
+  // 加载全局设置(可重试):失败置错误态,区分「加载中」与「加载失败」。
+  async function loadSettings() {
+    setSettingsError(false);
+    try {
+      setSettings(await api.getSettings());
+    } catch {
+      setSettingsError(true);
+    }
+  }
 
   const layoutOptions: SegmentOption<LayoutMode>[] = [
     { value: "workspace", label: "工作台视图" },
@@ -99,11 +110,7 @@ const Settings: Component = () => {
     } catch {
       setLocalTheme(themeForLayout(layoutMode()));
     }
-    try {
-      setSettings(await api.getSettings());
-    } catch {
-      /* 后端不可用时不显示该区块 */
-    }
+    void loadSettings();
   });
 
   // 改一项全局设置并立即持久化到后端。
@@ -336,7 +343,14 @@ const Settings: Component = () => {
           <div class="settings-page__side">
             <section class={SECTION_CLASS}>
               <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">下载与游戏</h2>
-              <Show when={settings()} fallback={<div class="text-dim">加载设置中…</div>}>
+              <Show
+                when={settings()}
+                fallback={
+                  settingsError()
+                    ? <ErrorState message="设置加载失败" onRetry={() => void loadSettings()} />
+                    : <div class="text-dim">加载设置中…</div>
+                }
+              >
                 <div class="flex items-center justify-between mb-[14px] text-fg text-[14px]">
                   <span class="flex items-center gap-[6px]">
                     下载源
