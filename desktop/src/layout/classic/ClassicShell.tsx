@@ -38,7 +38,7 @@ const TABS: { page: Page; label: string; icon: IconName }[] = [
 const ClassicShell: Component = () => {
   return (
     // classic-shell 仅保留为变量定义 scope(--classic-* 在残留 CSS 里),布局已迁到工具类。
-    <div class="classic-shell grid grid-rows-[48px_1fr] w-screen h-screen overflow-hidden bg-classic-gray-bg text-classic-text font-[Microsoft_YaHei_UI,'PingFang_SC',system-ui,sans-serif] text-[13px]">
+    <div class="classic-shell grid grid-rows-[48px_1fr] w-screen h-screen overflow-hidden bg-transparent text-classic-text font-[Microsoft_YaHei_UI,'PingFang_SC',system-ui,sans-serif] text-[13px]">
       {/* 主题色标题栏(可拖拽);左侧留白避开原生交通灯 */}
       <header
         class="flex items-center gap-[18px] pl-[80px] pr-[12px] bg-[linear-gradient(90deg,var(--classic-blue-hover),var(--classic-blue))] text-white select-none shadow-[0_1px_6px_rgba(52,61,74,0.18)] z-[1]"
@@ -77,7 +77,7 @@ const ClassicShell: Component = () => {
         </div>
       </header>
 
-      <main class="w-full h-full overflow-hidden min-h-0 bg-classic-gray-bg">
+      <main class="w-full h-full overflow-hidden min-h-0 bg-transparent">
         {/* 从路由表取当前页组件渲染。 */}
         <Dynamic component={routeFor(CLASSIC_ROUTES, currentPage()).component} />
       </main>

@@ -13,8 +13,8 @@ const LINKS: { label: string; href: string; desc: string }[] = [
 
 const ClassicMore: Component = () => {
   return (
-    <div class="h-full overflow-auto px-[24px] py-[20px] bg-classic-gray-bg flex flex-col gap-[14px]">
-      <div class="bg-classic-card rounded-[5px] shadow-classic flex items-center gap-[16px] p-[20px]">
+    <div class="h-full overflow-auto px-[24px] py-[20px] bg-transparent flex flex-col gap-[14px]">
+      <div class="glass-card rounded-[5px] flex items-center gap-[16px] p-[20px]">
         <div class="w-[64px] h-[64px] flex-[0_0_64px] rounded-[12px] flex items-center justify-center text-[24px] font-extrabold text-white bg-[linear-gradient(135deg,var(--classic-blue-hover),var(--classic-blue))] shadow-classic">
           MC
         </div>
@@ -33,7 +33,7 @@ const ClassicMore: Component = () => {
       <div class="grid grid-cols-2 gap-[12px]">
         {LINKS.map((l) => (
           <a
-            class="flex items-center gap-[10px] px-[16px] py-[14px] bg-classic-card rounded-[5px] shadow-classic no-underline transition-[box-shadow,transform] duration-150 ease-[ease] hover:shadow-classic-strong hover:-translate-y-px"
+            class="flex items-center gap-[10px] px-[16px] py-[14px] glass-card glass-card--hover rounded-[5px] no-underline transition-[box-shadow,transform] duration-150 ease-[ease] hover:-translate-y-px"
             href={l.href}
             target="_blank"
             rel="noreferrer"

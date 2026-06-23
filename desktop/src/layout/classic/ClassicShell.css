@@ -21,4 +21,5 @@
   --classic-card: #ffffff;
   --classic-shadow: 0 2px 8px rgba(52, 61, 74, 0.13);
   --classic-shadow-strong: 0 4px 14px rgba(52, 61, 74, 0.2);
+  background: linear-gradient(180deg, #eef1f6, #e4e8ef);
 }

@@ -198,9 +198,9 @@ const ClassicLaunch: Component = () => {
   }
 
   return (
-    <div class="grid grid-cols-[300px_1fr] h-full min-h-0 bg-classic-gray-bg">
+    <div class="grid grid-cols-[300px_1fr] h-full min-h-0 bg-transparent">
       {/* ===== 左栏:账号卡 + 启动区(Classic 固定窄栏) ===== */}
-      <aside class="flex min-h-0 flex-col bg-classic-card border-r border-classic-line">
+      <aside class="flex min-h-0 flex-col glass-panel border-r border-glass-divider">
         {/* 账号卡:皮肤头像 + 用户名 + 验证方式,点击打开登录/切换弹窗 */}
         <button
           class="flex w-full items-center gap-[12px] border-none bg-transparent px-[18px] py-[16px] text-left cursor-pointer transition-[background] duration-150 ease-[ease] hover:bg-classic-blue-lightest"
@@ -227,7 +227,7 @@ const ClassicLaunch: Component = () => {
           </Show>
         </button>
 
-        <div class="border-t border-classic-line px-[18px] py-[14px]">
+        <div class="border-t border-glass-divider px-[18px] py-[14px]">
           <div class="text-[12px] font-semibold text-classic-text3 mb-[8px]">当前版本</div>
           <Show
             when={selected()}
@@ -270,7 +270,7 @@ const ClassicLaunch: Component = () => {
           </button>
           <div class="mt-[10px]">
             <button
-              class="w-full h-[36px] border border-classic-line rounded-[3px] bg-classic-card text-classic-text text-[13px] cursor-pointer transition-[background,border-color,color] duration-150 ease-[ease] hover:bg-classic-blue-lightest hover:border-classic-blue-soft"
+              class="w-full h-[36px] border border-glass-border rounded-[3px] bg-glass-card text-classic-text text-[13px] cursor-pointer transition-[background,border-color,color] duration-150 ease-[ease] hover:bg-classic-blue-lightest hover:border-classic-blue-soft"
               classList={{
                 "bg-classic-blue-bg": rightView() === "versions" || rightView() === "instance",
                 "border-classic-blue": rightView() === "versions" || rightView() === "instance",
@@ -290,7 +290,7 @@ const ClassicLaunch: Component = () => {
           </button>
         </div>
 
-        <div class="min-h-0 flex-1 border-t border-classic-line px-[18px] py-[14px] overflow-y-auto">
+        <div class="min-h-0 flex-1 border-t border-glass-divider px-[18px] py-[14px] overflow-y-auto">
           <div class="flex items-center justify-between mb-[10px]">
             <span class="text-[12px] font-semibold text-classic-text3">最近版本</span>
             <button
@@ -304,7 +304,7 @@ const ClassicLaunch: Component = () => {
             <Show
               when={recentInstances().length > 0}
               fallback={
-                <div class="rounded-[5px] border border-dashed border-classic-line bg-classic-gray-bg px-[12px] py-[14px] text-[12px] leading-[1.7] text-classic-text3">
+                <div class="rounded-[5px] border border-dashed border-glass-border bg-glass-card px-[12px] py-[14px] text-[12px] leading-[1.7] text-classic-text3">
                   还没有版本。去「下载」安装，或新建一个实例。
                 </div>
               }
@@ -347,7 +347,7 @@ const ClassicLaunch: Component = () => {
         {/* --- 新闻主页(默认) --- */}
         <Show when={rightView() === "news"}>
           <div class="flex flex-col gap-[12px]">
-            <div class="bg-classic-card rounded-[5px] shadow-classic py-[14px] px-[16px] flex items-center gap-[12px] bg-[linear-gradient(90deg,var(--classic-blue-lightest),var(--classic-card))] border-l-[3px] border-classic-blue">
+            <div class="glass-card rounded-[5px] py-[14px] px-[16px] flex items-center gap-[12px] bg-[linear-gradient(90deg,var(--classic-blue-lightest),var(--classic-card))] border-l-[3px] border-classic-blue">
               <span class="text-[22px]">📰</span>
               <div>
                 <div class="text-[14px] font-bold text-classic-text">欢迎使用 MC Launcher</div>
@@ -356,7 +356,7 @@ const ClassicLaunch: Component = () => {
             </div>
 
             <button
-              class="bg-classic-card rounded-[5px] shadow-classic py-[14px] px-[16px] flex items-center justify-between w-full border-none cursor-pointer text-left transition-[box-shadow] duration-150 ease-[ease] hover:shadow-classic-strong"
+              class="glass-card glass-card--hover rounded-[5px] py-[14px] px-[16px] flex items-center justify-between w-full border-none cursor-pointer text-left transition-[box-shadow] duration-150 ease-[ease]"
               onClick={() => setNewsOpen((o) => ({ ...o, cape: !o.cape }))}
             >
               <span class="text-[14px] font-bold text-classic-text">新披风与披风迁移</span>
@@ -368,13 +368,13 @@ const ClassicLaunch: Component = () => {
               </span>
             </button>
             <Show when={newsOpen().cape}>
-              <div class="bg-classic-card rounded-[5px] shadow-classic py-[14px] px-[16px] text-[13px] text-classic-text2">
+              <div class="glass-card rounded-[5px] py-[14px] px-[16px] text-[13px] text-classic-text2">
                 <p class="m-0 leading-[1.7]">Mojang 已开放披风迁移。绑定正版账号后可在游戏内更换披风。</p>
               </div>
             </Show>
 
             <button
-              class="bg-classic-card rounded-[5px] shadow-classic py-[14px] px-[16px] flex items-center justify-between w-full border-none cursor-pointer text-left transition-[box-shadow] duration-150 ease-[ease] hover:shadow-classic-strong"
+              class="glass-card glass-card--hover rounded-[5px] py-[14px] px-[16px] flex items-center justify-between w-full border-none cursor-pointer text-left transition-[box-shadow] duration-150 ease-[ease]"
               onClick={() => setNewsOpen((o) => ({ ...o, snapshot: !o.snapshot }))}
             >
               <span class="text-[14px] font-bold text-classic-text">
@@ -389,7 +389,7 @@ const ClassicLaunch: Component = () => {
               </span>
             </button>
             <Show when={newsOpen().snapshot}>
-              <div class="bg-classic-card rounded-[5px] shadow-classic py-[14px] px-[16px] text-[13px] text-classic-text2">
+              <div class="glass-card rounded-[5px] py-[14px] px-[16px] text-[13px] text-classic-text2">
                 <div class="h-[150px] rounded-[5px] bg-[linear-gradient(135deg,#7fb0f7_0%,#4890f5_45%,#1370f3_100%)] flex items-center justify-center">
                   <Show when={latestSnapshot()} fallback={<Spinner />}>
                     <span class="py-[8px] px-[22px] rounded-[6px] bg-[rgba(11,91,203,0.85)] text-white text-[22px] font-bold tracking-[1px]">{latestSnapshot()!.id}</span>
@@ -410,8 +410,8 @@ const ClassicLaunch: Component = () => {
 
         {/* --- 版本选择(点「版本选择」进入) --- */}
         <Show when={rightView() === "versions"}>
-          <div class="bg-classic-card rounded-[5px] shadow-classic flex flex-col min-h-0 overflow-hidden flex-1">
-            <div class="flex items-center justify-between gap-[8px] py-[10px] px-[16px] text-[13px] font-bold text-classic-text border-b border-classic-line">
+          <div class="glass-card rounded-[5px] flex flex-col min-h-0 overflow-hidden flex-1">
+            <div class="flex items-center justify-between gap-[8px] py-[10px] px-[16px] text-[13px] font-bold text-classic-text border-b border-glass-divider">
               <span>版本选择</span>
               <span class="flex gap-[6px]">
                 <button
@@ -470,7 +470,7 @@ const ClassicLaunch: Component = () => {
           {(inst) => (
             <div class="flex flex-col min-h-0 flex-1 gap-[12px]">
               {/* 头部:图标 + 名称 + 版本信息 + 同级实例标签 */}
-              <div class="bg-classic-card rounded-[5px] shadow-classic overflow-hidden">
+              <div class="glass-card rounded-[5px] overflow-hidden">
                 <div class="flex items-center gap-[14px] p-[16px]">
                   <div class="w-[52px] h-[52px] rounded-[8px] overflow-hidden bg-classic-blue-bg2 grid place-items-center shrink-0">
                     <Show
@@ -494,7 +494,7 @@ const ClassicLaunch: Component = () => {
                     </div>
                   </div>
                 </div>
-                <div class="flex gap-[4px] px-[12px] border-t border-classic-line overflow-x-auto">
+                <div class="flex gap-[4px] px-[12px] border-t border-glass-divider overflow-x-auto">
                   <For each={INSTANCE_TABS}>
                     {(item) => (
                       <button
@@ -512,7 +512,7 @@ const ClassicLaunch: Component = () => {
               {/* 首页:概览 + 快捷操作 */}
               <Show when={instanceTab() === "home"}>
                 <div class="flex flex-col gap-[12px]">
-                  <div class="bg-classic-card rounded-[5px] shadow-classic py-[14px] px-[16px]">
+                  <div class="glass-card rounded-[5px] py-[14px] px-[16px]">
                     <div class="text-[13px] font-bold text-classic-text mb-[8px]">游玩信息</div>
                     <div class="grid grid-cols-2 gap-y-[6px] text-[13px]">
                       <span class="text-classic-text3">游戏版本</span>
@@ -531,7 +531,7 @@ const ClassicLaunch: Component = () => {
                     </div>
                   </div>
 
-                  <div class="bg-classic-card rounded-[5px] shadow-classic py-[14px] px-[16px] flex flex-wrap gap-[10px]">
+                  <div class="glass-card rounded-[5px] py-[14px] px-[16px] flex flex-wrap gap-[10px]">
                     <button
                       class="h-[34px] px-[16px] rounded-[3px] bg-classic-blue text-white text-[13px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90 disabled:opacity-55"
                       disabled={launching()}
@@ -540,13 +540,13 @@ const ClassicLaunch: Component = () => {
                       {launching() ? "启动中…" : isRunning(inst().id) ? "停止游戏" : "启动游戏"}
                     </button>
                     <button
-                      class="h-[34px] px-[16px] rounded-[3px] border border-classic-line bg-classic-card text-classic-text text-[13px] cursor-pointer transition-colors duration-150 hover:bg-classic-blue-lightest hover:border-classic-blue-soft"
+                      class="h-[34px] px-[16px] rounded-[3px] border border-glass-border bg-glass-card text-classic-text text-[13px] cursor-pointer transition-colors duration-150 hover:bg-classic-blue-lightest hover:border-classic-blue-soft"
                       onClick={() => openInstanceDir(activeRoot(), inst().id)}
                     >
                       打开游戏目录
                     </button>
                     <button
-                      class="h-[34px] px-[16px] rounded-[3px] border border-classic-line bg-classic-card text-classic-text text-[13px] cursor-pointer transition-colors duration-150 hover:bg-classic-blue-lightest hover:border-classic-blue-soft disabled:opacity-50 disabled:cursor-default"
+                      class="h-[34px] px-[16px] rounded-[3px] border border-glass-border bg-glass-card text-classic-text text-[13px] cursor-pointer transition-colors duration-150 hover:bg-classic-blue-lightest hover:border-classic-blue-soft disabled:opacity-50 disabled:cursor-default"
                       disabled={busy() !== ""}
                       onClick={exportSelected}
                     >
@@ -558,7 +558,7 @@ const ClassicLaunch: Component = () => {
 
               {/* 实例管理:tab 由上方同级导航控制,面板内不再重复套一层。 */}
               <Show when={instanceTab() !== "home"}>
-                <div class="bg-classic-card rounded-[5px] shadow-classic flex-1 min-h-0 overflow-hidden">
+                <div class="glass-card rounded-[5px] flex-1 min-h-0 overflow-hidden">
                   <InstanceManageDialog
                     embedded
                     hideTabs
@@ -595,8 +595,8 @@ const ClassicLaunch: Component = () => {
               </p>
             </Show>
           </div>
-          <div class="bg-classic-card rounded-[5px] shadow-classic flex-1 min-h-0 flex flex-col overflow-hidden">
-            <div class="py-[12px] px-[16px] text-[13px] font-bold text-classic-text border-b border-classic-line">游戏日志</div>
+          <div class="glass-card rounded-[5px] flex-1 min-h-0 flex flex-col overflow-hidden">
+            <div class="py-[12px] px-[16px] text-[13px] font-bold text-classic-text border-b border-glass-divider">游戏日志</div>
             <pre class="flex-1 min-h-0 overflow-auto m-0 py-[12px] px-[16px] text-[12px]/[1.6] font-[ui-monospace,SFMono-Regular,Menlo,monospace] text-classic-text2 whitespace-pre-wrap [word-break:break-word]">
               <Show when={logs().length > 0} fallback={"启动后这里显示实时日志…"}>{logs().join("\n")}</Show>
             </pre>
