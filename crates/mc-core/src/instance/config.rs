@@ -123,14 +123,16 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join("instance.json");
 
-        let mut cfg = InstanceConfig::default();
-        cfg.name = Some("My Pack".to_string());
-        cfg.memory_mb = 4096;
-        cfg.jvm_args = vec!["-XX:+UseG1GC".to_string()];
-        cfg.width = Some(1280);
-        cfg.height = Some(720);
-        cfg.fullscreen = true;
-        cfg.server = Some("mc.example.com:25565".to_string());
+        let cfg = InstanceConfig {
+            name: Some("My Pack".to_string()),
+            memory_mb: 4096,
+            jvm_args: vec!["-XX:+UseG1GC".to_string()],
+            width: Some(1280),
+            height: Some(720),
+            fullscreen: true,
+            server: Some("mc.example.com:25565".to_string()),
+            ..Default::default()
+        };
 
         cfg.save(&path).unwrap();
         let loaded = InstanceConfig::load(&path).unwrap();

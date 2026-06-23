@@ -53,12 +53,9 @@ pub fn official_minecraft_dir() -> Option<PathBuf> {
 /// never parses any json. A root is recognised when it contains a `versions/`
 /// subdirectory.
 pub fn detect_game_root(dir: &Path) -> Option<PathBuf> {
-    for cand in [dir.to_path_buf(), dir.join(".minecraft")] {
-        if cand.join("versions").is_dir() {
-            return Some(cand);
-        }
-    }
-    None
+    [dir.to_path_buf(), dir.join(".minecraft")]
+        .into_iter()
+        .find(|cand| cand.join("versions").is_dir())
 }
 
 fn root_name(path: &Path, kind: RootKind) -> String {

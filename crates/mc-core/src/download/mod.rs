@@ -21,7 +21,7 @@ pub use checksum::Checksum;
 pub use mirror::MirrorResolver;
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -411,8 +411,8 @@ impl Downloader {
 }
 
 /// 计算 `<path>.part` 临时文件路径(在原扩展名后追加 `.part`)。
-fn part_path(path: &PathBuf) -> PathBuf {
-    let mut s = path.clone().into_os_string();
+fn part_path(path: &Path) -> PathBuf {
+    let mut s = path.to_path_buf().into_os_string();
     s.push(".part");
     PathBuf::from(s)
 }

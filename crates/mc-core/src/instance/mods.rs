@@ -5,9 +5,9 @@
 //!   停用的 mod 文件名末尾追加 `.disabled`(即 `foo.jar` ↔ `foo.jar.disabled`),
 //!   loader 只加载 `*.jar`,从而无需移动文件即可启停。
 //! - 元数据来源各 loader 不同:
-//!     · Fabric:`fabric.mod.json`(JSON)
-//!     · Quilt :`quilt.mod.json`(JSON,字段在 `quilt_loader` 下)
-//!     · Forge / NeoForge:`META-INF/mods.toml` / `META-INF/neoforge.mods.toml`(TOML 文本)
+//!   · Fabric:`fabric.mod.json`(JSON)
+//!   · Quilt :`quilt.mod.json`(JSON,字段在 `quilt_loader` 下)
+//!   · Forge / NeoForge:`META-INF/mods.toml` / `META-INF/neoforge.mods.toml`(TOML 文本)
 //!   为不引入额外依赖,Forge 系的 TOML 用一个**轻量、容错**的手写解析器提取所需字段。
 //! - **健壮性优先**:解析单个 jar 出任何错误(打不开、不是 zip、字段缺失、JSON 损坏)
 //!   都不得 panic,也不能中断对其它 jar 的扫描 —— 该 jar 退化为"仅文件名"信息。

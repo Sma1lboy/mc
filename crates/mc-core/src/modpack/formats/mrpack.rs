@@ -2,7 +2,7 @@
 //!
 //! 布局:zip,根有唯一 `modrinth.index.json`(`formatVersion==1`、`game=="minecraft"`)
 //! + 可选 `overrides/`(客户端 + 服务端都铺)、`client-overrides/`(仅客户端,盖在
-//! overrides 上)。`files[]` 里的文件**不在包内**,要按 `downloads[]` 下载。
+//!   overrides 上)。`files[]` 里的文件**不在包内**,要按 `downloads[]` 下载。
 //!
 //! 字段名严格对齐 Modrinth modpack 规范(<https://docs.modrinth.com/modpacks/format/>)。
 //! 易错点(对照 `docs/modules/modpack-formats.md` §1):

@@ -2,9 +2,9 @@
 //!
 //! zip 根:`manifest.json`(`manifestType=="minecraftModpack"`、`manifestVersion==1`)
 //! + `overrides/`(名由 `manifest.overrides` 定,默认 `overrides`)+ 可选 `modlist.html`
-//! (忽略)。`files[]` **只给 projectID/fileID**,要经 Flame API 解析为真实 URL ——
-//! 解析时复用 [`crate::modplatform::curseforge::FlameApiFile`](本模块**不**重复定义那组
-//! API 结构,只建模 `manifest.json` 自身)。
+//!   (忽略)。`files[]` **只给 projectID/fileID**,要经 Flame API 解析为真实 URL ——
+//!   解析时复用 [`crate::modplatform::curseforge::FlameApiFile`](本模块**不**重复定义那组
+//!   API 结构,只建模 `manifest.json` 自身)。
 //!
 //! 易错点(对照 `docs/modules/modpack-formats.md` §3):
 //! - `manifestType`/`manifestVersion` 不符直接拒,不做尽力解析(会错配 id)。

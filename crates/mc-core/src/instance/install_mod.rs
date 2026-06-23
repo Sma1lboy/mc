@@ -426,7 +426,7 @@ mod tests {
     #[test]
     fn required_dependency_filter_logic() {
         // 验证"只取 required 且带 project_id"的依赖筛选规则(对应递归里的过滤)。
-        let deps = vec![
+        let deps = [
             Dependency {
                 project_id: Some("req-with-id".into()),
                 version_id: None,

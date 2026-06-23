@@ -199,15 +199,16 @@ mod tests {
     #[test]
     fn save_then_load_round_trips() {
         let dir = temp_data_dir();
-        let mut s = GlobalSettings::default();
-        s.download_source = "bmclapi".to_string();
-        s.concurrency = 16;
-        s.default_memory_mb = 4096;
-        s.java_path = Some("/opt/java/bin/java".to_string());
-        s.use_mirror = true;
-        s.language = "en-US".to_string();
-        s.server_url = Some("https://example.com".to_string());
-        s.custom_roots = vec!["/games/a".to_string(), "/games/b".to_string()];
+        let s = GlobalSettings {
+            download_source: "bmclapi".to_string(),
+            concurrency: 16,
+            default_memory_mb: 4096,
+            java_path: Some("/opt/java/bin/java".to_string()),
+            use_mirror: true,
+            language: "en-US".to_string(),
+            server_url: Some("https://example.com".to_string()),
+            custom_roots: vec!["/games/a".to_string(), "/games/b".to_string()],
+        };
 
         // 目录尚不存在,save 必须自动创建。
         assert!(!dir.exists());
@@ -277,9 +278,11 @@ mod tests {
 
     #[test]
     fn mirror_resolver_picks_bmclapi_when_source_is_bmclapi() {
-        let mut s = GlobalSettings::default();
-        s.download_source = "bmclapi".to_string();
-        s.use_mirror = false;
+        let s = GlobalSettings {
+            download_source: "bmclapi".to_string(),
+            use_mirror: false,
+            ..Default::default()
+        };
         // 官方 URL 应被改写(命中镜像规则 → 字符串改变)。
         let original = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
         let rewritten = s.mirror_resolver().rewrite(original);
@@ -288,9 +291,11 @@ mod tests {
 
     #[test]
     fn mirror_resolver_picks_bmclapi_when_use_mirror_flag_set() {
-        let mut s = GlobalSettings::default();
-        s.download_source = "official".to_string();
-        s.use_mirror = true;
+        let s = GlobalSettings {
+            download_source: "official".to_string(),
+            use_mirror: true,
+            ..Default::default()
+        };
         let original = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
         let rewritten = s.mirror_resolver().rewrite(original);
         assert_ne!(rewritten, original, "use_mirror 开启时应改写官方 URL");

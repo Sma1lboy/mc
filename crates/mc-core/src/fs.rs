@@ -102,7 +102,7 @@ pub fn check_problematic_path(path: &Path) -> Vec<PathIssue> {
             message: "路径包含 '!',会破坏 Java 的 classpath 解析,请把游戏目录移到不含 '!' 的路径。".into(),
         });
     }
-    if s.chars().any(|c| !c.is_ascii()) {
+    if !s.is_ascii() {
         issues.push(PathIssue {
             severity: PathSeverity::Warning,
             message: "路径包含非 ASCII 字符(如中文),部分老版本 Forge/OptiFine 或原生库可能出错。".into(),
@@ -328,6 +328,26 @@ pub fn safe_join(base: &Path, relative: &str) -> Option<PathBuf> {
     is_subpath(&joined, base).then_some(joined)
 }
 
+/// Generate a minimal `launcher_profiles.json` in a game root if absent. The
+/// vanilla Forge/legacy installers refuse to run without this file; ports the
+/// PCL `launcher_profiles.json` generation. Existing files are left untouched.
+pub fn ensure_launcher_profiles(root: &Path) -> Result<()> {
+    let path = root.join("launcher_profiles.json");
+    if path.exists() {
+        return Ok(());
+    }
+    let content = r#"{
+  "profiles": {},
+  "selectedProfile": "",
+  "clientToken": "",
+  "authenticationDatabase": {},
+  "launcherVersion": { "name": "mc-launcher", "format": 21 },
+  "settings": {}
+}
+"#;
+    write_atomic(&path, content.as_bytes())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -449,24 +469,4 @@ mod tests {
         }
         assert!(resolve_executable("definitely-not-a-real-binary-xyz").is_none());
     }
-}
-
-/// Generate a minimal `launcher_profiles.json` in a game root if absent. The
-/// vanilla Forge/legacy installers refuse to run without this file; ports the
-/// PCL `launcher_profiles.json` generation. Existing files are left untouched.
-pub fn ensure_launcher_profiles(root: &Path) -> Result<()> {
-    let path = root.join("launcher_profiles.json");
-    if path.exists() {
-        return Ok(());
-    }
-    let content = r#"{
-  "profiles": {},
-  "selectedProfile": "",
-  "clientToken": "",
-  "authenticationDatabase": {},
-  "launcherVersion": { "name": "mc-launcher", "format": 21 },
-  "settings": {}
-}
-"#;
-    write_atomic(&path, content.as_bytes())
 }

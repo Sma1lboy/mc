@@ -368,9 +368,10 @@ mod tests {
     use std::path::PathBuf;
 
     fn set_with(files: &[&str]) -> ClassifiedSet {
-        let mut set = ClassifiedSet::default();
-        set.overrides = files.iter().map(PathBuf::from).collect();
-        set
+        ClassifiedSet {
+            overrides: files.iter().map(PathBuf::from).collect(),
+            ..Default::default()
+        }
     }
 
     #[test]

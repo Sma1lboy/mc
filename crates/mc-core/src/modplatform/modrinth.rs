@@ -1167,7 +1167,7 @@ mod tests {
         assert_eq!(v.files.len(), 1);
         assert_eq!(v.files[0].sha512.as_deref(), Some("abc123sha512"));
         // 请求里多传一个未命中的哈希时,它就是不在 map 里——这里模拟"只回一个键"。
-        assert!(map.get("missinghash").is_none());
+        assert!(!map.contains_key("missinghash"));
     }
 
     #[test]
@@ -1329,7 +1329,7 @@ mod tests {
         }"#;
         let by_hash = ModrinthApi::parse_raw_versions_from_hashes(sample.as_bytes()).unwrap();
 
-        let inputs = vec!["HASH_A".to_string(), "HASH_MISSING".to_string()];
+        let inputs = ["HASH_A".to_string(), "HASH_MISSING".to_string()];
         let out: Vec<Option<ResolvedFile>> = inputs
             .iter()
             .map(|h| {

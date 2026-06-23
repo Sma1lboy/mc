@@ -101,7 +101,7 @@ pub async fn run_installer(
 pub async fn any_java() -> Option<std::path::PathBuf> {
     let installs = crate::java::detect_all().await;
     // Prefer the newest; installers are forward-compatible.
-    installs.into_iter().max_by_key(|j| j.version.clone()).map(|j| j.path)
+    installs.into_iter().max_by_key(|j| j.version).map(|j| j.path)
 }
 
 /// Verify a freshly written version json parses (sanity check post-install).

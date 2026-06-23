@@ -32,10 +32,6 @@ async fn pick_loader_version(dl: &Downloader, mc_version: &str) -> Result<String
         .map(|e| e.loader.version)
         // Quilt lists newest first; skip beta when a stable exists.
         .find(|v| !v.contains("beta"))
-        .or_else(|| {
-            // fall back to the newest of any kind
-            None
-        })
         .ok_or_else(|| CoreError::other(format!("Quilt 不支持 Minecraft {mc_version}")))
 }
 

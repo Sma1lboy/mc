@@ -174,12 +174,11 @@ pub async fn resolve_dependencies(
                         queue.push_back((dep_ref, depth + 1));
                     }
                 }
-                "incompatible" => {
+                "incompatible"
                     // 冲突也去重一次,避免同一冲突被多个父项目重复登记。
-                    if visited.insert(dep_ref.key()) {
+                    if visited.insert(dep_ref.key()) => {
                         out.incompatible.push(dep_ref);
                     }
-                }
                 // optional / embedded / 其它劝告性依赖:不自动安装。
                 _ => {}
             }

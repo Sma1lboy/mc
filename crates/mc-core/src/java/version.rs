@@ -45,7 +45,7 @@ impl JavaVersion {
         // Java 8 风格的 `_build` 后缀对 major/minor/patch 无意义, 截掉。
         // 同理一些 EA 版本带 `-ea` / `+7` 之类后缀, 一并去掉。
         let core = literal
-            .split(|c| c == '_' || c == '-' || c == '+')
+            .split(['_', '-', '+'])
             .next()
             .unwrap_or(literal);
 

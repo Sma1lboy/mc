@@ -7,11 +7,11 @@
 //!
 //! - [`copy_instance`]:整目录复制为新 id,并把版本 json/jar 的内部 id 一并改名,
 //!   使复制出的实例自洽可启动。
-//! - [`delete_instance`]:把整个实例目录移入回收站(失败回退到不可逆删除)。
+//! - [`delete_instance`][]:把整个实例目录移入回收站(失败回退到不可逆删除)。
 //! - [`import_mrpack`]:解析 Modrinth `.mrpack`(本质是 zip),安装其声明的原版
 //!   Minecraft、覆盖 `overrides/`、下载 `files[]` 到实例目录。loader 的安装不在
 //!   本批做(见函数文档),由上层在导入后另行调用 `loader::install_*`。
-//! - [`export_mrpack`]:把实例的本地游戏数据(mods/config/resourcepacks…)打成一个
+//! - [`export_mrpack`][]:把实例的本地游戏数据(mods/config/resourcepacks…)打成一个
 //!   最小可用的 `.mrpack`,所有本地文件都放进 `overrides/` 下(无远程 url 时的兜底)。
 //!
 //! 设计要点:

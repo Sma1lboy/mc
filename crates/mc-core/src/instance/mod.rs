@@ -455,8 +455,10 @@ mod tests {
         root.add_version("1.20.1", None);
 
         let inst = Instance::new("1.20.1", root.path.clone());
-        let mut cfg = InstanceConfig::default();
-        cfg.name = Some("Survival World".to_string());
+        let cfg = InstanceConfig {
+            name: Some("Survival World".to_string()),
+            ..Default::default()
+        };
         inst.save_config(&cfg).unwrap();
 
         let paths = GamePaths::new(root.path.clone());
@@ -477,8 +479,10 @@ mod tests {
         assert_eq!(inst.version_id(), "test-id");
         assert!(inst.config_path().ends_with("versions/test-id/instance.json"));
 
-        let mut cfg = InstanceConfig::default();
-        cfg.memory_mb = 6144;
+        let cfg = InstanceConfig {
+            memory_mb: 6144,
+            ..Default::default()
+        };
         inst.save_config(&cfg).unwrap();
         assert_eq!(inst.load_config().unwrap().memory_mb, 6144);
     }

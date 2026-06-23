@@ -101,7 +101,7 @@ impl<'a> ExportInput<'a> {
 #[derive(Debug, Clone)]
 pub enum FileClass {
     /// 反查命中且允许远程引用 → 写进索引(携带解析结果)。
-    Resolvable(ResolvedFile),
+    Resolvable(Box<ResolvedFile>),
     /// 反查不到 / 不允许远程 → 进 `overrides/`(携带相对路径)。
     Override(PathBuf),
     /// 显式跳过(不进索引也不进 overrides)。

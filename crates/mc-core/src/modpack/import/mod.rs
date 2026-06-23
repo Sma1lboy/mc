@@ -3,7 +3,7 @@
 //! 见 `docs/modules/modpack-import.md`。架构语义照搬 Prism 的「一个固定引擎 + 少量
 //! 每格式扩展点 + 优先级嗅探」,但拆成可单测的纯函数:
 //!
-//! - [`ModpackImporter`]:每种格式实现一份(`detect`/`plan`/`resolve`),**唯一懂该格式
+//! - [`ModpackImporter`][]:每种格式实现一份(`detect`/`plan`/`resolve`),**唯一懂该格式
 //!   schema 的地方**。新增格式 = 写一个实现 + 在 [`engine::ImportEngine::with_defaults`]
 //!   里按优先级加一行,引擎零改动。
 //! - [`ArchiveIndex`]:`detect()` 的只读归档视图,让 importer 脱离具体 zip 类型,可用

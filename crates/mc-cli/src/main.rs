@@ -2,7 +2,7 @@
 //! the engine without any UI (milestone M3 in `docs/04`): list versions, install
 //! a version, log in, and launch the game.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -366,10 +366,10 @@ async fn cmd_java() -> Result<()> {
     }
     for j in installs {
         println!(
-            "Java {}  ({}{})  {}",
+            "Java {}  ({}, {})  {}",
             j.version,
             if j.is_64bit { "64-bit" } else { "32-bit" },
-            format!(", {}", j.source),
+            j.source,
             j.path.display()
         );
     }
@@ -958,7 +958,7 @@ async fn cmd_project(id: &str) -> Result<()> {
     Ok(())
 }
 
-fn cmd_modpack_detect(file: &PathBuf) -> Result<()> {
+fn cmd_modpack_detect(file: &Path) -> Result<()> {
     use mc_core::modpack::import::archive::ZipArchiveIndex;
     use mc_core::modpack::import::ImportEngine;
     use mc_core::modplatform::provider::ProviderRegistry;
@@ -976,7 +976,7 @@ fn cmd_modpack_detect(file: &PathBuf) -> Result<()> {
     Ok(())
 }
 
-async fn cmd_modpack_import(cli: &Cli, file: &PathBuf, id: Option<String>) -> Result<()> {
+async fn cmd_modpack_import(cli: &Cli, file: &Path, id: Option<String>) -> Result<()> {
     use mc_core::modpack::import::{ImportEngine, ImportOptions, ImportSource};
     use mc_core::modplatform::provider::ProviderRegistry;
 
@@ -987,7 +987,7 @@ async fn cmd_modpack_import(cli: &Cli, file: &PathBuf, id: Option<String>) -> Re
     opts.instance_id = id;
 
     println!("导入整合包 {} 到 {} …", file.display(), paths.root().display());
-    let out = engine.import(ImportSource::LocalFile(file.clone()), opts).await?;
+    let out = engine.import(ImportSource::LocalFile(file.to_path_buf()), opts).await?;
     println!("✓ 已建实例: {}", out.instance_id);
     if !out.blocked.is_empty() {
         println!("  {} 个文件需手动下载(CurseForge 禁第三方分发):", out.blocked.len());
