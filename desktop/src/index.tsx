@@ -6,6 +6,10 @@ import "./theme/tokens.css";
 // Tailwind 入口 + 令牌桥接(放 tokens 之后:preflight/utilities 引用上面的变量)。
 import "./theme/tailwind.css";
 import App from "./App";
+import { installClientLogForwarding, log } from "./util/log";
+
+// 尽早挂全局错误转发:未捕获异常/console.error 会一并落进统一日志(client 前缀)。
+installClientLogForwarding();
 
 const root = document.getElementById("root");
 
@@ -23,5 +27,5 @@ try {
     '<pre style="color:#ff6b6b;padding:20px;white-space:pre-wrap;font:13px monospace">RENDER ERROR:\n' +
     String((e as Error)?.stack || e) +
     "</pre>";
-  console.error("mount failed", e);
+  log.error("mount failed", e);
 }

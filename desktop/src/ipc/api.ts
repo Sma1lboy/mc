@@ -337,6 +337,16 @@ export const api = {
     return invoke<string[]>("running_instances");
   },
 
+  /** 把前端日志转发到统一日志文件(client 前缀)。level ∈ error/warn/info/debug。 */
+  clientLog(level: "error" | "warn" | "info" | "debug", message: string): Promise<void> {
+    return invoke<void>("client_log", { level, message });
+  },
+
+  /** 取全局日志目录路径(必要时创建);前端用 shell 打开它。 */
+  openLogsDir(): Promise<string> {
+    return invoke<string>("open_logs_dir");
+  },
+
   /** Modrinth 搜索。gameVersion / loader 为 null 表示不限。limit/offset 用于分页(默认 30/0)。 */
   modrinthSearch(
     query: string,

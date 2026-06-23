@@ -1,4 +1,5 @@
 import { Component, createMemo, createResource, createSignal, For, Show, onMount } from "solid-js";
+import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { Button, Spinner, Select, Tooltip, toast } from "../components";
 import { Check, Info, Monitor, Moon, RotateCcw, Sun, type LucideIcon } from "lucide-solid";
 import {
@@ -421,6 +422,29 @@ const Settings: Component = () => {
                   </div>
                 </Show>
               </Show>
+            </section>
+
+            <section class={SECTION_CLASS}>
+              <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">诊断</h2>
+              <div class="flex items-center justify-between text-fg text-[14px]">
+                <div class="flex flex-col gap-[2px] min-w-0">
+                  <span>日志</span>
+                  <span class="text-[12px] text-dim">前端与本地数据层的日志都写在这里(按日滚动)</span>
+                </div>
+                <Button
+                  variant="ghost"
+                  onClick={async () => {
+                    try {
+                      const dir = await api.openLogsDir();
+                      await shellOpen(dir);
+                    } catch (e) {
+                      toast({ type: "error", message: `打开日志目录失败:${e}` });
+                    }
+                  }}
+                >
+                  打开日志目录
+                </Button>
+              </div>
             </section>
           </div>
         </div>
