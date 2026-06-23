@@ -41,6 +41,8 @@ const Library: Component = () => {
 
   const [showInstall, setShowInstall] = createSignal(false);
   const [filter, setFilter] = createSignal("");
+  // 实例列表过滤(名称/版本/加载器),与版本安装抽屉的搜索相互独立。
+  const [instQuery, setInstQuery] = createSignal("");
   const [installing, setInstalling] = createSignal<string | null>(null);
   const [progress, setProgress] = createSignal("");
 
@@ -53,6 +55,16 @@ const Library: Component = () => {
   const filtered = () => {
     const q = filter().toLowerCase();
     return (versions() ?? []).filter((v) => v.id.toLowerCase().includes(q)).slice(0, 60);
+  };
+
+  // 按名称 / 版本 / 加载器过滤实例(空查询返回全部)。
+  const filteredInstances = () => {
+    const all = instances() ?? [];
+    const q = instQuery().trim().toLowerCase();
+    if (!q) return all;
+    return all.filter((i) =>
+      [i.name, i.id, i.mc_version, i.loader].some((f) => f?.toLowerCase().includes(q)),
+    );
   };
 
   async function install(v: ManifestVersion) {
@@ -128,8 +140,22 @@ const Library: Component = () => {
           when={(instances() ?? []).length > 0}
           fallback={<EmptyState title="这个根目录还没有实例,点「安装新版本」开始。" />}
         >
+          {/* 实例较多时给个搜索框(≥6 个才显示,避免少量实例时多余 chrome)。 */}
+          <Show when={(instances() ?? []).length >= 6}>
+            <div class="mb-[12px]">
+              <SearchBox
+                value={instQuery()}
+                onInput={setInstQuery}
+                placeholder="搜索实例(名称 / 版本 / 加载器)"
+              />
+            </div>
+          </Show>
+          <Show
+            when={filteredInstances().length > 0}
+            fallback={<EmptyState title={<>没有匹配「{instQuery()}」的实例。</>} />}
+          >
           <div class="flex flex-col gap-[10px]">
-            <For each={instances()}>
+            <For each={filteredInstances()}>
               {(inst) => (
                 <InstanceRow
                   instance={toRowData(inst)}
@@ -146,6 +172,7 @@ const Library: Component = () => {
               )}
             </For>
           </div>
+          </Show>
         </Show>
       </Show>
 
