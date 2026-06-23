@@ -45,8 +45,8 @@
    * 玻璃面板用「白叠层」半透明 + backdrop-filter;背景沉静,无彩色光斑。
    * *-flat 为关模糊/减少透明时的实色兜底,避免「透到看不清」。 */
   --glass-blur: 18px;
-  --glass-panel: rgba(255, 255, 255, 0.05); /* rail / topbar / ctxbar */
-  --glass-panel-flat: var(--n-2);
+  --glass-panel: transparent; /* rail / topbar / ctxbar 统一跟随窗口面纱 */
+  --glass-panel-flat: transparent;
   --glass-card: rgba(255, 255, 255, 0.065); /* 卡片 */
   --glass-card-hover: rgba(255, 255, 255, 0.095);
   --glass-card-flat: var(--n-4);
@@ -60,10 +60,12 @@
   --glass-pop-flat: var(--n-4);
   --glass-input: rgba(255, 255, 255, 0.05); /* 输入框/搜索 */
   --glass-input-flat: var(--n-5);
-  /* 应用背景:半透明深色「面纱」,让系统 vibrancy 透出桌面再磨砂;留足不透明度保证文字可读。 */
-  --app-bg:
-    radial-gradient(80% 55% at 50% -8%, color-mix(in srgb, var(--a-4) 12%, transparent), transparent 58%),
-    linear-gradient(160deg, rgba(20, 23, 29, 0.74), rgba(10, 12, 15, 0.84));
+  /* 全局统一面纱:整窗一致,透明度由 --veil-strength 控制(配合 vibrancy 磨砂桌面)。 */
+  --app-bg: linear-gradient(
+    160deg,
+    rgb(18 21 27 / var(--veil-strength)),
+    rgb(11 13 17 / var(--veil-strength))
+  );
 }
 
 /* ===== 浅色(经典视图,可切换)===== */
@@ -88,8 +90,8 @@
 
   /* ===== 沉静毛玻璃(workspace,浅色)===== */
   --glass-blur: 18px;
-  --glass-panel: rgba(255, 255, 255, 0.55);
-  --glass-panel-flat: var(--n-2);
+  --glass-panel: transparent;
+  --glass-panel-flat: transparent;
   --glass-card: rgba(255, 255, 255, 0.62);
   --glass-card-hover: rgba(255, 255, 255, 0.78);
   --glass-card-flat: var(--n-4);
@@ -103,9 +105,11 @@
   --glass-pop-flat: var(--n-4);
   --glass-input: rgba(0, 0, 0, 0.04);
   --glass-input-flat: var(--n-5);
-  --app-bg:
-    radial-gradient(80% 55% at 50% -8%, color-mix(in srgb, var(--a-4) 6%, transparent), transparent 60%),
-    linear-gradient(180deg, rgba(244, 246, 249, 0.62), rgba(233, 237, 242, 0.74));
+  --app-bg: linear-gradient(
+    180deg,
+    rgb(247 249 251 / var(--veil-strength)),
+    rgb(239 242 246 / var(--veil-strength))
+  );
 }
 
 /* ===== 共用形状/字体/动效(深浅通用)===== */
@@ -145,6 +149,8 @@
    * Web 上「亚克力」= backdrop-filter,GPU 合成、免费;不移植任何采样模糊算法。
    * --blur-r 半径,--surface-translucent 半透明底(用强调白叠层,随主题变)。 */
   --blur-r: 18px;
+  /* 窗口面纱不透明度(越小越透),设置页滑块经 store 写到此变量。 */
+  --veil-strength: 0.72;
   --surface-translucent: var(--n-white-half, rgba(255, 255, 255, 0.35));
   /* 性能逃生口的扁平兜底:无模糊时改用更实的半透明填充,避免「透到看不清」。 */
   --surface-translucent-flat: var(--n-white-semi, rgba(255, 255, 255, 0.72));
@@ -271,10 +277,11 @@ body {
  * .glass-panel —— 侧栏/顶栏/右栏的整片磨砂(只给底 + 模糊,边框各自方向用 utility)。
  * .glass-card  —— 卡片磨砂:半透底 + 模糊 + 细边 + 顶部内高光 + 阴影 + hover。
  * 逃生口(关模糊 / 减少透明 / 内核不支持)统一退化为 *-flat 实色,沿用 surface-acrylic 的精神。 */
+/* chrome(rail/topbar/ctxbar):纯透明跟随窗口面纱。不用 backdrop-filter——
+ * 透明窗口 + 系统 vibrancy 下,带 backdrop-filter 的满铺元素会被 WebKit 顶成实色块;
+ * 磨砂由系统 vibrancy 负责,这里只要透明。 */
 .glass-panel {
   background: var(--glass-panel);
-  backdrop-filter: blur(var(--glass-blur)) saturate(1.15);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.15);
 }
 .glass-card {
   background: var(--glass-card);

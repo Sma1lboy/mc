@@ -11,6 +11,16 @@
   grid-template-areas:
     "rail topbar"
     "rail body";
-  /* 沉静毛玻璃:整窗背景沉静深色(随主题),三栏与卡片在其上结霜 */
+  /* 全局统一面纱:整窗一层半透,透出系统 vibrancy 磨砂的桌面。 */
   background: var(--app-bg);
+}
+
+/* 关模糊 / 系统要求减少透明 时,整窗回退为实色(避免窗口直接透到桌面)。 */
+[data-blur="off"] .app-shell {
+  background: var(--n-1);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .app-shell {
+    background: var(--n-1);
+  }
 }
