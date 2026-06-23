@@ -20,7 +20,7 @@ const LOADERS = [
 ];
 
 const FIELD =
-  "h-[36px] px-[12px] rounded-ctl border border-n-6 bg-n-2 text-fg text-[13px] " +
+  "h-[36px] px-[12px] rounded-ctl border border-glass-border glass-input text-fg text-[13px] " +
   "transition-[border-color,box-shadow] duration-150 focus-visible:outline-none " +
   "focus-visible:border-a-4 focus-visible:ring-2 focus-visible:ring-a-5/25 disabled:opacity-50";
 
@@ -82,7 +82,7 @@ export const NewInstanceDialog: Component<{
       open={props.open}
       onClose={() => !creating() && props.onClose()}
       label="新建实例"
-      contentClass="w-[440px] max-w-[calc(100vw-48px)] bg-card rounded-card shadow-card overflow-hidden"
+      contentClass="w-[440px] max-w-[calc(100vw-48px)] glass-pop rounded-card overflow-hidden"
     >
       <div class="p-[20px] flex flex-col gap-[14px]">
         <div class="text-[16px] font-bold text-fg">新建实例</div>
@@ -143,7 +143,7 @@ export const NewInstanceDialog: Component<{
 
         <div class="flex justify-end gap-[10px] mt-[4px]">
           <button
-            class="h-[34px] px-[16px] border border-n-6 rounded-ctl bg-n-4 text-fg text-[13px] cursor-pointer transition-colors duration-150 hover:bg-n-5 disabled:opacity-50"
+            class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-glass-card text-fg text-[13px] cursor-pointer transition-colors duration-150 hover:bg-glass-hover disabled:opacity-50"
             onClick={props.onClose}
             disabled={creating()}
           >

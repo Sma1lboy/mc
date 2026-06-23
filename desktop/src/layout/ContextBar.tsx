@@ -34,8 +34,8 @@ const HEADING =
   "m-0 text-[13px] font-semibold text-dim tracking-[0.2px]";
 // Friends / News 通用空态卡片。
 const EMPTY_CARD =
-  "flex flex-col gap-[2px] px-[12px] py-[16px] border border-dashed border-n-6 " +
-  "rounded-ctl bg-n-3 text-center";
+  "flex flex-col gap-[2px] px-[12px] py-[16px] border border-dashed border-glass-border " +
+  "rounded-ctl bg-glass-card text-center";
 // 元信息列(用户名 + 类型),可截断。
 const META = "flex flex-col gap-px min-w-0 flex-[1_1_auto]";
 // 用户名(单行截断)。
@@ -90,7 +90,7 @@ const ContextBar: Component = () => {
 
   return (
     <aside
-      class="[grid-row:1] [grid-column:2] w-[340px] h-full box-border bg-n-2 border-l border-n-6 p-[16px] flex flex-col gap-[20px] overflow-y-auto"
+      class="[grid-row:1] [grid-column:2] w-[340px] h-full box-border glass-panel border-l border-glass-divider p-[16px] flex flex-col gap-[20px] overflow-y-auto"
       aria-label="上下文信息"
     >
       {/* ===== Playing as ===== */}
@@ -110,10 +110,10 @@ const ContextBar: Component = () => {
           <Show
             when={!accounts.error}
             fallback={
-              <div class="flex items-center justify-between gap-[8px] p-[12px] border border-n-6 rounded-ctl bg-n-3 text-[13px] text-dim">
+              <div class="flex items-center justify-between gap-[8px] p-[12px] border border-glass-border rounded-ctl bg-glass-card text-[13px] text-dim">
                 <span>账号载入失败</span>
                 <button
-                  class="border border-n-6 bg-n-4 text-fg rounded-xs px-[10px] py-[4px] text-[12px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-n-5 motion-reduce:transition-none"
+                  class="border border-glass-border bg-glass-card text-fg rounded-xs px-[10px] py-[4px] text-[12px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-glass-hover motion-reduce:transition-none"
                   onClick={() => refetch()}
                 >
                   重试
@@ -125,7 +125,7 @@ const ContextBar: Component = () => {
             <Show
               when={(accounts()?.length ?? 0) > 0}
               fallback={
-                <div class="flex flex-col gap-[10px] p-[14px] border border-dashed border-n-6 rounded-ctl bg-n-3">
+                <div class="flex flex-col gap-[10px] p-[14px] border border-dashed border-glass-border rounded-ctl bg-glass-card">
                   <div class="flex flex-col gap-[2px]">
                     <span class="text-[var(--fs-base)] text-fg">尚未添加账号</span>
                     <span class="text-[12px] text-dim">登录微软正版,或添加一个离线账号</span>
@@ -152,7 +152,7 @@ const ContextBar: Component = () => {
                 }}
               >
                 <Menu.Trigger
-                  class="group flex items-center gap-[10px] w-full p-[10px] border border-n-6 rounded-ctl bg-card cursor-pointer text-left transition-[background-color,border-color] duration-[var(--dur)] ease-app hover:bg-n-5 hover:border-a-4 data-[state=open]:border-a-4 motion-reduce:transition-none"
+                  class="group flex items-center gap-[10px] w-full p-[10px] border border-glass-border rounded-ctl bg-glass-card cursor-pointer text-left transition-[background-color,border-color] duration-[var(--dur)] ease-app hover:bg-glass-hover hover:border-a-4 data-[state=open]:border-a-4 motion-reduce:transition-none"
                   aria-label="切换账号"
                 >
                   <span class="w-[36px] h-[36px] flex-shrink-0 rounded-xs grid place-items-center text-[15px] font-semibold text-white bg-[linear-gradient(135deg,var(--a-3),var(--a-5))]">
@@ -175,7 +175,7 @@ const ContextBar: Component = () => {
                     {(acc) => (
                       <Menu.ItemRaw
                         value={acc.uuid}
-                        class="flex items-center gap-[10px] p-[8px] rounded-xs cursor-pointer select-none transition-[background] duration-[var(--dur)] ease-app data-[highlighted]:bg-n-5 motion-reduce:transition-none"
+                        class="flex items-center gap-[10px] p-[8px] rounded-xs cursor-pointer select-none transition-[background] duration-[var(--dur)] ease-app data-[highlighted]:bg-glass-hover motion-reduce:transition-none"
                         classList={{
                           "bg-[color-mix(in_srgb,var(--a-4)_14%,transparent)]": acc.selected,
                         }}
@@ -195,9 +195,9 @@ const ContextBar: Component = () => {
                   </For>
                   <Menu.ItemRaw
                     value="__add__"
-                    class="flex items-center gap-[10px] p-[8px] mt-[2px] rounded-xs cursor-pointer select-none border-t border-n-6 text-a-6 transition-[background] duration-[var(--dur)] ease-app data-[highlighted]:bg-n-5 motion-reduce:transition-none"
+                    class="flex items-center gap-[10px] p-[8px] mt-[2px] rounded-xs cursor-pointer select-none border-t border-glass-border text-a-6 transition-[background] duration-[var(--dur)] ease-app data-[highlighted]:bg-glass-hover motion-reduce:transition-none"
                   >
-                    <span class="w-[30px] h-[30px] flex-shrink-0 rounded-xs grid place-items-center text-[18px] font-semibold bg-n-4" aria-hidden="true">
+                    <span class="w-[30px] h-[30px] flex-shrink-0 rounded-xs grid place-items-center text-[18px] font-semibold bg-glass-card" aria-hidden="true">
                       +
                     </span>
                     <span class="text-[13px] font-medium">登录 / 添加账号</span>

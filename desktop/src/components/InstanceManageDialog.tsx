@@ -37,7 +37,7 @@ import type {
  */
 
 const FIELD =
-  "h-[34px] px-[12px] rounded-ctl border border-n-6 bg-n-2 text-fg text-[13px] " +
+  "glass-input h-[34px] px-[12px] rounded-ctl border border-glass-border text-fg text-[13px] " +
   "transition-[border-color,box-shadow] duration-150 focus-visible:outline-none " +
   "focus-visible:border-a-4 focus-visible:ring-2 focus-visible:ring-a-5/25";
 const LABEL = "text-[12px] text-dim";
@@ -102,7 +102,7 @@ const ScreenshotTile: Component<{
   return (
     <div
       ref={el}
-      class="group relative aspect-video rounded-ctl overflow-hidden bg-n-3 cursor-pointer"
+      class="group relative aspect-video rounded-ctl overflow-hidden bg-glass-card cursor-pointer"
       onClick={props.onOpen}
     >
       <Show
@@ -118,7 +118,7 @@ const ScreenshotTile: Component<{
           >
             {/* 读图失败:给可重试的占位,而不是永远转圈。 */}
             <button
-              class="w-full h-full grid place-items-center gap-[2px] text-[11px] text-dim bg-n-3 cursor-pointer hover:text-fg"
+              class="w-full h-full grid place-items-center gap-[2px] text-[11px] text-dim bg-glass-card cursor-pointer hover:text-fg"
               onClick={(e) => {
                 e.stopPropagation();
                 props.onRetry();
@@ -418,10 +418,10 @@ const PacksPanel: Component<{
         <div class="flex flex-col gap-[6px] max-h-[180px] overflow-y-auto">
           <For each={hits()}>
             {(h) => (
-              <div class="flex items-center gap-[10px] py-[7px] px-[10px] rounded-ctl bg-n-2 border border-n-3">
+              <div class="glass-card flex items-center gap-[10px] py-[7px] px-[10px] rounded-ctl">
                 <Show
                   when={h.icon_url}
-                  fallback={<div class="w-[30px] h-[30px] rounded-xs bg-n-4 shrink-0" />}
+                  fallback={<div class="w-[30px] h-[30px] rounded-xs bg-glass-card shrink-0" />}
                 >
                   <img src={h.icon_url!} alt="" width="30" height="30" class="w-[30px] h-[30px] rounded-xs object-cover shrink-0" />
                 </Show>
@@ -453,7 +453,7 @@ const PacksPanel: Component<{
         </div>
       </Show>
 
-      <div class="h-px bg-n-3 my-[2px]" />
+      <div class="h-px bg-glass-divider my-[2px]" />
       <div class="flex items-center justify-between">
         <div class={LABEL}>已安装</div>
         <button
@@ -492,7 +492,7 @@ const PacksPanel: Component<{
             <For each={packs()}>
               {(p) => (
                 <div
-                  class="flex items-center gap-[10px] py-[8px] px-[10px] rounded-ctl bg-n-3"
+                  class="flex items-center gap-[10px] py-[8px] px-[10px] rounded-ctl bg-glass-card"
                   classList={{ "opacity-55": !p.enabled }}
                 >
                   <div class="flex-1 min-w-0">
@@ -674,7 +674,7 @@ const WorldsPanel: Component<{ instance: InstanceSummary; tick?: number }> = (pr
         <div class="flex flex-col gap-[6px]">
           <For each={worlds()}>
             {(w) => (
-              <div class="flex items-center gap-[10px] py-[8px] px-[10px] rounded-ctl bg-n-3">
+              <div class="glass-card flex items-center gap-[10px] py-[8px] px-[10px] rounded-ctl">
                 <div class="flex-1 min-w-0">
                   <Show
                     when={editing() === w.folder}
@@ -1047,7 +1047,7 @@ export const InstanceManageDialog: Component<{
         </Show>
 
         <Show when={!props.hideTabs}>
-          <div class="flex gap-[4px] px-[16px] border-b border-n-3 mt-[10px] overflow-x-auto">
+          <div class="flex gap-[4px] px-[16px] border-b border-glass-divider mt-[10px] overflow-x-auto">
             <For each={TABS}>
               {(item) => (
                 <button
@@ -1075,7 +1075,7 @@ export const InstanceManageDialog: Component<{
               {(c) => (
                 <>
                   <div class="flex items-center gap-[12px]">
-                    <div class="w-[56px] h-[56px] rounded-ctl overflow-hidden bg-n-3 shrink-0 grid place-items-center">
+                    <div class="w-[56px] h-[56px] rounded-ctl overflow-hidden bg-glass-card shrink-0 grid place-items-center">
                       <Show
                         when={props.instance?.icon}
                         fallback={
@@ -1090,7 +1090,7 @@ export const InstanceManageDialog: Component<{
                     <div class="flex flex-col gap-[5px]">
                       <span class={LABEL}>实例图标</span>
                       <button
-                        class="h-[30px] px-[12px] border border-n-6 rounded-ctl bg-n-4 text-fg text-[12px] cursor-pointer transition-colors duration-150 hover:bg-n-5 w-fit"
+                        class="h-[30px] px-[12px] border border-glass-border rounded-ctl bg-glass-card text-fg text-[12px] cursor-pointer transition-colors duration-150 hover:bg-glass-hover w-fit"
                         onClick={pickIcon}
                       >
                         更换图标…
@@ -1181,7 +1181,7 @@ export const InstanceManageDialog: Component<{
 
                   <div class="pt-[4px]">
                     <button
-                      class="h-[30px] px-[12px] border border-n-6 rounded-ctl bg-n-4 text-fg text-[12px] cursor-pointer transition-colors duration-150 hover:bg-n-5"
+                      class="h-[30px] px-[12px] border border-glass-border rounded-ctl bg-glass-card text-fg text-[12px] cursor-pointer transition-colors duration-150 hover:bg-glass-hover"
                       onClick={() => props.instance && openInstanceDir(activeRoot(), props.instance.id)}
                     >
                       打开游戏目录
@@ -1224,10 +1224,10 @@ export const InstanceManageDialog: Component<{
                 <div class="flex flex-col gap-[6px] max-h-[200px] overflow-y-auto">
                   <For each={hits()}>
                     {(h) => (
-                      <div class="flex items-center gap-[10px] py-[7px] px-[10px] rounded-ctl bg-n-2 border border-n-3">
+                      <div class="glass-card flex items-center gap-[10px] py-[7px] px-[10px] rounded-ctl">
                         <Show
                           when={h.icon_url}
-                          fallback={<div class="w-[30px] h-[30px] rounded-xs bg-n-4 shrink-0" />}
+                          fallback={<div class="w-[30px] h-[30px] rounded-xs bg-glass-card shrink-0" />}
                         >
                           <img
                             src={h.icon_url!}
@@ -1264,7 +1264,7 @@ export const InstanceManageDialog: Component<{
                 </div>
               </Show>
 
-              <div class="h-px bg-n-3 my-[2px]" />
+              <div class="h-px bg-glass-divider my-[2px]" />
               <div class="flex items-center justify-between">
                 <div class={LABEL}>已安装</div>
                 <div class="flex items-center gap-[4px]">
@@ -1301,7 +1301,7 @@ export const InstanceManageDialog: Component<{
                   </div>
                   <For each={updates()}>
                     {(u) => (
-                      <div class="flex items-center gap-[10px] py-[6px] px-[8px] rounded-ctl bg-card">
+                      <div class="glass-card flex items-center gap-[10px] py-[6px] px-[8px] rounded-ctl">
                         <div class="flex-1 min-w-0">
                           <div class="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">
                             {u.name}
@@ -1340,7 +1340,7 @@ export const InstanceManageDialog: Component<{
                   <For each={mods()}>
                     {(m) => (
                       <div
-                        class="flex items-center gap-[10px] py-[8px] px-[10px] rounded-ctl bg-n-3"
+                        class="flex items-center gap-[10px] py-[8px] px-[10px] rounded-ctl bg-glass-card"
                         classList={{ "opacity-55": !m.enabled }}
                       >
                         <div class="flex-1 min-w-0">
@@ -1435,9 +1435,9 @@ export const InstanceManageDialog: Component<{
           </Show>
         </div>
 
-        <div class="flex justify-between items-center px-[20px] py-[14px] border-t border-n-3">
+        <div class="flex justify-between items-center px-[20px] py-[14px] border-t border-glass-divider">
           <button
-            class="h-[34px] px-[16px] border border-n-6 rounded-ctl bg-transparent text-dim text-[13px] cursor-pointer transition-colors duration-150 hover:text-fg hover:bg-n-4 disabled:opacity-50"
+            class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-transparent text-dim text-[13px] cursor-pointer transition-colors duration-150 hover:text-fg hover:bg-glass-hover disabled:opacity-50"
             disabled={copying() || !props.instance}
             onClick={copyInstance}
           >
@@ -1445,7 +1445,7 @@ export const InstanceManageDialog: Component<{
           </button>
           <Show when={!props.embedded}>
             <button
-              class="h-[34px] px-[16px] border border-n-6 rounded-ctl bg-n-4 text-fg text-[13px] cursor-pointer transition-colors duration-150 hover:bg-n-5"
+              class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-glass-card text-fg text-[13px] cursor-pointer transition-colors duration-150 hover:bg-glass-hover"
               onClick={props.onClose}
             >
               完成
@@ -1463,7 +1463,7 @@ export const InstanceManageDialog: Component<{
       open={props.open}
       onClose={props.onClose}
       label="实例管理"
-      contentClass="w-[520px] max-w-[calc(100vw-48px)] bg-card rounded-card shadow-card overflow-hidden"
+      contentClass="glass-pop w-[520px] max-w-[calc(100vw-48px)] rounded-card overflow-hidden"
     >
       {body}
     </Dialog>

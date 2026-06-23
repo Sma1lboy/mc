@@ -197,7 +197,7 @@ export function ToastContainer(): JSX.Element {
                 use:motion={{ preset: "toast" }}
                 class={
                   "pointer-events-auto flex items-center gap-[10px] min-w-[240px] max-w-[380px] " +
-                  "px-[14px] py-[11px] rounded-card bg-n-4 text-fg shadow-card " +
+                  "px-[14px] py-[11px] rounded-card glass-card text-fg " +
                   "border-l-4 text-[13px] leading-[1.4] origin-center " +
                   toastBorderClass(item.type)
                 }
@@ -211,7 +211,7 @@ export function ToastContainer(): JSX.Element {
                     "shrink-0 inline-flex items-center justify-center w-[18px] h-[18px] " +
                     "border-none bg-transparent text-dim cursor-pointer rounded-xs " +
                     "transition-[color,background-color] duration-[var(--dur)] ease-app " +
-                    "hover:text-fg hover:bg-n-5"
+                    "hover:text-fg hover:bg-glass-hover"
                   }
                   aria-label="Dismiss"
                   onClick={() => dismissToast(item.id)}

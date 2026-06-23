@@ -110,7 +110,7 @@ const Home: Component = () => {
         <Show
           when={recent().length > 0}
           fallback={
-            <div class="p-[24px] rounded-card bg-n-3 text-dim text-center">
+            <div class="p-[24px] rounded-card bg-glass-card border border-glass-border text-dim text-center">
               还没有实例。去 <b>库 / Discover</b> 安装一个版本开始游玩。
             </div>
           }

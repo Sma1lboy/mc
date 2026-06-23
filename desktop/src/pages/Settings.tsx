@@ -32,7 +32,7 @@ interface SegmentedControlProps<T extends string> {
 function SegmentedControl<T extends string>(props: SegmentedControlProps<T>) {
   return (
     <div
-      class="inline-flex items-center gap-[2px] rounded-ctl border border-n-6 bg-n-4 p-[3px]"
+      class="inline-flex items-center gap-[2px] rounded-ctl border border-glass-border bg-glass-card p-[3px]"
       role="group"
       aria-label={props.ariaLabel}
     >
@@ -45,7 +45,7 @@ function SegmentedControl<T extends string>(props: SegmentedControlProps<T>) {
               class="inline-flex h-[30px] items-center justify-center gap-[6px] rounded-[4px] border-none px-[10px] text-[13px] font-medium leading-none cursor-pointer select-none transition-[background-color,color,box-shadow] duration-[var(--dur)] ease-app focus-visible:ring-2 focus-visible:ring-a-4 focus-visible:ring-offset-2 focus-visible:ring-offset-n-3 disabled:opacity-45 disabled:cursor-not-allowed"
               classList={{
                 "bg-a-4 text-white shadow-[0_1px_4px_rgba(0,0,0,0.12)]": selected(),
-                "bg-transparent text-fg hover:bg-n-5": !selected(),
+                "bg-transparent text-fg hover:bg-glass-hover": !selected(),
               }}
               aria-pressed={selected()}
               onClick={() => props.onChange(option.value)}
@@ -410,7 +410,7 @@ const Settings: Component = () => {
                   <div class="flex flex-col gap-[8px]">
                     <For each={javas()}>
                       {(j) => (
-                        <div class="flex flex-col gap-[2px] px-[10px] py-[8px] bg-n-4 rounded-ctl">
+                        <div class="flex flex-col gap-[2px] px-[10px] py-[8px] glass-card rounded-ctl">
                           <span class="font-semibold text-fg">Java {j.version}</span>
                           <span class="text-[12px] text-a-5">
                             {j.is_64bit ? "64-bit" : "32-bit"} · {j.source}

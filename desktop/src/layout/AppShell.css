@@ -11,4 +11,6 @@
   grid-template-areas:
     "rail topbar"
     "rail body";
+  /* 沉静毛玻璃:整窗背景沉静深色(随主题),三栏与卡片在其上结霜 */
+  background: var(--app-bg);
 }

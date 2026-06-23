@@ -42,7 +42,7 @@ export const Dialog: Component<DialogProps> = (props) => {
             class={
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5 " +
               (props.contentClass ??
-                "w-[420px] max-w-[calc(100vw-48px)] bg-card rounded-card shadow-card overflow-hidden")
+                "w-[420px] max-w-[calc(100vw-48px)] glass-pop rounded-card overflow-hidden")
             }
           >
             {props.children}

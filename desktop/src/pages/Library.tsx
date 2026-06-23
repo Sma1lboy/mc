@@ -103,7 +103,7 @@ const Library: Component = () => {
       </div>
 
       <Show when={showInstall()}>
-        <div class="bg-n-3 rounded-card p-[16px] mb-[20px]">
+        <div class="bg-glass-card rounded-card p-[16px] mb-[20px]">
           <SearchBox
             value={filter()}
             onInput={setFilter}
@@ -118,7 +118,7 @@ const Library: Component = () => {
             <div class="max-h-[320px] overflow-y-auto mt-[12px] flex flex-col gap-[4px]">
               <For each={filtered()}>
                 {(v) => (
-                  <div class="flex items-center gap-[12px] px-[10px] py-[6px] rounded-ctl hover:bg-n-5">
+                  <div class="flex items-center gap-[12px] px-[10px] py-[6px] rounded-ctl hover:bg-glass-hover">
                     <span class="font-semibold text-fg min-w-[120px]">{v.id}</span>
                     <span class="text-dim text-[12px] flex-1">{v.kind}</span>
                     <Button
@@ -139,7 +139,7 @@ const Library: Component = () => {
       <Show when={!instances.loading} fallback={<div class="flex justify-center p-[32px]"><Spinner /></div>}>
         <Show
           when={(instances() ?? []).length > 0}
-          fallback={<div class="p-[24px] rounded-card bg-n-3 text-dim text-center">这个根目录还没有实例,点「安装新版本」开始。</div>}
+          fallback={<div class="p-[24px] rounded-card bg-glass-card text-dim text-center">这个根目录还没有实例,点「安装新版本」开始。</div>}
         >
           <div class="flex flex-col gap-[10px]">
             <For each={instances()}>

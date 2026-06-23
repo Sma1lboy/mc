@@ -212,7 +212,7 @@ const ModpackDetail: Component<{
         >
           版本
           <Show when={(versions() ?? []).length}>
-            <span class="ml-[6px] text-[11px] font-semibold px-[6px] rounded-full bg-n-2 text-n-6">
+            <span class="ml-[6px] text-[11px] font-semibold px-[6px] rounded-full bg-glass-card text-n-6">
               {(versions() ?? []).length}
             </span>
           </Show>
@@ -227,7 +227,7 @@ const ModpackDetail: Component<{
             onClick={() => setTab("gallery")}
           >
             画廊
-            <span class="ml-[6px] text-[11px] font-semibold px-[6px] rounded-full bg-n-2 text-n-6">
+            <span class="ml-[6px] text-[11px] font-semibold px-[6px] rounded-full bg-glass-card text-n-6">
               {gallery().length}
             </span>
           </button>
@@ -256,7 +256,7 @@ const ModpackDetail: Component<{
                       <For each={links()}>
                         {(l) => (
                           <button
-                            class="py-[6px] px-[14px] border border-n-3 rounded-[6px] bg-n-1 text-a-6 text-[13px] cursor-pointer transition-colors duration-[var(--mo-dur-fast)] ease-emph hover:bg-a-1"
+                            class="py-[6px] px-[14px] border border-glass-border rounded-[6px] bg-glass-card text-a-6 text-[13px] cursor-pointer transition-colors duration-[var(--mo-dur-fast)] ease-emph hover:bg-a-1"
                             onClick={() => shellOpen(l.url)}
                           >
                             {l.label} ↗
@@ -292,7 +292,7 @@ const ModpackDetail: Component<{
             {(g, i) => (
               <figure class="m-0 flex flex-col gap-[6px]">
                 <img
-                  class="w-full aspect-[16/9] object-cover rounded-[8px] cursor-zoom-in bg-n-2 transition-transform duration-[var(--mo-dur-fast)] ease-emph hover:scale-[1.015]"
+                  class="w-full aspect-[16/9] object-cover rounded-[8px] cursor-zoom-in bg-glass-card transition-transform duration-[var(--mo-dur-fast)] ease-emph hover:scale-[1.015]"
                   src={g.url}
                   alt={g.title ?? ""}
                   width="960"
@@ -342,12 +342,12 @@ const ModpackDetail: Component<{
                           class="absolute top-0 left-0 w-full"
                           style={{ transform: `translateY(${vi.start}px)` }}
                         >
-                          <div class="flex items-start gap-[12px] py-[12px] px-[2px] border-b border-b-n-2">
+                          <div class="flex items-start gap-[12px] py-[12px] px-[2px] border-b border-b-glass-divider">
                     <div class="flex-1 min-w-0">
                       <div class="flex items-center gap-[8px]">
                         <span class="text-[14px] font-bold text-n-8">{v.version_number}</span>
                         <span
-                          class="text-[11px] py-[1px] px-[7px] rounded-[3px] bg-n-2 text-n-6 data-[type=release]:bg-[rgba(40,167,69,0.14)] data-[type=release]:text-[#1f9d4d] data-[type=beta]:bg-[rgba(255,159,10,0.16)] data-[type=beta]:text-[#c77800] data-[type=alpha]:bg-[rgba(255,59,48,0.14)] data-[type=alpha]:text-[#d23b30]"
+                          class="text-[11px] py-[1px] px-[7px] rounded-[3px] bg-glass-card text-n-6 data-[type=release]:bg-[rgba(40,167,69,0.14)] data-[type=release]:text-[#1f9d4d] data-[type=beta]:bg-[rgba(255,159,10,0.16)] data-[type=beta]:text-[#c77800] data-[type=alpha]:bg-[rgba(255,59,48,0.14)] data-[type=alpha]:text-[#d23b30]"
                           data-type={v.version_type}
                         >
                           {typeLabel(v.version_type)}

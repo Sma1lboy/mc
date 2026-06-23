@@ -22,7 +22,7 @@ export function SearchBox(props: SearchBoxProps): JSX.Element {
       class={
         // 容器:inline-flex 居中、间距 8px、满宽、n-5 背景、透明边、控件圆角、
         // 左右内距 12px、高 36px、边色+背景过渡;聚焦内含子元素时 accent 描边。
-        "inline-flex items-center gap-[8px] w-full bg-n-5 border border-transparent " +
+        "inline-flex items-center gap-[8px] w-full glass-input " +
         "rounded-ctl px-[12px] h-[36px] " +
         "transition-[border-color,background-color,box-shadow] duration-[var(--dur)] ease-app " +
         "focus-within:border-a-4 focus-within:ring-2 focus-within:ring-a-5/30" +
@@ -71,7 +71,7 @@ export function SearchBox(props: SearchBoxProps): JSX.Element {
           type="button"
           // 清除按钮:18x18 居中、无边框透明底、dim 文字色、指针、xs 圆角、
           // 颜色+背景过渡;hover 转主文字色 + n-6 底。
-          class="shrink-0 inline-flex items-center justify-center w-[18px] h-[18px] border-none bg-transparent text-dim cursor-pointer rounded-xs transition-[color,background-color] duration-[var(--dur)] ease-app hover:text-fg hover:bg-n-6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5"
+          class="shrink-0 inline-flex items-center justify-center w-[18px] h-[18px] border-none bg-transparent text-dim cursor-pointer rounded-xs transition-[color,background-color] duration-[var(--dur)] ease-app hover:text-fg hover:bg-glass-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5"
           aria-label="Clear search"
           onClick={() => props.onInput("")}
         >

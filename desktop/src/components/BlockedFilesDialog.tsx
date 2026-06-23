@@ -20,7 +20,7 @@ export const BlockedFilesDialog: Component<{
       open
       onClose={props.onClose}
       label="需要手动下载的文件"
-      contentClass="w-[480px] max-w-[calc(100vw-48px)] bg-card rounded-card shadow-card overflow-hidden"
+      contentClass="w-[480px] max-w-[calc(100vw-48px)] glass-pop rounded-card overflow-hidden"
     >
       <div class="flex flex-col gap-[14px] p-[20px]">
         <div>
@@ -34,7 +34,7 @@ export const BlockedFilesDialog: Component<{
           <div class="flex flex-col gap-[8px] max-h-[300px] overflow-y-auto">
             <For each={props.blocked}>
               {(b) => (
-                <div class="flex items-center gap-[10px] rounded-ctl border border-n-3 bg-n-2 px-[12px] py-[9px]">
+                <div class="flex items-center gap-[10px] rounded-ctl glass-card px-[12px] py-[9px]">
                   <div class="min-w-0 flex-1">
                     <div class="text-[13px] font-semibold text-fg whitespace-nowrap overflow-hidden text-ellipsis">
                       {b.name}
@@ -47,7 +47,7 @@ export const BlockedFilesDialog: Component<{
                     </div>
                   </div>
                   <button
-                    class="shrink-0 h-[30px] rounded-ctl border border-n-3 bg-card px-[12px] text-[12px] font-semibold text-a-6 cursor-pointer hover:bg-a-1"
+                    class="shrink-0 h-[30px] rounded-ctl border border-glass-border bg-glass-card px-[12px] text-[12px] font-semibold text-a-6 cursor-pointer hover:bg-a-1"
                     onClick={() => void shellOpen(b.website_url)}
                   >
                     打开下载页 ↗
@@ -59,7 +59,7 @@ export const BlockedFilesDialog: Component<{
         </Show>
 
         <Show when={props.skipped.length > 0}>
-          <div class="rounded-ctl bg-n-2 px-[12px] py-[10px]">
+          <div class="rounded-ctl bg-glass-card px-[12px] py-[10px]">
             <div class="text-[12px] font-semibold text-dim mb-[4px]">已跳过的可选文件({props.skipped.length})</div>
             <div class="text-[11px] leading-[1.7] text-n-6 break-words">{props.skipped.join("、")}</div>
           </div>

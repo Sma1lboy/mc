@@ -96,10 +96,10 @@ export const ProjectDetailPanel: Component<{
   }
 
   return (
-    <div class="absolute inset-0 z-20 flex flex-col bg-card">
-      <div class="flex items-center gap-[10px] px-[16px] py-[12px] border-b border-n-3">
+    <div class="absolute inset-0 z-20 flex flex-col glass-panel">
+      <div class="flex items-center gap-[10px] px-[16px] py-[12px] border-b border-glass-divider">
         <button
-          class="h-[28px] px-[10px] rounded-ctl border border-n-6 bg-n-4 text-fg text-[12px] cursor-pointer hover:bg-n-5"
+          class="h-[28px] px-[10px] rounded-ctl bg-glass-card border border-glass-border text-fg text-[12px] cursor-pointer hover:bg-glass-hover"
           onClick={props.onClose}
         >
           ← 返回
@@ -161,7 +161,7 @@ export const ProjectDetailPanel: Component<{
               <For each={shown()}>
                 {(v) => (
                   <div
-                    class="flex items-center gap-[10px] py-[8px] px-[10px] rounded-ctl bg-n-2 border border-n-3"
+                    class="flex items-center gap-[10px] py-[8px] px-[10px] rounded-ctl glass-panel border border-glass-border"
                     classList={{ "opacity-60": !compatible(v) }}
                   >
                     <div class="flex-1 min-w-0">

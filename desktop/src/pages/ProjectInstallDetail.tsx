@@ -263,14 +263,14 @@ const ProjectInstallDetail: Component<{
 
           <section class="flex flex-col gap-[10px]">
             <button
-              class="flex items-center justify-between border-none rounded-card bg-n-2 px-[14px] py-[11px] text-left cursor-pointer"
+              class="glass-panel flex items-center justify-between border-none rounded-card px-[14px] py-[11px] text-left cursor-pointer"
               onClick={() => setOpenAbout((v) => !v)}
             >
               <span class="text-[15px] font-bold text-n-8">项目简介</span>
               <span class="text-n-6">{openAbout() ? "⌃" : "⌄"}</span>
             </button>
             <Show when={openAbout()}>
-              <div class="rounded-card bg-n-2 px-[14px] py-[12px]">
+              <div class="glass-panel rounded-card px-[14px] py-[12px]">
                 <Show
                   when={!project.loading}
                   fallback={
@@ -318,7 +318,7 @@ const ProjectInstallDetail: Component<{
                       const blocked = () => props.kind === "mod" && !!inst() && !compatible();
                       return (
                         <div
-                          class="flex items-center gap-[10px] rounded-ctl bg-n-2 border border-n-3 px-[10px] py-[8px]"
+                          class="glass-panel flex items-center gap-[10px] rounded-ctl border border-glass-border px-[10px] py-[8px]"
                           classList={{ "opacity-55": !!inst() && !compatible() }}
                         >
                           <div class="min-w-0 flex-1">
@@ -336,7 +336,7 @@ const ProjectInstallDetail: Component<{
                           </div>
                           <span class="text-[11px] text-n-6 whitespace-nowrap">⬇ {version.downloads.toLocaleString()}</span>
                           <button
-                            class="shrink-0 h-[28px] rounded-ctl border border-n-3 bg-card px-[12px] text-[12px] font-semibold text-a-6 cursor-pointer transition-[background-color] duration-150 hover:bg-a-1 disabled:opacity-50 disabled:cursor-default"
+                            class="shrink-0 h-[28px] rounded-ctl border border-glass-border bg-glass-card px-[12px] text-[12px] font-semibold text-a-6 cursor-pointer transition-[background-color] duration-150 hover:bg-a-1 disabled:opacity-50 disabled:cursor-default"
                             disabled={busy() || !inst() || blocked()}
                             title={!inst() ? "先在右侧选择一个实例" : blocked() ? "当前实例的加载器/版本不兼容这个文件" : ""}
                             onClick={() => installVersion(version)}
@@ -354,7 +354,7 @@ const ProjectInstallDetail: Component<{
         </div>
 
         <aside class="flex flex-col gap-[12px]">
-          <section class="rounded-card bg-n-2 px-[14px] py-[14px]">
+          <section class="glass-panel rounded-card px-[14px] py-[14px]">
             <h2 class="m-0 mb-[10px] text-[15px] font-bold text-n-8">安装到实例</h2>
             <Show
               when={!instances.loading}
@@ -375,7 +375,7 @@ const ProjectInstallDetail: Component<{
                       const compatCount = () => compatibleFor(inst).length;
                       return (
                         <button
-                          class="flex w-full items-center gap-[9px] rounded-ctl border border-n-3 bg-card px-[9px] py-[8px] text-left cursor-pointer transition-[border-color,background-color] duration-150 hover:border-a-4 disabled:cursor-not-allowed disabled:opacity-50"
+                          class="glass-card flex w-full items-center gap-[9px] rounded-ctl border border-glass-border px-[9px] py-[8px] text-left cursor-pointer transition-[border-color,background-color] duration-150 hover:border-a-4 disabled:cursor-not-allowed disabled:opacity-50"
                           classList={{
                             "!border-a-4 !bg-a-1": selectedId() === inst.id,
                           }}
@@ -420,7 +420,7 @@ const ProjectInstallDetail: Component<{
                 <label class="mt-[10px] flex items-center gap-[8px] text-[12px] text-n-6">
                   <span class="shrink-0">目标存档</span>
                   <select
-                    class="flex-1 rounded-ctl border border-n-3 bg-card px-[8px] py-[6px] text-[12px] text-n-8"
+                    class="glass-input flex-1 rounded-ctl border border-glass-border px-[8px] py-[6px] text-[12px] text-n-8"
                     value={world() ?? ""}
                     onChange={(e) => setWorld(e.currentTarget.value)}
                   >
@@ -433,7 +433,7 @@ const ProjectInstallDetail: Component<{
             </Show>
           </section>
 
-          <section class="rounded-card bg-n-2 px-[14px] py-[14px]">
+          <section class="glass-panel rounded-card px-[14px] py-[14px]">
             <Show when={selectedInstance()} fallback={<div class="text-[13px] text-n-6">选择一个实例后安装。</div>}>
               {(inst) => (
                 <div class="flex flex-col gap-[10px]">
@@ -462,7 +462,7 @@ const ProjectInstallDetail: Component<{
                       <For each={links()}>
                         {(link) => (
                           <button
-                            class="h-[28px] rounded-ctl border border-n-3 bg-card px-[10px] text-[12px] text-a-6 cursor-pointer hover:bg-a-1"
+                            class="h-[28px] rounded-ctl border border-glass-border bg-glass-card px-[10px] text-[12px] text-a-6 cursor-pointer hover:bg-a-1"
                             onClick={() => shellOpen(link.url)}
                           >
                             {link.label} ↗

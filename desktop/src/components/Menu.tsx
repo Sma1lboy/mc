@@ -18,7 +18,7 @@ import { Menu as Ark } from "@ark-ui/solid/menu";
 // 简单文字项的交互/着色基样式。
 const ITEM_NORMAL =
   "flex items-center px-[10px] py-[7px] rounded-xs cursor-pointer select-none " +
-  "text-fg data-[highlighted]:bg-n-5 motion-reduce:transition-none";
+  "text-fg data-[highlighted]:bg-glass-hover motion-reduce:transition-none";
 const ITEM_DANGER =
   "flex items-center px-[10px] py-[7px] rounded-xs cursor-pointer select-none " +
   "text-[#e5848a] data-[highlighted]:bg-[rgba(229,132,138,0.14)] motion-reduce:transition-none";
@@ -34,7 +34,7 @@ function MenuContent(props: MenuContentProps): JSX.Element {
       <Ark.Positioner>
         <Ark.Content
           class={
-            "z-[300] min-w-[168px] p-[4px] border border-n-6 rounded-ctl bg-card shadow-card " +
+            "z-[300] min-w-[168px] p-[4px] rounded-ctl glass-pop " +
             "flex flex-col gap-[2px] text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5 " +
             (props.class ?? "")
           }
@@ -64,7 +64,7 @@ function MenuItem(props: MenuItemProps): JSX.Element {
 }
 
 function MenuSeparator(props: { class?: string }): JSX.Element {
-  return <Ark.Separator class={"my-[4px] h-px bg-n-6 border-none " + (props.class ?? "")} />;
+  return <Ark.Separator class={"my-[4px] h-px bg-glass-divider border-none " + (props.class ?? "")} />;
 }
 
 export const Menu = {

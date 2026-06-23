@@ -154,7 +154,7 @@ export const AccountDialog: Component<{
       open
       onClose={props.onClose}
       label={title()}
-      contentClass="w-[380px] max-w-[calc(100vw-48px)] bg-card rounded-card shadow-card overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-4"
+      contentClass="w-[380px] max-w-[calc(100vw-48px)] glass-pop rounded-card overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-4"
     >
       <div class="flex items-center justify-between px-[18px] py-[14px] text-[15px] font-bold text-white bg-[linear-gradient(90deg,var(--a-6),var(--a-5))]">
         <span>{title()}</span>
@@ -176,7 +176,7 @@ export const AccountDialog: Component<{
               <For each={accountList()}>
                 {(acc) => (
                   <div
-                    class="group flex items-center gap-[10px] px-[10px] py-[8px] rounded-ctl border border-n-6 bg-card cursor-pointer transition-[background-color,border-color] duration-150 hover:bg-a-1 hover:border-a-4"
+                    class="group flex items-center gap-[10px] px-[10px] py-[8px] rounded-ctl glass-card cursor-pointer transition-[background-color,border-color] duration-150 hover:bg-a-1 hover:border-a-4"
                     classList={{ "!border-a-4 !bg-a-1": acc.selected }}
                     onClick={() => selectExisting(acc)}
                   >
@@ -207,7 +207,7 @@ export const AccountDialog: Component<{
           </Show>
 
           <button
-            class="flex items-center gap-[14px] px-[16px] py-[14px] border border-n-6 rounded-ctl bg-card cursor-pointer text-left transition-[background-color,border-color,transform] duration-150 ease-app hover:bg-a-1 hover:border-a-4 hover:-translate-y-px"
+            class="flex items-center gap-[14px] px-[16px] py-[14px] rounded-ctl glass-card cursor-pointer text-left transition-[background-color,border-color,transform] duration-150 ease-app hover:bg-a-1 hover:border-a-4 hover:-translate-y-px"
             onClick={startMsa}
           >
             <span class="text-[26px]">🪟</span>
@@ -217,7 +217,7 @@ export const AccountDialog: Component<{
             </span>
           </button>
           <button
-            class="flex items-center gap-[14px] px-[16px] py-[14px] border border-n-6 rounded-ctl bg-card cursor-pointer text-left transition-[background-color,border-color,transform] duration-150 ease-app hover:bg-a-1 hover:border-a-4 hover:-translate-y-px"
+            class="flex items-center gap-[14px] px-[16px] py-[14px] rounded-ctl glass-card cursor-pointer text-left transition-[background-color,border-color,transform] duration-150 ease-app hover:bg-a-1 hover:border-a-4 hover:-translate-y-px"
             onClick={() => {
               setStep("offline");
               setError(null);
@@ -230,7 +230,7 @@ export const AccountDialog: Component<{
             </span>
           </button>
           <button
-            class="flex items-center gap-[14px] px-[16px] py-[14px] border border-n-6 rounded-ctl bg-card cursor-pointer text-left transition-[background-color,border-color,transform] duration-150 ease-app hover:bg-a-1 hover:border-a-4 hover:-translate-y-px"
+            class="flex items-center gap-[14px] px-[16px] py-[14px] rounded-ctl glass-card cursor-pointer text-left transition-[background-color,border-color,transform] duration-150 ease-app hover:bg-a-1 hover:border-a-4 hover:-translate-y-px"
             onClick={() => {
               setStep("yggdrasil");
               setError(null);
@@ -295,7 +295,7 @@ export const AccountDialog: Component<{
           <input
             id="account-dialog-offline-name"
             name="offlineAccountName"
-            class="h-[40px] px-[14px] border border-n-6 rounded-xs text-[14px] text-fg bg-n-2 transition-[border-color,background-color,box-shadow] duration-150 ease-app focus-visible:outline-none focus-visible:border-a-4 focus-visible:bg-card focus-visible:ring-2 focus-visible:ring-a-4/25"
+            class="h-[40px] px-[14px] border border-glass-border rounded-xs text-[14px] text-fg glass-input transition-[border-color,background-color,box-shadow] duration-150 ease-app focus-visible:outline-none focus-visible:border-a-4 focus-visible:bg-glass-card focus-visible:ring-2 focus-visible:ring-a-4/25"
             placeholder="输入用户名,例如 Steve…"
             autocomplete="off"
             spellcheck={false}
@@ -306,7 +306,7 @@ export const AccountDialog: Component<{
           <div class="flex justify-end gap-[10px]">
             <button
               type="button"
-              class="h-[36px] px-[18px] border border-n-6 rounded-xs bg-card text-fg text-[13px] cursor-pointer transition-[background-color,border-color] duration-150 ease-app hover:bg-n-5 hover:border-a-4"
+              class="h-[36px] px-[18px] border border-glass-border rounded-xs bg-glass-card text-fg text-[13px] cursor-pointer transition-[background-color,border-color] duration-150 ease-app hover:bg-glass-hover hover:border-a-4"
               onClick={() => setStep("menu")}
             >
               返回
@@ -326,7 +326,7 @@ export const AccountDialog: Component<{
       <Show when={step() === "yggdrasil"}>
         <form class="p-[18px] flex flex-col gap-[10px]" onSubmit={submitYggdrasil}>
           <input
-            class="h-[38px] px-[14px] border border-n-6 rounded-xs text-[13px] text-fg bg-n-2 focus-visible:outline-none focus-visible:border-a-4 focus-visible:bg-card"
+            class="h-[38px] px-[14px] border border-glass-border rounded-xs text-[13px] text-fg glass-input focus-visible:outline-none focus-visible:border-a-4 focus-visible:bg-glass-card"
             placeholder="皮肤站 API 地址,如 https://littleskin.cn/api/yggdrasil"
             autocomplete="off"
             spellcheck={false}
@@ -334,7 +334,7 @@ export const AccountDialog: Component<{
             onInput={(e) => setYgBase(e.currentTarget.value)}
           />
           <input
-            class="h-[38px] px-[14px] border border-n-6 rounded-xs text-[13px] text-fg bg-n-2 focus-visible:outline-none focus-visible:border-a-4 focus-visible:bg-card"
+            class="h-[38px] px-[14px] border border-glass-border rounded-xs text-[13px] text-fg glass-input focus-visible:outline-none focus-visible:border-a-4 focus-visible:bg-glass-card"
             placeholder="邮箱 / 用户名"
             autocomplete="username"
             value={ygUser()}
@@ -342,7 +342,7 @@ export const AccountDialog: Component<{
           />
           <input
             type="password"
-            class="h-[38px] px-[14px] border border-n-6 rounded-xs text-[13px] text-fg bg-n-2 focus-visible:outline-none focus-visible:border-a-4 focus-visible:bg-card"
+            class="h-[38px] px-[14px] border border-glass-border rounded-xs text-[13px] text-fg glass-input focus-visible:outline-none focus-visible:border-a-4 focus-visible:bg-glass-card"
             placeholder="密码"
             autocomplete="current-password"
             value={ygPass()}
@@ -351,7 +351,7 @@ export const AccountDialog: Component<{
           <div class="flex justify-end gap-[10px] pt-[2px]">
             <button
               type="button"
-              class="h-[36px] px-[18px] border border-n-6 rounded-xs bg-card text-fg text-[13px] cursor-pointer hover:bg-n-5 hover:border-a-4"
+              class="h-[36px] px-[18px] border border-glass-border rounded-xs bg-glass-card text-fg text-[13px] cursor-pointer hover:bg-glass-hover hover:border-a-4"
               onClick={() => setStep("menu")}
             >
               返回

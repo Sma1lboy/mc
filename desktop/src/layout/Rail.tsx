@@ -118,7 +118,7 @@ const Rail: Component = () => {
 
   return (
     <nav
-      class="[grid-area:rail] w-[64px] h-full flex flex-col items-center bg-n-2 border-r border-n-6 pt-[36px] px-0 pb-[8px] gap-[4px] box-border"
+      class="[grid-area:rail] w-[64px] h-full flex flex-col items-center glass-panel border-r border-glass-divider pt-[36px] px-0 pb-[8px] gap-[4px] box-border"
       aria-label="主导航"
     >
       {/* 顶部 Logo */}
@@ -154,7 +154,7 @@ const Rail: Component = () => {
       </div>
 
       <div
-        class="w-[32px] h-[1px] bg-n-6 my-[6px] shrink-0"
+        class="w-[32px] h-[1px] bg-glass-divider my-[6px] shrink-0"
         aria-hidden="true"
       />
 
@@ -190,7 +190,7 @@ const Rail: Component = () => {
 
         {/* 账号头像:无账号→弹登录;有账号→进 Home 账号面板。加载中显示占位环。 */}
         <button
-          class="w-[36px] h-[36px] border border-n-6 bg-n-4 rounded-full cursor-pointer grid place-items-center overflow-hidden transition-[border-color,transform] duration-200 ease-app motion-reduce:transition-none hover:border-a-4 active:scale-[0.94]"
+          class="w-[36px] h-[36px] border border-glass-border bg-glass-card rounded-full cursor-pointer grid place-items-center overflow-hidden transition-[border-color,transform] duration-200 ease-app motion-reduce:transition-none hover:border-a-4 active:scale-[0.94]"
           title={activeAccount()?.username ?? "登录 / 添加账号"}
           onClick={onAvatarClick}
         >

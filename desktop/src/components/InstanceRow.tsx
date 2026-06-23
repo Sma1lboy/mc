@@ -69,7 +69,7 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
 
   return (
     <>
-      <div class="flex items-center gap-[14px] bg-card rounded-card shadow-card border border-transparent px-[14px] py-[12px] transition-[transform,box-shadow,border-color,background-color] duration-[var(--dur)] ease-app hover:-translate-y-[2px] hover:shadow-[0_6px_20px_rgba(0,0,0,0.42)] hover:border-n-6">
+      <div class="flex items-center gap-[14px] glass-card glass-card--hover rounded-card px-[14px] py-[12px] transition-[transform,box-shadow,border-color,background-color] duration-[var(--dur)] ease-app hover:-translate-y-[2px]">
         {/* 左: 图标 (有 icon 显示图片, 否则渐变 + 首字母)。 */}
         <div class="relative shrink-0 w-[48px] h-[48px] rounded-ctl overflow-hidden flex items-center justify-center bg-gradient-to-br from-a-3 to-a-5 text-white font-bold text-[20px] uppercase select-none">
           <Show when={inst().icon} fallback={<span>{initial()}</span>}>
@@ -104,7 +104,7 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
           <PlayButton running={running()} onClick={() => props.onPlay?.(inst().id)} />
           <Menu.Root positioning={{ placement: "bottom-end" }} onSelect={(d: { value: string }) => onSelectAction(d.value)}>
             <Menu.Trigger
-              class="inline-flex items-center justify-center w-[34px] h-[34px] border-none bg-transparent text-dim rounded-ctl cursor-pointer transition-[background-color,color] duration-[var(--dur)] ease-app hover:bg-n-5 hover:text-fg data-[state=open]:bg-n-5 data-[state=open]:text-fg"
+              class="inline-flex items-center justify-center w-[34px] h-[34px] border-none bg-transparent text-dim rounded-ctl cursor-pointer transition-[background-color,color] duration-[var(--dur)] ease-app hover:bg-glass-hover hover:text-fg data-[state=open]:bg-glass-hover data-[state=open]:text-fg"
               aria-label="更多操作"
             >
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
@@ -132,7 +132,7 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
         open={confirmOpen()}
         onClose={() => setConfirmOpen(false)}
         label="删除实例"
-        contentClass="w-[360px] max-w-[calc(100vw-48px)] bg-card rounded-card shadow-card overflow-hidden"
+        contentClass="w-[360px] max-w-[calc(100vw-48px)] glass-pop rounded-card overflow-hidden"
       >
         <div class="p-[20px] flex flex-col gap-[14px]">
           <div class="text-[15px] font-semibold text-fg">删除实例「{inst().name}」?</div>
@@ -141,7 +141,7 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
           </div>
           <div class="flex justify-end gap-[10px]">
             <button
-              class="h-[34px] px-[16px] border border-n-6 rounded-xs bg-n-4 text-fg text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-n-5"
+              class="h-[34px] px-[16px] border border-glass-border rounded-xs bg-glass-card text-fg text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-glass-hover"
               onClick={() => setConfirmOpen(false)}
             >
               取消

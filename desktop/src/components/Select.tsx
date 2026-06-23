@@ -37,7 +37,7 @@ export const Select: Component<SelectProps> = (props) => {
         <Ark.Trigger
           class={
             "inline-flex items-center justify-between gap-[8px] min-w-[200px] px-[10px] py-[6px] " +
-            "rounded-ctl border border-n-6 bg-n-2 text-fg text-[13px] cursor-pointer " +
+            "rounded-ctl glass-panel border border-glass-border text-fg text-[13px] cursor-pointer " +
             "transition-[border-color,box-shadow] duration-150 ease-app hover:border-a-4 data-[state=open]:border-a-4 " +
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5/25 " +
             (props.class ?? "")
@@ -51,12 +51,12 @@ export const Select: Component<SelectProps> = (props) => {
       </Ark.Control>
       <Portal>
         <Ark.Positioner>
-          <Ark.Content class="z-[300] max-h-[320px] overflow-y-auto rounded-ctl border border-n-6 bg-card shadow-card p-[4px] text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5">
+          <Ark.Content class="z-[300] max-h-[320px] overflow-y-auto rounded-ctl glass-pop p-[4px] text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5">
             <For each={props.options}>
               {(opt) => (
                 <Ark.Item
                   item={opt}
-                  class="flex items-center justify-between gap-[8px] px-[10px] py-[7px] rounded-xs text-fg cursor-pointer select-none data-[highlighted]:bg-n-4 data-[state=checked]:text-a-6"
+                  class="flex items-center justify-between gap-[8px] px-[10px] py-[7px] rounded-xs text-fg cursor-pointer select-none data-[highlighted]:bg-glass-hover data-[state=checked]:text-a-6"
                 >
                   <Ark.ItemText class="truncate">{opt.label}</Ark.ItemText>
                   <Ark.ItemIndicator class="shrink-0 text-a-6">

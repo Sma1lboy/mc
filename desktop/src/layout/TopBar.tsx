@@ -96,7 +96,7 @@ const TopBar: Component = () => {
   return (
     // data-tauri-drag-region:让顶栏空白处可拖动窗口
     <header
-      class="[grid-area:topbar] h-[48px] flex items-center justify-between bg-n-2 border-b border-n-6 pl-[14px] pr-[8px] box-border select-none"
+      class="[grid-area:topbar] h-[48px] flex items-center justify-between glass-panel border-b border-glass-divider pl-[14px] pr-[8px] box-border select-none"
       data-tauri-drag-region
     >
       {/* 左侧:Logo 名 + 导航箭头 + 标题 */}
@@ -111,7 +111,7 @@ const TopBar: Component = () => {
         {/* 后退/前进:当前无页面历史栈,渲染为禁用占位(no-drag 避免吞点击) */}
         <div class="flex items-center gap-[2px] [-webkit-app-region:no-drag]">
           <button
-            class="w-[28px] h-[28px] border-none bg-transparent rounded-ctl text-n-7 cursor-pointer grid place-items-center transition-[background-color,color] duration-[var(--dur)] ease-app motion-reduce:transition-none not-disabled:hover:bg-n-5 not-disabled:hover:text-fg disabled:opacity-35 disabled:cursor-default"
+            class="w-[28px] h-[28px] border-none bg-transparent rounded-ctl text-n-7 cursor-pointer grid place-items-center transition-[background-color,color] duration-[var(--dur)] ease-app motion-reduce:transition-none not-disabled:hover:bg-glass-hover not-disabled:hover:text-fg disabled:opacity-35 disabled:cursor-default"
             disabled
             title="后退"
             aria-label="后退"
@@ -119,7 +119,7 @@ const TopBar: Component = () => {
             <ArrowLeft />
           </button>
           <button
-            class="w-[28px] h-[28px] border-none bg-transparent rounded-ctl text-n-7 cursor-pointer grid place-items-center transition-[background-color,color] duration-[var(--dur)] ease-app motion-reduce:transition-none not-disabled:hover:bg-n-5 not-disabled:hover:text-fg disabled:opacity-35 disabled:cursor-default"
+            class="w-[28px] h-[28px] border-none bg-transparent rounded-ctl text-n-7 cursor-pointer grid place-items-center transition-[background-color,color] duration-[var(--dur)] ease-app motion-reduce:transition-none not-disabled:hover:bg-glass-hover not-disabled:hover:text-fg disabled:opacity-35 disabled:cursor-default"
             disabled
             title="前进"
             aria-label="前进"
@@ -140,7 +140,7 @@ const TopBar: Component = () => {
       <div class="flex items-center gap-[12px]">
         {/* 一键切到经典视图(对比两套界面) */}
         <button
-          class="[-webkit-app-region:no-drag] border border-n-6 bg-n-4 text-dim text-[12px] px-[10px] py-[5px] rounded-ctl cursor-pointer mr-[12px] transition-[background-color,color,border-color] duration-[var(--dur)] ease-app hover:bg-a-4 hover:text-white hover:border-a-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5 focus-visible:ring-offset-2 focus-visible:ring-offset-n-2"
+          class="[-webkit-app-region:no-drag] border border-glass-border bg-glass-card text-dim text-[12px] px-[10px] py-[5px] rounded-ctl cursor-pointer mr-[12px] transition-[background-color,color,border-color] duration-[var(--dur)] ease-app hover:bg-a-4 hover:text-white hover:border-a-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5 focus-visible:ring-offset-2 focus-visible:ring-offset-n-2"
           onClick={() => switchLayout("classic")}
         >
           切到经典视图 ⇄
@@ -172,7 +172,7 @@ const TopBar: Component = () => {
         {/* 窗口控制:no-drag,调 Tauri window API。原生交通灯按钮已提供,这里隐藏自绘控制以免重复。 */}
         <div class="hidden items-center gap-[2px] [-webkit-app-region:no-drag]">
           <button
-            class="w-[30px] h-[30px] border-none bg-transparent rounded-ctl text-n-7 cursor-pointer grid place-items-center transition-[background-color,color] duration-[var(--dur)] ease-app motion-reduce:transition-none hover:bg-n-5 hover:text-fg"
+            class="w-[30px] h-[30px] border-none bg-transparent rounded-ctl text-n-7 cursor-pointer grid place-items-center transition-[background-color,color] duration-[var(--dur)] ease-app motion-reduce:transition-none hover:bg-glass-hover hover:text-fg"
             title="最小化"
             aria-label="最小化"
             onClick={() => windowAction((w) => w.minimize())}

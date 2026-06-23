@@ -41,10 +41,10 @@ export function ModpackCard(props: ModpackCardProps): JSX.Element {
   return (
     <div
       class={
-        "flex flex-col bg-card rounded-card shadow-card border border-transparent " +
+        "flex flex-col glass-card glass-card--hover rounded-card " +
         "overflow-hidden cursor-pointer " +
-        "transition-[transform,box-shadow,border-color] duration-[var(--dur)] ease-app " +
-        "hover:-translate-y-[3px] hover:shadow-[0_8px_24px_rgba(0,0,0,0.45)] hover:border-n-6 " +
+        "transition-[transform,box-shadow,border-color,background-color] duration-[var(--dur)] ease-app " +
+        "hover:-translate-y-[3px] " +
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5"
       }
       role={props.onClick ? "button" : undefined}
@@ -119,7 +119,7 @@ export function ModpackCard(props: ModpackCardProps): JSX.Element {
           <div class="flex items-center flex-nowrap gap-[5px] overflow-hidden">
             <For each={chips()}>
               {(cat) => (
-                <span class="text-[11px] text-dim bg-n-5 rounded-xs px-[7px] py-[2px] whitespace-nowrap capitalize">
+                <span class="text-[11px] text-dim bg-glass-card rounded-xs px-[7px] py-[2px] whitespace-nowrap capitalize">
                   {cat}
                 </span>
               )}

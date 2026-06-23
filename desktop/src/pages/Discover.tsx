@@ -138,7 +138,7 @@ const Discover: Component = () => {
               class="px-[14px] py-[6px] border-none rounded-ctl text-[13px] cursor-pointer transition-[background-color,color,box-shadow] duration-[var(--dur)] ease-app focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5 focus-visible:ring-offset-2 focus-visible:ring-offset-n-1"
               classList={{
                 "bg-a-4 text-white": kind() === k.key,
-                "bg-n-4 text-dim hover:bg-n-5 hover:text-fg": kind() !== k.key,
+                "bg-glass-card text-dim hover:bg-glass-hover hover:text-fg": kind() !== k.key,
               }}
               onClick={() => setKind(k.key)}
             >
@@ -173,7 +173,7 @@ const Discover: Component = () => {
           <Show when={!reachedEnd()}>
             <div class="flex justify-center mt-[16px]">
               <button
-                class="px-[20px] py-[8px] rounded-ctl border border-n-6 bg-n-4 text-fg text-[13px] cursor-pointer transition-[background-color] duration-[var(--dur)] ease-app hover:bg-n-5 disabled:opacity-50 disabled:cursor-default"
+                class="px-[20px] py-[8px] rounded-ctl border border-glass-border bg-glass-card text-fg text-[13px] cursor-pointer transition-[background-color] duration-[var(--dur)] ease-app hover:bg-glass-hover disabled:opacity-50 disabled:cursor-default"
                 disabled={loadingMore()}
                 onClick={loadMore}
               >

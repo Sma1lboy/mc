@@ -14,7 +14,7 @@ const BTN_BASE =
 const BTN_VARIANT: Record<string, string> = {
   primary: "bg-a-4 text-white hover:enabled:bg-a-5 active:enabled:bg-a-3",
   ghost:
-    "bg-transparent text-fg hover:enabled:bg-n-5 active:enabled:bg-n-6",
+    "bg-transparent text-fg hover:enabled:bg-glass-hover active:enabled:bg-n-6",
   danger:
     "bg-[#ff5c5c] text-white hover:enabled:bg-[#ff7575] active:enabled:bg-[#e34a4a]",
 };

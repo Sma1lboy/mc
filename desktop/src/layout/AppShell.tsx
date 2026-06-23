@@ -29,7 +29,7 @@ const AppShell: Component = () => {
   const showContext = () => route().showContext ?? false;
 
   return (
-    <div class="app-shell grid w-screen h-screen bg-n-1 text-fg text-[length:var(--fs-base)] overflow-hidden">
+    <div class="app-shell grid w-screen h-screen text-fg text-[length:var(--fs-base)] overflow-hidden">
       <Rail />
       <TopBar />
       {/* body:有右栏时两列(1fr 340px),无右栏时单列铺满 */}
@@ -40,7 +40,7 @@ const AppShell: Component = () => {
           "grid-cols-[1fr_340px]": showContext(),
         }}
       >
-        <main class="[grid-row:1] [grid-column:1] w-full h-full min-w-0 min-h-0 overflow-y-auto overflow-x-hidden bg-n-3">
+        <main class="[grid-row:1] [grid-column:1] w-full h-full min-w-0 min-h-0 overflow-y-auto overflow-x-hidden bg-transparent">
           {/* 根据 currentPage 从路由表取组件渲染(同一时刻只挂一个页面)。 */}
           <Dynamic component={route().component} />
         </main>
