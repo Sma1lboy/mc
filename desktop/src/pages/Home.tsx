@@ -1,6 +1,5 @@
-import { Component, createResource, createSignal, For, Show, onCleanup } from "solid-js";
+import { Component, createResource, For, Show, onCleanup } from "solid-js";
 import {
-  InstanceManageDialog,
   InstanceRow,
   ModpackCard,
   Spinner,
@@ -9,7 +8,7 @@ import {
   type ModpackHit,
 } from "../components";
 import { api, onLaunchProgress } from "../ipc/api";
-import { activeRoot, isRunning } from "../store";
+import { activeRoot, isRunning, openInstance } from "../store";
 import { openInstanceDir, exportInstanceMrpack, deleteInstance } from "../util/instanceActions";
 import type { InstanceSummary, SearchHit } from "../ipc/types";
 
@@ -73,11 +72,6 @@ const Home: Component = () => {
       .sort((a, b) => (b.last_played ?? 0) - (a.last_played ?? 0))
       .slice(0, 6);
 
-  // 当前在「管理」弹窗里的实例(null = 关闭)。
-  const [manageInst, setManageInst] = createSignal<InstanceSummary | null>(null);
-  const openManage = (id: string) =>
-    setManageInst(instances()?.find((i) => i.id === id) ?? null);
-
   async function play(id: string) {
     // 运行中再点 = 停止;否则启动。运行态由 store 依事件维护。
     if (isRunning(id)) {
@@ -121,7 +115,8 @@ const Home: Component = () => {
                 <InstanceRow
                   instance={toRowData(inst)}
                   onPlay={play}
-                  onManage={openManage}
+                  onOpen={openInstance}
+                  onManage={openInstance}
                   onOpenDir={(id) => void openInstanceDir(activeRoot(), id)}
                   onExport={() => void exportInstanceMrpack(activeRoot(), toRowData(inst))}
                   onDelete={async (id) => {
@@ -154,16 +149,6 @@ const Home: Component = () => {
         </Show>
       </section>
 
-      <InstanceManageDialog
-        open={!!manageInst()}
-        instance={manageInst()}
-        onClose={() => setManageInst(null)}
-        onChanged={() => void refetchInstances()}
-        onCopied={() => {
-          setManageInst(null);
-          void refetchInstances();
-        }}
-      />
     </div>
   );
 };

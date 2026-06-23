@@ -22,6 +22,7 @@ const PAGE_TITLES: Record<string, string> = {
   discover: "发现",
   library: "库",
   settings: "设置",
+  instance: "实例",
 };
 
 const MinimizeIcon = () => (

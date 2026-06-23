@@ -4,6 +4,7 @@ import Home from "./pages/Home";
 import Library from "./pages/Library";
 import Discover from "./pages/Discover";
 import Settings from "./pages/Settings";
+import InstanceDetail from "./pages/InstanceDetail";
 import ClassicLaunch from "./pages/ClassicLaunch";
 import ClassicMore from "./pages/ClassicMore";
 
@@ -25,6 +26,7 @@ export const WORKSPACE_ROUTES: Route[] = [
   { page: "discover", component: Discover },
   { page: "library", component: Library },
   { page: "settings", component: Settings },
+  { page: "instance", component: InstanceDetail },
 ];
 
 /** 经典布局的页面;首项为兜底。 */

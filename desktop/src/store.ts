@@ -5,7 +5,7 @@ import { toast } from "./components/Toast";
 
 // 页面标识。工作台布局用 home/library/discover/settings;
 // 经典布局用 launch/discover/settings/more(顶部 Tab,带图标)。
-export type Page = "home" | "library" | "discover" | "settings" | "launch" | "more";
+export type Page = "home" | "library" | "discover" | "settings" | "instance" | "launch" | "more";
 
 /** 界面布局风格:工作台视图或经典视图。 */
 export type LayoutMode = "workspace" | "classic";
@@ -80,6 +80,23 @@ export function switchLayout(mode: LayoutMode) {
     void saveTheme(themeForLayout(mode)).catch(() => {});
   }
   setCurrentPage(mode === "classic" ? "launch" : "home");
+}
+
+// ===== 实例详情页 =====
+// 点击实例进入详情页(currentPage="instance"),记住来源页用于返回。
+export const [currentInstanceId, setCurrentInstanceId] = createSignal<string | null>(null);
+const [instanceReturnPage, setInstanceReturnPage] = createSignal<Page>("home");
+
+/** 进入某实例的详情页。 */
+export function openInstance(id: string): void {
+  if (currentPage() !== "instance") setInstanceReturnPage(currentPage());
+  setCurrentInstanceId(id);
+  setCurrentPage("instance");
+}
+
+/** 从详情页返回来源页。 */
+export function closeInstance(): void {
+  setCurrentPage(instanceReturnPage());
 }
 
 // ===== 界面透明度(窗口面纱)=====

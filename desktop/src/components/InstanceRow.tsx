@@ -27,6 +27,8 @@ export interface InstanceRowData {
 export interface InstanceRowProps {
   instance: InstanceRowData;
   onPlay?: (id: string) => void;
+  /** 点击行主体(图标+名称区)进入实例详情。 */
+  onOpen?: (id: string) => void;
   onManage?: (id: string) => void;
   onOpenDir?: (id: string) => void;
   onExport?: (id: string) => void;
@@ -70,34 +72,41 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
   return (
     <>
       <div class="flex items-center gap-[14px] glass-card glass-card--hover rounded-card px-[14px] py-[12px] transition-[transform,box-shadow,border-color,background-color] duration-[var(--dur)] ease-app hover:-translate-y-[2px]">
-        {/* 左: 图标 (有 icon 显示图片, 否则渐变 + 首字母)。 */}
-        <div class="relative shrink-0 w-[48px] h-[48px] rounded-ctl overflow-hidden flex items-center justify-center bg-gradient-to-br from-a-3 to-a-5 text-white font-bold text-[20px] uppercase select-none">
-          <Show when={inst().icon} fallback={<span>{initial()}</span>}>
-            <img src={inst().icon} alt="" width="48" height="48" loading="lazy" class="w-full h-full object-cover block" />
-          </Show>
-          {/* 运行中绿点。 */}
-          <Show when={running()}>
-            <span
-              class="absolute right-[2px] bottom-[2px] w-[11px] h-[11px] rounded-full bg-a-5 shadow-[0_0_0_2px_var(--bg-card)]"
-              title="Running"
-            />
-          </Show>
-        </div>
+        {/* 行主体:点击进入实例详情。 */}
+        <button
+          type="button"
+          class="flex items-center gap-[14px] flex-1 min-w-0 bg-transparent border-none p-0 text-left cursor-pointer"
+          onClick={() => props.onOpen?.(inst().id)}
+        >
+          {/* 左: 图标 (有 icon 显示图片, 否则渐变 + 首字母)。 */}
+          <div class="relative shrink-0 w-[48px] h-[48px] rounded-ctl overflow-hidden flex items-center justify-center bg-gradient-to-br from-a-3 to-a-5 text-white font-bold text-[20px] uppercase select-none">
+            <Show when={inst().icon} fallback={<span>{initial()}</span>}>
+              <img src={inst().icon} alt="" width="48" height="48" loading="lazy" class="w-full h-full object-cover block" />
+            </Show>
+            {/* 运行中绿点。 */}
+            <Show when={running()}>
+              <span
+                class="absolute right-[2px] bottom-[2px] w-[11px] h-[11px] rounded-full bg-a-5 shadow-[0_0_0_2px_var(--bg-card)]"
+                title="Running"
+              />
+            </Show>
+          </div>
 
-        {/* 中: 名称 + 元信息。 */}
-        <div class="flex-1 min-w-0 flex flex-col gap-[3px]">
-          <div
-            class="text-[length:var(--fs-base)] font-semibold text-fg whitespace-nowrap overflow-hidden text-ellipsis"
-            title={inst().name}
-          >
-            {inst().name}
+          {/* 中: 名称 + 元信息。 */}
+          <div class="flex-1 min-w-0 flex flex-col gap-[3px]">
+            <div
+              class="text-[length:var(--fs-base)] font-semibold text-fg whitespace-nowrap overflow-hidden text-ellipsis"
+              title={inst().name}
+            >
+              {inst().name}
+            </div>
+            <div class="text-[12px] text-dim whitespace-nowrap overflow-hidden text-ellipsis flex items-center gap-[6px]">
+              <span>{loaderLabel()}</span>
+              <span class="opacity-50">·</span>
+              <span>{playedLabel()}</span>
+            </div>
           </div>
-          <div class="text-[12px] text-dim whitespace-nowrap overflow-hidden text-ellipsis flex items-center gap-[6px]">
-            <span>{loaderLabel()}</span>
-            <span class="opacity-50">·</span>
-            <span>{playedLabel()}</span>
-          </div>
-        </div>
+        </button>
 
         {/* 右: Play + ⋮ 菜单(Ark Menu:键盘可达 + 点外部/Esc 关闭)。 */}
         <div class="shrink-0 flex items-center gap-[6px]">
