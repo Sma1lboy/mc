@@ -264,6 +264,28 @@ export const api = {
     });
   },
 
+  /**
+   * 给已有实例添加 / 切换 mod 加载器(core);进度走 install://progress。
+   * loader: "fabric" | "quilt" | "forge" | "neoforge";forge/neoforge 需 loaderVersion。
+   * 返回之后应使用的实例 id —— 多数情况与传入 id 相同,但「实例目录本身就是裸原版」
+   * 的退化情形会返回一个新 id(调用方应据此刷新选中的实例)。
+   */
+  installLoader(
+    root: string,
+    id: string,
+    mcVersion: string,
+    loader: string,
+    loaderVersion?: string | null,
+  ): Promise<string> {
+    return invoke<string>("install_loader", {
+      root,
+      id,
+      mcVersion,
+      loader,
+      loaderVersion: loaderVersion ?? null,
+    });
+  },
+
   /** 列出官方版本清单;snapshot=true 时包含快照 */
   listVersions(snapshot: boolean): Promise<ManifestVersion[]> {
     return invoke<ManifestVersion[]>("list_versions", { snapshot });

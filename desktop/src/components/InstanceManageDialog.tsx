@@ -17,10 +17,11 @@ import { ContentBrowser } from "./ContentBrowser";
 import { ModpackOverview } from "./ModpackOverview";
 import { ProjectDetailPanel } from "./ProjectDetailPanel";
 import { Spinner } from "./Spinner";
+import { Select } from "./Select";
 import { toast } from "./Toast";
-import { api } from "../ipc/api";
+import { api, onInstallProgress } from "../ipc/api";
 import { openInstanceDir, openInstanceSubdir } from "../util/instanceActions";
-import { activeRoot } from "../store";
+import { activeRoot, openInstance } from "../store";
 import type {
   InstanceConfig,
   InstanceSummary,
@@ -689,6 +690,92 @@ const WorldsPanel: Component<{ instance: InstanceSummary; tick?: number }> = (pr
   );
 };
 
+/** 加载器选项(与后端 parse_loader_kind 对齐)。 */
+const LOADER_OPTS = [
+  { label: "Fabric", value: "fabric" },
+  { label: "Quilt", value: "quilt" },
+  { label: "Forge", value: "forge" },
+  { label: "NeoForge", value: "neoforge" },
+];
+
+/**
+ * AddLoaderPanel —— 原版实例「加装核心」:选加载器(+ Forge/NeoForge 版本)→ install_loader。
+ * 装完后端可能换实例 id(实例目录名恰为原版号的退化情形),回调把新 id 传出去重定向。
+ */
+const AddLoaderPanel: Component<{
+  instance: InstanceSummary;
+  onAdded: (newId: string) => void;
+}> = (props) => {
+  const [loader, setLoader] = createSignal("fabric");
+  const [version, setVersion] = createSignal("");
+  const [busy, setBusy] = createSignal(false);
+  const [progress, setProgress] = createSignal("");
+  const needsVersion = () => loader() === "forge" || loader() === "neoforge";
+
+  const off = onInstallProgress((p) => {
+    if (!busy()) return;
+    setProgress(p.total > 0 ? `${p.stage} ${p.current}/${p.total}` : p.stage);
+  });
+  onCleanup(off);
+
+  async function add() {
+    if (busy()) return;
+    if (needsVersion() && !version().trim()) {
+      toast({ type: "error", message: "请填写 Forge / NeoForge 版本" });
+      return;
+    }
+    setBusy(true);
+    setProgress("准备…");
+    try {
+      const newId = await api.installLoader(
+        activeRoot(),
+        props.instance.id,
+        props.instance.mc_version,
+        loader(),
+        needsVersion() ? version().trim() : null,
+      );
+      toast({ type: "success", message: "已加装核心,现在可以安装 Mod 了" });
+      props.onAdded(newId);
+    } catch (e) {
+      toast({ type: "error", message: `加装核心失败:${e}` });
+    } finally {
+      setBusy(false);
+      setProgress("");
+    }
+  }
+
+  return (
+    <div class="flex flex-col gap-[10px] py-[4px]">
+      <div class="text-[13px] text-dim leading-[1.6]">
+        该实例是原版(无加载器)。加装一个核心(加载器)后即可安装 Mod。
+      </div>
+      <div class="flex items-center gap-[8px]">
+        <Select value={loader()} onChange={setLoader} options={LOADER_OPTS} />
+        <Show when={needsVersion()}>
+          <input
+            class={`${FIELD} flex-1`}
+            placeholder={loader() === "forge" ? "Forge build,如 47.2.0" : "NeoForge 版本,如 20.4.237"}
+            value={version()}
+            onInput={(e) => setVersion(e.currentTarget.value)}
+          />
+        </Show>
+        <button
+          class="shrink-0 h-[34px] px-[14px] rounded-ctl bg-a-4 text-white text-[13px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90 disabled:opacity-50 disabled:cursor-default"
+          disabled={busy()}
+          onClick={add}
+        >
+          {busy() ? "安装中…" : "加装核心"}
+        </button>
+      </div>
+      <Show when={busy() && progress()}>
+        <div class="flex items-center gap-[8px] text-a-5 text-[12px]">
+          <Spinner size={14} /> {progress()}
+        </div>
+      </Show>
+    </div>
+  );
+};
+
 export const InstanceManageDialog: Component<{
   open: boolean;
   instance: InstanceSummary | null;
@@ -1152,9 +1239,13 @@ export const InstanceManageDialog: Component<{
               <Show
                 when={searchLoader() !== null}
                 fallback={
-                  <div class="text-[12px] text-dim py-[4px]">
-                    该实例没有加载器(原版),无法安装 mod。
-                  </div>
+                  <AddLoaderPanel
+                    instance={props.instance!}
+                    onAdded={(newId) => {
+                      props.onChanged?.();
+                      if (newId !== props.instance!.id) openInstance(newId);
+                    }}
+                  />
                 }
               >
                 {/* 默认不显示搜索;点「添加 Mod」才展开浏览,点结果进详情选版本安装。 */}

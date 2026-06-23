@@ -123,6 +123,130 @@ fn slugify_instance_id(name: &str) -> String {
 }
 
 // ===========================================================================
+// 给已有实例加 loader(核心)
+// ===========================================================================
+
+/// 版本 json 里我们需要读的两个字段(id / inheritsFrom)。和 `instance/mod.rs::VersionHead`
+/// 同形,但本模块自留一份以免跨模块暴露私有类型。
+#[derive(serde::Deserialize)]
+struct InstanceHead {
+    #[serde(rename = "inheritsFrom")]
+    inherits_from: Option<String>,
+}
+
+/// 给一个**已存在**的实例追加 / 切换 mod 加载器(core)。
+///
+/// 「版本即实例」模型下实例是个薄存根(`{ id, inheritsFrom: core_id }`),加 loader 就是
+/// 把它重指向「原版 + loader」核心。返回**之后应使用的实例 id** —— 多数情况下与传入
+/// `instance_id` 相同,但退化情形(见下)会返回一个新 id。
+///
+/// 两种情形:
+/// - **常规**:实例已带 `inheritsFrom`(或 id 本就不等于裸 mc 版本,即它是个存根而非
+///   原版目录本身)。直接装核心,再把存根 json 重写为 `{ id, inheritsFrom: core_id }`,id 不变。
+/// - **退化**:实例没有 `inheritsFrom` **且** `instance_id == mc_version`(实例目录就是那份
+///   裸原版,如 id `"1.20.1"`)。若原地重指向会造成「loader 核心 inheritsFrom 1.20.1 ==
+///   本目录」的自环,故先把本目录改名到一个新 id(连同内部 `<id>.json` / `<id>.jar` 一并改名),
+///   腾出 `mc_version` 这个名字;再装核心([`crate::loader::install_core`] 见缺原版会重建之),
+///   最后把改名后的实例存根重指向 loader 核心。返回新 id。
+///
+/// `loader == Vanilla`(或解析不出 loader)会被拒绝 —— 「加原版」无意义。
+pub async fn add_loader(
+    dl: &Downloader,
+    paths: &GamePaths,
+    instance_id: &str,
+    mc_version: &str,
+    loader: (LoaderKind, String),
+    progress: Option<watch::Sender<Progress>>,
+) -> Result<String> {
+    // 0. 校验:必须是真正的 loader。
+    if loader.0 == LoaderKind::Vanilla {
+        return Err(CoreError::other("不能给实例添加「原版」加载器"));
+    }
+
+    // 1. 读实例存根的 head(只取 id / inheritsFrom)。实例必须已存在。
+    let inst_json = paths.version_json(instance_id);
+    let raw = std::fs::read_to_string(&inst_json).with_path(&inst_json)?;
+    let head: InstanceHead = serde_json::from_str(&raw)
+        .map_err(|e| CoreError::Parse { what: "instance version json".into(), source: e })?;
+
+    // 2. 区分退化情形:无 inheritsFrom 且实例目录本身就是裸原版(id == mc_version)。
+    let is_degenerate = head.inherits_from.is_none() && instance_id == mc_version;
+
+    if is_degenerate {
+        // 2a. 先把裸原版目录改名到一个新 id,腾出 mc_version 这个名字给 install_core 重建。
+        let new_id = unique_loader_instance_id(paths, instance_id, loader.0);
+        rename_instance_dir(paths, instance_id, &new_id)?;
+
+        // 2b. 装核心:原版 mc_version 此刻已不存在,install_core 会重新拉回它并装好 loader。
+        let core_id = crate::loader::install_core(dl, paths, mc_version, Some(&loader), progress).await?;
+
+        // 2c. 把改名后的实例存根重指向 loader 核心。
+        relink_instance_stub(paths, &new_id, &core_id)?;
+        Ok(new_id)
+    } else {
+        // 常规:装核心后原地把存根重指向它,id 不变。
+        let core_id = crate::loader::install_core(dl, paths, mc_version, Some(&loader), progress).await?;
+        relink_instance_stub(paths, instance_id, &core_id)?;
+        Ok(instance_id.to_string())
+    }
+}
+
+/// 为退化情形挑一个唯一的新实例 id:基底 `{instance_id}-{loader}`(loader 小写),
+/// 已存在则 `-2` / `-3`…(复用 [`unique_instance_id`] 的避让逻辑)。
+fn unique_loader_instance_id(paths: &GamePaths, instance_id: &str, loader: LoaderKind) -> String {
+    let base = format!("{instance_id}-{}", loader.as_str().to_ascii_lowercase());
+    unique_instance_id(paths, &base)
+}
+
+/// 把版本目录 `versions/<old_id>/` 整体改名为 `versions/<new_id>/`,并把目录内随 id 命名的
+/// `<old_id>.json` / `<old_id>.jar` 一并改名为 `<new_id>.*`(json 内部 `id` 字段同步改写)。
+///
+/// 与 [`copy_instance`] 的差异:这是**移动**(原 id 目录消失),用于退化情形腾出 mc_version 名字;
+/// 其余游戏数据(mods/saves/instance.json/icon)随目录一并迁移,无需逐类处理。要求 `new_id`
+/// 目录此前不存在(由调用方经 [`unique_loader_instance_id`] 保证)。
+fn rename_instance_dir(paths: &GamePaths, old_id: &str, new_id: &str) -> Result<()> {
+    let old_dir = paths.version_dir(old_id);
+    let new_dir = paths.version_dir(new_id);
+    if new_dir.exists() {
+        return Err(CoreError::other(format!("目标实例目录 {new_id} 已存在,无法改名")));
+    }
+    // 1) 整目录改名。
+    std::fs::rename(&old_dir, &new_dir).with_path(&old_dir)?;
+
+    // 2) 目录内随旧 id 命名的版本 json 改名并改写内部 id。改名后磁盘上是
+    //    versions/<new_id>/<old_id>.json(内容里 id 仍是 old_id)。
+    let moved_old_json = new_dir.join(format!("{old_id}.json"));
+    let new_json = paths.version_json(new_id);
+    if moved_old_json.is_file() {
+        let raw = std::fs::read_to_string(&moved_old_json).with_path(&moved_old_json)?;
+        let rewritten = rewrite_version_id(&raw, new_id)?;
+        crate::fs::write_atomic(&new_json, rewritten.as_bytes())?;
+        if moved_old_json != new_json {
+            std::fs::remove_file(&moved_old_json).with_path(&moved_old_json)?;
+        }
+    }
+
+    // 3) 客户端 jar 随 id 改名(内容与 id 无关,仅文件名需匹配)。
+    let moved_old_jar = new_dir.join(format!("{old_id}.jar"));
+    let new_jar = paths.version_jar(new_id);
+    if moved_old_jar.is_file() && moved_old_jar != new_jar {
+        std::fs::rename(&moved_old_jar, &new_jar).with_path(&moved_old_jar)?;
+    }
+    Ok(())
+}
+
+/// 把实例存根版本 json 重写为最小的 `{ id, inheritsFrom: core_id }`(原子写)。
+///
+/// 实例是薄存根,除 id / inheritsFrom 外不承载版本元数据(库/参数都由继承链上的 core 提供),
+/// 故直接覆盖即可,无需保留其它字段。
+fn relink_instance_stub(paths: &GamePaths, instance_id: &str, core_id: &str) -> Result<()> {
+    let json = serde_json::json!({ "id": instance_id, "inheritsFrom": core_id });
+    let raw = serde_json::to_string_pretty(&json)
+        .map_err(|e| CoreError::Parse { what: "instance version json".into(), source: e })?;
+    crate::fs::write_atomic(&paths.version_json(instance_id), raw.as_bytes())
+}
+
+// ===========================================================================
 // 复制 / 删除
 // ===========================================================================
 
@@ -534,6 +658,147 @@ mod tests {
         assert_eq!(parsed["id"], "dst");
         assert_eq!(parsed["inheritsFrom"], "1.20.1");
         assert!(!paths.version_jar("dst").exists(), "源无 jar 时目标也不应有 jar");
+    }
+
+    // ---- add_loader: re-id + relink (network-free parts) ----
+
+    #[test]
+    fn add_loader_validation_rejects_vanilla() {
+        // 给实例加「原版」无意义,应被拒绝。整段 add_loader 走异步 + 真实下载器,
+        // 这里只验证早返回的校验分支(不触发任何网络)。
+        let root = TempRoot::new("add-loader-vanilla");
+        let paths = root.paths();
+        fs::create_dir_all(paths.version_dir("1.20.1")).unwrap();
+        fs::write(paths.version_json("1.20.1"), r#"{"id":"1.20.1"}"#).unwrap();
+
+        let dl = crate::download::Downloader::new(1).unwrap();
+        let err = futures::executor::block_on(add_loader(
+            &dl,
+            &paths,
+            "1.20.1",
+            "1.20.1",
+            (LoaderKind::Vanilla, String::new()),
+            None,
+        ))
+        .unwrap_err();
+        assert!(matches!(err, CoreError::Other(_)), "vanilla 应被拒绝");
+    }
+
+    #[test]
+    fn add_loader_unique_id_for_degenerate() {
+        // 退化情形的新 id 命名:{instance_id}-{loader}(小写),冲突加序号。
+        let root = TempRoot::new("add-loader-uid");
+        let paths = root.paths();
+        assert_eq!(unique_loader_instance_id(&paths, "1.20.1", LoaderKind::Fabric), "1.20.1-fabric");
+
+        // 该名已被占用时加序号。
+        fs::create_dir_all(paths.version_dir("1.20.1-fabric")).unwrap();
+        assert_eq!(unique_loader_instance_id(&paths, "1.20.1", LoaderKind::Fabric), "1.20.1-fabric-2");
+
+        // NeoForge 小写化。
+        assert_eq!(
+            unique_loader_instance_id(&paths, "1.21", LoaderKind::NeoForge),
+            "1.21-neoforge"
+        );
+    }
+
+    #[test]
+    fn relink_instance_stub_overwrites_with_inherits() {
+        // (i) 常规情形的核心动作:把存根 json 重写为 {id, inheritsFrom: core_id}。
+        let root = TempRoot::new("relink");
+        let paths = root.paths();
+        // 一个已带 inheritsFrom 的薄实例存根(继承原版)。
+        fs::create_dir_all(paths.version_dir("my-pack")).unwrap();
+        fs::write(
+            paths.version_json("my-pack"),
+            r#"{"id":"my-pack","inheritsFrom":"1.20.1"}"#,
+        )
+        .unwrap();
+
+        // 重指向 loader 核心(模拟 install_core 返回的 core_id)。
+        relink_instance_stub(&paths, "my-pack", "fabric-loader-0.15.7-1.20.1").unwrap();
+
+        let v: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(paths.version_json("my-pack")).unwrap()).unwrap();
+        assert_eq!(v["id"], "my-pack", "实例 id 不变");
+        assert_eq!(
+            v["inheritsFrom"], "fabric-loader-0.15.7-1.20.1",
+            "应重指向 loader 核心"
+        );
+        // 存根只保留这两个键(薄存根语义)。
+        assert_eq!(v.as_object().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn rename_instance_dir_moves_and_rewrites_id() {
+        // (ii) 退化情形的核心动作:把裸原版目录整体改名到新 id,内部 json/jar 一并改名,
+        // 改名后原 id(== mc_version)的目录消失,可供 install_core 重建原版。
+        let root = TempRoot::new("reid");
+        let paths = root.paths();
+
+        // 造一个「实例目录就是裸原版」的退化实例:id "1.20.1",带 jar、mod、icon、instance.json。
+        let old_dir = paths.version_dir("1.20.1");
+        fs::create_dir_all(&old_dir).unwrap();
+        fs::write(
+            paths.version_json("1.20.1"),
+            r#"{"id":"1.20.1","type":"release","mainClass":"net.minecraft.client.main.Main"}"#,
+        )
+        .unwrap();
+        fs::write(paths.version_jar("1.20.1"), b"FAKEJAR").unwrap();
+        fs::create_dir_all(old_dir.join("mods")).unwrap();
+        fs::write(old_dir.join("mods/sodium.jar"), b"MODBYTES").unwrap();
+        fs::write(old_dir.join("icon.png"), b"\x89PNGicon").unwrap();
+        fs::write(old_dir.join("instance.json"), r#"{"name":"My World","memory_mb":4096}"#).unwrap();
+
+        rename_instance_dir(&paths, "1.20.1", "1.20.1-fabric").unwrap();
+
+        // 原 id 目录已不存在 → mc_version "1.20.1" 这个名字腾出,可被 install_core 重建。
+        assert!(!old_dir.exists(), "原裸原版目录应已改名消失");
+
+        // 新目录:json 改名 + 内部 id 改写,其余字段保留。
+        let new_json = paths.version_json("1.20.1-fabric");
+        assert!(new_json.is_file(), "应生成 1.20.1-fabric.json");
+        let new_dir = paths.version_dir("1.20.1-fabric");
+        assert!(!new_dir.join("1.20.1.json").exists(), "旧名 json 应被删除");
+        let v: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&new_json).unwrap()).unwrap();
+        assert_eq!(v["id"], "1.20.1-fabric");
+        assert_eq!(v["mainClass"], "net.minecraft.client.main.Main");
+        assert_eq!(v["type"], "release");
+
+        // jar 随 id 改名。
+        assert!(paths.version_jar("1.20.1-fabric").is_file(), "jar 应改名为 1.20.1-fabric.jar");
+        assert!(!new_dir.join("1.20.1.jar").exists());
+
+        // 游戏数据 / icon / instance.json 随目录迁移。
+        assert_eq!(fs::read(new_dir.join("mods/sodium.jar")).unwrap(), b"MODBYTES");
+        assert_eq!(fs::read(new_dir.join("icon.png")).unwrap(), b"\x89PNGicon");
+        assert!(new_dir.join("instance.json").is_file());
+
+        // 模拟 add_loader 退化分支后续:install_core 重建 "1.20.1" 原版 + 把新实例重指向 loader 核心。
+        fs::create_dir_all(&old_dir).unwrap();
+        fs::write(paths.version_json("1.20.1"), r#"{"id":"1.20.1","type":"release"}"#).unwrap();
+        relink_instance_stub(&paths, "1.20.1-fabric", "fabric-loader-0.15.7-1.20.1").unwrap();
+
+        // 原 mc_version 原版重新可解析。
+        assert!(paths.version_json("1.20.1").is_file(), "重建后的原版应可解析");
+        // 新实例已重指向 loader 核心,id 为新 id。
+        let relinked: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(new_json).unwrap()).unwrap();
+        assert_eq!(relinked["id"], "1.20.1-fabric");
+        assert_eq!(relinked["inheritsFrom"], "fabric-loader-0.15.7-1.20.1");
+    }
+
+    #[test]
+    fn rename_instance_dir_rejects_existing_target() {
+        let root = TempRoot::new("reid-exists");
+        let paths = root.paths();
+        fs::create_dir_all(paths.version_dir("1.20.1")).unwrap();
+        fs::write(paths.version_json("1.20.1"), r#"{"id":"1.20.1"}"#).unwrap();
+        fs::create_dir_all(paths.version_dir("1.20.1-fabric")).unwrap();
+
+        let err = rename_instance_dir(&paths, "1.20.1", "1.20.1-fabric").unwrap_err();
+        assert!(matches!(err, CoreError::Other(_)), "目标已存在应返回 Other 错误");
     }
 
     // ---- rewrite_version_id ----

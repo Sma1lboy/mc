@@ -184,6 +184,41 @@ pub async fn create_instance(
     .map_err(err)
 }
 
+/// 给一个已存在的实例添加 / 切换 mod 加载器(core)。进度走 install://progress。
+/// loader = "fabric" / "quilt" / "forge" / "neoforge"(拒绝 vanilla / 无效值);
+/// forge/neoforge 需 loader_version。返回之后应使用的实例 id —— 多数情况与传入 id
+/// 相同,但「实例目录本身就是裸原版」的退化情形会返回一个新 id(避免自环)。
+#[tauri::command]
+pub async fn install_loader(
+    app: AppHandle,
+    root: String,
+    id: String,
+    mc_version: String,
+    loader: String,
+    loader_version: Option<String>,
+) -> CmdResult<String> {
+    let paths = root_paths(&root);
+    let dl = make_downloader()?;
+    let kind = match parse_loader_kind(&loader) {
+        Some(mc_core::types::LoaderKind::Vanilla) | None => {
+            return Err(format!("无效的加载器: {loader}"));
+        }
+        Some(kind) => kind,
+    };
+    let (tx, rx) = watch::channel(Progress::new("准备"));
+    forward_progress(app, "install://progress", rx);
+    mc_core::instance::lifecycle::add_loader(
+        &dl,
+        &paths,
+        &id,
+        &mc_version,
+        (kind, loader_version.unwrap_or_default()),
+        Some(tx),
+    )
+    .await
+    .map_err(err)
+}
+
 /// 读取某实例的配置(名字/内存/Java/JVM 参数/窗口…)。文件缺失返回默认值。
 #[tauri::command]
 pub fn get_instance_config(root: String, id: String) -> CmdResult<mc_core::instance::InstanceConfig> {

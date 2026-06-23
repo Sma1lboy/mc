@@ -54,6 +54,7 @@ pub fn run() {
             commands::delete_instance,
             commands::copy_instance,
             commands::create_instance,
+            commands::install_loader,
             commands::get_instance_config,
             commands::set_instance_config,
             commands::set_instance_icon,
