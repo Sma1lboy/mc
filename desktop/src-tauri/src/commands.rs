@@ -1201,6 +1201,14 @@ pub fn read_log_tail(lines: usize) -> CmdResult<String> {
     Ok(collected.join("\n"))
 }
 
+/// 拉取轻量后端(mc-server)的新闻/公告。后端未运行/不可达时返回错误,UI 降级到空/错误态。
+#[tauri::command]
+#[specta::specta]
+pub async fn fetch_news() -> CmdResult<Vec<mc_core::server::NewsItem>> {
+    let client = mc_core::server::ServerClient::new().map_err(err)?;
+    client.news().await.map_err(err)
+}
+
 // --- modpack import / export (thin glue over mc_core::modpack) ---------------
 
 /// 一个 blocked 文件(CurseForge 作者禁第三方分发)的 UI 视图:需用户手动下载。

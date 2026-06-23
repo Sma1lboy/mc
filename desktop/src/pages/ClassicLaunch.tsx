@@ -44,6 +44,8 @@ const ClassicLaunch: Component = () => {
   const [accounts, { refetch: refetchAccounts }] = createResource(() => api.listAccounts());
   // 新闻主页用:最新快照(含 snapshot),只取头一个做展示。
   const [snapshots] = createResource(() => api.listVersions(true));
+  // 新闻/动态:来自 mc-server(未运行则空)。
+  const [news] = createResource(() => api.fetchNews());
 
   const [selected, setSelected] = createSignal<InstanceSummary | null>(null);
   const [logs, setLogs] = createSignal<string[]>([]);
@@ -335,6 +337,29 @@ const ClassicLaunch: Component = () => {
                 <div class="text-[12px] text-classic-text3 mt-[3px]">{t("classic.news.welcomeDesc")}</div>
               </div>
             </div>
+
+            {/* mc-server 新闻条目(未运行则不渲染,不留空洞)。 */}
+            <For each={(news() ?? []).slice(0, 5)}>
+              {(item) => {
+                const inner = (
+                  <>
+                    <div class="flex items-baseline justify-between gap-[10px]">
+                      <span class="text-[14px] font-bold text-classic-text">{item.title}</span>
+                      <span class="text-[12px] text-classic-text3 shrink-0">{item.date}</span>
+                    </div>
+                    <p class="m-0 mt-[5px] text-[13px] leading-[1.7] text-classic-text2">{item.body}</p>
+                  </>
+                );
+                const cls = "glass-card rounded-[5px] py-[14px] px-[16px] block";
+                return (
+                  <Show when={item.url} fallback={<div class={cls}>{inner}</div>}>
+                    <a href={item.url!} class={`${cls} glass-card--hover no-underline cursor-pointer transition-[box-shadow] duration-150 ease-[ease]`}>
+                      {inner}
+                    </a>
+                  </Show>
+                );
+              }}
+            </For>
 
             <button
               class="glass-card glass-card--hover rounded-[5px] py-[14px] px-[16px] flex items-center justify-between w-full border-none cursor-pointer text-left transition-[box-shadow] duration-150 ease-[ease]"

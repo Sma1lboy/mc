@@ -28,7 +28,7 @@ pub struct Loaders {
     pub neoforge: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct NewsItem {
     pub id: String,
     pub title: String,

@@ -88,6 +88,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::client_log,
             commands::open_logs_dir,
             commands::read_log_tail,
+            commands::fetch_news,
         ])
 }
 

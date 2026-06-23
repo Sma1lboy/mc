@@ -5,7 +5,7 @@ import {
   createResource,
   createSignal,
 } from "solid-js";
-import { AccountDialog, Avatar, EmptyState, ErrorState, Menu } from "../components";
+import { AccountDialog, Avatar, EmptyState, ErrorState, Menu, Spinner } from "../components";
 import { skinBodyUrl } from "../components/Avatar";
 import { ACCENT_BTN } from "../components/styles";
 import { api } from "../ipc/api";
@@ -47,6 +47,9 @@ const ChevronDown = () => (
 const ContextBar: Component = () => {
   // 账号列表。refetch 用于切换账号后刷新 selected 标记。
   const [accounts, { refetch }] = createResource<AccountSummary[]>(() => api.listAccounts());
+
+  // 新闻/动态:来自 mc-server(未运行/不可达则空,降级到占位)。
+  const [news] = createResource(() => api.fetchNews());
 
   // 切换账号时的错误提示(后端命令缺失/失败时显示,不崩 UI)
   const [switchErr, setSwitchErr] = createSignal<string | null>(null);
@@ -214,8 +217,45 @@ const ContextBar: Component = () => {
       {/* ===== News ===== */}
       <section class="flex flex-col gap-[8px]">
         <h3 class={HEADING}>{t("account.sectionNews")}</h3>
-        {/* 新闻 feed 未接入:空态占位。接入后渲染公告/更新卡片列表。 */}
-        <EmptyState compact title={t("account.newsEmpty")} hint={t("account.newsHint")} />
+        <Show
+          when={!news.loading}
+          fallback={<div class="flex justify-center py-[14px]"><Spinner size={16} /></div>}
+        >
+          <Show
+            when={!news.error && (news()?.length ?? 0) > 0}
+            fallback={<EmptyState compact title={t("account.newsEmpty")} hint={t("account.newsHint")} />}
+          >
+            <div class="flex flex-col gap-[8px]">
+              <For each={news()!.slice(0, 5)}>
+                {(item) => {
+                  const inner = (
+                    <>
+                      <div class="flex items-baseline justify-between gap-[8px]">
+                        <span class="text-[13px] font-semibold text-fg whitespace-nowrap overflow-hidden text-ellipsis">
+                          {item.title}
+                        </span>
+                        <span class="text-[11px] text-dim shrink-0 [font-variant-numeric:tabular-nums]">{item.date}</span>
+                      </div>
+                      <div class="text-[12px] text-dim leading-[1.5] line-clamp-3">{item.body}</div>
+                    </>
+                  );
+                  const cls =
+                    "flex flex-col gap-[3px] p-[10px] rounded-ctl bg-glass-card border border-glass-border transition-colors duration-[var(--dur)] ease-app";
+                  return (
+                    <Show
+                      when={item.url}
+                      fallback={<div class={cls}>{inner}</div>}
+                    >
+                      <a href={item.url!} class={`${cls} no-underline cursor-pointer hover:border-a-4`}>
+                        {inner}
+                      </a>
+                    </Show>
+                  );
+                }}
+              </For>
+            </div>
+          </Show>
+        </Show>
       </section>
 
       <Show when={loginOpen()}>

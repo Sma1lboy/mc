@@ -205,6 +205,8 @@ export const commands = {
 	 *  `mc-launcher.log.<日期>`),取修改时间最新的那个;有界读取(末尾最多 512KiB)避免大日志卡 UI。
 	 */
 	readLogTail: (lines: number) => typedError<string, string>(__TAURI_INVOKE("read_log_tail", { lines })),
+	/**  拉取轻量后端(mc-server)的新闻/公告。后端未运行/不可达时返回错误,UI 降级到空/错误态。 */
+	fetchNews: () => typedError<NewsItem[], string>(__TAURI_INVOKE("fetch_news")),
 };
 
 /* Types */
@@ -499,6 +501,14 @@ export type ModUpdate = {
 	sha1: string | null,
 	/**  最新文件大小(字节)。 */
 	size: number | null,
+};
+
+export type NewsItem = {
+	id: string,
+	title: string,
+	body: string,
+	date: string,
+	url?: string | null,
 };
 
 /**  一个已安装包的列表视图。直接派生 `Serialize` 以便经 Tauri command 回传前端。 */
