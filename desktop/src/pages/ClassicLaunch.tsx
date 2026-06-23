@@ -5,14 +5,12 @@ import { api, onGameLog, onLaunchProgress } from "../ipc/api";
 import { activeRoot, isRunning, isLaunching, playInstance } from "../store";
 import { openInstanceDir } from "../util/instanceActions";
 import { loaderLabel } from "../util/loaders";
+import { accountKindLabel } from "../util/accounts";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import type { AccountSummary, ImportOutcome, InstanceSummary } from "../ipc/types";
 import type { InstanceManageTab } from "../components/InstanceManageDialog";
 import ClassicAccountDialog from "./ClassicAccountDialog";
 import "./ClassicLaunch.css";
-
-const kindLabel = (k: string) =>
-  k === "microsoft" ? "正版验证" : k === "yggdrasil" ? "外置登录" : "离线模式";
 
 /** 右侧主区视图:新闻主页 / 版本选择 / 实例详情 / 启动日志。 */
 type RightView = "news" | "versions" | "instance" | "log";
@@ -209,7 +207,7 @@ const ClassicLaunch: Component = () => {
                 {activeAccount()?.username ?? "未登录"}
               </div>
               <div class="text-[12px] text-classic-text3 mt-[3px]">
-                {activeAccount() ? kindLabel(activeAccount()!.kind) : "点击登录账号"}
+                {activeAccount() ? accountKindLabel(activeAccount()!.kind) : "点击登录账号"}
               </div>
             </div>
           </Show>

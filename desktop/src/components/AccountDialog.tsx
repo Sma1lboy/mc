@@ -6,13 +6,9 @@ import { Dialog } from "./Dialog";
 import { Avatar } from "./Avatar";
 import { toast } from "./Toast";
 import { api } from "../ipc/api";
-import type { AccountKind, AccountSummary, DeviceCode } from "../ipc/types";
+import { accountKindLabel } from "../util/accounts";
+import type { AccountSummary, DeviceCode } from "../ipc/types";
 
-const KIND_LABEL: Record<AccountKind, string> = {
-  offline: "离线",
-  microsoft: "微软",
-  yggdrasil: "外置登录",
-};
 
 // 登录表单按钮:抽公共件,确保离线/外置两套表单的取消/提交按钮完全一致(过渡也不漏)。
 const ACCOUNT_CANCEL_BTN =
@@ -224,7 +220,7 @@ export const AccountDialog: Component<{
                       <span class="block text-[13px] font-semibold text-fg whitespace-nowrap overflow-hidden text-ellipsis">
                         {acc.username}
                       </span>
-                      <span class="block text-[11px] text-dim">{KIND_LABEL[acc.kind]}</span>
+                      <span class="block text-[11px] text-dim">{accountKindLabel(acc.kind)}</span>
                     </span>
                     <Show when={acc.selected}>
                       <span class="text-a-6 text-[14px]" aria-hidden="true">✓</span>

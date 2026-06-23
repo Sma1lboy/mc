@@ -8,7 +8,8 @@ import {
 import { AccountDialog, Avatar, EmptyState, ErrorState, Menu } from "../components";
 import { ACCENT_BTN } from "../components/styles";
 import { api } from "../ipc/api";
-import type { AccountSummary, AccountKind } from "../ipc/types";
+import { accountKindLabel } from "../util/accounts";
+import type { AccountSummary } from "../ipc/types";
 import "./ContextBar.css"; // 残留:@keyframes ctx-pulse(骨架脉冲)
 
 /**
@@ -22,13 +23,6 @@ import "./ContextBar.css"; // 残留:@keyframes ctx-pulse(骨架脉冲)
  * 数据:createResource(() => api.listAccounts())。loading / 空 / 错误三态都处理。
  * 背景 --n-2,左侧分隔(border-left)。
  */
-
-// 账号类型 → 中文标签。AccountKind 在后端 serde 为小写(offline/microsoft/yggdrasil)。
-const KIND_LABEL: Record<AccountKind, string> = {
-  offline: "离线",
-  microsoft: "微软",
-  yggdrasil: "外置登录",
-};
 
 // 通用栏目标题(灰色小标题)。
 const HEADING =
@@ -142,7 +136,7 @@ const ContextBar: Component = () => {
                   </span>
                   <span class={META}>
                     <span class={NAME}>{current()?.username}</span>
-                    <span class={KIND}>{current() ? KIND_LABEL[current()!.kind] : ""}</span>
+                    <span class={KIND}>{accountKindLabel(current()?.kind)}</span>
                   </span>
                   <span
                     class="flex-shrink-0 text-dim grid place-items-center transition-transform duration-[var(--dur)] ease-app group-data-[state=open]:rotate-180 motion-reduce:transition-none"
@@ -167,7 +161,7 @@ const ContextBar: Component = () => {
                         </span>
                         <span class={META}>
                           <span class={NAME}>{acc.username}</span>
-                          <span class={KIND}>{KIND_LABEL[acc.kind]}</span>
+                          <span class={KIND}>{accountKindLabel(acc.kind)}</span>
                         </span>
                         <Show when={acc.selected}>
                           <span class="text-a-5 text-[14px] flex-shrink-0" aria-hidden="true">✓</span>
