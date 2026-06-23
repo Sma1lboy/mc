@@ -1,4 +1,4 @@
-import { Component, createEffect, createSignal, For, Show } from "solid-js";
+import { Component, createEffect, createSignal, onCleanup, For, Show } from "solid-js";
 import { ModpackListItem } from "./ModpackListItem";
 import type { ModpackHit } from "./ModpackCard";
 import { ACCENT_BTN_COMPACT } from "./styles";
@@ -87,6 +87,8 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
     clearTimeout(timer);
     timer = window.setTimeout(() => setDebounced(v), 350);
   }
+  // 卸载时清掉未触发的防抖定时器,避免在已销毁组件上 setDebounced(无效更新 + 计时器悬挂)。
+  onCleanup(() => clearTimeout(timer));
 
   const [results, setResults] = createSignal<SearchHit[]>([]);
   const [loading, setLoading] = createSignal(true);
