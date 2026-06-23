@@ -99,7 +99,7 @@ const Home: Component = () => {
           <Show
             when={recent().length > 0}
             fallback={
-              <EmptyState title={<>还没有实例。去 <b>库 / Discover</b> 安装一个版本开始游玩。</>} />
+              <EmptyState title={<>还没有实例。去 <b>库 / 发现</b> 安装一个版本开始游玩。</>} />
             }
           >
             <div class="flex flex-col gap-[10px]">
@@ -129,7 +129,7 @@ const Home: Component = () => {
           class="bg-transparent border-none p-0 mb-[14px] text-[18px] font-semibold text-fg cursor-pointer hover:text-a-5 transition-colors duration-150"
           onClick={() => openDiscover()}
         >
-          Discover a modpack →
+          发现整合包 →
         </button>
         <Show
           when={!packs.loading}

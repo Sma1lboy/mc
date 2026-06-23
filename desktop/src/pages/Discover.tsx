@@ -61,7 +61,7 @@ const Discover: Component = () => {
 
       <Show when={!selected()}>
       <div class="flex items-center justify-between gap-[16px] mb-[16px]">
-        <h1 class="text-[24px] font-bold text-fg m-0">Discover</h1>
+        <h1 class="text-[24px] font-bold text-fg m-0">发现</h1>
       </div>
 
       <div class="flex gap-[8px] mb-[16px]">
