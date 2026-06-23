@@ -200,6 +200,11 @@ export const commands = {
 	clientLog: (level: string, message: string) => __TAURI_INVOKE<void>("client_log", { level, message }),
 	/**  返回全局日志目录(`<data_dir>/logs`,必要时创建),前端用 shell 打开它。 */
 	openLogsDir: () => typedError<string, string>(__TAURI_INVOKE("open_logs_dir")),
+	/**
+	 *  读取最新日志文件的末尾若干行,供应用内日志查看器。日志按日滚动(文件名形如
+	 *  `mc-launcher.log.<日期>`),取修改时间最新的那个;有界读取(末尾最多 512KiB)避免大日志卡 UI。
+	 */
+	readLogTail: (lines: number) => typedError<string, string>(__TAURI_INVOKE("read_log_tail", { lines })),
 };
 
 /* Types */

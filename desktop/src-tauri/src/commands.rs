@@ -1159,6 +1159,48 @@ pub fn open_logs_dir() -> CmdResult<String> {
     Ok(dir.to_string_lossy().into_owned())
 }
 
+/// 读取最新日志文件的末尾若干行,供应用内日志查看器。日志按日滚动(文件名形如
+/// `mc-launcher.log.<日期>`),取修改时间最新的那个;有界读取(末尾最多 512KiB)避免大日志卡 UI。
+#[tauri::command]
+#[specta::specta]
+pub fn read_log_tail(lines: usize) -> CmdResult<String> {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let dir = mc_core::paths::logs_dir(&data_dir());
+    let newest = std::fs::read_dir(&dir)
+        .ok()
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with("mc-launcher.log"))
+        .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
+        .max_by_key(|(t, _)| *t)
+        .map(|(_, p)| p);
+    let Some(path) = newest else {
+        return Ok(String::new());
+    };
+
+    const MAX_BYTES: u64 = 512 * 1024;
+    let mut f = std::fs::File::open(&path).map_err(err)?;
+    let len = f.metadata().map_err(err)?.len();
+    let start = len.saturating_sub(MAX_BYTES);
+    f.seek(SeekFrom::Start(start)).map_err(err)?;
+    let mut bytes = Vec::new();
+    f.read_to_end(&mut bytes).map_err(err)?;
+    let text = String::from_utf8_lossy(&bytes);
+    // 从中途开始读时丢掉可能不完整的首行。
+    let text: &str = if start > 0 {
+        text.split_once('\n').map(|(_, rest)| rest).unwrap_or("")
+    } else {
+        &text
+    };
+
+    let cap = lines.clamp(1, 5000);
+    let mut collected: Vec<&str> = text.lines().rev().take(cap).collect();
+    collected.reverse();
+    Ok(collected.join("\n"))
+}
+
 // --- modpack import / export (thin glue over mc_core::modpack) ---------------
 
 /// 一个 blocked 文件(CurseForge 作者禁第三方分发)的 UI 视图:需用户手动下载。

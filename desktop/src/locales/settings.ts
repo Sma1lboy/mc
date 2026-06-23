@@ -60,6 +60,12 @@ const dict = {
     logsDesc: "前端与本地数据层的日志都写在这里(按日滚动)",
     openLogsDir: "打开日志目录",
     openLogsDirFailed: "打开日志目录失败:{{ err }}",
+    viewLog: "查看日志",
+    hideLog: "收起",
+    refresh: "刷新",
+    refreshing: "加载中…",
+    logReadFailed: "读取日志失败:{{ err }}",
+    logEmpty: "暂无日志。",
   } as Record<string, string>,
   en: {
     language: "Language",
@@ -114,6 +120,12 @@ const dict = {
     logsDesc: "Both UI and local data-layer logs are written here (rolls daily)",
     openLogsDir: "Open logs directory",
     openLogsDirFailed: "Failed to open logs directory: {{ err }}",
+    viewLog: "View logs",
+    hideLog: "Hide",
+    refresh: "Refresh",
+    refreshing: "Loading…",
+    logReadFailed: "Failed to read log: {{ err }}",
+    logEmpty: "No logs yet.",
   } as Record<string, string>,
 };
 

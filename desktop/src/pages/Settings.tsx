@@ -179,6 +179,28 @@ const Settings: Component = () => {
 
   const [javas, { refetch: refetchJavas }] = createResource(() => api.detectJava());
 
+  // 应用内日志查看(诊断):按需读取最新日志文件的末尾,展开时滚到底看最新。
+  const [logOpen, setLogOpen] = createSignal(false);
+  const [logText, setLogText] = createSignal("");
+  const [logLoading, setLogLoading] = createSignal(false);
+  let logBox: HTMLPreElement | undefined;
+  async function loadLog() {
+    setLogLoading(true);
+    try {
+      setLogText(await api.readLogTail(800));
+    } catch (e) {
+      setLogText(t("settings.logReadFailed", { err: String(e) }));
+    } finally {
+      setLogLoading(false);
+      queueMicrotask(() => logBox && (logBox.scrollTop = logBox.scrollHeight));
+    }
+  }
+  function toggleLog() {
+    const next = !logOpen();
+    setLogOpen(next);
+    if (next) void loadLog();
+  }
+
   // Java 下拉选项:自动检测 + 检测到的各 JVM。
   const javaOptions = createMemo(() => [
     { label: t("settings.autoDetect"), value: "" },
@@ -583,20 +605,45 @@ const Settings: Component = () => {
                   <span>{t("settings.logs")}</span>
                   <span class="text-[12px] text-dim">{t("settings.logsDesc")}</span>
                 </div>
-                <Button
-                  variant="ghost"
-                  onClick={async () => {
-                    try {
-                      const dir = await api.openLogsDir();
-                      await api.revealPath(dir);
-                    } catch (e) {
-                      toast({ type: "error", message: t("settings.openLogsDirFailed", { err: String(e) }) });
-                    }
-                  }}
-                >
-                  {t("settings.openLogsDir")}
-                </Button>
+                <div class="flex items-center gap-[8px] shrink-0">
+                  <Button variant="ghost" onClick={toggleLog}>
+                    {logOpen() ? t("settings.hideLog") : t("settings.viewLog")}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={async () => {
+                      try {
+                        const dir = await api.openLogsDir();
+                        await api.revealPath(dir);
+                      } catch (e) {
+                        toast({ type: "error", message: t("settings.openLogsDirFailed", { err: String(e) }) });
+                      }
+                    }}
+                  >
+                    {t("settings.openLogsDir")}
+                  </Button>
+                </div>
               </div>
+
+              <Show when={logOpen()}>
+                <div class="mt-[12px]">
+                  <div class="flex justify-end mb-[6px]">
+                    <button
+                      class="text-[12px] text-dim hover:text-fg disabled:opacity-50 cursor-pointer bg-transparent border-none transition-colors duration-150"
+                      onClick={() => void loadLog()}
+                      disabled={logLoading()}
+                    >
+                      {logLoading() ? t("settings.refreshing") : t("settings.refresh")}
+                    </button>
+                  </div>
+                  <pre
+                    ref={logBox}
+                    class="max-h-[340px] overflow-auto m-0 rounded-ctl border border-glass-border bg-glass-card p-[10px] text-[11px] leading-[1.55] text-dim font-mono whitespace-pre-wrap break-all"
+                  >
+                    {logText() || t("settings.logEmpty")}
+                  </pre>
+                </div>
+              </Show>
             </section>
           </div>
         </div>
