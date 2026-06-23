@@ -40,6 +40,30 @@
   /* 滚动条配色(随主题切换),供下方自定义滚动条引用 */
   --scrollbar-thumb: rgba(255, 255, 255, 0.12);
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.22);
+
+  /* ===== 沉静毛玻璃(workspace,深色)=====
+   * 玻璃面板用「白叠层」半透明 + backdrop-filter;背景沉静,无彩色光斑。
+   * *-flat 为关模糊/减少透明时的实色兜底,避免「透到看不清」。 */
+  --glass-blur: 18px;
+  --glass-panel: rgba(255, 255, 255, 0.05); /* rail / topbar / ctxbar */
+  --glass-panel-flat: var(--n-2);
+  --glass-card: rgba(255, 255, 255, 0.065); /* 卡片 */
+  --glass-card-hover: rgba(255, 255, 255, 0.095);
+  --glass-card-flat: var(--n-4);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-border-strong: rgba(255, 255, 255, 0.14);
+  --glass-divider: rgba(255, 255, 255, 0.06); /* 栏间分隔 */
+  --glass-hi: rgba(255, 255, 255, 0.1); /* 卡片顶部内高光 */
+  --glass-hi-strong: rgba(255, 255, 255, 0.16);
+  --glass-hover: rgba(255, 255, 255, 0.08); /* 幽灵控件 hover 底 */
+  --glass-pop: color-mix(in srgb, var(--n-4) 82%, transparent); /* 菜单/弹窗,更实更易读 */
+  --glass-pop-flat: var(--n-4);
+  --glass-input: rgba(255, 255, 255, 0.05); /* 输入框/搜索 */
+  --glass-input-flat: var(--n-5);
+  /* 应用背景:半透明深色「面纱」,让系统 vibrancy 透出桌面再磨砂;留足不透明度保证文字可读。 */
+  --app-bg:
+    radial-gradient(80% 55% at 50% -8%, color-mix(in srgb, var(--a-4) 12%, transparent), transparent 58%),
+    linear-gradient(160deg, rgba(20, 23, 29, 0.74), rgba(10, 12, 15, 0.84));
 }
 
 /* ===== 浅色(经典视图,可切换)===== */
@@ -61,6 +85,27 @@
 
   --scrollbar-thumb: rgba(0, 0, 0, 0.18);
   --scrollbar-thumb-hover: rgba(0, 0, 0, 0.32);
+
+  /* ===== 沉静毛玻璃(workspace,浅色)===== */
+  --glass-blur: 18px;
+  --glass-panel: rgba(255, 255, 255, 0.55);
+  --glass-panel-flat: var(--n-2);
+  --glass-card: rgba(255, 255, 255, 0.62);
+  --glass-card-hover: rgba(255, 255, 255, 0.78);
+  --glass-card-flat: var(--n-4);
+  --glass-border: rgba(0, 0, 0, 0.08);
+  --glass-border-strong: rgba(0, 0, 0, 0.14);
+  --glass-divider: rgba(0, 0, 0, 0.06);
+  --glass-hi: rgba(255, 255, 255, 0.65);
+  --glass-hi-strong: rgba(255, 255, 255, 0.85);
+  --glass-hover: rgba(0, 0, 0, 0.05);
+  --glass-pop: color-mix(in srgb, #ffffff 85%, transparent);
+  --glass-pop-flat: var(--n-4);
+  --glass-input: rgba(0, 0, 0, 0.04);
+  --glass-input-flat: var(--n-5);
+  --app-bg:
+    radial-gradient(80% 55% at 50% -8%, color-mix(in srgb, var(--a-4) 6%, transparent), transparent 60%),
+    linear-gradient(180deg, rgba(244, 246, 249, 0.62), rgba(233, 237, 242, 0.74));
 }
 
 /* ===== 共用形状/字体/动效(深浅通用)===== */
@@ -124,7 +169,7 @@ body {
   font-size: var(--fs-base);
   line-height: 1.45;
   color: var(--text);
-  background: var(--n-1);
+  background: transparent; /* 透明窗口:背景交给系统 vibrancy + .app-shell 面纱 */
   /* 禁止文字选中拖蓝在桌面应用里的「网页感」,需要选中处由组件单独开启 */
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -219,6 +264,110 @@ body {
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .surface-acrylic {
     background: var(--surface-translucent-flat);
+  }
+}
+
+/* ===== 沉静毛玻璃复用类(workspace)=====
+ * .glass-panel —— 侧栏/顶栏/右栏的整片磨砂(只给底 + 模糊,边框各自方向用 utility)。
+ * .glass-card  —— 卡片磨砂:半透底 + 模糊 + 细边 + 顶部内高光 + 阴影 + hover。
+ * 逃生口(关模糊 / 减少透明 / 内核不支持)统一退化为 *-flat 实色,沿用 surface-acrylic 的精神。 */
+.glass-panel {
+  background: var(--glass-panel);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.15);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.15);
+}
+.glass-card {
+  background: var(--glass-card);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.2);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.2);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.3), inset 0 1px 0 var(--glass-hi);
+  transition:
+    background var(--mo-dur-base) var(--mo-ease-standard),
+    border-color var(--mo-dur-base) var(--mo-ease-standard),
+    box-shadow var(--mo-dur-base) var(--mo-ease-standard),
+    transform var(--mo-dur-base) var(--mo-ease-standard);
+}
+/* hover 抬升只给可交互卡片(加 .glass-card--hover);静态信息卡不随悬停变化。 */
+.glass-card--hover:hover {
+  background: var(--glass-card-hover);
+  border-color: var(--glass-border-strong);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.4), inset 0 1px 0 var(--glass-hi-strong);
+}
+
+[data-blur="off"] .glass-panel {
+  background: var(--glass-panel-flat);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+[data-blur="off"] .glass-card {
+  background: var(--glass-card-flat);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .glass-panel {
+    background: var(--glass-panel-flat);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .glass-card {
+    background: var(--glass-card-flat);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass-panel {
+    background: var(--glass-panel-flat);
+  }
+  .glass-card {
+    background: var(--glass-card-flat);
+  }
+}
+
+/* 弹窗/菜单(.glass-pop)与输入框(.glass-input)。 */
+.glass-pop {
+  background: var(--glass-pop);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.2);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.2);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.4), inset 0 1px 0 var(--glass-hi);
+}
+.glass-input {
+  background: var(--glass-input);
+  backdrop-filter: blur(10px) saturate(1.1);
+  -webkit-backdrop-filter: blur(10px) saturate(1.1);
+}
+[data-blur="off"] .glass-pop,
+[data-blur="off"] .glass-input {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+[data-blur="off"] .glass-pop {
+  background: var(--glass-pop-flat);
+}
+[data-blur="off"] .glass-input {
+  background: var(--glass-input-flat);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .glass-pop {
+    background: var(--glass-pop-flat);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .glass-input {
+    background: var(--glass-input-flat);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass-pop {
+    background: var(--glass-pop-flat);
+  }
+  .glass-input {
+    background: var(--glass-input-flat);
   }
 }
 

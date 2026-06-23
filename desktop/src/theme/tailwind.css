@@ -36,6 +36,14 @@
   --color-fg: var(--text);
   --color-dim: var(--text-dim);
 
+  /* 沉静毛玻璃边框/底色:border-glass-* / bg-glass-* */
+  --color-glass-divider: var(--glass-divider);
+  --color-glass-border: var(--glass-border);
+  --color-glass-border-strong: var(--glass-border-strong);
+  --color-glass-hover: var(--glass-hover);
+  --color-glass-card: var(--glass-card);
+  --color-glass-pop: var(--glass-pop);
+
   /* Classic 浅色皮肤 */
   --color-classic-blue: var(--classic-blue);
   --color-classic-blue-hover: var(--classic-blue-hover);
