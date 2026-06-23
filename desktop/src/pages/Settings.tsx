@@ -9,8 +9,17 @@ import {
   themeForLayout,
   normalizeThemeConfig,
 } from "../theme/theme";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { api } from "../ipc/api";
-import { layoutMode, switchLayout, veilStrength, setVeilStrength } from "../store";
+import { ACCENT_BTN } from "../components/styles";
+import {
+  layoutMode,
+  switchLayout,
+  veilStrength,
+  setVeilStrength,
+  currentRoot,
+  setCurrentRoot,
+} from "../store";
 import type { LayoutMode } from "../store";
 import type { ThemeConfig, ThemeMode, GlobalSettings } from "../ipc/types";
 import "./Settings.css";
@@ -120,6 +129,41 @@ const Settings: Component = () => {
     const next = { ...cur, ...patch };
     setSettings(next);
     void api.setSettings(next).catch(() => {});
+  }
+
+  // 游戏目录(根)：列出已发现的根 + 让用户切换/增删自定义根。
+  const [roots, { refetch: refetchRoots }] = createResource(() => api.listRoots());
+
+  // 把自定义根写盘后再让后端重新发现:setSettings 是异步落盘,必须 await 再 refetch,
+  // 否则 list_roots 可能读到旧设置(看不到刚加的根)。
+  async function persistCustomRoots(customRoots: string[]) {
+    const cur = settings();
+    if (!cur) return;
+    const next = { ...cur, custom_roots: customRoots };
+    setSettings(next);
+    try {
+      await api.setSettings(next);
+      await refetchRoots();
+    } catch (e) {
+      toast({ type: "error", message: `保存目录失败:${e}` });
+    }
+  }
+
+  async function addCustomRoot() {
+    const picked = await openDialog({ directory: true, title: "选择游戏目录" }).catch(() => null);
+    if (!picked || typeof picked !== "string") return;
+    const list = settings()?.custom_roots ?? [];
+    if (!list.includes(picked)) await persistCustomRoots([...list, picked]);
+    setCurrentRoot(picked); // 切到新加的根
+  }
+
+  async function removeCustomRoot(path: string) {
+    const list = (settings()?.custom_roots ?? []).filter((p) => p !== path);
+    await persistCustomRoots(list);
+    if (currentRoot() === path) {
+      // 删的是当前根:落到剩余的第一个(没有则交回后端默认)。
+      setCurrentRoot((roots() ?? [])[0]?.path ?? null);
+    }
   }
 
   const [javas, { refetch: refetchJavas }] = createResource(() => api.detectJava());
@@ -457,6 +501,53 @@ const Settings: Component = () => {
                     </For>
                   </div>
                 </Show>
+              </Show>
+            </section>
+
+            <section class={SECTION_CLASS}>
+              <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">游戏目录</h2>
+              <Show
+                when={!roots.loading}
+                fallback={<div class="flex justify-center p-[20px]"><Spinner /></div>}
+              >
+                <div class="flex flex-col gap-[8px]">
+                  <For each={roots() ?? []}>
+                    {(r) => {
+                      const active = () => (currentRoot() ?? "") === r.path;
+                      return (
+                        <div
+                          class="flex items-center gap-[10px] py-[8px] px-[10px] rounded-ctl bg-glass-card border border-transparent transition-colors duration-150"
+                          classList={{ "!border-a-4 bg-a-1": active() }}
+                        >
+                          <button
+                            class="flex-1 min-w-0 flex flex-col gap-[2px] text-left bg-transparent border-none p-0 cursor-pointer"
+                            onClick={() => setCurrentRoot(r.path)}
+                            title="设为当前目录"
+                          >
+                            <span class="flex items-center gap-[6px] text-[13px] text-fg">
+                              {r.name}
+                              <Show when={active()}>
+                                <span class="text-a-6 text-[12px]" aria-hidden="true">✓ 当前</span>
+                              </Show>
+                            </span>
+                            <span class="text-[11px] text-dim break-all">{r.path}</span>
+                          </button>
+                          <Show when={r.kind === "custom"}>
+                            <button
+                              class="shrink-0 text-[12px] text-danger-text px-[8px] py-[4px] rounded-xs cursor-pointer hover:bg-danger-soft"
+                              onClick={() => void removeCustomRoot(r.path)}
+                            >
+                              移除
+                            </button>
+                          </Show>
+                        </div>
+                      );
+                    }}
+                  </For>
+                  <button class={`${ACCENT_BTN} self-start`} onClick={() => void addCustomRoot()}>
+                    + 添加目录
+                  </button>
+                </div>
               </Show>
             </section>
 
