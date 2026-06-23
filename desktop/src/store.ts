@@ -82,6 +82,41 @@ export function switchLayout(mode: LayoutMode) {
   setCurrentPage(mode === "classic" ? "launch" : "home");
 }
 
+// ===== 界面透明度(窗口面纱)=====
+// 0.3(很透)~ 1(实色)。设置页滑块调节,写 CSS 变量 --veil-strength 即时生效,并存 localStorage。
+const VEIL_STORAGE_KEY = "mc-launcher.veil-strength";
+
+function readInitialVeil(): number {
+  if (typeof window === "undefined") return 0.72;
+  try {
+    const n = parseFloat(window.localStorage.getItem(VEIL_STORAGE_KEY) ?? "");
+    return Number.isFinite(n) ? Math.min(1, Math.max(0.3, n)) : 0.72;
+  } catch {
+    return 0.72;
+  }
+}
+
+const [veilStrength, setVeilStrengthSig] = createSignal<number>(readInitialVeil());
+export { veilStrength };
+
+/** 设置窗口面纱不透明度(0.3~1),即时写入 CSS 变量并持久化。 */
+export function setVeilStrength(v: number): void {
+  const clamped = Math.min(1, Math.max(0.3, v));
+  setVeilStrengthSig(clamped);
+  if (typeof window === "undefined") return;
+  document.documentElement.style.setProperty("--veil-strength", String(clamped));
+  try {
+    window.localStorage.setItem(VEIL_STORAGE_KEY, String(clamped));
+  } catch {
+    /* localStorage 不可用时忽略 */
+  }
+}
+
+// 启动即把持久化的透明度写进 CSS 变量(独立于主题注入)。
+if (typeof window !== "undefined") {
+  document.documentElement.style.setProperty("--veil-strength", String(veilStrength()));
+}
+
 // ===== 运行中的游戏(进程生命周期) =====
 // 后端把进程登记进 RunningGames,并通过 game://started / game://exit 广播状态。
 // 这里维护一份全局「正在运行的实例 id」集合,任何组件 import isRunning(id) 即可响应式读取

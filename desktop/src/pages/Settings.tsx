@@ -11,7 +11,7 @@ import {
   normalizeThemeConfig,
 } from "../theme/theme";
 import { api } from "../ipc/api";
-import { layoutMode, switchLayout } from "../store";
+import { layoutMode, switchLayout, veilStrength, setVeilStrength } from "../store";
 import type { LayoutMode } from "../store";
 import type { ThemeConfig, ThemeMode, GlobalSettings } from "../ipc/types";
 import "./Settings.css";
@@ -296,6 +296,25 @@ const Settings: Component = () => {
                     apply(false);
                   }}
                   onChange={() => apply()}
+                />
+              </div>
+
+              <div class="flex flex-col gap-[4px] mb-[12px]">
+                <label for="ui-transparency" class="text-[12px] text-dim">
+                  界面透明度 {Math.round((1 - veilStrength()) * 100)}%
+                </label>
+                <input
+                  id="ui-transparency"
+                  name="ui-transparency"
+                  autocomplete="off"
+                  class="w-full accent-[var(--a-4)]"
+                  type="range"
+                  aria-label="界面透明度"
+                  min="0"
+                  max="65"
+                  step="1"
+                  value={Math.round((1 - veilStrength()) * 100)}
+                  onInput={(e) => setVeilStrength(1 - +e.currentTarget.value / 100)}
                 />
               </div>
 
