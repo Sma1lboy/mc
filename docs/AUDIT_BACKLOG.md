@@ -40,6 +40,17 @@ Generated 2026-06-22 from a multi-agent end-to-end audit (10 chains, adversarial
 - **#31** Declared mod incompatibilities surfaced in the install toast (InstallReport.incompatible).
 - **#30 (partial)** `accounts.json` restricted to owner-only (0600) on Unix as interim hardening.
 
+### Planned next
+
+- **Modpack in-place apply** — `check_modpack_updates` (detect newer Modrinth versions) ships now;
+  applying an update in place is deferred. Sound design: re-fetch the OLD version's mrpack index +
+  the new one, diff (`removed = old_pack_files − new_pack_files`), re-import the new pack over the
+  existing instance via `ImportEngine` (`ImportOptions.instance_id` already supports this; rollback only
+  removes newly-created dirs), then trash the dropped pack files. Worlds/user-added mods are never in a
+  pack index → preserved by construction. The pure diff is unit-testable; the apply (network + file I/O +
+  trash) needs runtime testing with a real pack before shipping. `compute_pack_diff` belongs in
+  `crates/mc-core/src/modpack/update.rs` (already has `newer_versions`).
+
 ### Shipped 2026-06-23 (round 4)
 
 - **Loader version picker** — `list_loader_versions` command (new `loader/versions.rs`) pulls real

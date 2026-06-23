@@ -9,6 +9,13 @@ To cut a release, move the `[Unreleased]` notes into a stamped version section w
 
 ## [Unreleased]
 
+### Added
+
+- **In-app log viewer** — Settings → 诊断 shows the tail of the unified log (bounded read), with refresh.
+- **Skin preview** — full-body player skin render in the workspace account panel.
+- **News feed** — the 动态 / classic news sections now show the launcher feed from mc-server (degrades to empty when the server is unavailable).
+- **Modpack update check** — instances installed from a Modrinth modpack show an "update available" chip in their detail header, linking to the project's page. (In-place apply is planned next.)
+
 ## [0.1.0] - 2026-06-23
 
 First public build of kobeMC — a from-scratch, cross-platform Minecraft launcher
