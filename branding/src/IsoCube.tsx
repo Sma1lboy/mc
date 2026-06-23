@@ -41,9 +41,6 @@ export const IsoCube: React.FC = () => {
         viewBox="0 0 200 210"
         style={{ transform: `translateY(${bob}px) scale(${scale})`, opacity: baseOpacity, overflow: "visible" }}
       >
-        {/* 接触阴影(地面椭圆,非投影) */}
-        <ellipse cx="100" cy="202" rx={46} ry="9" fill="rgba(0,0,0,0.30)" opacity={settle * 0.55} />
-
         {/* 左面(陶土,主) */}
         <polygon
           points={P.left}
