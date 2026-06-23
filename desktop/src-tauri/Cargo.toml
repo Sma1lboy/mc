@@ -22,6 +22,11 @@ tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
+# 统一日志:收集 mc-core(daemon)的 tracing 事件 + 前端(client)经命令转发的日志,
+# 按日滚动写到全局日志目录。
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "time"] }
+tracing-appender = "0.2"
 # 纯逻辑内核与共享 DTO,经 path 依赖引入(不走父 workspace)。
 mc-core = { path = "../../crates/mc-core" }
 mc-types = { path = "../../crates/mc-types" }

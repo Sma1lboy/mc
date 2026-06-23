@@ -1014,11 +1014,31 @@ struct GameExit {
     suggestions: Vec<String>,
 }
 
-/// Diagnostic: the webview reports boot/errors here so they surface in stderr
-/// (readable from the launch log even when we can't see the window).
+/// 前端 webview 把启动/错误信息报到这里;经全局 tracing 落进统一日志(`[client]` 前缀)。
 #[tauri::command]
 pub fn log_boot(msg: String) {
-    eprintln!("[webview] {msg}");
+    tracing::info!(target: "client", "{msg}");
+}
+
+/// 前端统一日志入口:把 webview 的日志按级别转发到全局日志文件(`[client]` 前缀),
+/// 与本地数据层(`[daemon]`)的日志汇到同一处,方便对照排查。
+/// level ∈ `error` / `warn` / `info` / `debug`(其它按 info 处理)。
+#[tauri::command]
+pub fn client_log(level: String, message: String) {
+    match level.as_str() {
+        "error" => tracing::error!(target: "client", "{message}"),
+        "warn" => tracing::warn!(target: "client", "{message}"),
+        "debug" => tracing::debug!(target: "client", "{message}"),
+        _ => tracing::info!(target: "client", "{message}"),
+    }
+}
+
+/// 返回全局日志目录(`<data_dir>/logs`,必要时创建),前端用 shell 打开它。
+#[tauri::command]
+pub fn open_logs_dir() -> CmdResult<String> {
+    let dir = mc_core::paths::logs_dir(&data_dir());
+    paths::ensure_dir(&dir).map_err(err)?;
+    Ok(dir.to_string_lossy().into_owned())
 }
 
 // --- modpack import / export (thin glue over mc_core::modpack) ---------------

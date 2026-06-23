@@ -25,6 +25,12 @@ pub fn resolve_data_dir(exe_dir: &Path) -> PathBuf {
     }
 }
 
+/// 全局日志目录:`<data_dir>/logs`。client(前端)与 daemon(本地数据层)的日志统一写这里,
+/// 与游戏根目录无关,便于跨实例排查问题。
+pub fn logs_dir(data_dir: &Path) -> PathBuf {
+    data_dir.join("logs")
+}
+
 /// The OS's official Minecraft directory, if the platform has a conventional one.
 pub fn official_minecraft_dir() -> Option<PathBuf> {
     #[cfg(target_os = "windows")]

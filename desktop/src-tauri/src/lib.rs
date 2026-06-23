@@ -2,9 +2,21 @@
 //! is in `mc-core`, reached through the thin commands in [`commands`].
 
 mod commands;
+mod logging;
 
 /// Build and run the Tauri application.
 pub fn run() {
+    // 先装日志:全局目录 <data_dir>/logs,client 与 daemon 两路统一收集。守卫持有到 run 结束
+    //(即进程退出),保证缓冲日志被刷盘。
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(std::path::Path::to_path_buf))
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let data_dir = mc_core::paths::resolve_data_dir(&exe_dir);
+    let logs_dir = mc_core::paths::logs_dir(&data_dir);
+    let _log_guard = logging::init(&logs_dir);
+    tracing::info!(target: "daemon", "mc-launcher 启动,日志目录 {}", logs_dir.display());
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -66,6 +78,8 @@ pub fn run() {
             commands::get_settings,
             commands::set_settings,
             commands::log_boot,
+            commands::client_log,
+            commands::open_logs_dir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running mc-launcher");
