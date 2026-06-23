@@ -181,6 +181,16 @@ pub fn join_classpath(jars: &[String]) -> String {
 }
 
 fn parse_server(s: &str) -> Option<(String, u16)> {
+    // 带方括号的 IPv6 字面量：`[::1]` 或 `[::1]:25565`。保留方括号，
+    // 这样调用方 `{host}:{port}` 重新拼接后仍是合法地址。
+    if let Some(end) = s.strip_prefix('[').and_then(|_| s.find(']')) {
+        let host = &s[..=end];
+        return match &s[end + 1..] {
+            "" => Some((host.to_string(), 25565)),
+            rest => rest.strip_prefix(':')?.parse().ok().map(|port| (host.to_string(), port)),
+        };
+    }
+    // 普通 host:port —— 只在最后一个冒号处拆分；无冒号则用默认端口。
     match s.rsplit_once(':') {
         Some((h, p)) => p.parse().ok().map(|port| (h.to_string(), port)),
         None => Some((s.to_string(), 25565)),
@@ -229,6 +239,19 @@ mod tests {
         };
         assert_eq!(substitute("--user ${auth_player_name}!", &m), "--user Steve!");
         assert_eq!(substitute("${unknown}", &m), "${unknown}");
+    }
+
+    #[test]
+    fn parse_server_handles_ipv6_and_hosts() {
+        // 带方括号的 IPv6 + 端口
+        assert_eq!(parse_server("[::1]:25565"), Some(("[::1]".to_string(), 25565)));
+        // 带方括号的 IPv6，无端口 -> 默认端口
+        assert_eq!(parse_server("[::1]"), Some(("[::1]".to_string(), 25565)));
+        // 普通 host:port
+        assert_eq!(parse_server("mc.example.com:25565"), Some(("mc.example.com".to_string(), 25565)));
+        assert_eq!(parse_server("1.2.3.4:25577"), Some(("1.2.3.4".to_string(), 25577)));
+        // 裸 host，无端口 -> 默认端口
+        assert_eq!(parse_server("mc.example.com"), Some(("mc.example.com".to_string(), 25565)));
     }
 
     #[test]

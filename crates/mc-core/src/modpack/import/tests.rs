@@ -194,7 +194,7 @@ const FIXTURE_INDEX: &str = r#"{
             "path": "mods/sodium.jar",
             "downloads": [
                 "https://cdn.modrinth.com/data/x/sodium.jar",
-                "https://mirror.example.com/sodium.jar"
+                "https://github.com/CaffeineMC/sodium/releases/sodium.jar"
             ],
             "hashes": { "sha512": "longhash", "sha1": "deadbeef" },
             "fileSize": 123456,
@@ -202,19 +202,19 @@ const FIXTURE_INDEX: &str = r#"{
         },
         {
             "path": "mods/server-only.jar",
-            "downloads": ["https://example.com/server-only.jar"],
+            "downloads": ["https://cdn.modrinth.com/data/s/server-only.jar"],
             "hashes": { "sha512": "h2" },
             "env": { "client": "unsupported", "server": "required" }
         },
         {
             "path": "resourcepacks/opt.zip",
-            "downloads": ["https://example.com/opt.zip"],
+            "downloads": ["https://cdn.modrinth.com/data/o/opt.zip"],
             "hashes": { "sha512": "h3" },
             "env": { "client": "optional", "server": "unsupported" }
         },
         {
             "path": "config/only512.toml",
-            "downloads": ["https://example.com/cfg.toml"],
+            "downloads": ["https://cdn.modrinth.com/data/c/cfg.toml"],
             "hashes": { "sha512": "onlybig" }
         }
     ]
@@ -250,7 +250,7 @@ fn modrinth_plan_filters_unsupported_and_keeps_multisource() {
     // 多源:downloads[] 原样保留为有序候选。
     assert_eq!(sodium.sources.len(), 2);
     assert_eq!(sodium.sources[0], "https://cdn.modrinth.com/data/x/sodium.jar");
-    assert_eq!(sodium.sources[1], "https://mirror.example.com/sodium.jar");
+    assert_eq!(sodium.sources[1], "https://github.com/CaffeineMC/sodium/releases/sodium.jar");
     assert_eq!(sodium.sha512.as_deref(), Some("longhash"));
     assert_eq!(sodium.sha1.as_deref(), Some("deadbeef"));
     assert_eq!(sodium.size, Some(123456));

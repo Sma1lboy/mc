@@ -32,6 +32,28 @@ pub(crate) const OVERRIDES: &str = "overrides";
 /// 客户端专属 override 根(盖在 `overrides` 上)。
 pub(crate) const CLIENT_OVERRIDES: &str = "client-overrides";
 
+/// 下载 host 白名单(对齐 mrpack 规范,见 `formats::mrpack` 模块文档)。
+/// 仅这些 host 及其子域可作下载源;恶意包指向任意 host 的源会被滤掉(纵深防御)。
+const ALLOWED_HOSTS: &[&str] =
+    &["cdn.modrinth.com", "github.com", "raw.githubusercontent.com", "gitlab.com"];
+
+/// URL 的 host 是否在白名单内(等于某 allowed host 或为其子域)。
+///
+/// 手工抽取 `scheme://host/` 前缀(避免引入 URL 解析依赖):取 `://` 之后、到下一个
+/// `/`(或字符串末尾)之前的片段,再去掉可能的 `user@` 与 `:port`。
+fn host_allowed(url: &str) -> bool {
+    let Some(after_scheme) = url.split_once("://").map(|(_, rest)| rest) else {
+        return false;
+    };
+    let authority = after_scheme.split(['/', '?', '#']).next().unwrap_or("");
+    // 去掉 userinfo(`user@host`)与端口(`host:port`)。
+    let host = authority.rsplit('@').next().unwrap_or(authority);
+    let host = host.split(':').next().unwrap_or(host);
+    ALLOWED_HOSTS
+        .iter()
+        .any(|allowed| host == *allowed || host.ends_with(&format!(".{allowed}")))
+}
+
 /// Modrinth `.mrpack` 导入器。
 pub struct ModrinthImporter;
 
@@ -95,14 +117,17 @@ pub(crate) fn plan_from_index(index: &MrpackIndex) -> Result<ImportPlan> {
         if !f.client_supported() {
             continue;
         }
-        // 无任何下载源的条目无法处理(overrides 已覆盖这类本地文件),跳过。
-        if f.downloads.is_empty() {
+        // 只保留白名单 host 的下载源,过滤掉指向任意 host 的恶意源(纵深防御)。
+        let sources: Vec<String> =
+            f.downloads.iter().filter(|u| host_allowed(u)).cloned().collect();
+        // 无任何(合法)下载源的条目无法处理(overrides 已覆盖这类本地文件),跳过。
+        if sources.is_empty() {
             continue;
         }
         let required = !matches!(f.env.map(|e| e.client), Some(EnvSupport::Optional));
         plan.files.push(PlannedFile {
             rel_path: f.path.clone(),
-            sources: f.downloads.clone(),
+            sources,
             sha1: f.hashes.sha1.clone(),
             sha512: Some(f.hashes.sha512.clone()).filter(|s| !s.is_empty()),
             size: f.file_size,
@@ -133,4 +158,73 @@ fn loader_from_dependencies(
         return Some((LoaderKind::Quilt, v.clone()));
     }
     None
+}
+
+#[cfg(test)]
+mod host_tests {
+    use super::*;
+    use crate::modpack::formats::mrpack::{MrpackDependencies, MrpackFile, MrpackHashes};
+
+    #[test]
+    fn allowlisted_hosts_pass() {
+        assert!(host_allowed("https://cdn.modrinth.com/data/x/sodium.jar"));
+        assert!(host_allowed("https://raw.githubusercontent.com/o/r/main/a.jar"));
+        assert!(host_allowed("https://github.com/o/r/releases/a.jar"));
+        assert!(host_allowed("https://gitlab.com/o/r/-/raw/main/a.jar"));
+        // 子域亦放行(== allowed 或 ends_with(".allowed"))。
+        assert!(host_allowed("https://media.forge.cdn.modrinth.com/x.jar"));
+    }
+
+    #[test]
+    fn random_host_is_filtered() {
+        assert!(!host_allowed("https://evil.example.com/x.jar"));
+        // 不能被「以白名单结尾的恶意域」绕过。
+        assert!(!host_allowed("https://github.com.evil.com/x.jar"));
+        assert!(!host_allowed("https://notgithub.com/x.jar"));
+        // 缺 scheme 一律拒绝。
+        assert!(!host_allowed("cdn.modrinth.com/x.jar"));
+        // userinfo / port 不影响 host 判定。
+        assert!(host_allowed("https://user@cdn.modrinth.com:443/x.jar"));
+    }
+
+    fn idx_with_downloads(downloads: Vec<&str>) -> MrpackIndex {
+        MrpackIndex {
+            format_version: 1,
+            game: "minecraft".to_string(),
+            version_id: "1.0.0".to_string(),
+            name: "Pack".to_string(),
+            summary: None,
+            dependencies: MrpackDependencies {
+                minecraft: Some("1.20.1".to_string()),
+                ..Default::default()
+            },
+            files: vec![MrpackFile {
+                path: "mods/a.jar".to_string(),
+                hashes: MrpackHashes { sha512: "h".to_string(), sha1: None },
+                env: None,
+                downloads: downloads.into_iter().map(String::from).collect(),
+                file_size: None,
+            }],
+        }
+    }
+
+    #[test]
+    fn disallowed_sources_are_dropped() {
+        // 混合源:仅保留白名单 host。
+        let plan = plan_from_index(&idx_with_downloads(vec![
+            "https://evil.example.com/a.jar",
+            "https://cdn.modrinth.com/a.jar",
+        ]))
+        .unwrap();
+        assert_eq!(plan.files.len(), 1);
+        assert_eq!(plan.files[0].sources, vec!["https://cdn.modrinth.com/a.jar".to_string()]);
+    }
+
+    #[test]
+    fn file_with_only_disallowed_source_is_skipped() {
+        // 唯一源不在白名单 → 文件被空源守卫丢弃。
+        let plan = plan_from_index(&idx_with_downloads(vec!["https://evil.example.com/a.jar"]))
+            .unwrap();
+        assert!(plan.files.is_empty());
+    }
 }

@@ -120,6 +120,9 @@ const BACKOFF_BASE: Duration = Duration::from_millis(300);
 pub struct Downloader {
     client: reqwest::Client,
     sem: Arc<Semaphore>,
+    /// 构造时设定的并发度。`sem` 的可用许可会随在飞请求消耗,故并发度单独存档,
+    /// 避免与他人共享同一 Downloader 时被错误地降速(见 download_batch)。
+    concurrency: usize,
     mirror: MirrorResolver,
 }
 
@@ -143,8 +146,15 @@ impl Downloader {
         Ok(Self {
             client,
             sem: Arc::new(Semaphore::new(concurrency)),
+            concurrency,
             mirror: MirrorResolver::none(),
         })
+    }
+
+    /// 构造时设定的并发度(测试用:验证它独立于在飞许可数)。
+    #[cfg(test)]
+    fn configured_concurrency(&self) -> usize {
+        self.concurrency
     }
 
     /// 设置镜像改写器(链式)。默认无镜像(直连官方)。
@@ -299,7 +309,9 @@ impl Downloader {
         }
 
         let done = Arc::new(AtomicU64::new(0));
-        let concurrency = self.sem.available_permits().max(1);
+        // 用构造时的并发度而非当前可用许可:共享 Downloader 时别的批次正持有许可,
+        // 读 available_permits 会把本批 buffer_unordered 错误地压到很低甚至 0。
+        let concurrency = self.concurrency.max(1);
         let mut pending = items;
 
         for pass in 0..MAX_JOB_PASSES {
@@ -474,5 +486,17 @@ mod tests {
         // Semaphore(0) 会永久阻塞;new 必须把 0 提升到 1。
         let d = Downloader::new(0).unwrap();
         assert!(d.sem.available_permits() >= 1);
+    }
+
+    #[test]
+    fn concurrency_is_stable_under_outstanding_permits() {
+        // download_batch 必须读构造时的并发度,而非当前可用许可:持有一个许可后
+        // available_permits 会少 1,但 configured_concurrency 应仍报告原值。
+        let d = Downloader::new(4).unwrap();
+        assert_eq!(d.configured_concurrency(), 4);
+        let permit = d.sem.clone().try_acquire_owned().expect("permit available");
+        assert_eq!(d.sem.available_permits(), 3);
+        assert_eq!(d.configured_concurrency(), 4);
+        drop(permit);
     }
 }
