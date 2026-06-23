@@ -132,7 +132,13 @@ pub fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
         std::fs::create_dir_all(parent).with_path(parent)?;
     }
     // Unique temp name beside the target (same filesystem → rename is atomic).
-    let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
+    // PID alone collides when two writes share a dir within one process — either the
+    // same target written concurrently, or two siblings whose extension differs
+    // (`a.json` and `a.txt` both → `a.tmp-PID`). A process-global counter makes each
+    // call's temp name unique, so concurrent writers never clobber each other's temp.
+    static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = TMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = path.with_extension(format!("tmp-{}-{}", std::process::id(), seq));
 
     {
         let mut f = std::fs::File::create(&tmp).with_path(&tmp)?;
@@ -367,6 +373,37 @@ mod tests {
         let p = dir.join("a/b/c.json");
         write_atomic(&p, b"hello").unwrap();
         assert_eq!(std::fs::read_to_string(&p).unwrap(), "hello");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn atomic_write_siblings_sharing_stem_dont_collide() {
+        // a.json / a.txt / ... once shared one temp name (`a.tmp-PID`) and could clobber
+        // each other when written concurrently. Each must keep its own content.
+        let dir = std::env::temp_dir().join("mc-core-fs-siblings");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let exts = ["json", "txt", "cfg", "log", "dat"];
+        std::thread::scope(|s| {
+            for ext in exts {
+                let dir = &dir;
+                s.spawn(move || {
+                    let p = dir.join(format!("a.{ext}"));
+                    write_atomic(&p, ext.as_bytes()).unwrap();
+                });
+            }
+        });
+        for ext in exts {
+            let p = dir.join(format!("a.{ext}"));
+            assert_eq!(std::fs::read_to_string(&p).unwrap(), ext);
+        }
+        // No temp files left behind.
+        let leftover: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(".tmp-"))
+            .collect();
+        assert!(leftover.is_empty(), "temp files left behind: {leftover:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
