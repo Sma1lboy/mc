@@ -144,7 +144,7 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
         contentClass="w-[360px] max-w-[calc(100vw-48px)] glass-pop rounded-card overflow-hidden"
       >
         <div class="p-[20px] flex flex-col gap-[14px]">
-          <div class="text-[15px] font-semibold text-fg">删除实例「{inst().name}」?</div>
+          <div class="text-[15px] font-semibold text-fg break-words">删除实例「{inst().name}」?</div>
           <div class="text-[13px] text-dim leading-[1.6]">
             将永久删除该版本目录,包括其 mods、存档与配置。此操作不可撤销。
           </div>

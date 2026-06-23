@@ -269,7 +269,7 @@ const ProjectInstallDetail: Component<{
               </Show>
               <div class="min-w-0">
                 <div class="text-[12px] font-semibold text-a-6">{meta().title}</div>
-                <h1 class="m-0 text-[24px] font-extrabold text-n-8">{props.hit.title}</h1>
+                <h1 class="m-0 text-[24px] font-extrabold text-n-8 whitespace-nowrap overflow-hidden text-ellipsis">{props.hit.title}</h1>
                 <div class="mt-[4px] text-[13px] text-n-6">
                   by {props.hit.author} · ⬇ {props.hit.downloads.toLocaleString()}
                   <Show when={project()?.followers}>{" · ♥ " + project()!.followers.toLocaleString()}</Show>

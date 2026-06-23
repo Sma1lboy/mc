@@ -587,7 +587,7 @@ const ClassicLaunch: Component = () => {
         {/* --- 启动日志(启动后) --- */}
         <Show when={rightView() === "log"}>
           <div>
-            <h1 class="text-[20px] font-bold text-classic-text mt-0 mb-[3px] mx-0">{selected()?.name || selected()?.id || "游戏日志"}</h1>
+            <h1 class="text-[20px] font-bold text-classic-text mt-0 mb-[3px] mx-0 whitespace-nowrap overflow-hidden text-ellipsis">{selected()?.name || selected()?.id || "游戏日志"}</h1>
             <Show when={selected()}>
               <p class="text-classic-text3 text-[13px] m-0">
                 Minecraft {selected()!.mc_version} · {loaderLabel(selected()!.loader)}
