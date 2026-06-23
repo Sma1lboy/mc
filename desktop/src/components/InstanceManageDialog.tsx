@@ -16,7 +16,7 @@ import { Dialog } from "./Dialog";
 import Lightbox from "./Lightbox";
 import { ContentBrowser } from "./ContentBrowser";
 import { ErrorState } from "./ErrorState";
-import { ACCENT_BTN_COMPACT } from "./styles";
+import { ACCENT_BTN_COMPACT, ACCENT_BTN } from "./styles";
 import { Toggle } from "./Toggle";
 import { ModpackOverview } from "./ModpackOverview";
 import type { ModpackHit } from "./ModpackCard";
@@ -462,7 +462,7 @@ const PacksPanel: Component<{
                     <div class="flex flex-col items-center justify-center gap-[12px] py-[40px] text-center">
                       <div class="text-dim text-[13px]">{props.emptyHint}</div>
                       <button
-                        class="h-[34px] px-[16px] rounded-ctl bg-a-4 text-white text-[13px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90"
+                        class={ACCENT_BTN}
                         onClick={startBrowse}
                       >
                         + 添加
@@ -1408,7 +1408,7 @@ export const InstanceManageDialog: Component<{
                               <div class="flex flex-col items-center justify-center gap-[12px] py-[40px] text-center">
                                 <div class="text-dim text-[13px]">该实例还没有 mod。</div>
                                 <button
-                                  class="h-[34px] px-[16px] rounded-ctl bg-a-4 text-white text-[13px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90"
+                                  class={ACCENT_BTN}
                                   onClick={startBrowse}
                                 >
                                   + 添加 Mod
