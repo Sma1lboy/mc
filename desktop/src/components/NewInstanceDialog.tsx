@@ -150,7 +150,7 @@ export const NewInstanceDialog: Component<{
             取消
           </button>
           <button
-            class="h-[34px] px-[16px] border-none rounded-ctl bg-a-5 text-white text-[13px] font-semibold cursor-pointer transition-colors duration-150 hover:bg-a-6 disabled:opacity-50 disabled:cursor-not-allowed"
+            class="h-[34px] px-[16px] border-none rounded-ctl bg-a-4 text-white text-[13px] font-semibold cursor-pointer transition-colors duration-150 hover:bg-a-5 disabled:opacity-50 disabled:cursor-not-allowed"
             onClick={create}
             disabled={!canCreate()}
           >

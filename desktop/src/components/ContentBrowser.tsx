@@ -1,6 +1,7 @@
 import { Component, createEffect, createSignal, For, Show } from "solid-js";
 import { ModpackListItem } from "./ModpackListItem";
 import type { ModpackHit } from "./ModpackCard";
+import { ACCENT_BTN_COMPACT } from "./styles";
 import { SearchBox } from "./SearchBox";
 import { Spinner } from "./Spinner";
 import { toast } from "./Toast";
@@ -70,9 +71,7 @@ export interface ContentBrowserProps {
   addedIds?: Set<string>;
 }
 
-const ADD_BTN =
-  "shrink-0 h-[28px] px-[12px] rounded-ctl bg-a-4 text-white text-[12px] font-semibold cursor-pointer " +
-  "transition-opacity duration-[var(--dur)] ease-app hover:opacity-90 disabled:opacity-50 disabled:cursor-default";
+const ADD_BTN = ACCENT_BTN_COMPACT;
 // 已添加:幽灵态(描边 + accent 文字),明确「装过了」且不可再点。
 const ADDED_BTN =
   "shrink-0 h-[28px] px-[12px] rounded-ctl border border-glass-border bg-transparent text-a-6 text-[12px] font-semibold cursor-default";

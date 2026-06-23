@@ -1,9 +1,6 @@
-import { Component, Show, createResource, createMemo, onCleanup, onMount } from "solid-js";
-import { invoke } from "@tauri-apps/api/core";
+import { Component, Show } from "solid-js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { currentRoot } from "../store";
-import type { InstanceSummary } from "../ipc/types";
+import { runningIds } from "../store";
 
 /**
  * TopBar —— 48px 顶栏(无边框窗口的自绘标题栏)。
@@ -41,33 +38,9 @@ function windowAction(action: (w: ReturnType<typeof getCurrentWindow>) => void) 
 }
 
 const TopBar: Component = () => {
-
-  // 运行状态:统计当前 root 下处于 running 的实例数。
-  // currentRoot 是 store 的 signal accessor;为空时不查询(返回空列表)。
-  const [instances, { refetch }] = createResource<InstanceSummary[], string>(
-    () => currentRoot(),
-    async (root) => {
-      if (!root) return [];
-      return await invoke<InstanceSummary[]>("list_instances", { root });
-    }
-  );
-
-  // 监听启动进度事件:有实例启动/退出时刷新运行状态。
-  // launch://progress 在启动链路推送,收到即重新拉取实例列表以更新 running 计数。
-  let unlisten: UnlistenFn | undefined;
-  onMount(async () => {
-    unlisten = await listen("launch://progress", () => {
-      // 启动有进展 → 运行状态可能变化,重查。
-      refetch();
-    });
-  });
-  onCleanup(() => unlisten?.());
-
-  const runningCount = createMemo(() => {
-    const list = instances();
-    if (!list) return 0;
-    return list.filter((i) => i.running).length;
-  });
+  // 运行状态用 store 的实时集合(game://started/exit 事件驱动),与实例行同源,避免
+  // 顶栏自己再拉一份 list_instances 导致「行显示运行中、顶栏却说无实例运行」的不一致。
+  const runningCount = () => runningIds().size;
 
   return (
     // data-tauri-drag-region:让顶栏空白处可拖动窗口
@@ -83,21 +56,16 @@ const TopBar: Component = () => {
           data-tauri-drag-region
         >
           <Show
-            when={!instances.loading}
-            fallback={<span class="text-[12px] text-dim whitespace-nowrap">载入中…</span>}
+            when={runningCount() > 0}
+            fallback={
+              <>
+                <span class="w-[7px] h-[7px] rounded-full shrink-0 bg-n-6" aria-hidden="true" />
+                <span class="text-[12px] text-dim whitespace-nowrap">无实例运行</span>
+              </>
+            }
           >
-            <Show
-              when={runningCount() > 0}
-              fallback={
-                <>
-                  <span class="w-[7px] h-[7px] rounded-full shrink-0 bg-n-6" aria-hidden="true" />
-                  <span class="text-[12px] text-dim whitespace-nowrap">无实例运行</span>
-                </>
-              }
-            >
-              <span class="w-[7px] h-[7px] rounded-full shrink-0 bg-a-5" aria-hidden="true" />
-              <span class="text-[12px] text-fg whitespace-nowrap">{runningCount()} 个运行中</span>
-            </Show>
+            <span class="w-[7px] h-[7px] rounded-full shrink-0 bg-a-5" aria-hidden="true" />
+            <span class="text-[12px] text-fg whitespace-nowrap">{runningCount()} 个运行中</span>
           </Show>
         </div>
 

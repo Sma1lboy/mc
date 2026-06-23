@@ -1,6 +1,7 @@
 import { Component, createResource, createSignal, For, Show, onCleanup } from "solid-js";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { Spinner } from "./Spinner";
+import { ErrorState } from "./ErrorState";
 import { Dialog } from "./Dialog";
 import { Avatar } from "./Avatar";
 import { toast } from "./Toast";
@@ -12,6 +13,14 @@ const KIND_LABEL: Record<AccountKind, string> = {
   microsoft: "微软",
   yggdrasil: "外置登录",
 };
+
+// 登录表单按钮:抽公共件,确保离线/外置两套表单的取消/提交按钮完全一致(过渡也不漏)。
+const ACCOUNT_CANCEL_BTN =
+  "h-[36px] px-[18px] border border-glass-border rounded-xs bg-glass-card text-fg text-[13px] " +
+  "cursor-pointer transition-[background-color,border-color] duration-[var(--dur)] ease-app hover:bg-glass-hover hover:border-a-4";
+const ACCOUNT_SUBMIT_BTN =
+  "h-[36px] px-[18px] rounded-xs bg-a-5 text-white border border-a-5 text-[13px] cursor-pointer " +
+  "transition-opacity duration-[var(--dur)] ease-app hover:not-disabled:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed";
 
 /** 登录弹窗状态机:选择方式 → 微软设备码 / 离线用户名 / 外置登录。 */
 type Step = "menu" | "msa" | "offline" | "yggdrasil";
@@ -170,6 +179,10 @@ export const AccountDialog: Component<{
       {/* --- 选择登录方式 --- */}
       <Show when={step() === "menu"}>
         <div class="p-[18px] flex flex-col gap-[12px]">
+          {/* 账号列表加载失败:给错误态 + 重试,别让失败看起来像「没有账号」。 */}
+          <Show when={accounts.error}>
+            <ErrorState compact message="账号列表加载失败" onRetry={() => void refetchAccounts()} />
+          </Show>
           {/* 已有账号:切换(点击)或移除(✕)。当前账号打勾。 */}
           <Show when={accountList().length > 0}>
             <div class="flex flex-col gap-[6px]">
@@ -306,14 +319,14 @@ export const AccountDialog: Component<{
           <div class="flex justify-end gap-[10px]">
             <button
               type="button"
-              class="h-[36px] px-[18px] border border-glass-border rounded-xs bg-glass-card text-fg text-[13px] cursor-pointer transition-[background-color,border-color] duration-150 ease-app hover:bg-glass-hover hover:border-a-4"
+              class={ACCOUNT_CANCEL_BTN}
               onClick={() => setStep("menu")}
             >
               返回
             </button>
             <button
               type="submit"
-              class="h-[36px] px-[18px] rounded-xs bg-a-5 text-white border border-a-5 text-[13px] cursor-pointer transition-opacity duration-150 ease-app hover:not-disabled:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+              class={ACCOUNT_SUBMIT_BTN}
               disabled={busy() || !offlineName().trim()}
             >
               {busy() ? "添加中…" : "确定"}
@@ -351,14 +364,14 @@ export const AccountDialog: Component<{
           <div class="flex justify-end gap-[10px] pt-[2px]">
             <button
               type="button"
-              class="h-[36px] px-[18px] border border-glass-border rounded-xs bg-glass-card text-fg text-[13px] cursor-pointer hover:bg-glass-hover hover:border-a-4"
+              class={ACCOUNT_CANCEL_BTN}
               onClick={() => setStep("menu")}
             >
               返回
             </button>
             <button
               type="submit"
-              class="h-[36px] px-[18px] rounded-xs bg-a-5 text-white border border-a-5 text-[13px] cursor-pointer hover:not-disabled:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+              class={ACCOUNT_SUBMIT_BTN}
               disabled={busy() || !ygBase().trim() || !ygUser().trim()}
             >
               {busy() ? "登录中…" : "登录"}

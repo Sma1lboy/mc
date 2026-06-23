@@ -9,7 +9,7 @@ import {
   type ModpackHit,
 } from "../components";
 import { api, onLaunchProgress } from "../ipc/api";
-import { activeRoot, isRunning, openInstance } from "../store";
+import { activeRoot, isRunning, openInstance, setCurrentPage, openDiscover } from "../store";
 import { openInstanceDir, exportInstanceMrpack, deleteInstance } from "../util/instanceActions";
 import type { InstanceSummary, SearchHit } from "../ipc/types";
 
@@ -68,10 +68,11 @@ const Home: Component = () => {
     offProgress();
   });
 
-  const recent = () =>
-    [...(instances() ?? [])]
-      .sort((a, b) => (b.last_played ?? 0) - (a.last_played ?? 0))
-      .slice(0, 6);
+  // Home 只当快捷入口:最近游玩取前 5;完整列表在「库」页(下方「查看全部」跳转)。
+  const RECENT_CAP = 5;
+  const sortedByPlayed = () =>
+    [...(instances() ?? [])].sort((a, b) => (b.last_played ?? 0) - (a.last_played ?? 0));
+  const recent = () => sortedByPlayed().slice(0, RECENT_CAP);
 
   async function play(id: string) {
     // 运行中再点 = 停止;否则启动。运行态由 store 依事件维护。
@@ -98,7 +99,17 @@ const Home: Component = () => {
       </header>
 
       <section>
-        <h2 class="text-[18px] font-semibold text-fg m-0 mb-[14px]">Jump back in</h2>
+        <div class="flex items-center justify-between mb-[14px]">
+          <h2 class="text-[18px] font-semibold text-fg m-0">Jump back in</h2>
+          <Show when={sortedByPlayed().length > RECENT_CAP}>
+            <button
+              class="text-[13px] text-dim bg-transparent border-none cursor-pointer transition-colors duration-150 hover:text-fg"
+              onClick={() => setCurrentPage("library")}
+            >
+              查看全部 →
+            </button>
+          </Show>
+        </div>
         <Show
           when={!instances.loading}
           fallback={<div class="flex justify-center p-[32px]"><Spinner /></div>}
@@ -132,7 +143,12 @@ const Home: Component = () => {
       </section>
 
       <section class="mt-[28px]">
-        <h2 class="text-[18px] font-semibold text-fg m-0 mb-[14px] cursor-pointer">Discover a modpack →</h2>
+        <button
+          class="bg-transparent border-none p-0 mb-[14px] text-[18px] font-semibold text-fg cursor-pointer hover:text-a-5 transition-colors duration-150"
+          onClick={() => openDiscover()}
+        >
+          Discover a modpack →
+        </button>
         <Show
           when={!packs.loading}
           fallback={<div class="flex justify-center p-[32px]"><Spinner /></div>}
@@ -142,7 +158,7 @@ const Home: Component = () => {
               {(hit) => (
                 <ModpackCard
                   hit={toHit(hit)}
-                  onClick={(h) => toast({ type: "info", message: `打开 ${h.title}` })}
+                  onClick={(h) => openDiscover({ hit: h, kind: "modpack" })}
                 />
               )}
             </For>

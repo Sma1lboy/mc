@@ -99,6 +99,22 @@ export function closeInstance(): void {
   setCurrentPage(instanceReturnPage());
 }
 
+// ===== 跳转到「发现」并(可选)自动打开某项目详情 =====
+// 首页「发现」卡片点击 → 存目标 + 切到 discover;Discover 挂载后读取并打开,然后清空。
+export const [discoverTarget, setDiscoverTarget] = createSignal<{
+  hit: import("./components/ModpackCard").ModpackHit;
+  kind: import("./ipc/types").ProjectKind;
+} | null>(null);
+
+/** 跳到「发现」页;传 target 则自动打开该项目详情。 */
+export function openDiscover(target?: {
+  hit: import("./components/ModpackCard").ModpackHit;
+  kind: import("./ipc/types").ProjectKind;
+}): void {
+  setDiscoverTarget(target ?? null);
+  setCurrentPage("discover");
+}
+
 // ===== 界面透明度(窗口面纱)=====
 // 0.3(很透)~ 1(实色)。设置页滑块调节,写 CSS 变量 --veil-strength 即时生效,并存 localStorage。
 const VEIL_STORAGE_KEY = "mc-launcher.veil-strength";

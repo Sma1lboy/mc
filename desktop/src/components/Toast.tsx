@@ -184,7 +184,7 @@ function ToastIcon(props: { type: ToastType }): JSX.Element {
 export function ToastContainer(): JSX.Element {
   return (
     <div
-      class="fixed left-[16px] bottom-[16px] z-[9999] flex flex-col-reverse gap-[10px] pointer-events-none"
+      class="fixed right-[16px] bottom-[16px] z-[9999] flex flex-col-reverse items-end gap-[10px] pointer-events-none"
       aria-live="polite"
     >
       <For each={items}>

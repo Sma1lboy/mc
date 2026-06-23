@@ -3,6 +3,7 @@ import {
   InstanceRow,
   Button,
   EmptyState,
+  ErrorState,
   Spinner,
   SearchBox,
   toast,
@@ -36,7 +37,7 @@ const Library: Component = () => {
     () => activeRoot(),
     (root) => api.listInstances(root),
   );
-  const [versions] = createResource(() => api.listVersions(false));
+  const [versions, { refetch: refetchVersions }] = createResource(() => api.listVersions(false));
 
   const [showInstall, setShowInstall] = createSignal(false);
   const [filter, setFilter] = createSignal("");
@@ -110,23 +111,32 @@ const Library: Component = () => {
             </div>
           </Show>
           <Show when={!versions.loading} fallback={<div class="flex justify-center mt-[14px]"><Spinner /></div>}>
-            <div class="max-h-[320px] overflow-y-auto mt-[14px] flex flex-col gap-[6px]">
-              <For each={filtered()}>
-                {(v) => (
-                  <div class="flex items-center gap-[12px] px-[10px] py-[6px] rounded-ctl hover:bg-glass-hover">
-                    <span class="font-semibold text-fg min-w-[120px]">{v.id}</span>
-                    <span class="text-dim text-[12px] flex-1">{v.kind}</span>
-                    <Button
-                      variant="ghost"
-                      disabled={!!installing()}
-                      onClick={() => install(v)}
-                    >
-                      安装
-                    </Button>
-                  </div>
-                )}
-              </For>
-            </div>
+            <Show
+              when={!versions.error}
+              fallback={
+                <div class="mt-[14px]">
+                  <ErrorState message="版本清单加载失败,请检查网络后重试。" onRetry={() => void refetchVersions()} />
+                </div>
+              }
+            >
+              <div class="max-h-[320px] overflow-y-auto mt-[14px] flex flex-col gap-[6px]">
+                <For each={filtered()}>
+                  {(v) => (
+                    <div class="flex items-center gap-[12px] px-[10px] py-[6px] rounded-ctl hover:bg-glass-hover">
+                      <span class="font-semibold text-fg min-w-[120px]">{v.id}</span>
+                      <span class="text-dim text-[12px] flex-1">{v.kind}</span>
+                      <Button
+                        variant="ghost"
+                        disabled={!!installing()}
+                        onClick={() => install(v)}
+                      >
+                        安装
+                      </Button>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
           </Show>
         </div>
       </Show>

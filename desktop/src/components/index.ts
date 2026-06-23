@@ -19,6 +19,8 @@ export { Spinner } from "./Spinner";
 export type { SpinnerProps } from "./Spinner";
 
 export { EmptyState } from "./EmptyState";
+export { ErrorState } from "./ErrorState";
+export { Toggle } from "./Toggle";
 
 export { SearchBox } from "./SearchBox";
 export type { SearchBoxProps } from "./SearchBox";

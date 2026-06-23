@@ -15,6 +15,9 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Dialog } from "./Dialog";
 import Lightbox from "./Lightbox";
 import { ContentBrowser } from "./ContentBrowser";
+import { ErrorState } from "./ErrorState";
+import { ACCENT_BTN_COMPACT } from "./styles";
+import { Toggle } from "./Toggle";
 import { ModpackOverview } from "./ModpackOverview";
 import type { ModpackHit } from "./ModpackCard";
 import ProjectInstallDetail from "../pages/ProjectInstallDetail";
@@ -228,7 +231,11 @@ const ScreenshotsPanel: Component<{ instance: InstanceSummary }> = (props) => {
       >
         <Show
           when={capped().length > 0}
-          fallback={<div class="text-dim text-[13px] py-[12px]">该实例还没有截图。</div>}
+          fallback={
+            shots.error
+              ? <ErrorState compact message="截图加载失败" onRetry={() => void refetch()} />
+              : <div class="text-dim text-[13px] py-[12px]">该实例还没有截图。</div>
+          }
         >
           <div class="grid grid-cols-3 gap-[8px]">
             <For each={capped()}>
@@ -273,9 +280,7 @@ function fmtSize(bytes: number): string {
   return `${n.toFixed(i > 0 && n < 10 ? 1 : 0)} ${units[i]}`;
 }
 
-const INSTALL_BTN =
-  "shrink-0 h-[28px] px-[12px] rounded-ctl bg-a-4 text-white text-[12px] font-semibold cursor-pointer " +
-  "transition-opacity duration-150 hover:opacity-90 disabled:opacity-50 disabled:cursor-default";
+const INSTALL_BTN = ACCENT_BTN_COMPACT;
 const DEL_BTN =
   "shrink-0 text-[12px] text-danger-text px-[8px] py-[4px] rounded-xs cursor-pointer hover:bg-danger-soft";
 const OPEN_BTN =
@@ -451,15 +456,19 @@ const PacksPanel: Component<{
               <Show
                 when={(packs() ?? []).length > 0}
                 fallback={
-                  <div class="flex flex-col items-center justify-center gap-[12px] py-[40px] text-center">
-                    <div class="text-dim text-[13px]">{props.emptyHint}</div>
-                    <button
-                      class="h-[34px] px-[16px] rounded-ctl bg-a-4 text-white text-[13px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90"
-                      onClick={startBrowse}
-                    >
-                      + 添加
-                    </button>
-                  </div>
+                  packs.error ? (
+                    <ErrorState compact message="加载失败" onRetry={() => void refetch()} />
+                  ) : (
+                    <div class="flex flex-col items-center justify-center gap-[12px] py-[40px] text-center">
+                      <div class="text-dim text-[13px]">{props.emptyHint}</div>
+                      <button
+                        class="h-[34px] px-[16px] rounded-ctl bg-a-4 text-white text-[13px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90"
+                        onClick={startBrowse}
+                      >
+                        + 添加
+                      </button>
+                    </div>
+                  )
                 }
               >
                 <div class="flex flex-col gap-[6px]">
@@ -477,15 +486,10 @@ const PacksPanel: Component<{
                             {[p.description, fmtSize(p.size)].filter(Boolean).join(" · ")}
                           </div>
                         </div>
-                        <label class="flex items-center gap-[5px] text-[11px] text-dim cursor-pointer shrink-0">
-                          <input
-                            type="checkbox"
-                            class="w-[15px] h-[15px] accent-[var(--a-4)] cursor-pointer"
-                            checked={p.enabled}
-                            onChange={(e) => toggle(p, e.currentTarget.checked)}
-                          />
+                        <div class="flex items-center gap-[6px] text-[11px] text-dim shrink-0">
+                          <Toggle checked={p.enabled} onChange={(v) => toggle(p, v)} title="启用" />
                           启用
-                        </label>
+                        </div>
                         <button class={DEL_BTN} onClick={() => remove(p)}>
                           删除
                         </button>
@@ -676,7 +680,11 @@ const WorldsPanel: Component<{ instance: InstanceSummary; tick?: number }> = (pr
       >
       <Show
         when={(worlds() ?? []).length > 0}
-        fallback={<div class="text-dim text-[13px] py-[12px]">该实例还没有存档。</div>}
+        fallback={
+          worlds.error
+            ? <ErrorState compact message="存档加载失败" onRetry={() => void refetch()} />
+            : <div class="text-dim text-[13px] py-[12px]">该实例还没有存档。</div>
+        }
       >
         <div class="flex flex-col gap-[6px]">
           <For each={worlds()}>
@@ -969,7 +977,8 @@ export const InstanceManageDialog: Component<{
   // ---- Mod 更新检查 ----
   const [updates, setUpdates] = createSignal<ModUpdate[] | null>(null);
   const [checking, setChecking] = createSignal(false);
-  const [updatingFile, setUpdatingFile] = createSignal<string | null>(null);
+  // 后台并行更新:正在更新的文件集合(不阻塞其它行/全部更新串行)。
+  const [updating, setUpdating] = createSignal<Set<string>>(new Set());
 
   async function checkUpdates() {
     const inst = props.instance;
@@ -996,8 +1005,8 @@ export const InstanceManageDialog: Component<{
 
   async function applyUpdate(u: ModUpdate) {
     const inst = props.instance;
-    if (!inst) return;
-    setUpdatingFile(u.file_name);
+    if (!inst || updating().has(u.file_name)) return;
+    setUpdating((s) => new Set(s).add(u.file_name));
     try {
       await api.applyModUpdate(activeRoot(), inst.id, u);
       toast({ type: "success", message: `${u.name} 已更新到 ${u.new_version}` });
@@ -1006,15 +1015,17 @@ export const InstanceManageDialog: Component<{
     } catch (e) {
       toast({ type: "error", message: `更新失败:${e}` });
     } finally {
-      setUpdatingFile(null);
+      setUpdating((s) => {
+        const n = new Set(s);
+        n.delete(u.file_name);
+        return n;
+      });
     }
   }
 
   async function applyAllUpdates() {
-    for (const u of updates() ?? []) {
-      // 串行执行,避免并发下载相互踩;每个失败只提示该项,不中断其余。
-      await applyUpdate(u);
-    }
+    // 后台并行更新,不阻塞单项;每个失败只提示该项,不中断其余。
+    await Promise.all((updates() ?? []).map((u) => applyUpdate(u)));
   }
 
   // ---- 拖拽导入 ----
@@ -1275,15 +1286,10 @@ export const InstanceManageDialog: Component<{
                     </label>
                   </div>
 
-                  <label class="flex items-center justify-between text-fg text-[13px]">
+                  <div class="flex items-center justify-between text-fg text-[13px]">
                     <span>全屏启动</span>
-                    <input
-                      type="checkbox"
-                      class="w-[16px] h-[16px] accent-[var(--a-4)] cursor-pointer"
-                      checked={c().fullscreen}
-                      onChange={(e) => patch({ fullscreen: e.currentTarget.checked })}
-                    />
-                  </label>
+                    <Toggle checked={c().fullscreen ?? false} onChange={(v) => patch({ fullscreen: v })} title="全屏启动" />
+                  </div>
 
                   <div class="pt-[4px]">
                     <button
@@ -1354,7 +1360,7 @@ export const InstanceManageDialog: Component<{
                             </span>
                             <button
                               class={INSTALL_BTN}
-                              disabled={updatingFile() !== null}
+                              disabled={updating().size > 0}
                               onClick={applyAllUpdates}
                             >
                               全部更新
@@ -1373,10 +1379,10 @@ export const InstanceManageDialog: Component<{
                                 </div>
                                 <button
                                   class={INSTALL_BTN}
-                                  disabled={updatingFile() !== null}
+                                  disabled={updating().has(u.file_name)}
                                   onClick={() => applyUpdate(u)}
                                 >
-                                  {updatingFile() === u.file_name ? "更新中…" : "更新"}
+                                  {updating().has(u.file_name) ? "更新中…" : "更新"}
                                 </button>
                               </div>
                             )}
@@ -1396,15 +1402,19 @@ export const InstanceManageDialog: Component<{
                         <Show
                           when={(mods() ?? []).length > 0}
                           fallback={
-                            <div class="flex flex-col items-center justify-center gap-[12px] py-[40px] text-center">
-                              <div class="text-dim text-[13px]">该实例还没有 mod。</div>
-                              <button
-                                class="h-[34px] px-[16px] rounded-ctl bg-a-4 text-white text-[13px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90"
-                                onClick={startBrowse}
-                              >
-                                + 添加 Mod
-                              </button>
-                            </div>
+                            mods.error ? (
+                              <ErrorState compact message="Mod 列表加载失败" onRetry={() => void refetchMods()} />
+                            ) : (
+                              <div class="flex flex-col items-center justify-center gap-[12px] py-[40px] text-center">
+                                <div class="text-dim text-[13px]">该实例还没有 mod。</div>
+                                <button
+                                  class="h-[34px] px-[16px] rounded-ctl bg-a-4 text-white text-[13px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90"
+                                  onClick={startBrowse}
+                                >
+                                  + 添加 Mod
+                                </button>
+                              </div>
+                            )
                           }
                         >
                           <div class="flex flex-col gap-[6px]">
@@ -1422,15 +1432,10 @@ export const InstanceManageDialog: Component<{
                                       {[m.version, m.loader, m.file_name].filter(Boolean).join(" · ")}
                                     </div>
                                   </div>
-                                  <label class="flex items-center gap-[5px] text-[11px] text-dim cursor-pointer shrink-0">
-                                    <input
-                                      type="checkbox"
-                                      class="w-[15px] h-[15px] accent-[var(--a-4)] cursor-pointer"
-                                      checked={m.enabled}
-                                      onChange={(e) => toggleMod(m, e.currentTarget.checked)}
-                                    />
+                                  <div class="flex items-center gap-[6px] text-[11px] text-dim shrink-0">
+                                    <Toggle checked={m.enabled} onChange={(v) => toggleMod(m, v)} title="启用" />
                                     启用
-                                  </label>
+                                  </div>
                                   <button
                                     class="shrink-0 text-[12px] text-danger-text px-[8px] py-[4px] rounded-xs cursor-pointer hover:bg-danger-soft"
                                     onClick={() => removeMod(m)}

@@ -1,6 +1,7 @@
-import { Component, createSignal, For, Show } from "solid-js";
+import { Component, createSignal, createEffect, For, Show } from "solid-js";
 import { ContentBrowser, type ModpackHit } from "../components";
 import type { ProjectKind } from "../ipc/types";
+import { discoverTarget, setDiscoverTarget } from "../store";
 import ModpackDetail from "./ModpackDetail";
 import ProjectInstallDetail from "./ProjectInstallDetail";
 
@@ -29,6 +30,15 @@ const Discover: Component = () => {
   function openHit(h: ModpackHit) {
     setSelected({ hit: h, kind: kind() });
   }
+
+  // 从首页「发现」卡片跳进来时,自动打开目标项目详情(消费一次即清空)。
+  createEffect(() => {
+    const t = discoverTarget();
+    if (!t) return;
+    setKind(t.kind);
+    setSelected({ hit: t.hit, kind: t.kind });
+    setDiscoverTarget(null);
+  });
 
   return (
     <div class="px-[28px] py-[24px] overflow-y-auto h-full">

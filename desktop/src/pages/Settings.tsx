@@ -1,5 +1,5 @@
 import { Component, createMemo, createResource, createSignal, For, Show, onMount } from "solid-js";
-import { Button, Spinner, Select, Tooltip, toast } from "../components";
+import { Button, Spinner, Select, Tooltip, ErrorState, toast } from "../components";
 import { Check, Info, Monitor, Moon, RotateCcw, Sun, type LucideIcon } from "lucide-solid";
 import {
   applyThemeColor,
@@ -41,7 +41,7 @@ function SegmentedControl<T extends string>(props: SegmentedControlProps<T>) {
           return (
             <button
               type="button"
-              class="inline-flex h-[30px] items-center justify-center gap-[6px] rounded-[4px] border-none px-[10px] text-[13px] font-medium leading-none cursor-pointer select-none transition-[background-color,color,box-shadow] duration-[var(--dur)] ease-app focus-visible:ring-2 focus-visible:ring-a-4 focus-visible:ring-offset-2 focus-visible:ring-offset-n-3 disabled:opacity-45 disabled:cursor-not-allowed"
+              class="inline-flex h-[30px] items-center justify-center gap-[6px] rounded-xs border-none px-[10px] text-[13px] font-medium leading-none cursor-pointer select-none transition-[background-color,color,box-shadow] duration-[var(--dur)] ease-app focus-visible:ring-2 focus-visible:ring-a-4 focus-visible:ring-offset-2 focus-visible:ring-offset-n-3 disabled:opacity-45 disabled:cursor-not-allowed"
               classList={{
                 "bg-a-4 text-white": selected(),
                 "bg-transparent text-fg hover:bg-glass-hover": !selected(),
@@ -115,7 +115,7 @@ const Settings: Component = () => {
     void api.setSettings(next).catch(() => {});
   }
 
-  const [javas] = createResource(() => api.detectJava());
+  const [javas, { refetch: refetchJavas }] = createResource(() => api.detectJava());
 
   // Java 下拉选项:自动检测 + 检测到的各 JVM。
   const javaOptions = createMemo(() => [
@@ -423,7 +423,11 @@ const Settings: Component = () => {
               <Show when={!javas.loading} fallback={<Spinner />}>
                 <Show
                   when={(javas() ?? []).length > 0}
-                  fallback={<div class="text-dim">未检测到 Java。</div>}
+                  fallback={
+                    javas.error
+                      ? <ErrorState compact message="Java 检测失败" onRetry={() => void refetchJavas()} />
+                      : <div class="text-dim">未检测到 Java。</div>
+                  }
                 >
                   <div class="flex flex-col gap-[8px]">
                     <For each={javas()}>
