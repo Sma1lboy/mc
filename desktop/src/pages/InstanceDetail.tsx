@@ -1,5 +1,5 @@
 import { Component, createResource, createSignal, onCleanup, onMount, Show } from "solid-js";
-import { InstanceManageDialog, toast, type InstanceRowData } from "../components";
+import { InstanceManageDialog, Dialog, toast, type InstanceRowData } from "../components";
 import { PlayButton } from "../components/PlayButton";
 import { Menu } from "../components/Menu";
 import { formatRelativeTime } from "../components/format";
@@ -25,6 +25,8 @@ const InstanceDetail: Component = () => {
   const inst = () => data() ?? null;
   // 进入「添加」浏览模式时整页让给复用的探索视图,隐藏头部(返回路径用视图内的「← 返回已安装」)。
   const [browsing, setBrowsing] = createSignal(false);
+  // 删除实例前确认(与实例行的删除确认一致,避免 ⋮ 菜单一点就删)。
+  const [confirmDel, setConfirmDel] = createSignal(false);
 
   // Esc 返回上一页(与详情页导航一致);浏览模式有自己的 Esc,正在输入文本时不抢。
   onMount(() => {
@@ -90,9 +92,14 @@ const InstanceDetail: Component = () => {
     if (value === "open") void openInstanceDir(activeRoot(), i.id);
     else if (value === "copy") await copyCurrent();
     else if (value === "export") void exportInstanceMrpack(activeRoot(), row);
-    else if (value === "delete") {
-      if (await deleteInstance(activeRoot(), { id: i.id, name: i.name || i.id })) closeInstance();
-    }
+    else if (value === "delete") setConfirmDel(true);
+  }
+
+  async function doDelete() {
+    const i = inst();
+    if (!i) return;
+    setConfirmDel(false);
+    if (await deleteInstance(activeRoot(), { id: i.id, name: i.name || i.id })) closeInstance();
   }
 
   return (
@@ -177,6 +184,36 @@ const InstanceDetail: Component = () => {
           )}
         </Show>
       </div>
+
+      <Dialog
+        open={confirmDel()}
+        onClose={() => setConfirmDel(false)}
+        label="删除实例"
+        contentClass="w-[360px] max-w-[calc(100vw-48px)] glass-pop rounded-card overflow-hidden"
+      >
+        <div class="p-[20px] flex flex-col gap-[14px]">
+          <div class="text-[15px] font-semibold text-fg break-words">
+            删除实例「{inst()?.name || inst()?.id}」?
+          </div>
+          <div class="text-[13px] text-dim leading-[1.6]">
+            将删除该版本目录,包括其 mods、存档与配置(移入回收站)。
+          </div>
+          <div class="flex justify-end gap-[10px]">
+            <button
+              class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-glass-card text-fg text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-glass-hover"
+              onClick={() => setConfirmDel(false)}
+            >
+              取消
+            </button>
+            <button
+              class="h-[34px] px-[16px] border-none rounded-ctl bg-danger text-white text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-danger-hover"
+              onClick={() => void doDelete()}
+            >
+              删除
+            </button>
+          </div>
+        </div>
+      </Dialog>
     </div>
   );
 };
