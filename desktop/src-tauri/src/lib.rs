@@ -45,6 +45,7 @@ pub fn run() {
             commands::msa_login_start,
             commands::msa_login_poll,
             commands::add_offline_account,
+            commands::yggdrasil_login,
             commands::select_account,
             commands::remove_account,
             commands::refresh_account,

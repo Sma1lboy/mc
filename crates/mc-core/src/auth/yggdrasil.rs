@@ -231,6 +231,42 @@ pub fn javaagent_arg(authlib_injector_path: &Path, base: &str) -> String {
     )
 }
 
+/// authlib-injector 的「最新构建」元数据端点(yushijinhun 官方)。
+const AUTHLIB_INJECTOR_LATEST: &str = "https://authlib-injector.yushi.moe/artifact/latest.json";
+
+/// 下载(并缓存)authlib-injector jar,返回其本地路径。外置登录启动前调用。
+///
+/// 幂等:`dest_dir/authlib-injector.jar` 已存在就直接复用,不重新下载。否则先从官方
+/// 元数据端点取最新构建的 `download_url`,再下载到该路径。jar 升级由用户删旧文件触发。
+pub async fn download_authlib_injector(
+    dl: &crate::download::Downloader,
+    dest_dir: &Path,
+) -> Result<std::path::PathBuf> {
+    let dest = dest_dir.join("authlib-injector.jar");
+    if dest.is_file() {
+        return Ok(dest);
+    }
+    crate::paths::ensure_dir(dest_dir)?;
+
+    // 取最新构建元数据,拿 download_url。
+    let meta = dl.get_text(AUTHLIB_INJECTOR_LATEST).await?;
+    let value: Value = serde_json::from_str(&meta)
+        .map_err(|e| CoreError::Auth(format!("解析 authlib-injector 元数据失败: {e}")))?;
+    let url = value
+        .get("download_url")
+        .and_then(Value::as_str)
+        .ok_or_else(|| CoreError::Auth("authlib-injector 元数据缺少 download_url".into()))?;
+
+    dl.download_one(&crate::download::DownloadItem::new(
+        url.to_string(),
+        dest.clone(),
+        None,
+        None,
+    ))
+    .await?;
+    Ok(dest)
+}
+
 /// 由用户名派生一个**稳定**的 clientToken(无连字符 32 位 hex)。
 ///
 /// Yggdrasil 要求同一客户端在 authenticate / refresh 之间使用一致的

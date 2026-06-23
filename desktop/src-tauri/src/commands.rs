@@ -612,6 +612,8 @@ pub async fn msa_login_poll(device_code: String, interval: u64) -> CmdResult<Acc
         owns_game: true,
         // Minecraft access token 约 24h 有效;到期前用 refresh_token 自动续期。
         expires_at: Some(mc_core::auth::now_unix() + 86_400),
+        client_token: None,
+        yggdrasil_base: None,
     })
 }
 
@@ -633,6 +635,39 @@ pub fn add_offline_account(name: String) -> CmdResult<AccountSummary> {
         user_type: session.user_type,
         owns_game: false,
         expires_at: None,
+        client_token: None,
+        yggdrasil_base: None,
+    })
+}
+
+/// 外置登录(Yggdrasil / authlib-injector):用 base + 用户名 + 密码登录第三方皮肤站,
+/// 落库为 Yggdrasil 账号并选中。启动时会自动注入 authlib-injector。
+#[tauri::command]
+pub async fn yggdrasil_login(
+    base: String,
+    username: String,
+    password: String,
+) -> CmdResult<AccountSummary> {
+    use mc_core::auth::YggdrasilClient;
+    let base = base.trim();
+    if base.is_empty() || username.trim().is_empty() {
+        return Err("皮肤站地址和用户名不能为空".to_string());
+    }
+    let client = YggdrasilClient::new(base).with_http(make_downloader()?.client().clone());
+    let session = client.authenticate(username.trim(), &password).await.map_err(err)?;
+    store_and_select(StoredAccount {
+        kind: AccountKind::Yggdrasil,
+        username: session.username,
+        uuid: session.uuid,
+        access_token: session.access_token,
+        refresh_token: None,
+        xuid: String::new(),
+        user_type: "msa".to_string(),
+        owns_game: true,
+        // 外置登录 token 由皮肤站签发,这里不预判过期;启动前若失效会被皮肤站拒绝。
+        expires_at: None,
+        client_token: Some(session.client_token),
+        yggdrasil_base: Some(client.base().to_string()),
     })
 }
 
@@ -813,6 +848,19 @@ pub async fn launch_instance(
         let _ = auth::refresh_selected_microsoft(&mut store, &msa_client(), 600).await;
     }
 
+    // 外置登录账号:启动前下载 authlib-injector,并把 `-javaagent` 注入 JVM 参数,
+    // 否则游戏仍走 Mojang 认证、外置皮肤/联机校验都不生效。
+    let mut extra_jvm_args: Vec<String> = Vec::new();
+    if let Some(yg_base) = AccountStore::load(&accounts_path)
+        .ok()
+        .and_then(|s| s.selected_account().and_then(|a| a.yggdrasil_base.clone()))
+    {
+        match auth::yggdrasil::download_authlib_injector(&dl, &data_dir().join("authlib")).await {
+            Ok(jar) => extra_jvm_args.push(auth::yggdrasil::javaagent_arg(&jar, &yg_base)),
+            Err(e) => return Err(format!("下载 authlib-injector 失败:{e}")),
+        }
+    }
+
     // Prefer the selected stored account; fall back to an offline session.
     let session = AccountStore::load(&accounts_path)
         .ok()
@@ -835,6 +883,7 @@ pub async fn launch_instance(
         online,
         runtimes_dir: Some(data_dir().join("java")),
         global_java_path: settings_global().java_path.filter(|p| !p.is_empty()).map(PathBuf::from),
+        extra_jvm_args,
     };
 
     let (tx, rx) = watch::channel(Progress::new("准备"));

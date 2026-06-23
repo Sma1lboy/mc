@@ -711,6 +711,7 @@ async fn cmd_launch(
             .java_path
             .filter(|p| !p.is_empty())
             .map(std::path::PathBuf::from),
+        extra_jvm_args: Vec::new(),
     };
 
     let (tx, mut rx) = tokio::sync::watch::channel(mc_core::types::Progress::new("准备"));
@@ -771,6 +772,8 @@ async fn cmd_login() -> Result<()> {
         user_type: session.user_type.clone(),
         owns_game: true,
         expires_at: Some(mc_core::auth::now_unix() + 86_400),
+        client_token: None,
+        yggdrasil_base: None,
     });
     store.select(&session.uuid)?;
     store.save()?;

@@ -49,6 +49,14 @@ pub struct StoredAccount {
     /// 续期;`None`(老数据 / 离线)视为「未知」,需要时直接尝试续期。
     #[serde(default)]
     pub expires_at: Option<i64>,
+    /// 外置登录(Yggdrasil)的 clientToken,authenticate/refresh/validate 之间必须一致;
+    /// 非外置账号为 `None`。
+    #[serde(default)]
+    pub client_token: Option<String>,
+    /// 外置登录的 authserver 根地址(如 `https://littleskin.cn/api/yggdrasil`),
+    /// 启动时据此注入 authlib-injector 的 `-javaagent`;非外置账号为 `None`。
+    #[serde(default)]
+    pub yggdrasil_base: Option<String>,
 }
 
 impl StoredAccount {
@@ -265,6 +273,8 @@ mod tests {
             user_type: "legacy".to_string(),
             owns_game: false,
             expires_at: None,
+            client_token: None,
+            yggdrasil_base: None,
         }
     }
 
@@ -369,6 +379,8 @@ mod tests {
             user_type: "msa".to_string(),
             owns_game: true,
             expires_at: None,
+            client_token: None,
+            yggdrasil_base: None,
         });
         s.select("uuid-ms").unwrap();
         s.save().unwrap();

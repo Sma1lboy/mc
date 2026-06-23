@@ -13,8 +13,8 @@ const KIND_LABEL: Record<AccountKind, string> = {
   yggdrasil: "外置登录",
 };
 
-/** 登录弹窗状态机:选择方式 → 微软设备码 / 离线用户名。 */
-type Step = "menu" | "msa" | "offline";
+/** 登录弹窗状态机:选择方式 → 微软设备码 / 离线用户名 / 外置登录。 */
+type Step = "menu" | "msa" | "offline" | "yggdrasil";
 
 /**
  * AccountDialog —— 主题中性的账号登录弹窗(微软正版 + 离线),两套布局共用。
@@ -32,6 +32,9 @@ export const AccountDialog: Component<{
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [offlineName, setOfflineName] = createSignal("");
+  const [ygBase, setYgBase] = createSignal("");
+  const [ygUser, setYgUser] = createSignal("");
+  const [ygPass, setYgPass] = createSignal("");
 
   // 已有账号:菜单步顶部列出,可切换/删除(两套布局共用的账号管理入口)。
   const [accounts, { refetch: refetchAccounts }] = createResource(() => api.listAccounts());
@@ -117,8 +120,34 @@ export const AccountDialog: Component<{
     }
   }
 
+  async function submitYggdrasil(e: Event) {
+    e.preventDefault();
+    const base = ygBase().trim();
+    const user = ygUser().trim();
+    if (!base || !user) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const acc = await api.yggdrasilLogin(base, user, ygPass());
+      if (closed) return;
+      toast({ type: "success", message: `已登录(外置):${acc.username}` });
+      props.onDone(acc);
+    } catch (e) {
+      if (closed) return;
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const title = () =>
-    step() === "offline" ? "离线登录" : step() === "msa" ? "微软登录" : "添加账号";
+    step() === "offline"
+      ? "离线登录"
+      : step() === "msa"
+        ? "微软登录"
+        : step() === "yggdrasil"
+          ? "外置登录"
+          : "添加账号";
 
   return (
     <Dialog
@@ -200,6 +229,19 @@ export const AccountDialog: Component<{
               <small class="text-[12px] text-dim">仅输入用户名,单机游玩</small>
             </span>
           </button>
+          <button
+            class="flex items-center gap-[14px] px-[16px] py-[14px] border border-n-6 rounded-ctl bg-card cursor-pointer text-left transition-[background-color,border-color,transform] duration-150 ease-app hover:bg-a-1 hover:border-a-4 hover:-translate-y-px"
+            onClick={() => {
+              setStep("yggdrasil");
+              setError(null);
+            }}
+          >
+            <span class="text-[26px]">🎭</span>
+            <span class="flex flex-col gap-[2px]">
+              <b class="text-[14px] text-fg">外置登录</b>
+              <small class="text-[12px] text-dim">第三方皮肤站(LittleSkin 等),自动注入 authlib-injector</small>
+            </span>
+          </button>
         </div>
       </Show>
 
@@ -275,6 +317,51 @@ export const AccountDialog: Component<{
               disabled={busy() || !offlineName().trim()}
             >
               {busy() ? "添加中…" : "确定"}
+            </button>
+          </div>
+        </form>
+      </Show>
+
+      {/* --- 外置登录(Yggdrasil) --- */}
+      <Show when={step() === "yggdrasil"}>
+        <form class="p-[18px] flex flex-col gap-[10px]" onSubmit={submitYggdrasil}>
+          <input
+            class="h-[38px] px-[14px] border border-n-6 rounded-xs text-[13px] text-fg bg-n-2 focus-visible:outline-none focus-visible:border-a-4 focus-visible:bg-card"
+            placeholder="皮肤站 API 地址,如 https://littleskin.cn/api/yggdrasil"
+            autocomplete="off"
+            spellcheck={false}
+            value={ygBase()}
+            onInput={(e) => setYgBase(e.currentTarget.value)}
+          />
+          <input
+            class="h-[38px] px-[14px] border border-n-6 rounded-xs text-[13px] text-fg bg-n-2 focus-visible:outline-none focus-visible:border-a-4 focus-visible:bg-card"
+            placeholder="邮箱 / 用户名"
+            autocomplete="username"
+            value={ygUser()}
+            onInput={(e) => setYgUser(e.currentTarget.value)}
+          />
+          <input
+            type="password"
+            class="h-[38px] px-[14px] border border-n-6 rounded-xs text-[13px] text-fg bg-n-2 focus-visible:outline-none focus-visible:border-a-4 focus-visible:bg-card"
+            placeholder="密码"
+            autocomplete="current-password"
+            value={ygPass()}
+            onInput={(e) => setYgPass(e.currentTarget.value)}
+          />
+          <div class="flex justify-end gap-[10px] pt-[2px]">
+            <button
+              type="button"
+              class="h-[36px] px-[18px] border border-n-6 rounded-xs bg-card text-fg text-[13px] cursor-pointer hover:bg-n-5 hover:border-a-4"
+              onClick={() => setStep("menu")}
+            >
+              返回
+            </button>
+            <button
+              type="submit"
+              class="h-[36px] px-[18px] rounded-xs bg-a-5 text-white border border-a-5 text-[13px] cursor-pointer hover:not-disabled:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={busy() || !ygBase().trim() || !ygUser().trim()}
+            >
+              {busy() ? "登录中…" : "登录"}
             </button>
           </div>
         </form>

@@ -66,6 +66,8 @@ pub async fn refresh_selected_microsoft(
         user_type: session.user_type.clone(),
         owns_game,
         expires_at: Some(now_unix() + MC_TOKEN_TTL_SECS),
+        client_token: None,
+        yggdrasil_base: None,
     };
 
     let uuid = updated.uuid.clone();

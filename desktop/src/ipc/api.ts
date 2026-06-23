@@ -284,6 +284,11 @@ export const api = {
     return invoke<AccountSummary>("add_offline_account", { name });
   },
 
+  /** 外置登录(Yggdrasil):皮肤站地址 + 用户名 + 密码;启动时自动注入 authlib-injector */
+  yggdrasilLogin(base: string, username: string, password: string): Promise<AccountSummary> {
+    return invoke<AccountSummary>("yggdrasil_login", { base, username, password });
+  },
+
   /** 刷新当前选中的微软账号登录(免浏览器续期);返回是否执行了续期。失败抛错(需重新登录) */
   refreshAccount(): Promise<boolean> {
     return invoke<boolean>("refresh_account");

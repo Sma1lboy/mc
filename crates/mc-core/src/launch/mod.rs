@@ -38,6 +38,9 @@ pub struct LaunchSpec {
     /// override nor the per-instance config specify one — i.e. precedence is
     /// `java_path` > instance config > this > auto-detect > auto-provision.
     pub global_java_path: Option<PathBuf>,
+    /// Extra JVM arguments injected just before the main class (e.g. the
+    /// authlib-injector `-javaagent` for Yggdrasil accounts). Empty for most launches.
+    pub extra_jvm_args: Vec<String>,
 }
 
 /// A loader closure that reads `versions/<id>/<id>.json` from disk for the
@@ -289,7 +292,15 @@ pub async fn launch(
         launcher_name: spec.launcher_name.clone(),
         launcher_version: spec.launcher_version.clone(),
     };
-    let args = build_launch_command(&profile, &config, &spec.session, &vars, &ctx);
+    let mut args = build_launch_command(&profile, &config, &spec.session, &vars, &ctx);
+    // 注入额外 JVM 参数(如外置登录的 authlib-injector -javaagent):必须在主类**之前**,
+    // 否则 JVM 会把它当成程序参数。插到主类位置前一格。
+    if !spec.extra_jvm_args.is_empty() {
+        let main_pos = args.iter().position(|a| a == &profile.main_class).unwrap_or(0);
+        for (i, extra) in spec.extra_jvm_args.iter().enumerate() {
+            args.insert(main_pos + i, extra.clone());
+        }
+    }
 
     // 6. spawn
     if let Some(tx) = &progress {
