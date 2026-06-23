@@ -1,6 +1,7 @@
 import { Component, createResource, createSignal, For, Show } from "solid-js";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { Spinner } from "./Spinner";
+import { ErrorState } from "./ErrorState";
 import Lightbox from "./Lightbox";
 import { toast } from "./Toast";
 import { api } from "../ipc/api";
@@ -13,7 +14,7 @@ import "../pages/ModpackDetail.css"; // .md markdown 标记样式
  * (图标/简介/分类/链接/画廊/正文)。不含安装流程(实例已装),区别于 ModpackDetail。
  */
 export const ModpackOverview: Component<{ projectId: string }> = (props) => {
-  const [project] = createResource(
+  const [project, { refetch }] = createResource(
     () => props.projectId,
     (id) =>
       api.modrinthProject(id).catch((e) => {
@@ -43,7 +44,7 @@ export const ModpackOverview: Component<{ projectId: string }> = (props) => {
         </div>
       }
     >
-      <Show when={project()} fallback={<div class="text-dim text-[13px] py-[12px]">无法加载整合包详情。</div>}>
+      <Show when={project()} fallback={<ErrorState message="无法加载整合包详情" onRetry={() => void refetch()} />}>
         {(p) => (
           <div class="flex flex-col gap-[16px]">
             {/* 头部 */}
