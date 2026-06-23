@@ -83,6 +83,21 @@ const ProjectInstallDetail: Component<{
       }),
   );
 
+  // 数据包逐存档生效:选好实例后还要选目标存档(saves/<world>/datapacks)。
+  const isDatapack = () => props.kind === "datapack";
+  const [worlds] = createResource(
+    () => (isDatapack() ? selectedId() : false),
+    (id) => api.instanceWorlds(activeRoot(), id as string),
+  );
+  const [world, setWorld] = createSignal<string | null>(null);
+  createEffect(() => {
+    if (!isDatapack()) return;
+    const w = worlds() ?? [];
+    if (w.length === 0) setWorld(null);
+    else if (!world() || !w.some((x) => x.folder === world())) setWorld(w[0].folder);
+  });
+  const worldArg = () => (isDatapack() ? world() : null);
+
   const list = () => instances() ?? [];
   const versionList = () => versions() ?? [];
   const selectedInstance = () => list().find((inst) => inst.id === selectedId()) ?? null;
@@ -122,6 +137,10 @@ const ProjectInstallDetail: Component<{
       toast({ type: "error", message: "这个版本不兼容当前实例的加载器/游戏版本" });
       return;
     }
+    if (isDatapack() && !world()) {
+      toast({ type: "warn", message: "数据包需要先选择目标存档" });
+      return;
+    }
     setInstallingVersion(version.id);
     try {
       // mod 传 mc/loader 以便一并解析 required 依赖;packs 不需要。
@@ -133,6 +152,7 @@ const ProjectInstallDetail: Component<{
         version.id,
         isMod ? inst.mc_version : null,
         isMod ? inst.loader : null,
+        worldArg(),
       );
       const parts = [`已安装 ${version.version_number} 到「${inst.name || inst.id}」`];
       if (report.installed_deps > 0) parts.push(`+${report.installed_deps} 个依赖`);
@@ -155,6 +175,10 @@ const ProjectInstallDetail: Component<{
       toast({ type: "error", message: "当前实例没有兼容版本,请换一个实例" });
       return;
     }
+    if (isDatapack() && !world()) {
+      toast({ type: "warn", message: "数据包需要先选择目标存档" });
+      return;
+    }
     setInstalling(true);
     try {
       if (props.kind === "mod") {
@@ -166,7 +190,7 @@ const ProjectInstallDetail: Component<{
           message: `${props.hit.title}:${parts.join(",")}`,
         });
       } else {
-        const file = await api.installPack(activeRoot(), inst.id, meta().packKind!, props.hit.id, inst.mc_version);
+        const file = await api.installPack(activeRoot(), inst.id, meta().packKind!, props.hit.id, inst.mc_version, worldArg());
         toast({ type: "success", message: `已安装到「${inst.name || inst.id}」:${file}` });
       }
     } catch (e) {
@@ -378,6 +402,31 @@ const ProjectInstallDetail: Component<{
                 </div>
               </Show>
             </Show>
+
+            {/* 数据包目标存档:数据包逐存档生效,必须先选一个存档。 */}
+            <Show when={isDatapack() && selectedInstance()}>
+              <Show
+                when={(worlds() ?? []).length > 0}
+                fallback={
+                  <div class="mt-[10px] text-[12px] leading-[1.7] text-n-6">
+                    该实例还没有存档。数据包按存档生效,先进游戏新建世界或在「存档」里导入一个。
+                  </div>
+                }
+              >
+                <label class="mt-[10px] flex items-center gap-[8px] text-[12px] text-n-6">
+                  <span class="shrink-0">目标存档</span>
+                  <select
+                    class="flex-1 rounded-ctl border border-n-3 bg-card px-[8px] py-[6px] text-[12px] text-n-8"
+                    value={world() ?? ""}
+                    onChange={(e) => setWorld(e.currentTarget.value)}
+                  >
+                    <For each={worlds()}>
+                      {(w) => <option value={w.folder}>{w.name || w.folder}</option>}
+                    </For>
+                  </select>
+                </label>
+              </Show>
+            </Show>
           </section>
 
           <section class="rounded-card bg-n-2 px-[14px] py-[14px]">
@@ -393,7 +442,7 @@ const ProjectInstallDetail: Component<{
                   </div>
                   <button
                     class="h-[36px] rounded-ctl border-none bg-a-5 px-[14px] text-white text-[13px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90 disabled:opacity-50 disabled:cursor-default"
-                    disabled={installing() || installingVersion() !== null || !canInstallTo(inst())}
+                    disabled={installing() || installingVersion() !== null || !canInstallTo(inst()) || (isDatapack() && !world())}
                     onClick={installLatest}
                   >
                     {installing() ? "安装中…" : `安装最新${meta().title}`}

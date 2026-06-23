@@ -14,6 +14,7 @@ const KINDS: { key: ProjectKind; label: string }[] = [
   { key: "mod", label: "模组" },
   { key: "shader", label: "光影" },
   { key: "resourcepack", label: "资源包" },
+  { key: "datapack", label: "数据包" },
 ];
 
 type SelectedProject = { hit: ModpackHit; kind: ProjectKind };
