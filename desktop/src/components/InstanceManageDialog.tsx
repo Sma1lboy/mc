@@ -1521,10 +1521,7 @@ export const InstanceManageDialog: Component<{
                                     <Toggle checked={m.enabled} onChange={(v) => toggleMod(m, v)} title="启用" />
                                     启用
                                   </div>
-                                  <button
-                                    class="shrink-0 text-[12px] text-danger-text px-[8px] py-[4px] rounded-xs cursor-pointer hover:bg-danger-soft"
-                                    onClick={() => setConfirmDelMod(m)}
-                                  >
+                                  <button class={DEL_BTN} onClick={() => setConfirmDelMod(m)}>
                                     删除
                                   </button>
                                 </div>
