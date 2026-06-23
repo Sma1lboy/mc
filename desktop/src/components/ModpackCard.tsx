@@ -86,7 +86,7 @@ export function ModpackCard(props: ModpackCardProps): JSX.Element {
         >
           {hit().title}
           <Show when={hit().author}>
-            <span class="text-dim font-normal"> by {hit().author}</span>
+            <span class="text-dim font-normal"> · {hit().author}</span>
           </Show>
         </div>
 
@@ -99,7 +99,7 @@ export function ModpackCard(props: ModpackCardProps): JSX.Element {
         <div class="flex items-center flex-wrap gap-[8px] mt-auto">
           <span
             class="inline-flex items-center shrink-0 gap-[4px] text-[12px] text-dim"
-            title={`${hit().downloads} downloads`}
+            title={`${hit().downloads} 次下载`}
           >
             {/* 下载图标 (向下箭头入托盘), accent 色。 */}
             <svg
