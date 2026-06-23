@@ -62,11 +62,24 @@ const SettingsIcon = (): JSX.Element => (
   </svg>
 );
 
-// App Logo:方块「方块世界」标记。固定绿(品牌 logo),不随主题强调色变。
+// App Logo:等距 3D 草方块(品牌 mark,与 branding/ 的 iso-cube 同源)。
+// 顶面绿(草)+ 两侧陶土(土)+ 草檐,固定配色不随主题强调色变。
 const LogoMark = (): JSX.Element => (
-  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <path d="M12 2 3 7v10l9 5 9-5V7l-9-5Z" fill="#0f3d2a" stroke="#3fbf78" stroke-width="1.4" stroke-linejoin="round" />
-    <path d="M12 7 7.5 9.5v5L12 17l4.5-2.5v-5L12 7Z" fill="#28a062" />
+  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" stroke-linejoin="round">
+    {/* 左面(陶土) */}
+    <polygon points="3,7 12,12 12,22 3,17" fill="#cc785c" />
+    {/* 右面(陶土深) */}
+    <polygon points="21,7 12,12 12,22 21,17" fill="#a85741" />
+    {/* 草檐(侧面顶部窄绿) */}
+    <polygon points="3,7 12,12 12,13.6 3,8.6" fill="#2f9e63" />
+    <polygon points="21,7 12,12 12,13.6 21,8.6" fill="#1f7a4d" />
+    {/* 顶面(绿,草) */}
+    <polygon points="12,2 21,7 12,12 3,7" fill="#3fbf78" />
+    {/* 顶面高光边 + 前棱 */}
+    <polygon points="12,2 21,7 12,12 3,7" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="0.5" />
+    <line x1="12" y1="12" x2="12" y2="22" stroke="rgba(255,255,255,0.12)" stroke-width="0.5" />
+    {/* 中央 M 徽标(品牌字母,奶白),收在方块正面内 */}
+    <path d="M8.5,17.2 L8.5,13.6 L12,15.4 L15.5,13.6 L15.5,17.2" fill="none" stroke="#eae7df" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" />
   </svg>
 );
 
