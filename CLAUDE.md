@@ -47,6 +47,19 @@ scripts/dev-app.sh server        # also start mc-server (:8787)
 - Frontend-only change → `ui` mode (HMR). Rust / new `#[tauri::command]` → full
   rebuild (a new `invoke()` won't exist in an old binary).
 
+## Logs (debugging)
+
+One unified, daily-rolling log at **`<data_dir>/logs/mc-launcher.log`** (Settings → 诊断 →
+「打开日志目录」, or the `open_logs_dir` command). Set up in `desktop/src-tauri/src/logging.rs`;
+captures both sides, distinguished by the `tracing` **target**:
+- **daemon** (local data layer) — `mc-core` + command-layer `tracing` events; target is the Rust
+  module path (e.g. `mc_core::launch`). Use `tracing::{info,warn,…}!` in Rust.
+- **client** (webview) — forwarded via the `client_log` command (target `client:`); the frontend
+  `desktop/src/util/log.ts` mirrors `console.error`/`warn` + `window.onerror` there. Use `log.*`.
+
+`MC_LOG` (or `RUST_LOG`) overrides the filter, e.g. `MC_LOG=mc_core=trace`. Debug builds also
+mirror to stderr.
+
 ## Conventions
 
 - **Tauri commands are thin.** No launcher logic in `desktop/src-tauri/src/commands.rs` —
