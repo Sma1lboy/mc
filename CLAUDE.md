@@ -70,6 +70,8 @@ mirror to stderr.
   faithful to PCL2). See `desktop/src/layout/`.
 - **Auth** funnels all account kinds (offline / Microsoft / Yggdrasil) into one
   `AuthSession` (`mc-core/src/auth/`). Microsoft uses the device-code flow.
+- **Commits** follow Conventional Commits: `type(scope): subject` (lowercase subject),
+  e.g. `feat(logging): …`, `fix(auth): …`, `docs: …`, `refactor: …`, `chore: …`.
 
 ## Secrets / env (never commit real values)
 
