@@ -389,7 +389,7 @@ export const AccountDialog: Component<{
       </Show>
 
       <Show when={error()}>
-        <div class="mx-[18px] mt-0 mb-[16px] px-[12px] py-[10px] rounded-xs bg-[#fdecec] text-[#c0392b] text-[12px] leading-[1.6] break-words">
+        <div class="mx-[18px] mt-0 mb-[16px] px-[12px] py-[10px] rounded-xs bg-danger-soft text-danger-text text-[12px] leading-[1.6] break-words">
           <Show
             when={/AADSTS700016|client_id|MC_MSA_CLIENT_ID|was not found/i.test(error()!)}
             fallback={error()}
