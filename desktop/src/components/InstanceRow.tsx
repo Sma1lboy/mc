@@ -3,6 +3,7 @@ import { PlayButton } from "./PlayButton";
 import { Dialog } from "./Dialog";
 import { Menu } from "./Menu";
 import { formatRelativeTime } from "./format";
+import { loaderLabel as fmtLoader } from "../util/loaders";
 import { isRunning, isLaunching } from "../store";
 
 // InstanceRow 接收的实例形状。与后端 InstanceSummary 字段对齐
@@ -49,10 +50,8 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
 
   // 元信息行: "Fabric 1.20.1 · Played 5 minutes ago"。
   const loaderLabel = () => {
-    const l = inst().loader;
-    if (!l) return inst().mc_version;
-    const cap = l.charAt(0).toUpperCase() + l.slice(1);
-    return `${cap} ${inst().mc_version}`;
+    const name = fmtLoader(inst().loader);
+    return name ? `${name} ${inst().mc_version}` : inst().mc_version;
   };
 
   const playedLabel = () => {

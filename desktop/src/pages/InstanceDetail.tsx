@@ -5,6 +5,7 @@ import { Menu } from "../components/Menu";
 import { formatRelativeTime } from "../components/format";
 import { api } from "../ipc/api";
 import { openInstanceDir, exportInstanceMrpack, deleteInstance } from "../util/instanceActions";
+import { loaderLabel as fmtLoader } from "../util/loaders";
 import { activeRoot, isRunning, isLaunching, playInstance, currentInstanceId, closeInstance, openInstance } from "../store";
 
 /**
@@ -46,9 +47,8 @@ const InstanceDetail: Component = () => {
   const loaderLabel = () => {
     const i = inst();
     if (!i) return "";
-    const l = i.loader;
-    const cap = l ? l.charAt(0).toUpperCase() + l.slice(1) : "";
-    return `${cap} ${i.mc_version}`.trim();
+    const name = fmtLoader(i.loader);
+    return name ? `${name} ${i.mc_version}` : i.mc_version;
   };
   const playedLabel = () => {
     const i = inst();

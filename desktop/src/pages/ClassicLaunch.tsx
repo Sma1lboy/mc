@@ -4,14 +4,12 @@ import { LOADER_BADGE_TINT } from "../components/styles";
 import { api, onGameLog, onLaunchProgress } from "../ipc/api";
 import { activeRoot, isRunning, isLaunching, playInstance } from "../store";
 import { openInstanceDir } from "../util/instanceActions";
+import { loaderLabel } from "../util/loaders";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import type { AccountSummary, ImportOutcome, InstanceSummary } from "../ipc/types";
 import type { InstanceManageTab } from "../components/InstanceManageDialog";
 import ClassicAccountDialog from "./ClassicAccountDialog";
 import "./ClassicLaunch.css";
-
-const loaderLabel = (l: string) =>
-  ({ vanilla: "原版", forge: "Forge", neoforge: "NeoForge", fabric: "Fabric", quilt: "Quilt" } as Record<string, string>)[l] ?? l;
 
 const kindLabel = (k: string) =>
   k === "microsoft" ? "正版验证" : k === "yggdrasil" ? "外置登录" : "离线模式";
