@@ -41,7 +41,7 @@ export function PlayButton(props: PlayButtonProps): JSX.Element {
         if (props.disabled) return;
         props.onClick?.(e);
       }}
-      title={props.running ? "Stop" : "Play"}
+      title={props.running ? "停止" : "启动"}
     >
       <Show
         when={props.running}

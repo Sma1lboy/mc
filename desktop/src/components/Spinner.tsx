@@ -33,7 +33,7 @@ export function Spinner(props: SpinnerProps): JSX.Element {
       height={size()}
       viewBox="0 0 12 12"
       role="status"
-      aria-label={props.label ?? "Loading"}
+      aria-label={props.label ?? "加载中"}
       shape-rendering="crispEdges"
     >
       <For each={CELLS}>
