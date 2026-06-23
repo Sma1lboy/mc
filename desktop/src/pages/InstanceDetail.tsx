@@ -7,7 +7,9 @@ import { api, onInstallProgress } from "../ipc/api";
 import { openInstanceDir, deleteInstance } from "../util/instanceActions";
 import { loaderLabel as fmtLoader } from "../util/loaders";
 import { activeRoot, isRunning, isLaunching, playInstance, currentInstanceId, closeInstance, openInstance } from "../store";
+import { renderMarkdown } from "../util/markdown";
 import { t } from "../i18n";
+import "./ModpackDetail.css"; // .md 样式(整合包更新日志渲染)
 
 /**
  * InstanceDetail —— 实例详情页(替代旧的管理弹窗):
@@ -296,6 +298,15 @@ const InstanceDetail: Component = () => {
           <div class="text-[13px] text-dim leading-[1.6]">
             {t("instance.updateBody", { version: latestUpdate()?.version_number ?? "" })}
           </div>
+          <Show when={latestUpdate()?.changelog?.trim()}>
+            <div class="flex flex-col gap-[6px]">
+              <div class="text-[12px] font-semibold text-dim">{t("instance.updateChangelog")}</div>
+              <div
+                class="md max-h-[200px] overflow-y-auto rounded-ctl bg-glass-card px-[12px] py-[10px] text-[12px] leading-[1.6] text-dim"
+                innerHTML={renderMarkdown(latestUpdate()!.changelog)}
+              />
+            </div>
+          </Show>
           <Show when={modrinthUrl()}>
             <a
               href={modrinthUrl()!}
