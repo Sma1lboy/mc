@@ -116,8 +116,9 @@ else
 fi
 
 echo "==> Committing + tagging $TAG"
-git add Cargo.toml Cargo.lock \
-        desktop/src-tauri/Cargo.toml desktop/src-tauri/Cargo.lock \
+# Note: Cargo.lock files are gitignored in this repo, so they are not staged here.
+git add Cargo.toml \
+        desktop/src-tauri/Cargo.toml \
         desktop/src-tauri/tauri.conf.json \
         desktop/package.json desktop/package-lock.json \
         CHANGELOG.md
