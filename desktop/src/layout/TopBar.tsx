@@ -1,6 +1,7 @@
 import { Component, Show } from "solid-js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { runningIds } from "../store";
+import { t } from "../i18n";
 
 /**
  * TopBar —— 48px 顶栏(无边框窗口的自绘标题栏)。
@@ -60,12 +61,12 @@ const TopBar: Component = () => {
             fallback={
               <>
                 <span class="w-[7px] h-[7px] rounded-full shrink-0 bg-n-6" aria-hidden="true" />
-                <span class="text-[12px] text-dim whitespace-nowrap">无实例运行</span>
+                <span class="text-[12px] text-dim whitespace-nowrap">{t("layout.noInstanceRunning")}</span>
               </>
             }
           >
             <span class="w-[7px] h-[7px] rounded-full shrink-0 bg-a-5" aria-hidden="true" />
-            <span class="text-[12px] text-fg whitespace-nowrap">{runningCount()} 个运行中</span>
+            <span class="text-[12px] text-fg whitespace-nowrap">{t("layout.running", { n: runningCount() })}</span>
           </Show>
         </div>
 
@@ -81,16 +82,16 @@ const TopBar: Component = () => {
         <div class="hidden items-center gap-[2px] [-webkit-app-region:no-drag]">
           <button
             class="w-[30px] h-[30px] border-none bg-transparent rounded-ctl text-n-7 cursor-pointer grid place-items-center transition-[background-color,color] duration-[var(--dur)] ease-app motion-reduce:transition-none hover:bg-glass-hover hover:text-fg"
-            title="最小化"
-            aria-label="最小化"
+            title={t("layout.minimize")}
+            aria-label={t("layout.minimize")}
             onClick={() => windowAction((w) => w.minimize())}
           >
             <MinimizeIcon />
           </button>
           <button
             class="w-[30px] h-[30px] border-none bg-transparent rounded-ctl text-n-7 cursor-pointer grid place-items-center transition-[background-color,color] duration-[var(--dur)] ease-app motion-reduce:transition-none hover:bg-danger hover:text-white"
-            title="关闭"
-            aria-label="关闭"
+            title={t("layout.close")}
+            aria-label={t("layout.close")}
             onClick={() => windowAction((w) => w.close())}
           >
             <CloseIcon />

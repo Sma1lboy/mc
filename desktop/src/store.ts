@@ -2,6 +2,7 @@ import { createSignal } from "solid-js";
 import { isThemeUntouchedFor, saveTheme, themeForLayout } from "./theme/theme";
 import { api, onGameExit, onGameStarted } from "./ipc/api";
 import { toast } from "./components/Toast";
+import { t } from "./i18n";
 
 // 页面标识。工作台布局用 home/library/discover/settings;
 // 经典布局用 launch/discover/settings/more(顶部 Tab,带图标)。
@@ -227,7 +228,7 @@ export async function playInstance(id: string): Promise<void> {
     try {
       await api.stopInstance(id);
     } catch (e) {
-      toast({ type: "error", message: `停止失败:${e}` });
+      toast({ type: "error", message: t("store.launch.stopFailed", { error: String(e) }) });
     }
     return;
   }
@@ -240,10 +241,10 @@ export async function playInstance(id: string): Promise<void> {
     const name = acc?.username ?? "Player";
     const online = !!acc && acc.kind !== "offline";
     await api.launchInstance(activeRoot(), id, name, online);
-    toast({ type: "info", message: "正在启动…" });
+    toast({ type: "info", message: t("store.launch.starting") });
   } catch (e) {
     markLaunching(id, false);
-    toast({ type: "error", message: `启动失败:${e}` });
+    toast({ type: "error", message: t("store.launch.launchFailed", { error: String(e) }) });
   }
   // 成功时保持 launching=true,直到 game://started(转 running)或 game://exit 清除。
 }
@@ -265,9 +266,13 @@ if (typeof window !== "undefined") {
     markLaunching(e.id, false);
     markRunning(e.id, false);
     if (e.success) {
-      toast({ type: "info", message: "游戏已退出" });
+      toast({ type: "info", message: t("store.launch.exited") });
     } else {
-      const reason = e.reason || `游戏异常退出${e.code != null ? `(代码 ${e.code})` : ""}`;
+      const reason =
+        e.reason ||
+        (e.code != null
+          ? t("store.launch.crashedWithCode", { code: e.code })
+          : t("store.launch.crashed"));
       const hint = e.suggestions && e.suggestions.length > 0 ? ` —— ${e.suggestions[0]}` : "";
       toast({ type: "error", message: `${reason}${hint}` });
     }

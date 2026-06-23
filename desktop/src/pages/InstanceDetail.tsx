@@ -7,6 +7,7 @@ import { api } from "../ipc/api";
 import { openInstanceDir, exportInstanceMrpack, deleteInstance } from "../util/instanceActions";
 import { loaderLabel as fmtLoader } from "../util/loaders";
 import { activeRoot, isRunning, isLaunching, playInstance, currentInstanceId, closeInstance, openInstance } from "../store";
+import { t } from "../i18n";
 
 /**
  * InstanceDetail —— 实例详情页(替代旧的管理弹窗):
@@ -54,7 +55,7 @@ const InstanceDetail: Component = () => {
     const i = inst();
     if (!i) return "";
     const rel = formatRelativeTime(i.last_played ?? 0);
-    return rel === "never" ? "从未游玩" : `上次 ${rel}`;
+    return rel === "never" ? t("instance.neverPlayed") : t("instance.lastPlayed", { rel });
   };
 
   // 把当前实例转成 InstanceRow / instanceActions 共用的行数据形状(导出整合包需要)。
@@ -77,15 +78,15 @@ const InstanceDetail: Component = () => {
     const i = inst();
     if (!i) return;
     if (isRunning(i.id)) {
-      toast({ type: "error", message: "请先停止运行中的游戏,再复制该实例" });
+      toast({ type: "error", message: t("instance.stopBeforeCopyDetail") });
       return;
     }
     try {
-      const newId = await api.copyInstance(activeRoot(), i.id, `${i.name || i.id} 副本`);
-      toast({ type: "success", message: "已复制实例" });
+      const newId = await api.copyInstance(activeRoot(), i.id, t("instance.copyName", { name: i.name || i.id }));
+      toast({ type: "success", message: t("instance.copiedInstance") });
       openInstance(newId);
     } catch (e) {
-      toast({ type: "error", message: `复制失败:${e}` });
+      toast({ type: "error", message: t("instance.copyFailed", { err: String(e) }) });
     }
   }
 
@@ -115,17 +116,17 @@ const InstanceDetail: Component = () => {
         <button
           class="self-start inline-flex items-center gap-[3px] bg-transparent border-none text-dim text-[13px] cursor-pointer py-[2px] px-0 transition-colors duration-150 hover:text-fg"
           onClick={closeInstance}
-          aria-label="返回"
+          aria-label={t("instance.back")}
         >
           <svg class="w-[16px] h-[16px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="m14 6-6 6 6 6" />
           </svg>
-          返回
+          {t("instance.back")}
         </button>
 
         <Show
           when={inst()}
-          fallback={<div class="text-dim text-[14px] py-[8px]">载入中…</div>}
+          fallback={<div class="text-dim text-[14px] py-[8px]">{t("instance.loading")}</div>}
         >
           {(i) => (
             <div class="flex items-center gap-[14px]">
@@ -134,7 +135,7 @@ const InstanceDetail: Component = () => {
                   <img src={i().icon!} alt="" width="52" height="52" class="w-full h-full object-cover" />
                 </Show>
                 <Show when={isRunning(i().id)}>
-                  <span class="absolute right-[3px] bottom-[3px] w-[12px] h-[12px] rounded-full bg-a-5 shadow-[0_0_0_2px_var(--bg-card)]" title="运行中" />
+                  <span class="absolute right-[3px] bottom-[3px] w-[12px] h-[12px] rounded-full bg-a-5 shadow-[0_0_0_2px_var(--bg-card)]" title={t("instance.running")} />
                 </Show>
               </div>
               <div class="flex-1 min-w-0">
@@ -149,7 +150,7 @@ const InstanceDetail: Component = () => {
               <Menu.Root positioning={{ placement: "bottom-end" }} onSelect={(d: { value: string }) => void onMenuAction(d.value)}>
                 <Menu.Trigger
                   class="inline-flex items-center justify-center w-[34px] h-[34px] border-none bg-transparent text-dim rounded-ctl cursor-pointer transition-[background-color,color] duration-[var(--dur)] ease-app hover:bg-glass-hover hover:text-fg data-[state=open]:bg-glass-hover data-[state=open]:text-fg"
-                  aria-label="更多操作"
+                  aria-label={t("instance.moreActions")}
                 >
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
                     <circle cx="8" cy="3" r="1.5" />
@@ -158,12 +159,12 @@ const InstanceDetail: Component = () => {
                   </svg>
                 </Menu.Trigger>
                 <Menu.Content>
-                  <Menu.Item value="open">打开游戏目录</Menu.Item>
-                  <Menu.Item value="copy">复制实例</Menu.Item>
-                  <Menu.Item value="export">导出整合包(.mrpack)</Menu.Item>
+                  <Menu.Item value="open">{t("instance.openGameDir")}</Menu.Item>
+                  <Menu.Item value="copy">{t("instance.copyInstanceItem")}</Menu.Item>
+                  <Menu.Item value="export">{t("instance.exportModpack")}</Menu.Item>
                   <Menu.Separator />
                   <Menu.Item value="delete" danger>
-                    删除实例
+                    {t("instance.deleteInstance")}
                   </Menu.Item>
                 </Menu.Content>
               </Menu.Root>
@@ -192,28 +193,28 @@ const InstanceDetail: Component = () => {
       <Dialog
         open={confirmDel()}
         onClose={() => setConfirmDel(false)}
-        label="删除实例"
+        label={t("instance.deleteInstance")}
         contentClass="w-[360px] max-w-[calc(100vw-48px)] glass-pop rounded-card overflow-hidden"
       >
         <div class="p-[20px] flex flex-col gap-[14px]">
           <div class="text-[15px] font-semibold text-fg break-words">
-            删除实例「{inst()?.name || inst()?.id}」?
+            {t("instance.deleteInstanceConfirm", { name: inst()?.name || inst()?.id || "" })}
           </div>
           <div class="text-[13px] text-dim leading-[1.6]">
-            将删除该版本目录,包括其 mods、存档与配置(移入回收站)。
+            {t("instance.deleteInstanceBodyDetail")}
           </div>
           <div class="flex justify-end gap-[10px]">
             <button
               class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-glass-card text-fg text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-glass-hover"
               onClick={() => setConfirmDel(false)}
             >
-              取消
+              {t("instance.cancel")}
             </button>
             <button
               class="h-[34px] px-[16px] border-none rounded-ctl bg-danger text-white text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-danger-hover"
               onClick={() => void doDelete()}
             >
-              删除
+              {t("instance.delete")}
             </button>
           </div>
         </div>

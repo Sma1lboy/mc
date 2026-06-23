@@ -4,6 +4,7 @@ import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { BlockedFilesDialog, Spinner, toast, Lightbox, type ModpackHit, type LightboxImage } from "../components";
 import { api, onInstallProgress } from "../ipc/api";
 import { activeRoot } from "../store";
+import { t } from "../i18n";
 import type { ImportOutcome, ModrinthVersion, ModrinthProject } from "../ipc/types";
 import { renderMarkdown } from "../util/markdown";
 import "./ModpackDetail.css"; // 残留:.md ... (innerHTML markdown 标记)
@@ -16,8 +17,8 @@ import "./ModpackDetail.css"; // 残留:.md ... (innerHTML markdown 标记)
  * 所有数据都来自 daemon(api.modrinthProject / api.modrinthVersions)。
  */
 
-const typeLabel = (t: string) =>
-  (({ release: "正式版", beta: "测试版", alpha: "内测版" }) as Record<string, string>)[t] ?? t;
+const typeLabel = (type: string) =>
+  (({ release: t("discover.typeRelease"), beta: t("discover.typeBeta"), alpha: t("discover.typeAlpha") }) as Record<string, string>)[type] ?? type;
 
 const loaderLabel = (l: string) =>
   (({ fabric: "Fabric", forge: "Forge", neoforge: "NeoForge", quilt: "Quilt" }) as Record<
@@ -49,7 +50,7 @@ const ModpackDetail: Component<{
     () => props.hit.id,
     (id) =>
       api.modrinthProject(id).catch((e) => {
-        toast({ type: "error", message: `简介加载失败:${e}` });
+        toast({ type: "error", message: t("discover.aboutLoadFailed", { error: String(e) }) });
         return null as ModrinthProject | null;
       }),
   );
@@ -58,7 +59,7 @@ const ModpackDetail: Component<{
     () => props.hit.id,
     (id) =>
       api.modrinthVersions(id).catch((e) => {
-        toast({ type: "error", message: `版本列表加载失败:${e}` });
+        toast({ type: "error", message: t("discover.versionsLoadFailed", { error: String(e) }) });
         return [] as ModrinthVersion[];
       }),
   );
@@ -107,10 +108,10 @@ const ModpackDetail: Component<{
     if (!p) return [] as { label: string; url: string }[];
     return (
       [
-        { label: "源码", url: p.source_url },
-        { label: "问题反馈", url: p.issues_url },
-        { label: "Wiki", url: p.wiki_url },
-        { label: "Discord", url: p.discord_url },
+        { label: t("discover.linkSource"), url: p.source_url },
+        { label: t("discover.linkIssues"), url: p.issues_url },
+        { label: t("discover.linkWiki"), url: p.wiki_url },
+        { label: t("discover.linkDiscord"), url: p.discord_url },
       ].filter((l) => !!l.url) as { label: string; url: string }[]
     );
   };
@@ -118,25 +119,25 @@ const ModpackDetail: Component<{
   async function install(v: ModrinthVersion) {
     if (installing()) return;
     if (!v.mrpack_url) {
-      toast({ type: "error", message: "该版本没有可安装的 .mrpack 文件" });
+      toast({ type: "error", message: t("discover.noMrpack") });
       return;
     }
     setInstalling(v.id);
-    setProgress("准备…");
+    setProgress(t("discover.preparing"));
     toast({
       type: "info",
-      message: `开始安装「${props.hit.title} ${v.version_number}」…首次会下载原版与依赖,可能需要几分钟`,
+      message: t("discover.installStart", { title: props.hit.title, version: v.version_number }),
     });
     try {
       const out = await api.installModpackUrl(activeRoot(), v.mrpack_url, null);
       if (out.blocked.length > 0 || out.skipped_optional.length > 0) {
         setOutcome(out); // 弹窗摊开需手动下载 / 被跳过的文件
       } else {
-        toast({ type: "success", message: `已安装「${out.instance_id}」,去启动页选择它即可开玩` });
+        toast({ type: "success", message: t("discover.installedModpack", { id: out.instance_id }) });
       }
       props.onInstalled?.();
     } catch (e) {
-      toast({ type: "error", message: `安装失败:${e}` });
+      toast({ type: "error", message: t("discover.installFailed", { error: String(e) }) });
     } finally {
       setInstalling(null);
       setProgress("");
@@ -149,7 +150,7 @@ const ModpackDetail: Component<{
         class="self-start bg-transparent border-none text-a-6 text-[14px] cursor-pointer py-[4px] px-0 rounded-xs transition-opacity duration-[var(--mo-dur-fast)] ease-emph hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5"
         onClick={props.onBack}
       >
-        ← 返回
+        {t("discover.back")}
       </button>
 
       <div class="flex flex-col gap-[12px]">
@@ -212,7 +213,7 @@ const ModpackDetail: Component<{
           }}
           onClick={() => setTab("about")}
         >
-          简介
+          {t("discover.tabAbout")}
         </button>
         <button
           class="relative bg-transparent border-none py-[8px] px-[16px] text-[14px] font-semibold cursor-pointer border-b-2 border-b-transparent mb-[-1px] transition-colors duration-[var(--mo-dur-fast)] ease-emph"
@@ -222,7 +223,7 @@ const ModpackDetail: Component<{
           }}
           onClick={() => setTab("versions")}
         >
-          版本
+          {t("discover.tabVersions")}
           <Show when={(versions() ?? []).length}>
             <span class="ml-[6px] text-[11px] font-semibold px-[6px] rounded-full bg-glass-card text-n-6">
               {(versions() ?? []).length}
@@ -238,7 +239,7 @@ const ModpackDetail: Component<{
             }}
             onClick={() => setTab("gallery")}
           >
-            画廊
+            {t("discover.tabGallery")}
             <span class="ml-[6px] text-[11px] font-semibold px-[6px] rounded-full bg-glass-card text-n-6">
               {gallery().length}
             </span>
@@ -259,7 +260,7 @@ const ModpackDetail: Component<{
           >
             <Show
               when={project()}
-              fallback={<div class="p-[28px] text-center text-n-6">没有简介信息</div>}
+              fallback={<div class="p-[28px] text-center text-n-6">{t("discover.noAbout")}</div>}
             >
               {(p) => (
                 <>
@@ -281,7 +282,7 @@ const ModpackDetail: Component<{
                   <Show
                     when={p().body?.trim()}
                     fallback={
-                      <div class="p-[28px] text-center text-n-6">作者没有填写详细介绍。</div>
+                      <div class="p-[28px] text-center text-n-6">{t("discover.noAboutBody")}</div>
                     }
                   >
                     {/* renderMarkdown 转义优先,输出仅含白名单标签,innerHTML 安全 */}
@@ -334,7 +335,7 @@ const ModpackDetail: Component<{
           >
             <Show
               when={vList().length > 0}
-              fallback={<div class="p-[28px] text-center text-n-6">没有可用版本</div>}
+              fallback={<div class="p-[28px] text-center text-n-6">{t("discover.noVersions")}</div>}
             >
               <div
                 ref={setVersionsScrollEl}
@@ -380,7 +381,7 @@ const ModpackDetail: Component<{
                           class="mt-[8px] bg-transparent border-none p-0 text-[12px] text-a-6 cursor-pointer hover:underline"
                           onClick={() => setOpenLog((o) => ({ ...o, [v.id]: !o[v.id] }))}
                         >
-                          {openLog()[v.id] ? "收起更新日志" : "更新日志"}
+                          {openLog()[v.id] ? t("discover.collapseChangelog") : t("discover.changelog")}
                         </button>
                         <Show when={openLog()[v.id]}>
                           <div
@@ -395,7 +396,7 @@ const ModpackDetail: Component<{
                               disabled={!v.mrpack_url || installing() !== null}
                               onClick={() => install(v)}
                             >
-                              {installing() === v.id ? (progress() || "安装中…") : "安装此版本"}
+                              {installing() === v.id ? (progress() || t("discover.installing")) : t("discover.installThisVersion")}
                             </button>
                           </div>
                         </div>

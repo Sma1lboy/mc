@@ -2,6 +2,7 @@ import { Component, createSignal, createEffect, For, Show } from "solid-js";
 import { ContentBrowser, type ModpackHit } from "../components";
 import type { ProjectKind } from "../ipc/types";
 import { discoverTarget, setDiscoverTarget } from "../store";
+import { t } from "../i18n";
 import ModpackDetail from "./ModpackDetail";
 import ProjectInstallDetail from "./ProjectInstallDetail";
 
@@ -11,12 +12,12 @@ import ProjectInstallDetail from "./ProjectInstallDetail";
  * 版本/加载器过滤(mcVersion="" + loader=null),点击行打开详情页而非直接下载。
  */
 
-const KINDS: { key: ProjectKind; label: string }[] = [
-  { key: "modpack", label: "整合包" },
-  { key: "mod", label: "模组" },
-  { key: "shader", label: "光影" },
-  { key: "resourcepack", label: "资源包" },
-  { key: "datapack", label: "数据包" },
+const KINDS = (): { key: ProjectKind; label: string }[] => [
+  { key: "modpack", label: t("discover.kindModpack") },
+  { key: "mod", label: t("discover.kindMod") },
+  { key: "shader", label: t("discover.kindShader") },
+  { key: "resourcepack", label: t("discover.kindResourcepack") },
+  { key: "datapack", label: t("discover.kindDatapack") },
 ];
 
 type SelectedProject = { hit: ModpackHit; kind: ProjectKind };
@@ -61,11 +62,11 @@ const Discover: Component = () => {
 
       <Show when={!selected()}>
       <div class="flex items-center justify-between gap-[16px] mb-[16px]">
-        <h1 class="text-[24px] font-bold text-fg m-0">发现</h1>
+        <h1 class="text-[24px] font-bold text-fg m-0">{t("discover.heading")}</h1>
       </div>
 
       <div class="flex gap-[8px] mb-[16px]">
-        <For each={KINDS}>
+        <For each={KINDS()}>
           {(k) => (
             <button
               class="px-[14px] py-[6px] border-none rounded-ctl text-[13px] cursor-pointer transition-[background-color,color,box-shadow] duration-[var(--dur)] ease-app focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5 focus-visible:ring-offset-2 focus-visible:ring-offset-n-1"
@@ -91,7 +92,7 @@ const Discover: Component = () => {
             loader={null}
             onAdd={openHit}
             onOpenDetail={openHit}
-            placeholder="搜索 Modrinth…"
+            placeholder={t("discover.searchPlaceholder")}
           />
         )}
       </Show>

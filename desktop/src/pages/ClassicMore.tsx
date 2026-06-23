@@ -1,14 +1,15 @@
 import { Component } from "solid-js";
+import { t } from "../i18n";
 
 /**
  * ClassicMore —— 经典视图「更多」标签页:关于 / 链接 / 工具入口。
  * 这里先做关于卡 + 链接卡,后续填工具。
  */
-const LINKS: { label: string; href: string; desc: string }[] = [
-  { label: "Modrinth", href: "https://modrinth.com", desc: "开源模组与整合包平台" },
-  { label: "CurseForge", href: "https://www.curseforge.com/minecraft", desc: "最大的模组下载站" },
-  { label: "Minecraft Wiki", href: "https://zh.minecraft.wiki", desc: "中文百科" },
-  { label: "GitHub", href: "https://github.com/Sma1lboy/mc", desc: "项目源码与 CI 状态" },
+const LINKS = (): { label: string; href: string; desc: string }[] => [
+  { label: "Modrinth", href: "https://modrinth.com", desc: t("classic.more.link.modrinth") },
+  { label: "CurseForge", href: "https://www.curseforge.com/minecraft", desc: t("classic.more.link.curseforge") },
+  { label: "Minecraft Wiki", href: "https://zh.minecraft.wiki", desc: t("classic.more.link.wiki") },
+  { label: "GitHub", href: "https://github.com/Sma1lboy/mc", desc: t("classic.more.link.github") },
 ];
 
 const ClassicMore: Component = () => {
@@ -21,17 +22,17 @@ const ClassicMore: Component = () => {
         <div>
           <div class="text-[20px] font-bold text-classic-text">kobeMC</div>
           <div class="text-[13px] text-classic-text2 mt-[4px]">
-            Rust 核心 + Tauri 外壳 · 经典视图
+            {t("classic.more.classicView")}
           </div>
           <div class="text-[12px] text-classic-text3 mt-[2px]">
-            开发版 · 工作台视图 / 经典视图
+            {t("classic.more.devChannel")}
           </div>
         </div>
       </div>
 
-      <div class="text-[13px] font-bold text-classic-text3 px-[2px] pt-[4px]">常用链接</div>
+      <div class="text-[13px] font-bold text-classic-text3 px-[2px] pt-[4px]">{t("classic.more.usefulLinks")}</div>
       <div class="grid grid-cols-2 gap-[12px]">
-        {LINKS.map((l) => (
+        {LINKS().map((l) => (
           <a
             class="flex items-center gap-[10px] px-[16px] py-[14px] glass-card glass-card--hover rounded-[5px] no-underline transition-[box-shadow,transform] duration-150 ease-[ease] hover:-translate-y-px cursor-pointer"
             href={l.href}

@@ -1,5 +1,6 @@
 import { JSX, Show, For } from "solid-js";
 import { formatCount } from "./format";
+import { t } from "../i18n";
 
 // ModpackCard 接收的搜索命中形状。与后端 SearchHit 字段对齐。
 export interface ModpackHit {
@@ -99,7 +100,7 @@ export function ModpackCard(props: ModpackCardProps): JSX.Element {
         <div class="flex items-center flex-wrap gap-[8px] mt-auto">
           <span
             class="inline-flex items-center shrink-0 gap-[4px] text-[12px] text-dim"
-            title={`${hit().downloads} 次下载`}
+            title={t("discover.downloadsTooltip", { count: hit().downloads })}
           >
             {/* 下载图标 (向下箭头入托盘), accent 色。 */}
             <svg

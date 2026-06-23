@@ -12,6 +12,7 @@ import { api, onLaunchProgress } from "../ipc/api";
 import { activeRoot, openInstance, setCurrentPage, openDiscover, playInstance } from "../store";
 import { openInstanceDir, exportInstanceMrpack, deleteInstance } from "../util/instanceActions";
 import { sortByRecent } from "../util/instances";
+import { t } from "../i18n";
 import type { InstanceSummary, SearchHit } from "../ipc/types";
 
 /**
@@ -77,18 +78,18 @@ const Home: Component = () => {
   return (
     <div class="py-[24px] px-[28px] overflow-y-auto h-full">
       <header class="mb-[20px]">
-        <h1 class="text-[28px] font-bold text-fg m-0">欢迎回来</h1>
+        <h1 class="text-[28px] font-bold text-fg m-0">{t("library.welcomeBack")}</h1>
       </header>
 
       <section>
         <div class="flex items-center justify-between mb-[14px]">
-          <h2 class="text-[18px] font-semibold text-fg m-0">继续游玩</h2>
+          <h2 class="text-[18px] font-semibold text-fg m-0">{t("library.continuePlaying")}</h2>
           <Show when={sortedByPlayed().length > RECENT_CAP}>
             <button
               class="text-[13px] text-dim bg-transparent border-none cursor-pointer transition-colors duration-150 hover:text-fg"
               onClick={() => setCurrentPage("library")}
             >
-              查看全部 →
+              {t("library.viewAll")}
             </button>
           </Show>
         </div>
@@ -99,7 +100,7 @@ const Home: Component = () => {
           <Show
             when={recent().length > 0}
             fallback={
-              <EmptyState title={<>还没有实例。去 <b>库 / 发现</b> 安装一个版本开始游玩。</>} />
+              <EmptyState title={<>{t("library.emptyHomePrefix")}<b>{t("library.emptyHomeLink")}</b>{t("library.emptyHomeSuffix")}</>} />
             }
           >
             <div class="flex flex-col gap-[10px]">
@@ -129,7 +130,7 @@ const Home: Component = () => {
           class="bg-transparent border-none p-0 mb-[14px] text-[18px] font-semibold text-fg cursor-pointer hover:text-a-5 transition-colors duration-150"
           onClick={() => openDiscover()}
         >
-          发现整合包 →
+          {t("library.discoverModpack")}
         </button>
         <Show
           when={!packs.loading}

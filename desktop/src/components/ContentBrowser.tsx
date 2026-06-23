@@ -6,6 +6,7 @@ import { SearchBox } from "./SearchBox";
 import { Spinner } from "./Spinner";
 import { toast } from "./Toast";
 import { api } from "../ipc/api";
+import { t } from "../i18n";
 import type { ProjectKind, SearchHit } from "../ipc/types";
 
 /**
@@ -114,7 +115,7 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
         setBackendUnavailable(true);
       } else {
         // 翻页失败仍 toast(已有列表在);首屏失败走 searchError 占位 + 重试。
-        if (offset > 0) toast({ type: "error", message: `搜索失败:${e}` });
+        if (offset > 0) toast({ type: "error", message: t("discover.searchFailed", { error: String(e) }) });
         else setSearchError(e instanceof Error ? e.message : String(e));
       }
       return null;
@@ -172,7 +173,7 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
             props.onEscape?.();
           }
         }}
-        placeholder={props.placeholder ?? "搜索 Modrinth…"}
+        placeholder={props.placeholder ?? t("discover.searchPlaceholder")}
       />
 
       <Show when={!loading()} fallback={<div class="flex justify-center p-[28px]"><Spinner /></div>}>
@@ -183,12 +184,12 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
               when={!searchError()}
               fallback={
                 <div class="flex flex-col items-center justify-center gap-[12px] py-[36px] text-center">
-                  <div class="text-dim text-[13px]">搜索失败,请检查网络后重试。</div>
+                  <div class="text-dim text-[13px]">{t("discover.searchFailedRetry")}</div>
                   <button
                     class="h-[34px] px-[16px] rounded-ctl border border-glass-border bg-glass-card text-fg text-[13px] cursor-pointer transition-[background-color] duration-[var(--dur)] ease-app hover:bg-glass-hover"
                     onClick={retry}
                   >
-                    重试
+                    {t("discover.retry")}
                   </button>
                 </div>
               }
@@ -196,9 +197,9 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
             <div class="p-[24px] text-dim text-center text-[13px]">
               <Show
                 when={!backendUnavailable()}
-                fallback={"浏览器预览未连接桌面后端。打开桌面应用后即可搜索 Modrinth。"}
+                fallback={t("discover.backendUnavailable")}
               >
-                {debounced().trim() ? "没有结果,换个关键词试试。" : "输入关键词搜索 Modrinth。"}
+                {debounced().trim() ? t("discover.noResults") : t("discover.enterKeyword")}
               </Show>
             </div>
             </Show>
@@ -231,7 +232,7 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
                           title={reason() ?? ""}
                           onClick={() => onAdd(hit)}
                         >
-                          {added() ? "已添加" : busy() ? "安装中…" : "添加"}
+                          {added() ? t("discover.added") : busy() ? t("discover.installing") : t("discover.add")}
                         </button>
                       ) : undefined
                     }
@@ -248,7 +249,7 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
                 disabled={loadingMore()}
                 onClick={loadMore}
               >
-                {loadingMore() ? "加载中…" : "加载更多"}
+                {loadingMore() ? t("discover.loadingMore") : t("discover.loadMore")}
               </button>
             </div>
           </Show>

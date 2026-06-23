@@ -1,7 +1,81 @@
 // "store" 命名空间词条。zh 为真相源;en 缺项自动回退中文。
 const dict = {
-  zh: {} as Record<string, string>,
-  en: {} as Record<string, string>,
+  zh: {
+    "launch.starting": "正在启动…",
+    "launch.exited": "游戏已退出",
+    "launch.launchFailed": "启动失败:{{ error }}",
+    "launch.stopFailed": "停止失败:{{ error }}",
+    "launch.crashed": "游戏异常退出",
+    "launch.crashedWithCode": "游戏异常退出(代码 {{ code }})",
+
+    "instance.pickModpack": "选择整合包",
+    "instance.modpackFilter": "整合包",
+    "instance.importFailed": "导入失败:{{ error }}",
+    "instance.openDirFailed": "打开目录失败:{{ error }}",
+    "instance.stopBeforeDelete": "请先停止运行中的游戏,再删除该实例",
+    "instance.deleted": "已删除实例「{{ name }}」",
+    "instance.deleteFailed": "删除失败:{{ error }}",
+    "instance.exportModpack": "导出整合包",
+    "instance.exportFilter": "Modrinth 整合包",
+    "instance.exporting": "正在导出整合包…",
+    "instance.exported": "已导出:{{ path }}",
+    "instance.exportFailed": "导出失败:{{ error }}",
+
+    "loader.vanilla": "原版",
+
+    "account.offline": "离线",
+    "account.microsoft": "微软",
+    "account.yggdrasil": "外置登录",
+
+    "time.justNow": "刚刚",
+    "time.minutes": "{{ value }} 分钟{{ suffix }}",
+    "time.hours": "{{ value }} 小时{{ suffix }}",
+    "time.days": "{{ value }} 天{{ suffix }}",
+    "time.months": "{{ value }} 个月{{ suffix }}",
+    "time.years": "{{ value }} 年{{ suffix }}",
+    "time.suffixPast": "前",
+    "time.suffixFuture": "后",
+    "time.future": "未来",
+    "time.longAgo": "很久以前",
+  } as Record<string, string>,
+  en: {
+    "launch.starting": "Starting…",
+    "launch.exited": "Game exited",
+    "launch.launchFailed": "Launch failed: {{ error }}",
+    "launch.stopFailed": "Stop failed: {{ error }}",
+    "launch.crashed": "Game crashed",
+    "launch.crashedWithCode": "Game crashed (code {{ code }})",
+
+    "instance.pickModpack": "Select modpack",
+    "instance.modpackFilter": "Modpack",
+    "instance.importFailed": "Import failed: {{ error }}",
+    "instance.openDirFailed": "Failed to open folder: {{ error }}",
+    "instance.stopBeforeDelete": "Stop the running game before deleting this instance",
+    "instance.deleted": "Deleted instance “{{ name }}”",
+    "instance.deleteFailed": "Delete failed: {{ error }}",
+    "instance.exportModpack": "Export modpack",
+    "instance.exportFilter": "Modrinth modpack",
+    "instance.exporting": "Exporting modpack…",
+    "instance.exported": "Exported: {{ path }}",
+    "instance.exportFailed": "Export failed: {{ error }}",
+
+    "loader.vanilla": "Vanilla",
+
+    "account.offline": "Offline",
+    "account.microsoft": "Microsoft",
+    "account.yggdrasil": "External",
+
+    "time.justNow": "just now",
+    "time.minutes": "{{ value }}m {{ suffix }}",
+    "time.hours": "{{ value }}h {{ suffix }}",
+    "time.days": "{{ value }}d {{ suffix }}",
+    "time.months": "{{ value }}mo {{ suffix }}",
+    "time.years": "{{ value }}y {{ suffix }}",
+    "time.suffixPast": "ago",
+    "time.suffixFuture": "from now",
+    "time.future": "in the future",
+    "time.longAgo": "long ago",
+  } as Record<string, string>,
 };
 
 export default dict;

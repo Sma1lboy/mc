@@ -4,6 +4,7 @@ import { currentPage, setCurrentPage, activeRoot, openInstance, currentInstanceI
 import { api } from "../ipc/api";
 import { sortByRecent } from "../util/instances";
 import type { AccountSummary } from "../ipc/types";
+import { t } from "../i18n";
 import "./Rail.css";
 
 /**
@@ -91,10 +92,10 @@ const LogoMark = (): JSX.Element => (
   </svg>
 );
 
-const TOP_NAV: NavItem[] = [
-  { id: "home", label: "主页", icon: HomeIcon },
-  { id: "discover", label: "发现", icon: DiscoverIcon },
-  { id: "library", label: "库", icon: LibraryIcon },
+const TOP_NAV = (): NavItem[] => [
+  { id: "home", label: t("layout.navHome"), icon: HomeIcon },
+  { id: "discover", label: t("layout.navDiscover"), icon: DiscoverIcon },
+  { id: "library", label: t("layout.navLibrary"), icon: LibraryIcon },
 ];
 
 // 主导航 / 设置按钮通用类。relative + 48x48 + 居中网格 + accent hover/选中态。
@@ -148,7 +149,7 @@ const Rail: Component = () => {
   return (
     <nav
       class="[grid-area:rail] w-[64px] h-full flex flex-col items-center glass-panel border-r border-glass-divider pt-[36px] px-0 pb-[8px] gap-[4px] box-border"
-      aria-label="主导航"
+      aria-label={t("layout.primaryNav")}
     >
       {/* 顶部 Logo */}
       <button
@@ -161,7 +162,7 @@ const Rail: Component = () => {
 
       {/* 主导航图标 */}
       <div class="flex flex-col items-center gap-[4px]">
-        <For each={TOP_NAV}>
+        <For each={TOP_NAV()}>
           {(item) => {
             const selected = () => currentPage() === item.id;
             return (
@@ -190,7 +191,7 @@ const Rail: Component = () => {
       {/* 中部:最近实例快捷入口 + 新增实例(可滚动) */}
       <div
         class="rail-pinned flex-[1_1_auto] w-full flex flex-col items-center gap-[4px] overflow-y-auto overflow-x-hidden min-h-0"
-        aria-label="最近实例"
+        aria-label={t("layout.recentInstances")}
       >
         <For each={pinned()}>
           {(inst) => {
@@ -213,7 +214,7 @@ const Rail: Component = () => {
         </For>
 
         {/* 新增实例:虚线 + 号,点开新建对话框。 */}
-        <button class={RAIL_ITEM} title="新增实例" onClick={() => setNewOpen(true)}>
+        <button class={RAIL_ITEM} title={t("layout.newInstance")} onClick={() => setNewOpen(true)}>
           <span class="grid place-items-center w-[34px] h-[34px] rounded-ctl border border-dashed border-glass-border-strong text-n-7 [&_svg]:w-[18px] [&_svg]:h-[18px]">
             <PlusIcon />
           </span>
@@ -227,7 +228,7 @@ const Rail: Component = () => {
           return (
             <button
               class={`${RAIL_ITEM}${selected() ? " " + RAIL_ITEM_SELECTED : ""}`}
-              title="设置"
+              title={t("layout.navSettings")}
               aria-current={selected() ? "page" : undefined}
               onClick={() => setCurrentPage("settings")}
             >
@@ -245,7 +246,7 @@ const Rail: Component = () => {
         {/* 账号头像:无账号→弹登录;有账号→进 Home 账号面板。加载中显示占位环。 */}
         <button
           class="w-[36px] h-[36px] border border-glass-border bg-glass-card rounded-full cursor-pointer grid place-items-center overflow-hidden transition-[border-color,transform] duration-200 ease-app motion-reduce:transition-none hover:border-a-4 active:scale-[0.94]"
-          title={activeAccount()?.username ?? "登录 / 添加账号"}
+          title={activeAccount()?.username ?? t("layout.loginOrAddAccount")}
           onClick={onAvatarClick}
         >
           <Show

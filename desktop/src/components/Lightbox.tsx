@@ -1,4 +1,5 @@
 import { Component, For, Show, onMount, onCleanup } from "solid-js";
+import { t } from "../i18n";
 import "./Lightbox.css";
 
 /** 灯箱里一张可展示的图片(标题/描述可选)。 */
@@ -44,7 +45,7 @@ const Lightbox: Component<{
       <button
         class="fixed top-[16px] right-[18px] w-[38px] h-[38px] border-none rounded-full bg-[rgba(255,255,255,0.12)] text-white text-[17px] cursor-pointer transition-[background] duration-150 ease-[ease] hover:bg-[rgba(255,255,255,0.26)]"
         onClick={props.onClose}
-        aria-label="关闭"
+        aria-label={t("components.lightbox.close")}
       >
         ✕
       </button>
@@ -56,7 +57,7 @@ const Lightbox: Component<{
         </div>
         <button
           class="fixed top-1/2 -translate-y-1/2 w-[46px] h-[46px] border-none rounded-full bg-[rgba(255,255,255,0.12)] text-white text-[26px] leading-none cursor-pointer transition-[background,transform] duration-150 ease-[ease] hover:bg-[rgba(255,255,255,0.26)] active:scale-[0.92] left-[14px]"
-          aria-label="上一张"
+          aria-label={t("components.lightbox.prev")}
           onClick={(e) => {
             e.stopPropagation();
             prev();
@@ -66,7 +67,7 @@ const Lightbox: Component<{
         </button>
         <button
           class="fixed top-1/2 -translate-y-1/2 w-[46px] h-[46px] border-none rounded-full bg-[rgba(255,255,255,0.12)] text-white text-[26px] leading-none cursor-pointer transition-[background,transform] duration-150 ease-[ease] hover:bg-[rgba(255,255,255,0.26)] active:scale-[0.92] right-[14px]"
-          aria-label="下一张"
+          aria-label={t("components.lightbox.next")}
           onClick={(e) => {
             e.stopPropagation();
             next();

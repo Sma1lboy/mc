@@ -1,5 +1,6 @@
 import { JSX, Show, For } from "solid-js";
 import { formatCount } from "./format";
+import { t } from "../i18n";
 import type { ModpackHit } from "./ModpackCard";
 
 // ModpackListItem —— Discover 的整合包**列表项**(横行,密度高于大卡)。
@@ -88,7 +89,7 @@ export function ModpackListItem(props: ModpackListItemProps): JSX.Element {
       <div class="flex-[0_0_auto] flex items-center gap-[10px]">
         <span
           class="inline-flex items-center gap-[5px] text-[13px] text-dim [font-variant-numeric:tabular-nums]"
-          title={`${hit().downloads} downloads`}
+          title={t("discover.downloadsTooltip", { count: hit().downloads })}
         >
           <svg
             width="13"

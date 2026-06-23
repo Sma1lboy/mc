@@ -105,15 +105,15 @@ const Settings: Component = () => {
     { value: "en", label: "English" },
   ];
 
-  const layoutOptions: SegmentOption<LayoutMode>[] = [
-    { value: "workspace", label: "工作台视图" },
-    { value: "classic", label: "经典视图" },
+  const layoutOptions = (): SegmentOption<LayoutMode>[] => [
+    { value: "workspace", label: t("settings.layoutWorkspace") },
+    { value: "classic", label: t("settings.layoutClassic") },
   ];
 
-  const themeModeOptions: SegmentOption<ThemeMode>[] = [
-    { value: "light", label: "浅色", icon: Sun },
-    { value: "dark", label: "深色", icon: Moon },
-    { value: "system", label: "跟随系统", icon: Monitor },
+  const themeModeOptions = (): SegmentOption<ThemeMode>[] => [
+    { value: "light", label: t("settings.themeModeLight"), icon: Sun },
+    { value: "dark", label: t("settings.themeModeDark"), icon: Moon },
+    { value: "system", label: t("settings.themeModeSystem"), icon: Monitor },
   ];
 
   // 初始化:从后端取当前主题 + 全局设置。
@@ -151,12 +151,12 @@ const Settings: Component = () => {
       await api.setSettings(next);
       await refetchRoots();
     } catch (e) {
-      toast({ type: "error", message: `保存目录失败:${e}` });
+      toast({ type: "error", message: t("settings.saveDirFailed", { err: String(e) }) });
     }
   }
 
   async function addCustomRoot() {
-    const picked = await openDialog({ directory: true, title: "选择游戏目录" }).catch(() => null);
+    const picked = await openDialog({ directory: true, title: t("settings.pickGameDir") }).catch(() => null);
     if (!picked || typeof picked !== "string") return;
     // 已在已发现列表(便携/官方/已有自定义)里 → 直接切过去,不往设置里塞重复项。
     if ((roots() ?? []).some((r) => r.path === picked)) {
@@ -181,7 +181,7 @@ const Settings: Component = () => {
 
   // Java 下拉选项:自动检测 + 检测到的各 JVM。
   const javaOptions = createMemo(() => [
-    { label: "自动检测", value: "" },
+    { label: t("settings.autoDetect"), value: "" },
     ...(javas() ?? []).map((j) => ({ label: `Java ${j.version} — ${j.path}`, value: j.path })),
   ]);
 
@@ -209,8 +209,13 @@ const Settings: Component = () => {
     const cfg = { ...current(), mode: next };
     setLocalTheme(cfg);
     void saveTheme(cfg).catch(() => {});
-    const label = next === "system" ? "跟随系统" : next === "dark" ? "深色" : "浅色";
-    toast({ type: "info", message: `已切换到${label}` });
+    const label =
+      next === "system"
+        ? t("settings.themeModeSystem")
+        : next === "dark"
+          ? t("settings.themeModeDark")
+          : t("settings.themeModeLight");
+    toast({ type: "info", message: t("settings.switchedTo", { label }) });
   }
 
   function pickPreset(p: { hue: number; saturation: number; lightness: number }) {
@@ -234,53 +239,53 @@ const Settings: Component = () => {
     const def = themeForLayout(layoutMode());
     setLocalTheme(def);
     void saveTheme(def).catch(() => {});
-    toast({ type: "success", message: "已恢复默认主题" });
+    toast({ type: "success", message: t("settings.resetThemeDone") });
   }
 
   return (
     <div class="settings-page">
       <div class="settings-page__inner">
-        <h1 class="text-[24px] font-bold text-fg mt-0 mb-[20px] mx-0">设置</h1>
+        <h1 class="text-[24px] font-bold text-fg mt-0 mb-[20px] mx-0">{t("settings.title")}</h1>
 
         <div class="settings-page__grid">
           <div class="settings-page__main">
             <section class={SECTION_CLASS}>
-              <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">界面布局</h2>
+              <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">{t("settings.sectionLayout")}</h2>
               <div class="flex items-center justify-between mb-[14px] text-fg text-[14px]">
                 <span>{t("settings.language")}</span>
                 <SegmentedControl
-                  ariaLabel="语言 / Language"
+                  ariaLabel={t("settings.langAriaLabel")}
                   value={locale()}
                   options={languageOptions}
                   onChange={setLocale}
                 />
               </div>
               <div class="flex items-center justify-between mb-[14px] text-fg text-[14px]">
-                <span>风格</span>
+                <span>{t("settings.style")}</span>
                 <SegmentedControl
-                  ariaLabel="界面布局"
+                  ariaLabel={t("settings.layoutAriaLabel")}
                   value={layoutMode()}
-                  options={layoutOptions}
+                  options={layoutOptions()}
                   onChange={switchLayout}
                 />
               </div>
             </section>
 
             <section class={SECTION_CLASS}>
-              <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">外观</h2>
+              <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">{t("settings.sectionAppearance")}</h2>
 
               <div class="flex items-center justify-between mb-[14px] text-fg text-[14px]">
-                <span>主题模式</span>
+                <span>{t("settings.themeMode")}</span>
                 <SegmentedControl
-                  ariaLabel="主题模式"
+                  ariaLabel={t("settings.themeMode")}
                   value={mode()}
-                  options={themeModeOptions}
+                  options={themeModeOptions()}
                   onChange={selectThemeMode}
                 />
               </div>
 
               <div class="flex items-center justify-between mb-[14px] text-fg text-[14px]">
-                <span>预设强调色</span>
+                <span>{t("settings.presetAccent")}</span>
                 <div class="flex gap-[8px]">
                   <For each={PRESETS}>
                     {(p) => (
@@ -292,7 +297,7 @@ const Settings: Component = () => {
                         }}
                         style={{ background: p.hex }}
                         title={p.name}
-                        aria-label={`使用${p.name}色强调色`}
+                        aria-label={t("settings.presetAccentAria", { name: p.name })}
                         aria-pressed={isSelectedPreset(p)}
                         onClick={() => pickPreset(p)}
                       >
@@ -307,7 +312,7 @@ const Settings: Component = () => {
 
               <div class="flex flex-col gap-[4px] mb-[12px]">
                 <label for="theme-hue" class="text-[12px] text-dim">
-                  色相 {Math.round(hue())}
+                  {t("settings.hue")} {Math.round(hue())}
                 </label>
                 <input
                   id="theme-hue"
@@ -315,7 +320,7 @@ const Settings: Component = () => {
                   autocomplete="off"
                   class="w-full accent-[var(--a-4)]"
                   type="range"
-                  aria-label="色相"
+                  aria-label={t("settings.hue")}
                   min="0"
                   max="360"
                   value={hue()}
@@ -328,7 +333,7 @@ const Settings: Component = () => {
               </div>
               <div class="flex flex-col gap-[4px] mb-[12px]">
                 <label for="theme-saturation" class="text-[12px] text-dim">
-                  饱和度 {Math.round(sat())}
+                  {t("settings.saturation")} {Math.round(sat())}
                 </label>
                 <input
                   id="theme-saturation"
@@ -336,7 +341,7 @@ const Settings: Component = () => {
                   autocomplete="off"
                   class="w-full accent-[var(--a-4)]"
                   type="range"
-                  aria-label="饱和度"
+                  aria-label={t("settings.saturation")}
                   min="0"
                   max="100"
                   value={sat()}
@@ -349,7 +354,7 @@ const Settings: Component = () => {
               </div>
               <div class="flex flex-col gap-[4px] mb-[12px]">
                 <label for="theme-lightness" class="text-[12px] text-dim">
-                  明度 {Math.round(light())}
+                  {t("settings.lightness")} {Math.round(light())}
                 </label>
                 <input
                   id="theme-lightness"
@@ -357,7 +362,7 @@ const Settings: Component = () => {
                   autocomplete="off"
                   class="w-full accent-[var(--a-4)]"
                   type="range"
-                  aria-label="明度"
+                  aria-label={t("settings.lightness")}
                   min="20"
                   max="70"
                   value={light()}
@@ -371,7 +376,7 @@ const Settings: Component = () => {
 
               <div class="flex flex-col gap-[4px] mb-[12px]">
                 <label for="ui-transparency" class="text-[12px] text-dim">
-                  界面透明度 {Math.round((1 - veilStrength()) * 100)}%
+                  {t("settings.uiTransparency")} {Math.round((1 - veilStrength()) * 100)}%
                 </label>
                 <input
                   id="ui-transparency"
@@ -379,7 +384,7 @@ const Settings: Component = () => {
                   autocomplete="off"
                   class="w-full accent-[var(--a-4)]"
                   type="range"
-                  aria-label="界面透明度"
+                  aria-label={t("settings.uiTransparency")}
                   min="0"
                   max="65"
                   step="1"
@@ -395,10 +400,10 @@ const Settings: Component = () => {
               </div>
 
               <div class="flex items-center justify-between mb-[14px] text-fg text-[14px]">
-                <span>恢复默认主题</span>
+                <span>{t("settings.resetTheme")}</span>
                 <Button variant="ghost" onClick={resetTheme}>
                   <RotateCcw size={14} aria-hidden="true" />
-                  重置
+                  {t("settings.reset")}
                 </Button>
               </div>
             </section>
@@ -406,32 +411,32 @@ const Settings: Component = () => {
 
           <div class="settings-page__side">
             <section class={SECTION_CLASS}>
-              <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">下载与游戏</h2>
+              <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">{t("settings.sectionDownloadGame")}</h2>
               <Show
                 when={settings()}
                 fallback={
                   settingsError()
-                    ? <ErrorState message="设置加载失败" onRetry={() => void loadSettings()} />
-                    : <div class="text-dim">加载设置中…</div>
+                    ? <ErrorState message={t("settings.downloadSettingsFailed")} onRetry={() => void loadSettings()} />
+                    : <div class="text-dim">{t("settings.loadingSettings")}</div>
                 }
               >
                 <div class="flex items-center justify-between mb-[14px] text-fg text-[14px]">
                   <span class="flex items-center gap-[6px]">
-                    下载源
-                    <Tooltip content="官方直连走 Mojang/作者源,海外更稳;国内镜像走 BMCLAPI + McIM,国内更快。安装/导入整合包都按此设置选源。">
+                    {t("settings.downloadSource")}
+                    <Tooltip content={t("settings.downloadSourceTip")}>
                       <Info size={14} aria-hidden="true" />
                     </Tooltip>
                   </span>
                   <SegmentedControl
-                    ariaLabel="下载源"
+                    ariaLabel={t("settings.downloadSource")}
                     value={
                       settings()!.use_mirror || settings()!.download_source === "bmclapi"
                         ? "bmclapi"
                         : "official"
                     }
                     options={[
-                      { value: "official", label: "官方直连" },
-                      { value: "bmclapi", label: "国内镜像" },
+                      { value: "official", label: t("settings.sourceOfficial") },
+                      { value: "bmclapi", label: t("settings.sourceMirror") },
                     ]}
                     onChange={(value) =>
                       patchSettings({
@@ -444,7 +449,7 @@ const Settings: Component = () => {
 
                 <div class="flex flex-col gap-[4px] mb-[12px]">
                   <label for="download-concurrency" class="text-[12px] text-dim">
-                    下载并发 {settings()!.concurrency}
+                    {t("settings.concurrency")} {settings()!.concurrency}
                   </label>
                   <input
                     id="download-concurrency"
@@ -452,7 +457,7 @@ const Settings: Component = () => {
                     autocomplete="off"
                     class="w-full accent-[var(--a-4)]"
                     type="range"
-                    aria-label="下载并发"
+                    aria-label={t("settings.concurrency")}
                     min="1"
                     max="128"
                     value={settings()!.concurrency}
@@ -463,7 +468,7 @@ const Settings: Component = () => {
 
                 <div class="flex flex-col gap-[4px] mb-[12px]">
                   <label for="default-memory" class="text-[12px] text-dim">
-                    默认内存 {settings()!.default_memory_mb} MiB
+                    {t("settings.defaultMemory")} {settings()!.default_memory_mb} MiB
                   </label>
                   <input
                     id="default-memory"
@@ -471,7 +476,7 @@ const Settings: Component = () => {
                     autocomplete="off"
                     class="w-full accent-[var(--a-4)]"
                     type="range"
-                    aria-label="默认内存"
+                    aria-label={t("settings.defaultMemory")}
                     min="512"
                     max="16384"
                     step="256"
@@ -484,27 +489,27 @@ const Settings: Component = () => {
                 </div>
 
                 <div class="flex items-center justify-between mb-[14px] text-fg text-[14px]">
-                  <span>Java</span>
+                  <span>{t("settings.java")}</span>
                   <Select
                     class="max-w-[60%]"
                     value={settings()!.java_path ?? ""}
                     onChange={(v) => patchSettings({ java_path: v || null })}
                     options={javaOptions()}
-                    placeholder="自动检测"
+                    placeholder={t("settings.autoDetect")}
                   />
                 </div>
               </Show>
             </section>
 
             <section class={SECTION_CLASS}>
-              <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">Java</h2>
+              <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">{t("settings.sectionJava")}</h2>
               <Show when={!javas.loading} fallback={<div class="flex justify-center p-[20px]"><Spinner /></div>}>
                 <Show
                   when={(javas() ?? []).length > 0}
                   fallback={
                     javas.error
-                      ? <ErrorState compact message="Java 检测失败" onRetry={() => void refetchJavas()} />
-                      : <div class="text-dim">未检测到 Java。</div>
+                      ? <ErrorState compact message={t("settings.javaDetectFailed")} onRetry={() => void refetchJavas()} />
+                      : <div class="text-dim">{t("settings.noJava")}</div>
                   }
                 >
                   <div class="flex flex-col gap-[8px]">
@@ -513,7 +518,7 @@ const Settings: Component = () => {
                         <div class="flex flex-col gap-[2px] px-[10px] py-[8px] glass-card rounded-ctl">
                           <span class="font-semibold text-fg">Java {j.version}</span>
                           <span class="text-[12px] text-a-5">
-                            {j.is_64bit ? "64-bit" : "32-bit"} · {j.source}
+                            {j.is_64bit ? t("settings.bit64") : t("settings.bit32")} · {j.source}
                           </span>
                           <span class="text-[11px] text-dim break-all">{j.path}</span>
                         </div>
@@ -525,7 +530,7 @@ const Settings: Component = () => {
             </section>
 
             <section class={SECTION_CLASS}>
-              <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">游戏目录</h2>
+              <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">{t("settings.sectionGameDir")}</h2>
               <Show
                 when={!roots.loading}
                 fallback={<div class="flex justify-center p-[20px]"><Spinner /></div>}
@@ -542,12 +547,12 @@ const Settings: Component = () => {
                           <button
                             class="flex-1 min-w-0 flex flex-col gap-[2px] text-left bg-transparent border-none p-0 cursor-pointer"
                             onClick={() => setCurrentRoot(r.path)}
-                            title="设为当前目录"
+                            title={t("settings.setAsCurrent")}
                           >
                             <span class="flex items-center gap-[6px] text-[13px] text-fg">
                               {r.name}
                               <Show when={active()}>
-                                <span class="text-a-6 text-[12px]" aria-hidden="true">✓ 当前</span>
+                                <span class="text-a-6 text-[12px]" aria-hidden="true">{t("settings.current")}</span>
                               </Show>
                             </span>
                             <span class="text-[11px] text-dim break-all">{r.path}</span>
@@ -557,7 +562,7 @@ const Settings: Component = () => {
                               class="shrink-0 text-[12px] text-danger-text px-[8px] py-[4px] rounded-xs cursor-pointer hover:bg-danger-soft"
                               onClick={() => void removeCustomRoot(r.path)}
                             >
-                              移除
+                              {t("settings.remove")}
                             </button>
                           </Show>
                         </div>
@@ -565,18 +570,18 @@ const Settings: Component = () => {
                     }}
                   </For>
                   <button class={`${ACCENT_BTN} self-start`} onClick={() => void addCustomRoot()}>
-                    + 添加目录
+                    {t("settings.addDir")}
                   </button>
                 </div>
               </Show>
             </section>
 
             <section class={SECTION_CLASS}>
-              <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">诊断</h2>
+              <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">{t("settings.sectionDiagnostics")}</h2>
               <div class="flex items-center justify-between text-fg text-[14px]">
                 <div class="flex flex-col gap-[2px] min-w-0">
-                  <span>日志</span>
-                  <span class="text-[12px] text-dim">前端与本地数据层的日志都写在这里(按日滚动)</span>
+                  <span>{t("settings.logs")}</span>
+                  <span class="text-[12px] text-dim">{t("settings.logsDesc")}</span>
                 </div>
                 <Button
                   variant="ghost"
@@ -585,11 +590,11 @@ const Settings: Component = () => {
                       const dir = await api.openLogsDir();
                       await api.revealPath(dir);
                     } catch (e) {
-                      toast({ type: "error", message: `打开日志目录失败:${e}` });
+                      toast({ type: "error", message: t("settings.openLogsDirFailed", { err: String(e) }) });
                     }
                   }}
                 >
-                  打开日志目录
+                  {t("settings.openLogsDir")}
                 </Button>
               </div>
             </section>

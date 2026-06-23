@@ -3,6 +3,7 @@ import { Dynamic } from "solid-js/web";
 import { currentPage, setCurrentPage, switchLayout, type Page } from "../../store";
 import { Icon, type IconName } from "../../components";
 import { CLASSIC_ROUTES, routeFor } from "../../routes";
+import { t } from "../../i18n";
 import "./ClassicShell.css";
 
 /**
@@ -28,11 +29,11 @@ const ClassicLogo = (): JSX.Element => (
 );
 
 // 经典顶栏 Tab → 页面(图标走统一 Icon 注册表)。
-const TABS: { page: Page; label: string; icon: IconName }[] = [
-  { page: "launch", label: "启动", icon: "power" },
-  { page: "discover", label: "下载", icon: "download" },
-  { page: "settings", label: "设置", icon: "gear" },
-  { page: "more", label: "更多", icon: "grid" },
+const TABS = (): { page: Page; label: string; icon: IconName }[] => [
+  { page: "launch", label: t("classic.nav.launch"), icon: "power" },
+  { page: "discover", label: t("classic.nav.download"), icon: "download" },
+  { page: "settings", label: t("classic.nav.settings"), icon: "gear" },
+  { page: "more", label: t("classic.nav.more"), icon: "grid" },
 ];
 
 const ClassicShell: Component = () => {
@@ -50,17 +51,17 @@ const ClassicShell: Component = () => {
         </div>
 
         <nav class="flex gap-[2px] h-full items-center [-webkit-app-region:no-drag]">
-          <For each={TABS}>
-            {(t) => (
+          <For each={TABS()}>
+            {(tab) => (
               <button
                 class="flex items-center gap-[6px] h-[32px] px-[15px] border-none bg-transparent text-white text-[14px] rounded-[4px] cursor-pointer transition-[background] duration-[0.18s] ease-[ease] hover:bg-white/20"
                 classList={{
-                  "!bg-white !text-classic-blue !font-semibold": currentPage() === t.page,
+                  "!bg-white !text-classic-blue !font-semibold": currentPage() === tab.page,
                 }}
-                onClick={() => setCurrentPage(t.page)}
+                onClick={() => setCurrentPage(tab.page)}
               >
-                <span class="flex w-[17px] h-[17px] [&_svg]:w-full [&_svg]:h-full"><Icon name={t.icon} size={24} /></span>
-                {t.label}
+                <span class="flex w-[17px] h-[17px] [&_svg]:w-full [&_svg]:h-full"><Icon name={tab.icon} size={24} /></span>
+                {tab.label}
               </button>
             )}
           </For>
@@ -72,7 +73,7 @@ const ClassicShell: Component = () => {
             class="border border-white/55 bg-white/[0.14] text-white text-[12px] px-[11px] py-[5px] rounded-[3px] cursor-pointer transition-[background] duration-[0.18s] ease-[ease] hover:bg-white/30 [-webkit-app-region:no-drag]"
             onClick={() => switchLayout("workspace")}
           >
-            切到工作台视图 ⇄
+            {t("classic.shell.switchToWorkspace")}
           </button>
         </div>
       </header>

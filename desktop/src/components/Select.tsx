@@ -2,6 +2,7 @@ import { Component, For, createMemo } from "solid-js";
 import { Portal } from "solid-js/web";
 import { Select as Ark, createListCollection } from "@ark-ui/solid/select";
 import { Check, ChevronDown } from "lucide-solid";
+import { t } from "../i18n";
 
 /**
  * Select —— 基于 Ark UI(headless)的house-styled 下拉选择,替代原生 <select>。
@@ -43,7 +44,7 @@ export const Select: Component<SelectProps> = (props) => {
             (props.class ?? "")
           }
         >
-          <Ark.ValueText placeholder={props.placeholder ?? "请选择"} class="truncate text-left" />
+          <Ark.ValueText placeholder={props.placeholder ?? t("components.select.placeholder")} class="truncate text-left" />
           <Ark.Indicator class="shrink-0 text-dim transition-transform duration-150 data-[state=open]:rotate-180">
             <ChevronDown size={16} />
           </Ark.Indicator>

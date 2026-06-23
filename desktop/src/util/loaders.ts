@@ -1,3 +1,5 @@
+import { t } from "../i18n";
+
 /**
  * 一个实例 loader 实际能加载的 mod loader 集合(与后端 `modplatform::accepted_loaders` 对齐)。
  *
@@ -10,14 +12,14 @@ export function acceptedLoaders(loader: string): string[] {
   return l === "quilt" ? ["quilt", "fabric"] : [l];
 }
 
-/** loader 规范显示名(原版用中文,其余用品牌大小写如 NeoForge)。 */
-const LOADER_NAMES: Record<string, string> = {
-  vanilla: "原版",
+/** loader 规范显示名(原版用本地化文案,其余用品牌大小写如 NeoForge)。 */
+const LOADER_NAMES = (): Record<string, string> => ({
+  vanilla: t("store.loader.vanilla"),
   forge: "Forge",
   neoforge: "NeoForge",
   fabric: "Fabric",
   quilt: "Quilt",
-};
+});
 
 /**
  * loader 的显示名。各处(实例行/详情/经典启动)统一走这里,避免有的 naive 首字母大写
@@ -26,5 +28,5 @@ const LOADER_NAMES: Record<string, string> = {
 export function loaderLabel(loader: string): string {
   const l = (loader || "").trim().toLowerCase();
   if (!l) return "";
-  return LOADER_NAMES[l] ?? l.charAt(0).toUpperCase() + l.slice(1);
+  return LOADER_NAMES()[l] ?? l.charAt(0).toUpperCase() + l.slice(1);
 }

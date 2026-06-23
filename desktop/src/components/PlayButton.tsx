@@ -1,4 +1,5 @@
 import { JSX, Show } from "solid-js";
+import { t } from "../i18n";
 import "./PlayButton.css"; // 残留 @keyframes(旋转环动画 ui-play-spin)
 
 // 按钮基础样式(Tailwind 内联):accent 主操作按钮。
@@ -41,7 +42,7 @@ export function PlayButton(props: PlayButtonProps): JSX.Element {
         if (props.disabled) return;
         props.onClick?.(e);
       }}
-      title={props.running ? "停止" : "启动"}
+      title={props.running ? t("components.play.stop") : t("components.play.start")}
     >
       <Show
         when={props.running}

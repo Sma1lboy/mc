@@ -1,4 +1,5 @@
 import { For, JSX } from "solid-js";
+import { t } from "../i18n";
 import "./Spinner.css"; // @keyframes(像素方块明灭链)
 
 // Spinner —— 像素风 loading:8 个 accent 方块绕环,明灭呈彗尾旋转(crispEdges 保持像素硬边)。
@@ -33,7 +34,7 @@ export function Spinner(props: SpinnerProps): JSX.Element {
       height={size()}
       viewBox="0 0 12 12"
       role="status"
-      aria-label={props.label ?? "加载中"}
+      aria-label={props.label ?? t("components.spinner.loading")}
       shape-rendering="crispEdges"
     >
       <For each={CELLS}>

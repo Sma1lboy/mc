@@ -6,6 +6,7 @@ import { api } from "../ipc/api";
 import { isRunning } from "../store";
 import { toast, type InstanceRowData } from "../components";
 import type { ImportOutcome } from "../ipc/types";
+import { t } from "../i18n";
 
 /**
  * 选本地 `.mrpack`/`.zip` 导入为实例。两套布局共用(经典启动页 + 工作台库)。
@@ -14,15 +15,15 @@ import type { ImportOutcome } from "../ipc/types";
  */
 export async function importModpackFile(root: string): Promise<ImportOutcome | null> {
   const picked = await openDialog({
-    title: "选择整合包",
+    title: t("store.instance.pickModpack"),
     multiple: false,
-    filters: [{ name: "整合包", extensions: ["mrpack", "zip"] }],
+    filters: [{ name: t("store.instance.modpackFilter"), extensions: ["mrpack", "zip"] }],
   }).catch(() => null);
   if (!picked || typeof picked !== "string") return null;
   try {
     return await api.importModpack(root, picked, null);
   } catch (e) {
-    toast({ type: "error", message: `导入失败:${e}` });
+    toast({ type: "error", message: t("store.instance.importFailed", { error: String(e) }) });
     return null;
   }
 }
@@ -33,7 +34,7 @@ export async function openInstanceDir(root: string, id: string): Promise<void> {
     const dir = await api.instanceDir(root, id);
     await api.revealPath(dir);
   } catch (e) {
-    toast({ type: "error", message: `打开目录失败:${e}` });
+    toast({ type: "error", message: t("store.instance.openDirFailed", { error: String(e) }) });
   }
 }
 
@@ -43,7 +44,7 @@ export async function openInstanceSubdir(root: string, id: string, sub: string):
     const dir = await api.instanceSubdir(root, id, sub);
     await api.revealPath(dir);
   } catch (e) {
-    toast({ type: "error", message: `打开目录失败:${e}` });
+    toast({ type: "error", message: t("store.instance.openDirFailed", { error: String(e) }) });
   }
 }
 
@@ -54,15 +55,15 @@ export async function deleteInstance(
 ): Promise<boolean> {
   // 运行中的实例不能删:游戏正占着目录里的文件(Windows 会锁定、各平台都可能删半截)。
   if (isRunning(inst.id)) {
-    toast({ type: "error", message: "请先停止运行中的游戏,再删除该实例" });
+    toast({ type: "error", message: t("store.instance.stopBeforeDelete") });
     return false;
   }
   try {
     await api.deleteInstance(root, inst.id);
-    toast({ type: "success", message: `已删除实例「${inst.name}」` });
+    toast({ type: "success", message: t("store.instance.deleted", { name: inst.name }) });
     return true;
   } catch (e) {
-    toast({ type: "error", message: `删除失败:${e}` });
+    toast({ type: "error", message: t("store.instance.deleteFailed", { error: String(e) }) });
     return false;
   }
 }
@@ -74,12 +75,12 @@ export async function exportInstanceMrpack(
 ): Promise<void> {
   try {
     const dest = await saveDialog({
-      title: "导出整合包",
+      title: t("store.instance.exportModpack"),
       defaultPath: `${row.name}.mrpack`,
-      filters: [{ name: "Modrinth 整合包", extensions: ["mrpack"] }],
+      filters: [{ name: t("store.instance.exportFilter"), extensions: ["mrpack"] }],
     });
     if (!dest) return; // 用户取消
-    toast({ type: "info", message: "正在导出整合包…" });
+    toast({ type: "info", message: t("store.instance.exporting") });
     const out = await api.exportModpack({
       root,
       instanceId: row.id,
@@ -90,8 +91,8 @@ export async function exportInstanceMrpack(
       loader: row.loader || null,
       loaderVersion: row.loader_version || null,
     });
-    toast({ type: "success", message: `已导出:${out}` });
+    toast({ type: "success", message: t("store.instance.exported", { path: out }) });
   } catch (e) {
-    toast({ type: "error", message: `导出失败:${e}` });
+    toast({ type: "error", message: t("store.instance.exportFailed", { error: String(e) }) });
   }
 }

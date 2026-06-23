@@ -1,6 +1,7 @@
 import { JSX, For, Show, Switch, Match } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import { Presence, motion } from "../motion";
+import { t } from "../i18n";
 
 // use:motion 指令在编译后按名字引用 `motion`;显式触达避免被打包器摇掉。
 void motion;
@@ -213,7 +214,7 @@ export function ToastContainer(): JSX.Element {
                     "transition-[color,background-color] duration-[var(--dur)] ease-app " +
                     "hover:text-fg hover:bg-glass-hover"
                   }
-                  aria-label="关闭"
+                  aria-label={t("components.toast.close")}
                   onClick={() => dismissToast(item.id)}
                 >
                   <svg

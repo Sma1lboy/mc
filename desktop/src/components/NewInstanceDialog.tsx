@@ -12,18 +12,19 @@ import { Spinner } from "./Spinner";
 import { toast } from "./Toast";
 import { api, onInstallProgress } from "../ipc/api";
 import { activeRoot } from "../store";
+import { t } from "../i18n";
 
 /**
  * NewInstanceDialog —— 从零新建实例:名称 + MC 版本 + 加载器(forge/neoforge 再要版本)。
  * 调 daemon 的 create_instance(装核心 → 命名实例),进度走 install://progress。
  */
 
-const LOADERS = [
-  { label: "原版 (Vanilla)", value: "vanilla" },
-  { label: "Fabric", value: "fabric" },
-  { label: "Quilt", value: "quilt" },
-  { label: "Forge", value: "forge" },
-  { label: "NeoForge", value: "neoforge" },
+const LOADERS = () => [
+  { label: t("components.newInstance.loaderVanilla"), value: "vanilla" },
+  { label: t("components.newInstance.loaderFabric"), value: "fabric" },
+  { label: t("components.newInstance.loaderQuilt"), value: "quilt" },
+  { label: t("components.newInstance.loaderForge"), value: "forge" },
+  { label: t("components.newInstance.loaderNeoforge"), value: "neoforge" },
 ];
 
 const FIELD =
@@ -69,7 +70,7 @@ export const NewInstanceDialog: Component<{
   // 可选(fabric/quilt)在列表前加「最新(推荐)」哨兵(value 空 → 后端选最新)。
   const loaderVersionOptions = createMemo(() => {
     const list = (loaderVersions() ?? []).map((v) => ({ label: v, value: v }));
-    return needsLoaderVersion() ? list : [{ label: "最新(推荐)", value: "" }, ...list];
+    return needsLoaderVersion() ? list : [{ label: t("components.newInstance.latestRecommended"), value: "" }, ...list];
   });
   // 列表到手即预选最新(第一个);仅对必填(forge/neoforge)生效,可选 loader 默认留空=最新。
   createEffect(() => {
@@ -89,7 +90,7 @@ export const NewInstanceDialog: Component<{
   async function create() {
     if (!canCreate()) return;
     setCreating(true);
-    setStage("准备…");
+    setStage(t("components.newInstance.preparing"));
     const unlisten = onInstallProgress((p) =>
       setStage(p.total > 0 ? `${p.stage} ${p.current}/${p.total}` : p.stage),
     );
@@ -102,11 +103,11 @@ export const NewInstanceDialog: Component<{
         // 非 vanilla 时传所选版本;空串(fabric/quilt 选「最新」或 vanilla)→ null=最新。
         loaderVersion().trim() || null,
       );
-      toast({ type: "success", message: `已创建实例「${name().trim()}」` });
+      toast({ type: "success", message: t("components.newInstance.created", { name: name().trim() }) });
       props.onCreated?.(id);
       props.onClose();
     } catch (e) {
-      toast({ type: "error", message: `创建失败:${e}` });
+      toast({ type: "error", message: t("components.newInstance.createFailed", { error: String(e) }) });
     } finally {
       unlisten();
       setCreating(false);
@@ -118,20 +119,20 @@ export const NewInstanceDialog: Component<{
     <Dialog
       open={props.open}
       onClose={() => !creating() && props.onClose()}
-      label="新建实例"
+      label={t("components.newInstance.title")}
       contentClass="w-[440px] max-w-[calc(100vw-48px)] glass-pop rounded-card overflow-hidden"
     >
       <div class="p-[20px] flex flex-col gap-[14px]">
-        <div class="text-[16px] font-bold text-fg">新建实例</div>
+        <div class="text-[16px] font-bold text-fg">{t("components.newInstance.title")}</div>
 
         <label class="flex flex-col gap-[5px]">
-          <span class="text-[12px] text-dim">名称</span>
+          <span class="text-[12px] text-dim">{t("components.newInstance.name")}</span>
           <input
             class={FIELD}
             name="instanceName"
             autocomplete="off"
             spellcheck={false}
-            placeholder="例如 生存整合包…"
+            placeholder={t("components.newInstance.namePlaceholder")}
             value={name()}
             onInput={(e) => setName(e.currentTarget.value)}
             disabled={creating()}
@@ -139,17 +140,17 @@ export const NewInstanceDialog: Component<{
         </label>
 
         <label class="flex flex-col gap-[5px]">
-          <span class="text-[12px] text-dim">Minecraft 版本</span>
+          <span class="text-[12px] text-dim">{t("components.newInstance.mcVersion")}</span>
           <Select
             value={mcVersion()}
             onChange={setMcVersion}
             options={versionOptions()}
-            placeholder={versions.loading ? "加载版本中…" : "选择版本"}
+            placeholder={versions.loading ? t("components.newInstance.loadingVersions") : t("components.newInstance.selectVersion")}
           />
         </label>
 
         <label class="flex flex-col gap-[5px]">
-          <span class="text-[12px] text-dim">加载器</span>
+          <span class="text-[12px] text-dim">{t("components.newInstance.loader")}</span>
           {/* 切换 loader 时清掉上一个 loader 的版本选择,避免把 forge build 号带进 fabric。 */}
           <Select
             value={loader()}
@@ -157,7 +158,7 @@ export const NewInstanceDialog: Component<{
               setLoader(v);
               setLoaderVersion("");
             }}
-            options={LOADERS}
+            options={LOADERS()}
           />
         </label>
 
@@ -165,12 +166,12 @@ export const NewInstanceDialog: Component<{
           <label class="flex flex-col gap-[5px]">
             <span class="text-[12px] text-dim">
               {loader() === "forge"
-                ? "Forge 版本"
+                ? t("components.newInstance.forgeVersion")
                 : loader() === "neoforge"
-                  ? "NeoForge 版本"
+                  ? t("components.newInstance.neoforgeVersion")
                   : loader() === "fabric"
-                    ? "Fabric 版本(可选)"
-                    : "Quilt 版本(可选)"}
+                    ? t("components.newInstance.fabricVersionOptional")
+                    : t("components.newInstance.quiltVersionOptional")}
             </span>
             <Show
               when={!loaderVersions.loading && loaderVersionOptions().length > 0}
@@ -180,7 +181,7 @@ export const NewInstanceDialog: Component<{
                   fallback={
                     <div class="flex items-center gap-[8px] h-[36px] px-[12px] text-[12px] text-dim">
                       <Spinner size={14} />
-                      <span>加载可用版本中…</span>
+                      <span>{t("components.newInstance.loadingAvailable")}</span>
                     </div>
                   }
                 >
@@ -190,7 +191,7 @@ export const NewInstanceDialog: Component<{
                     name="loaderVersion"
                     autocomplete="off"
                     spellcheck={false}
-                    placeholder={loader() === "forge" ? "例如 47.2.0…" : "例如 20.4.237…"}
+                    placeholder={loader() === "forge" ? t("components.newInstance.forgePlaceholder") : t("components.newInstance.neoforgePlaceholder")}
                     value={loaderVersion()}
                     onInput={(e) => setLoaderVersion(e.currentTarget.value)}
                     disabled={creating()}
@@ -202,7 +203,7 @@ export const NewInstanceDialog: Component<{
                 value={loaderVersion()}
                 onChange={setLoaderVersion}
                 options={loaderVersionOptions()}
-                placeholder="选择版本"
+                placeholder={t("components.newInstance.selectVersion")}
               />
             </Show>
           </label>
@@ -211,7 +212,7 @@ export const NewInstanceDialog: Component<{
         <Show when={creating()}>
           <div class="flex items-center gap-[10px] text-[12px] text-dim">
             <Spinner size={16} />
-            <span>{stage() || "创建中…"}</span>
+            <span>{stage() || t("components.newInstance.creating")}</span>
           </div>
         </Show>
 
@@ -221,14 +222,14 @@ export const NewInstanceDialog: Component<{
             onClick={props.onClose}
             disabled={creating()}
           >
-            取消
+            {t("components.newInstance.cancel")}
           </button>
           <button
             class="h-[34px] px-[16px] border-none rounded-ctl bg-a-4 text-white text-[13px] font-semibold cursor-pointer transition-colors duration-150 hover:bg-a-5 disabled:opacity-50 disabled:cursor-not-allowed"
             onClick={create}
             disabled={!canCreate()}
           >
-            {creating() ? "创建中…" : "创建"}
+            {creating() ? t("components.newInstance.creating") : t("components.newInstance.create")}
           </button>
         </div>
       </div>

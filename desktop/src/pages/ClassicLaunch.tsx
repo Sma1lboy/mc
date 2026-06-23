@@ -6,6 +6,7 @@ import { activeRoot, isRunning, isLaunching, playInstance } from "../store";
 import { openInstanceDir, importModpackFile } from "../util/instanceActions";
 import { loaderLabel } from "../util/loaders";
 import { accountKindLabel } from "../util/accounts";
+import { t } from "../i18n";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import type { AccountSummary, ImportOutcome, InstanceSummary } from "../ipc/types";
 import type { InstanceManageTab } from "../components/InstanceManageDialog";
@@ -17,15 +18,15 @@ type RightView = "news" | "versions" | "instance" | "log";
 /** 实例详情内的子标签:首页(概览)+ 实例管理各页,资源子类不再藏到二级 tab。 */
 type InstanceTab = "home" | InstanceManageTab;
 
-const INSTANCE_TABS: { key: InstanceTab; label: string }[] = [
-  { key: "home", label: "首页" },
-  { key: "settings", label: "设置" },
+const INSTANCE_TABS = (): { key: InstanceTab; label: string }[] => [
+  { key: "home", label: t("classic.tab.home") },
+  { key: "settings", label: t("classic.tab.settings") },
   { key: "mods", label: "Mods" },
-  { key: "resource_pack", label: "资源包" },
-  { key: "shader", label: "光影" },
-  { key: "datapack", label: "数据包" },
-  { key: "worlds", label: "存档" },
-  { key: "screenshots", label: "截图" },
+  { key: "resource_pack", label: t("classic.tab.resourcePack") },
+  { key: "shader", label: t("classic.tab.shader") },
+  { key: "datapack", label: t("classic.tab.datapack") },
+  { key: "worlds", label: t("classic.tab.worlds") },
+  { key: "screenshots", label: t("classic.tab.screenshots") },
 ];
 
 /**
@@ -108,14 +109,14 @@ const ClassicLaunch: Component = () => {
   async function launch() {
     const inst = selected();
     if (!inst) {
-      toast({ type: "error", message: "请先在「版本选择」里选一个版本" });
+      toast({ type: "error", message: t("classic.launch.selectFirst") });
       setRightView("versions");
       return;
     }
     // 启动(非停止)时切到日志视图并播种首行;运行中点击=停止,不切视图。
     if (!isRunning(inst.id)) {
       setRightView("log");
-      setLogs([`正在启动 ${inst.name || inst.id} …`]);
+      setLogs([t("classic.launch.starting", { name: inst.name || inst.id })]);
     }
     // 统一走 store.playInstance:处理 运行中→停止、防重复点击(launching 守到 game://started)、
     // 账号解析与启动/停止/失败 toast。避免本页再写一份带空窗竞态的启动逻辑。
@@ -135,7 +136,7 @@ const ClassicLaunch: Component = () => {
       if (out.blocked.length > 0 || out.skipped_optional.length > 0) {
         setImportOutcome(out); // 弹窗摊开需手动下载 / 被跳过的文件
       } else {
-        toast({ type: "success", message: `已导入整合包「${out.instance_id}」` });
+        toast({ type: "success", message: t("classic.import.done", { id: out.instance_id }) });
       }
     } finally {
       setBusy("");
@@ -147,14 +148,14 @@ const ClassicLaunch: Component = () => {
     if (busy()) return;
     const inst = selected();
     if (!inst) {
-      toast({ type: "error", message: "请先在「版本选择」里选一个版本再导出" });
+      toast({ type: "error", message: t("classic.export.selectFirst") });
       setRightView("versions");
       return;
     }
     const dest = await saveDialog({
-      title: "导出整合包",
+      title: t("classic.export.dialogTitle"),
       defaultPath: `${inst.name || inst.id}.mrpack`,
-      filters: [{ name: "Modrinth 整合包", extensions: ["mrpack"] }],
+      filters: [{ name: t("classic.export.fileType"), extensions: ["mrpack"] }],
     });
     if (!dest) return;
     setBusy("export");
@@ -169,9 +170,9 @@ const ClassicLaunch: Component = () => {
         loader: inst.loader,
         loaderVersion: inst.loader_version || null,
       });
-      toast({ type: "success", message: `已导出:${out}` });
+      toast({ type: "success", message: t("classic.export.done", { path: out }) });
     } catch (e) {
-      toast({ type: "error", message: `导出失败:${e}` });
+      toast({ type: "error", message: t("classic.export.failed", { error: String(e) }) });
     } finally {
       setBusy("");
     }
@@ -185,7 +186,7 @@ const ClassicLaunch: Component = () => {
         <button
           class="flex w-full items-center gap-[12px] border-none bg-transparent px-[18px] py-[16px] text-left cursor-pointer transition-[background] duration-150 ease-[ease] hover:bg-classic-blue-lightest"
           onClick={() => setShowLogin(true)}
-          title="点击登录 / 切换账号"
+          title={t("classic.account.loginTitle")}
         >
           <Show
             when={!accounts.loading}
@@ -198,20 +199,20 @@ const ClassicLaunch: Component = () => {
             </div>
             <div class="min-w-0">
               <div class="text-[16px] font-bold text-classic-text max-w-full whitespace-nowrap overflow-hidden text-ellipsis">
-                {activeAccount()?.username ?? "未登录"}
+                {activeAccount()?.username ?? t("classic.account.notLoggedIn")}
               </div>
               <div class="text-[12px] text-classic-text3 mt-[3px]">
-                {activeAccount() ? accountKindLabel(activeAccount()!.kind) : "点击登录账号"}
+                {activeAccount() ? accountKindLabel(activeAccount()!.kind) : t("classic.account.clickToLogin")}
               </div>
             </div>
           </Show>
         </button>
 
         <div class="border-t border-glass-divider px-[18px] py-[14px]">
-          <div class="text-[12px] font-semibold text-classic-text3 mb-[8px]">当前版本</div>
+          <div class="text-[12px] font-semibold text-classic-text3 mb-[8px]">{t("classic.current.title")}</div>
           <Show
             when={selected()}
-            fallback={<div class="text-[13px] text-classic-text3 leading-[1.6]">还没有选择版本</div>}
+            fallback={<div class="text-[13px] text-classic-text3 leading-[1.6]">{t("classic.current.none")}</div>}
           >
             <div class="flex items-center gap-[10px] min-w-0">
               <span
@@ -240,10 +241,10 @@ const ClassicLaunch: Component = () => {
             onClick={launch}
           >
             <span class="text-[16px] font-bold tracking-[1px] text-classic-blue">
-              {launching() ? "启动中…" : selectedRunning() ? "停止游戏" : "启动游戏"}
+              {launching() ? t("classic.launch.launching") : selectedRunning() ? t("classic.launch.stop") : t("classic.launch.start")}
             </span>
             <span class="text-[11px] text-classic-text3 max-w-full whitespace-nowrap overflow-hidden text-ellipsis">
-              <Show when={selected()} fallback={"未选择版本"}>
+              <Show when={selected()} fallback={t("classic.launch.noVersion")}>
                 {selected()!.name || selected()!.id}
               </Show>
             </span>
@@ -259,25 +260,25 @@ const ClassicLaunch: Component = () => {
               }}
               onClick={() => setRightView(rightView() === "news" ? "versions" : "news")}
             >
-              版本选择
+              {t("classic.launch.versionSelect")}
             </button>
           </div>
           <button
             class="w-full h-[36px] mt-[10px] border border-classic-blue rounded-[3px] bg-classic-blue-lightest text-classic-blue text-[13px] font-semibold cursor-pointer transition-[background] duration-150 ease-[ease] hover:bg-classic-blue-bg"
             onClick={() => setShowNew(true)}
           >
-            + 新建实例
+            {t("classic.launch.newInstance")}
           </button>
         </div>
 
         <div class="min-h-0 flex-1 border-t border-glass-divider px-[18px] py-[14px] overflow-y-auto">
           <div class="flex items-center justify-between mb-[10px]">
-            <span class="text-[12px] font-semibold text-classic-text3">最近版本</span>
+            <span class="text-[12px] font-semibold text-classic-text3">{t("classic.recent.title")}</span>
             <button
               class="border-none bg-transparent p-0 text-[12px] text-classic-blue cursor-pointer hover:underline"
               onClick={() => setRightView("versions")}
             >
-              全部
+              {t("classic.recent.all")}
             </button>
           </div>
           <Show when={!instances.loading} fallback={<div class="flex justify-center p-[12px]"><Spinner /></div>}>
@@ -285,7 +286,7 @@ const ClassicLaunch: Component = () => {
               when={recentInstances().length > 0}
               fallback={
                 <div class="rounded-[5px] border border-dashed border-glass-border bg-glass-card px-[12px] py-[14px] text-[12px] leading-[1.7] text-classic-text3">
-                  还没有版本。去「下载」安装，或新建一个实例。
+                  {t("classic.recent.empty")}
                 </div>
               }
             >
@@ -330,8 +331,8 @@ const ClassicLaunch: Component = () => {
             <div class="glass-card rounded-[5px] py-[14px] px-[16px] flex items-center gap-[12px] bg-[linear-gradient(90deg,var(--classic-blue-lightest),var(--classic-card))] border-l-[3px] border-classic-blue">
               <span class="text-[22px]">📰</span>
               <div>
-                <div class="text-[14px] font-bold text-classic-text">欢迎使用 kobeMC</div>
-                <div class="text-[12px] text-classic-text3 mt-[3px]">左侧选择账号与版本,点「启动游戏」即可开玩。</div>
+                <div class="text-[14px] font-bold text-classic-text">{t("classic.news.welcomeTitle")}</div>
+                <div class="text-[12px] text-classic-text3 mt-[3px]">{t("classic.news.welcomeDesc")}</div>
               </div>
             </div>
 
@@ -339,7 +340,7 @@ const ClassicLaunch: Component = () => {
               class="glass-card glass-card--hover rounded-[5px] py-[14px] px-[16px] flex items-center justify-between w-full border-none cursor-pointer text-left transition-[box-shadow] duration-150 ease-[ease]"
               onClick={() => setNewsOpen((o) => ({ ...o, cape: !o.cape }))}
             >
-              <span class="text-[14px] font-bold text-classic-text">新披风与披风迁移</span>
+              <span class="text-[14px] font-bold text-classic-text">{t("classic.news.capeTitle")}</span>
               <span
                 class="text-classic-text3 text-[16px] transition-transform duration-200 ease-[ease]"
                 classList={{ "rotate-180": !!newsOpen().cape }}
@@ -349,7 +350,7 @@ const ClassicLaunch: Component = () => {
             </button>
             <Show when={newsOpen().cape}>
               <div class="glass-card rounded-[5px] py-[14px] px-[16px] text-[13px] text-classic-text2">
-                <p class="m-0 leading-[1.7]">Mojang 已开放披风迁移。绑定正版账号后可在游戏内更换披风。</p>
+                <p class="m-0 leading-[1.7]">{t("classic.news.capeDesc")}</p>
               </div>
             </Show>
 
@@ -358,7 +359,7 @@ const ClassicLaunch: Component = () => {
               onClick={() => setNewsOpen((o) => ({ ...o, snapshot: !o.snapshot }))}
             >
               <span class="text-[14px] font-bold text-classic-text">
-                最新快照版
+                {t("classic.news.latestSnapshot")}
                 <Show when={latestSnapshot()}>{` - ${latestSnapshot()!.id}`}</Show>
               </span>
               <span
@@ -375,12 +376,12 @@ const ClassicLaunch: Component = () => {
                     <span class="py-[8px] px-[22px] rounded-[6px] bg-[rgba(11,91,203,0.85)] text-white text-[22px] font-bold tracking-[1px]">{latestSnapshot()!.id}</span>
                   </Show>
                 </div>
-                <div class="text-[14px] font-bold mt-[12px] text-classic-blue">新特性</div>
+                <div class="text-[14px] font-bold mt-[12px] text-classic-blue">{t("classic.news.newFeatures")}</div>
                 <Show when={latestSnapshot()}>
                   <ul class="list-disc mt-[6px] mb-0 pl-[18px] text-classic-text2 text-[13px] leading-[1.9]">
-                    <li>发布时间:{new Date(latestSnapshot()!.release_time ?? "").toLocaleDateString()}</li>
-                    <li>到「下载」标签页可一键安装该快照</li>
-                    <li>快照为开发版,建议另建实例体验</li>
+                    <li>{t("classic.news.releaseTime", { date: new Date(latestSnapshot()!.release_time ?? "").toLocaleDateString() })}</li>
+                    <li>{t("classic.news.installHint")}</li>
+                    <li>{t("classic.news.snapshotHint")}</li>
                   </ul>
                 </Show>
               </div>
@@ -392,21 +393,21 @@ const ClassicLaunch: Component = () => {
         <Show when={rightView() === "versions"}>
           <div class="glass-card rounded-[5px] flex flex-col min-h-0 overflow-hidden flex-1">
             <div class="flex items-center justify-between gap-[8px] py-[10px] px-[16px] text-[13px] font-bold text-classic-text border-b border-glass-divider">
-              <span>版本选择</span>
+              <span>{t("classic.versions.title")}</span>
               <span class="flex gap-[6px]">
                 <button
                   class="border border-classic-blue text-classic-blue bg-transparent rounded-[3px] py-[4px] px-[10px] text-[12px] font-semibold cursor-pointer transition-[background,color] duration-[var(--mo-dur-fast,150ms)] ease-[var(--mo-ease-out,ease)] enabled:hover:bg-classic-blue enabled:hover:text-white disabled:opacity-50 disabled:cursor-default"
                   disabled={busy() !== ""}
                   onClick={importModpack}
                 >
-                  {busy() === "import" ? "导入中…" : "导入整合包"}
+                  {busy() === "import" ? t("classic.versions.importing") : t("classic.versions.import")}
                 </button>
                 <button
                   class="border border-classic-blue text-classic-blue bg-transparent rounded-[3px] py-[4px] px-[10px] text-[12px] font-semibold cursor-pointer transition-[background,color] duration-[var(--mo-dur-fast,150ms)] ease-[var(--mo-ease-out,ease)] enabled:hover:bg-classic-blue enabled:hover:text-white disabled:opacity-50 disabled:cursor-default"
                   disabled={busy() !== "" || !selected()}
                   onClick={exportSelected}
                 >
-                  {busy() === "export" ? "导出中…" : "导出整合包"}
+                  {busy() === "export" ? t("classic.versions.exporting") : t("classic.versions.export")}
                 </button>
               </span>
             </div>
@@ -414,7 +415,7 @@ const ClassicLaunch: Component = () => {
               <Show when={!instances.loading} fallback={<div class="flex justify-center p-[28px]"><Spinner /></div>}>
                 <Show
                   when={(instances() ?? []).length > 0}
-                  fallback={<div class="py-[28px] px-[16px] text-classic-text3 text-[13px] text-center leading-[1.9]">还没有版本<br />去「下载」装一个</div>}
+                  fallback={<div class="py-[28px] px-[16px] text-classic-text3 text-[13px] text-center leading-[1.9]">{t("classic.versions.empty")}<br />{t("classic.versions.emptyHint")}</div>}
                 >
                   <For each={instances() ?? []}>
                     {(inst) => (
@@ -475,7 +476,7 @@ const ClassicLaunch: Component = () => {
                   </div>
                 </div>
                 <div class="flex gap-[4px] px-[12px] border-t border-glass-divider overflow-x-auto">
-                  <For each={INSTANCE_TABS}>
+                  <For each={INSTANCE_TABS()}>
                     {(item) => (
                       <button
                         class="px-[16px] py-[9px] text-[13px] font-semibold cursor-pointer border-b-2 border-b-transparent text-classic-text3 hover:text-classic-text transition-colors duration-150 whitespace-nowrap"
@@ -493,20 +494,20 @@ const ClassicLaunch: Component = () => {
               <Show when={instanceTab() === "home"}>
                 <div class="flex flex-col gap-[12px]">
                   <div class="glass-card rounded-[5px] py-[14px] px-[16px]">
-                    <div class="text-[13px] font-bold text-classic-text mb-[8px]">游玩信息</div>
+                    <div class="text-[13px] font-bold text-classic-text mb-[8px]">{t("classic.instance.playInfo")}</div>
                     <div class="grid grid-cols-2 gap-y-[6px] text-[13px]">
-                      <span class="text-classic-text3">游戏版本</span>
+                      <span class="text-classic-text3">{t("classic.instance.gameVersion")}</span>
                       <span class="text-classic-text2">{inst().mc_version}</span>
-                      <span class="text-classic-text3">加载器</span>
+                      <span class="text-classic-text3">{t("classic.instance.loader")}</span>
                       <span class="text-classic-text2">
                         {loaderLabel(inst().loader)}
                         <Show when={inst().loader_version}>{` ${inst().loader_version}`}</Show>
                       </span>
-                      <span class="text-classic-text3">上次游玩</span>
+                      <span class="text-classic-text3">{t("classic.instance.lastPlayed")}</span>
                       <span class="text-classic-text2">
                         {inst().last_played
                           ? new Date(inst().last_played!).toLocaleString()
-                          : "从未"}
+                          : t("classic.instance.never")}
                       </span>
                     </div>
                   </div>
@@ -517,20 +518,20 @@ const ClassicLaunch: Component = () => {
                       disabled={launching()}
                       onClick={launch}
                     >
-                      {launching() ? "启动中…" : isRunning(inst().id) ? "停止游戏" : "启动游戏"}
+                      {launching() ? t("classic.launch.launching") : isRunning(inst().id) ? t("classic.launch.stop") : t("classic.launch.start")}
                     </button>
                     <button
                       class="h-[34px] px-[16px] rounded-[3px] border border-glass-border bg-glass-card text-classic-text text-[13px] cursor-pointer transition-colors duration-150 hover:bg-classic-blue-lightest hover:border-classic-blue-soft"
                       onClick={() => openInstanceDir(activeRoot(), inst().id)}
                     >
-                      打开游戏目录
+                      {t("classic.instance.openGameDir")}
                     </button>
                     <button
                       class="h-[34px] px-[16px] rounded-[3px] border border-glass-border bg-glass-card text-classic-text text-[13px] cursor-pointer transition-colors duration-150 hover:bg-classic-blue-lightest hover:border-classic-blue-soft disabled:opacity-50 disabled:cursor-default"
                       disabled={busy() !== "" || !selected()}
                       onClick={exportSelected}
                     >
-                      {busy() === "export" ? "导出中…" : "导出整合包"}
+                      {busy() === "export" ? t("classic.versions.exporting") : t("classic.versions.export")}
                     </button>
                   </div>
                 </div>
@@ -567,7 +568,7 @@ const ClassicLaunch: Component = () => {
         {/* --- 启动日志(启动后) --- */}
         <Show when={rightView() === "log"}>
           <div>
-            <h1 class="text-[20px] font-bold text-classic-text mt-0 mb-[3px] mx-0 whitespace-nowrap overflow-hidden text-ellipsis">{selected()?.name || selected()?.id || "游戏日志"}</h1>
+            <h1 class="text-[20px] font-bold text-classic-text mt-0 mb-[3px] mx-0 whitespace-nowrap overflow-hidden text-ellipsis">{selected()?.name || selected()?.id || t("classic.log.title")}</h1>
             <Show when={selected()}>
               <p class="text-classic-text3 text-[13px] m-0">
                 Minecraft {selected()!.mc_version} · {loaderLabel(selected()!.loader)}
@@ -576,9 +577,9 @@ const ClassicLaunch: Component = () => {
             </Show>
           </div>
           <div class="glass-card rounded-[5px] flex-1 min-h-0 flex flex-col overflow-hidden">
-            <div class="py-[12px] px-[16px] text-[13px] font-bold text-classic-text border-b border-glass-divider">游戏日志</div>
+            <div class="py-[12px] px-[16px] text-[13px] font-bold text-classic-text border-b border-glass-divider">{t("classic.log.title")}</div>
             <pre class="flex-1 min-h-0 overflow-auto m-0 py-[12px] px-[16px] text-[12px]/[1.6] font-[ui-monospace,SFMono-Regular,Menlo,monospace] text-classic-text2 whitespace-pre-wrap [word-break:break-word]">
-              <Show when={logs().length > 0} fallback={"启动后这里显示实时日志…"}>{logs().join("\n")}</Show>
+              <Show when={logs().length > 0} fallback={t("classic.log.placeholder")}>{logs().join("\n")}</Show>
             </pre>
           </div>
         </Show>

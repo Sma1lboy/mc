@@ -5,6 +5,7 @@ import { Menu } from "./Menu";
 import { formatRelativeTime } from "./format";
 import { loaderLabel as fmtLoader } from "../util/loaders";
 import { isRunning, isLaunching } from "../store";
+import { t } from "../i18n";
 
 // InstanceRow 接收的实例形状。与后端 InstanceSummary 字段对齐
 // (id,name,mc_version,loader,loader_version,icon,last_played,running)。
@@ -56,7 +57,7 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
 
   const playedLabel = () => {
     const rel = formatRelativeTime(inst().last_played);
-    return rel === "never" ? "从未游玩" : `上次 ${rel}`;
+    return rel === "never" ? t("instance.neverPlayed") : t("instance.lastPlayed", { rel });
   };
 
   const onSelectAction = (value: string) => {
@@ -86,7 +87,7 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
             <Show when={running()}>
               <span
                 class="absolute right-[2px] bottom-[2px] w-[11px] h-[11px] rounded-full bg-a-5 shadow-[0_0_0_2px_var(--bg-card)]"
-                title="运行中"
+                title={t("instance.running")}
               />
             </Show>
           </div>
@@ -113,7 +114,7 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
           <Menu.Root positioning={{ placement: "bottom-end" }} onSelect={(d: { value: string }) => onSelectAction(d.value)}>
             <Menu.Trigger
               class="inline-flex items-center justify-center w-[34px] h-[34px] border-none bg-transparent text-dim rounded-ctl cursor-pointer transition-[background-color,color] duration-[var(--dur)] ease-app hover:bg-glass-hover hover:text-fg data-[state=open]:bg-glass-hover data-[state=open]:text-fg"
-              aria-label="更多操作"
+              aria-label={t("instance.moreActions")}
             >
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
                 <circle cx="8" cy="3" r="1.5" />
@@ -122,13 +123,13 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
               </svg>
             </Menu.Trigger>
             <Menu.Content>
-              <Menu.Item value="play">{running() ? "停止" : "启动"}</Menu.Item>
-              <Menu.Item value="manage">管理实例</Menu.Item>
-              <Menu.Item value="open">打开游戏目录</Menu.Item>
-              <Menu.Item value="export">导出整合包(.mrpack)</Menu.Item>
+              <Menu.Item value="play">{running() ? t("instance.stop") : t("instance.play")}</Menu.Item>
+              <Menu.Item value="manage">{t("instance.manageInstance")}</Menu.Item>
+              <Menu.Item value="open">{t("instance.openGameDir")}</Menu.Item>
+              <Menu.Item value="export">{t("instance.exportModpack")}</Menu.Item>
               <Menu.Separator />
               <Menu.Item value="delete" danger>
-                删除实例
+                {t("instance.deleteInstance")}
               </Menu.Item>
             </Menu.Content>
           </Menu.Root>
@@ -139,20 +140,20 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
       <Dialog
         open={confirmOpen()}
         onClose={() => setConfirmOpen(false)}
-        label="删除实例"
+        label={t("instance.deleteInstance")}
         contentClass="w-[360px] max-w-[calc(100vw-48px)] glass-pop rounded-card overflow-hidden"
       >
         <div class="p-[20px] flex flex-col gap-[14px]">
-          <div class="text-[15px] font-semibold text-fg break-words">删除实例「{inst().name}」?</div>
+          <div class="text-[15px] font-semibold text-fg break-words">{t("instance.deleteInstanceConfirm", { name: inst().name })}</div>
           <div class="text-[13px] text-dim leading-[1.6]">
-            将永久删除该版本目录,包括其 mods、存档与配置。此操作不可撤销。
+            {t("instance.deleteInstanceBodyRow")}
           </div>
           <div class="flex justify-end gap-[10px]">
             <button
               class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-glass-card text-fg text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-glass-hover"
               onClick={() => setConfirmOpen(false)}
             >
-              取消
+              {t("instance.cancel")}
             </button>
             <button
               class="h-[34px] px-[16px] border-none rounded-ctl bg-danger text-white text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-danger-hover"
@@ -161,7 +162,7 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
                 props.onDelete?.(inst().id);
               }}
             >
-              删除
+              {t("instance.delete")}
             </button>
           </div>
         </div>

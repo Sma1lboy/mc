@@ -19,6 +19,7 @@ import {
   importModpackFile,
 } from "../util/instanceActions";
 import { sortByRecent } from "../util/instances";
+import { t } from "../i18n";
 import type { InstanceSummary, ManifestVersion, ImportOutcome } from "../ipc/types";
 
 /**
@@ -66,7 +67,7 @@ const Library: Component = () => {
       if (out.blocked.length > 0 || out.skipped_optional.length > 0) {
         setImportOutcome(out); // 摊开需手动下载 / 被跳过的文件
       } else {
-        toast({ type: "success", message: `已导入整合包「${out.instance_id}」` });
+        toast({ type: "success", message: t("library.imported", { id: out.instance_id }) });
       }
     } finally {
       setImporting(false);
@@ -99,14 +100,14 @@ const Library: Component = () => {
 
   async function install(v: ManifestVersion) {
     setInstalling(v.id);
-    setProgress("准备…");
+    setProgress(t("library.preparing"));
     try {
       await api.installVersion(activeRoot(), v.id);
-      toast({ type: "success", message: `已安装 ${v.id}` });
+      toast({ type: "success", message: t("library.installed", { id: v.id }) });
       setShowInstall(false);
       refetch();
     } catch (e) {
-      toast({ type: "error", message: `安装失败:${e}` });
+      toast({ type: "error", message: t("library.installFailed", { err: String(e) }) });
     } finally {
       setInstalling(null);
       setProgress("");
@@ -116,13 +117,13 @@ const Library: Component = () => {
   return (
     <div class="p-[24px_28px] overflow-y-auto h-full">
       <div class="flex items-center justify-between mb-[18px]">
-        <h1 class="text-[24px] font-bold text-fg m-0">库</h1>
+        <h1 class="text-[24px] font-bold text-fg m-0">{t("library.title")}</h1>
         <div class="flex items-center gap-[10px]">
           <Button variant="ghost" disabled={importing()} onClick={() => void importLocal()}>
-            {importing() ? "导入中…" : "导入整合包"}
+            {importing() ? t("library.importing") : t("library.importModpack")}
           </Button>
           <Button variant="primary" onClick={() => setShowInstall((s) => !s)}>
-            {showInstall() ? "关闭" : "安装新版本"}
+            {showInstall() ? t("library.close") : t("library.installNewVersion")}
           </Button>
         </div>
       </div>
@@ -132,11 +133,11 @@ const Library: Component = () => {
           <SearchBox
             value={filter()}
             onInput={setFilter}
-            placeholder="搜索版本号,如 1.20.1"
+            placeholder={t("library.searchVersionPlaceholder")}
           />
           <Show when={installing()}>
             <div class="flex items-center gap-[8px] text-a-5 mt-[12px] text-[13px]">
-              <Spinner /> 安装 {installing()} · {progress()}
+              <Spinner /> {t("library.installingStatus")} {installing()} · {progress()}
             </div>
           </Show>
           <Show when={!versions.loading} fallback={<div class="flex justify-center mt-[14px]"><Spinner /></div>}>
@@ -144,7 +145,7 @@ const Library: Component = () => {
               when={!versions.error}
               fallback={
                 <div class="mt-[14px]">
-                  <ErrorState message="版本清单加载失败,请检查网络后重试。" onRetry={() => void refetchVersions()} />
+                  <ErrorState message={t("library.versionListError")} onRetry={() => void refetchVersions()} />
                 </div>
               }
             >
@@ -159,7 +160,7 @@ const Library: Component = () => {
                         disabled={!!installing()}
                         onClick={() => install(v)}
                       >
-                        安装
+                        {t("library.install")}
                       </Button>
                     </div>
                   )}
@@ -173,7 +174,7 @@ const Library: Component = () => {
       <Show when={!instances.loading} fallback={<div class="flex justify-center p-[32px]"><Spinner /></div>}>
         <Show
           when={(instances() ?? []).length > 0}
-          fallback={<EmptyState title="这个根目录还没有实例,点「安装新版本」开始。" />}
+          fallback={<EmptyState title={t("library.emptyRoot")} />}
         >
           {/* 实例较多时给个搜索框(≥6 个才显示,避免少量实例时多余 chrome)。 */}
           <Show when={(instances() ?? []).length >= 6}>
@@ -181,13 +182,13 @@ const Library: Component = () => {
               <SearchBox
                 value={instQuery()}
                 onInput={setInstQuery}
-                placeholder="搜索实例(名称 / 版本 / 加载器)"
+                placeholder={t("library.searchInstancePlaceholder")}
               />
             </div>
           </Show>
           <Show
             when={filteredInstances().length > 0}
-            fallback={<EmptyState title={<>没有匹配「{instQuery()}」的实例。</>} />}
+            fallback={<EmptyState title={t("library.noMatch", { query: instQuery() })} />}
           >
           <div class="flex flex-col gap-[10px]">
             <For each={filteredInstances()}>

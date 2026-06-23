@@ -9,6 +9,7 @@ import { AccountDialog, Avatar, EmptyState, ErrorState, Menu } from "../componen
 import { ACCENT_BTN } from "../components/styles";
 import { api } from "../ipc/api";
 import { accountKindLabel } from "../util/accounts";
+import { t } from "../i18n";
 import type { AccountSummary } from "../ipc/types";
 import "./ContextBar.css"; // 残留:@keyframes ctx-pulse(骨架脉冲)
 
@@ -73,18 +74,18 @@ const ContextBar: Component = () => {
       await api.selectAccount(acc.uuid);
       await refetch();
     } catch (e) {
-      setSwitchErr(typeof e === "string" ? e : "切换账号失败");
+      setSwitchErr(typeof e === "string" ? e : t("account.switchFailed"));
     }
   };
 
   return (
     <aside
       class="[grid-row:1] [grid-column:2] w-[340px] h-full box-border glass-panel border-l border-glass-divider p-[16px] flex flex-col gap-[20px] overflow-y-auto"
-      aria-label="上下文信息"
+      aria-label={t("account.contextAria")}
     >
       {/* ===== Playing as ===== */}
       <section class="flex flex-col gap-[8px]">
-        <h3 class={HEADING}>当前账号</h3>
+        <h3 class={HEADING}>{t("account.sectionCurrent")}</h3>
 
         <Show
           when={!accounts.loading}
@@ -98,7 +99,7 @@ const ContextBar: Component = () => {
           {/* 错误态:list_accounts 失败 */}
           <Show
             when={!accounts.error}
-            fallback={<ErrorState compact message="账号载入失败" onRetry={() => void refetch()} />}
+            fallback={<ErrorState compact message={t("account.contextLoadFailed")} onRetry={() => void refetch()} />}
           >
             {/* 空态:无任何账号 */}
             <Show
@@ -106,11 +107,11 @@ const ContextBar: Component = () => {
               fallback={
                 <div class="flex flex-col gap-[10px] p-[14px] border border-dashed border-glass-border rounded-ctl bg-glass-card">
                   <div class="flex flex-col gap-[2px]">
-                    <span class="text-[var(--fs-base)] text-fg">尚未添加账号</span>
-                    <span class="text-[12px] text-dim">登录微软正版,或添加一个离线账号</span>
+                    <span class="text-[var(--fs-base)] text-fg">{t("account.noAccount")}</span>
+                    <span class="text-[12px] text-dim">{t("account.noAccountHint")}</span>
                   </div>
                   <button class={`${ACCENT_BTN} motion-reduce:transition-none`} onClick={() => setLoginOpen(true)}>
-                    登录 / 添加账号
+                    {t("account.loginOrAdd")}
                   </button>
                 </div>
               }
@@ -129,7 +130,7 @@ const ContextBar: Component = () => {
               >
                 <Menu.Trigger
                   class="group flex items-center gap-[10px] w-full p-[10px] border border-glass-border rounded-ctl bg-glass-card cursor-pointer text-left transition-[background-color,border-color] duration-[var(--dur)] ease-app hover:bg-glass-hover hover:border-a-4 data-[state=open]:border-a-4 motion-reduce:transition-none"
-                  aria-label="切换账号"
+                  aria-label={t("account.switchAccount")}
                 >
                   <span class="w-[36px] h-[36px] flex-shrink-0 rounded-xs grid place-items-center text-[15px] font-semibold text-white bg-[linear-gradient(135deg,var(--a-3),var(--a-5))]">
                     <Avatar kind={current()?.kind} uuid={current()?.uuid} />
@@ -176,7 +177,7 @@ const ContextBar: Component = () => {
                     <span class="w-[30px] h-[30px] flex-shrink-0 rounded-xs grid place-items-center text-[18px] font-semibold bg-glass-card" aria-hidden="true">
                       +
                     </span>
-                    <span class="text-[13px] font-medium">登录 / 添加账号</span>
+                    <span class="text-[13px] font-medium">{t("account.loginOrAdd")}</span>
                   </Menu.ItemRaw>
                 </Menu.Content>
               </Menu.Root>
@@ -192,16 +193,16 @@ const ContextBar: Component = () => {
 
       {/* ===== Friends ===== */}
       <section class="flex flex-col gap-[8px]">
-        <h3 class={HEADING}>好友</h3>
+        <h3 class={HEADING}>{t("account.sectionFriends")}</h3>
         {/* 社交功能未接入:空态占位。接入后此处渲染好友 + 在线状态点。 */}
-        <EmptyState compact title="暂无好友" hint="联机/社交功能开发中" />
+        <EmptyState compact title={t("account.friendsEmpty")} hint={t("account.friendsHint")} />
       </section>
 
       {/* ===== News ===== */}
       <section class="flex flex-col gap-[8px]">
-        <h3 class={HEADING}>动态</h3>
+        <h3 class={HEADING}>{t("account.sectionNews")}</h3>
         {/* 新闻 feed 未接入:空态占位。接入后渲染公告/更新卡片列表。 */}
-        <EmptyState compact title="暂无动态" hint="敬请期待" />
+        <EmptyState compact title={t("account.newsEmpty")} hint={t("account.newsHint")} />
       </section>
 
       <Show when={loginOpen()}>

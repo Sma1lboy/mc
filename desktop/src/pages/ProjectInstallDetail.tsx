@@ -6,6 +6,7 @@ import { toast } from "../components/Toast";
 import type { ModpackHit } from "../components/ModpackCard";
 import { api } from "../ipc/api";
 import { activeRoot } from "../store";
+import { t } from "../i18n";
 import type { InstanceSummary, ModrinthProject, ModrinthVersion, PackKind, ProjectKind } from "../ipc/types";
 import { renderMarkdown } from "../util/markdown";
 import { acceptedLoaders } from "../util/loaders";
@@ -13,23 +14,23 @@ import "./ModpackDetail.css";
 
 type InstallableKind = Exclude<ProjectKind, "modpack">;
 
-const KIND_META: Record<
+const KIND_META = (): Record<
   InstallableKind,
   { title: string; target: "mod" | "resourcepack" | "shader" | "datapack"; packKind: PackKind | null }
-> = {
-  mod: { title: "Mod", target: "mod", packKind: null },
-  resourcepack: { title: "资源包", target: "resourcepack", packKind: "resource_pack" },
-  shader: { title: "光影", target: "shader", packKind: "shader" },
-  datapack: { title: "数据包", target: "datapack", packKind: "datapack" },
-};
+> => ({
+  mod: { title: t("discover.kindMetaMod"), target: "mod", packKind: null },
+  resourcepack: { title: t("discover.kindMetaResourcepack"), target: "resourcepack", packKind: "resource_pack" },
+  shader: { title: t("discover.kindMetaShader"), target: "shader", packKind: "shader" },
+  datapack: { title: t("discover.kindMetaDatapack"), target: "datapack", packKind: "datapack" },
+});
 
 const loaderLabel = (loader: string) =>
-  ({ vanilla: "原版", forge: "Forge", neoforge: "NeoForge", fabric: "Fabric", quilt: "Quilt" } as Record<string, string>)[
+  ({ vanilla: t("discover.loaderVanilla"), forge: "Forge", neoforge: "NeoForge", fabric: "Fabric", quilt: "Quilt" } as Record<string, string>)[
     loader
   ] ?? loader;
 
 const typeLabel = (type: string) =>
-  ({ release: "正式版", beta: "测试版", alpha: "内测版" } as Record<string, string>)[type] ?? type;
+  ({ release: t("discover.typeRelease"), beta: t("discover.typeBeta"), alpha: t("discover.typeAlpha") } as Record<string, string>)[type] ?? type;
 
 function fmtDate(iso: string): string {
   const d = new Date(iso);
@@ -66,7 +67,7 @@ const ProjectInstallDetail: Component<{
   /** 安装成功回调:实例模式下用来刷新「已安装」列表。 */
   onInstalled?: () => void;
 }> = (props) => {
-  const meta = () => KIND_META[props.kind];
+  const meta = () => KIND_META()[props.kind];
   const lockMode = () => !!props.lockedInstance;
 
   // Esc 返回上一层(与列表/灯箱一致的导航直觉)。
@@ -94,7 +95,7 @@ const ProjectInstallDetail: Component<{
     () => props.hit.id,
     (id) =>
       api.modrinthProject(id).catch((e) => {
-        toast({ type: "error", message: `简介加载失败:${e}` });
+        toast({ type: "error", message: t("discover.aboutLoadFailed", { error: String(e) }) });
         return null as ModrinthProject | null;
       }),
   );
@@ -102,7 +103,7 @@ const ProjectInstallDetail: Component<{
     () => props.hit.id,
     (id) =>
       api.modrinthVersions(id).catch((e) => {
-        toast({ type: "error", message: `版本列表加载失败:${e}` });
+        toast({ type: "error", message: t("discover.versionsLoadFailed", { error: String(e) }) });
         return [] as ModrinthVersion[];
       }),
   );
@@ -145,10 +146,10 @@ const ProjectInstallDetail: Component<{
     if (!p) return [] as { label: string; url: string }[];
     return (
       [
-        { label: "源码", url: p.source_url },
-        { label: "问题反馈", url: p.issues_url },
-        { label: "Wiki", url: p.wiki_url },
-        { label: "Discord", url: p.discord_url },
+        { label: t("discover.linkSource"), url: p.source_url },
+        { label: t("discover.linkIssues"), url: p.issues_url },
+        { label: t("discover.linkWiki"), url: p.wiki_url },
+        { label: t("discover.linkDiscord"), url: p.discord_url },
       ].filter((link) => !!link.url) as { label: string; url: string }[]
     );
   };
@@ -158,11 +159,11 @@ const ProjectInstallDetail: Component<{
     const inst = selectedInstance();
     if (!inst || installing() || installingVersion()) return;
     if (props.kind === "mod" && !versionMatches(version, inst, props.kind)) {
-      toast({ type: "error", message: "这个版本不兼容当前实例的加载器/游戏版本" });
+      toast({ type: "error", message: t("discover.incompatibleVersion") });
       return;
     }
     if (isDatapack() && !world()) {
-      toast({ type: "warn", message: "数据包需要先选择目标存档" });
+      toast({ type: "warn", message: t("discover.datapackNeedWorld") });
       return;
     }
     setInstallingVersion(version.id);
@@ -178,18 +179,18 @@ const ProjectInstallDetail: Component<{
         isMod ? inst.loader : null,
         worldArg(),
       );
-      const parts = [`已安装 ${version.version_number} 到「${inst.name || inst.id}」`];
-      if (report.installed_deps > 0) parts.push(`+${report.installed_deps} 个依赖`);
-      if (report.unresolved.length > 0) parts.push(`${report.unresolved.length} 个依赖未解决`);
+      const parts = [t("discover.installedVersionTo", { version: version.version_number, instance: inst.name || inst.id })];
+      if (report.installed_deps > 0) parts.push(t("discover.depsAdded", { count: report.installed_deps }));
+      if (report.unresolved.length > 0) parts.push(t("discover.depsUnresolved", { count: report.unresolved.length }));
       const conflicts = report.incompatible?.length ?? 0;
-      if (conflicts > 0) parts.push(`声明与 ${conflicts} 个 mod 冲突`);
+      if (conflicts > 0) parts.push(t("discover.declaredConflicts", { count: conflicts }));
       toast({
         type: report.unresolved.length > 0 || conflicts > 0 ? "warn" : "success",
         message: parts.join(","),
       });
       props.onInstalled?.();
     } catch (e) {
-      toast({ type: "error", message: `安装失败:${e}` });
+      toast({ type: "error", message: t("discover.installFailed", { error: String(e) }) });
     } finally {
       setInstallingVersion(null);
     }
@@ -199,32 +200,32 @@ const ProjectInstallDetail: Component<{
     const inst = selectedInstance();
     if (!inst || installing() || installingVersion()) return;
     if (!canInstallTo(inst)) {
-      toast({ type: "error", message: "当前实例没有兼容版本,请换一个实例" });
+      toast({ type: "error", message: t("discover.noCompatibleInstance") });
       return;
     }
     if (isDatapack() && !world()) {
-      toast({ type: "warn", message: "数据包需要先选择目标存档" });
+      toast({ type: "warn", message: t("discover.datapackNeedWorld") });
       return;
     }
     setInstalling(true);
     try {
       if (props.kind === "mod") {
         const report = await api.installMod(activeRoot(), inst.id, props.hit.id, inst.mc_version, inst.loader);
-        const parts = [`已装入 ${report.installed.length} 个文件`];
-        if (report.unresolved.length > 0) parts.push(`${report.unresolved.length} 个依赖未解决`);
+        const parts = [t("discover.installedFiles", { count: report.installed.length })];
+        if (report.unresolved.length > 0) parts.push(t("discover.depsUnresolved", { count: report.unresolved.length }));
         const conflicts = report.incompatible?.length ?? 0;
-        if (conflicts > 0) parts.push(`声明与 ${conflicts} 个 mod 冲突`);
+        if (conflicts > 0) parts.push(t("discover.declaredConflicts", { count: conflicts }));
         toast({
           type: report.unresolved.length > 0 || conflicts > 0 ? "warn" : "success",
           message: `${props.hit.title}:${parts.join(",")}`,
         });
       } else {
         const file = await api.installPack(activeRoot(), inst.id, meta().packKind!, props.hit.id, inst.mc_version, worldArg());
-        toast({ type: "success", message: `已安装到「${inst.name || inst.id}」:${file}` });
+        toast({ type: "success", message: t("discover.installedToFile", { instance: inst.name || inst.id, file }) });
       }
       props.onInstalled?.();
     } catch (e) {
-      toast({ type: "error", message: `安装失败:${e}` });
+      toast({ type: "error", message: t("discover.installFailed", { error: String(e) }) });
     } finally {
       setInstalling(false);
     }
@@ -236,7 +237,7 @@ const ProjectInstallDetail: Component<{
         class="self-start bg-transparent border-none text-a-6 text-[14px] cursor-pointer py-[4px] px-0 transition-opacity duration-[var(--mo-dur-fast)] ease-emph hover:opacity-70"
         onClick={props.onBack}
       >
-        ← 返回
+        {t("discover.back")}
       </button>
 
       <div class="grid grid-cols-[minmax(0,1fr)_320px] gap-[18px] max-[980px]:grid-cols-1">
@@ -292,7 +293,7 @@ const ProjectInstallDetail: Component<{
               class="glass-panel flex items-center justify-between border-none rounded-card px-[14px] py-[11px] text-left cursor-pointer"
               onClick={() => setOpenAbout((v) => !v)}
             >
-              <span class="text-[15px] font-bold text-n-8">项目简介</span>
+              <span class="text-[15px] font-bold text-n-8">{t("discover.projectAbout")}</span>
               <span class="text-n-6">{openAbout() ? "⌃" : "⌄"}</span>
             </button>
             <Show when={openAbout()}>
@@ -301,13 +302,13 @@ const ProjectInstallDetail: Component<{
                   when={!project.loading}
                   fallback={
                     <div class="flex items-center gap-[10px] text-n-6 text-[13px]">
-                      <Spinner size={16} /> 加载简介…
+                      <Spinner size={16} /> {t("discover.loadingAbout")}
                     </div>
                   }
                 >
                   <Show
                     when={project()?.body?.trim()}
-                    fallback={<div class="text-n-6 text-[13px]">作者没有填写详细介绍。</div>}
+                    fallback={<div class="text-n-6 text-[13px]">{t("discover.noAboutBody")}</div>}
                   >
                     <div class="md text-[14px] leading-[1.75] text-n-7" innerHTML={renderMarkdown(project()!.body)} />
                   </Show>
@@ -318,18 +319,18 @@ const ProjectInstallDetail: Component<{
 
           <section class="flex flex-col gap-[8px]">
             <div class="flex items-center justify-between">
-              <h2 class="m-0 text-[15px] font-bold text-n-8">版本</h2>
-              <span class="text-[12px] text-n-6">{versionList().length} 个版本</span>
+              <h2 class="m-0 text-[15px] font-bold text-n-8">{t("discover.tabVersions")}</h2>
+              <span class="text-[12px] text-n-6">{t("discover.versionsCount", { count: versionList().length })}</span>
             </div>
             <Show
               when={!versions.loading}
               fallback={
                 <div class="flex items-center gap-[10px] text-n-6 text-[13px] py-[8px]">
-                  <Spinner size={16} /> 加载版本…
+                  <Spinner size={16} /> {t("discover.loadingVersions")}
                 </div>
               }
             >
-              <Show when={versionList().length > 0} fallback={<div class="text-n-6 text-[13px] py-[10px]">没有可用版本。</div>}>
+              <Show when={versionList().length > 0} fallback={<div class="text-n-6 text-[13px] py-[10px]">{t("discover.noVersionsDot")}</div>}>
                 <div class="flex flex-col gap-[6px] max-h-[360px] overflow-y-auto">
                   <For each={versionList()}>
                     {(version) => {
@@ -364,10 +365,10 @@ const ProjectInstallDetail: Component<{
                           <button
                             class="shrink-0 h-[28px] rounded-ctl border border-glass-border bg-glass-card px-[12px] text-[12px] font-semibold text-a-6 cursor-pointer transition-[background-color] duration-150 hover:bg-a-1 disabled:opacity-50 disabled:cursor-default"
                             disabled={busy() || !inst() || blocked()}
-                            title={!inst() ? "先在右侧选择一个实例" : blocked() ? "当前实例的加载器/版本不兼容这个文件" : ""}
+                            title={!inst() ? t("discover.selectInstanceFirst") : blocked() ? t("discover.blockedTooltip") : ""}
                             onClick={() => installVersion(version)}
                           >
-                            {installingVersion() === version.id ? "安装中…" : "安装"}
+                            {installingVersion() === version.id ? t("discover.installing") : t("discover.install")}
                           </button>
                         </div>
                       );
@@ -383,18 +384,18 @@ const ProjectInstallDetail: Component<{
           {/* 全局模式才显示实例选择器;实例详情进入时目标已锁定。 */}
           <Show when={!lockMode()}>
             <section class="glass-panel rounded-card px-[14px] py-[14px]">
-              <h2 class="m-0 mb-[10px] text-[15px] font-bold text-n-8">安装到实例</h2>
+              <h2 class="m-0 mb-[10px] text-[15px] font-bold text-n-8">{t("discover.installToInstance")}</h2>
               <Show
                 when={!instances.loading}
                 fallback={
                   <div class="flex items-center gap-[10px] text-n-6 text-[13px]">
-                    <Spinner size={16} /> 加载实例…
+                    <Spinner size={16} /> {t("discover.loadingInstances")}
                   </div>
                 }
               >
                 <Show
                   when={list().length > 0}
-                  fallback={<div class="text-[13px] leading-[1.7] text-n-6">还没有实例。先去启动页新建或安装一个版本。</div>}
+                  fallback={<div class="text-[13px] leading-[1.7] text-n-6">{t("discover.noInstances")}</div>}
                 >
                   <div class="flex flex-col gap-[6px] max-h-[310px] overflow-y-auto">
                     <For each={list()}>
@@ -423,7 +424,7 @@ const ProjectInstallDetail: Component<{
                               <span class="block text-[11px] text-n-6 whitespace-nowrap overflow-hidden text-ellipsis">
                                 {inst.mc_version} · {loaderLabel(inst.loader)}
                                 <Show when={props.kind === "mod" && inst.loader !== "vanilla"}>
-                                  {" · " + compatCount() + " 个匹配版本"}
+                                  {" · " + t("discover.matchingVersions", { count: compatCount() })}
                                 </Show>
                               </span>
                             </span>
@@ -438,11 +439,11 @@ const ProjectInstallDetail: Component<{
           </Show>
 
           <section class="glass-panel rounded-card px-[14px] py-[14px]">
-            <Show when={selectedInstance()} fallback={<div class="text-[13px] text-n-6">选择一个实例后安装。</div>}>
+            <Show when={selectedInstance()} fallback={<div class="text-[13px] text-n-6">{t("discover.selectInstanceToInstall")}</div>}>
               {(inst) => (
                 <div class="flex flex-col gap-[10px]">
                   <div>
-                    <div class="text-[12px] text-n-6">目标</div>
+                    <div class="text-[12px] text-n-6">{t("discover.target")}</div>
                     <div class="mt-[2px] text-[14px] font-bold text-n-8">{inst().name || inst().id}</div>
                     <div class="mt-[2px] text-[12px] text-n-6">
                       Minecraft {inst().mc_version} · {loaderLabel(inst().loader)}
@@ -455,12 +456,12 @@ const ProjectInstallDetail: Component<{
                       when={(worlds() ?? []).length > 0}
                       fallback={
                         <div class="text-[12px] leading-[1.7] text-n-6">
-                          该实例还没有存档。数据包按存档生效,先进游戏新建世界或在「存档」里导入一个。
+                          {t("discover.datapackNoWorlds")}
                         </div>
                       }
                     >
                       <label class="flex items-center gap-[8px] text-[12px] text-n-6">
-                        <span class="shrink-0">目标存档</span>
+                        <span class="shrink-0">{t("discover.targetWorld")}</span>
                         <select
                           class="glass-input flex-1 rounded-ctl border border-glass-border px-[8px] py-[6px] text-[12px] text-n-8"
                           value={world() ?? ""}
@@ -479,13 +480,13 @@ const ProjectInstallDetail: Component<{
                     disabled={installing() || installingVersion() !== null || !canInstallTo(inst()) || (isDatapack() && !world())}
                     onClick={installLatest}
                   >
-                    {installing() ? "安装中…" : `安装最新${meta().title}`}
+                    {installing() ? t("discover.installing") : t("discover.installLatest", { kind: meta().title })}
                   </button>
                   <Show when={props.kind === "mod" && inst().loader === "vanilla"}>
-                    <div class="text-[12px] leading-[1.6] text-n-6">原版实例没有 Mod 加载器，不能安装 Mod。</div>
+                    <div class="text-[12px] leading-[1.6] text-n-6">{t("discover.vanillaNoModLoader")}</div>
                   </Show>
                   <Show when={props.kind === "mod" && inst().loader !== "vanilla" && !versions.loading && compatibleFor(inst()).length === 0}>
-                    <div class="text-[12px] leading-[1.6] text-n-6">这个项目没有匹配当前实例版本和加载器的文件。</div>
+                    <div class="text-[12px] leading-[1.6] text-n-6">{t("discover.noMatchingFile")}</div>
                   </Show>
                   <Show when={links().length}>
                     <div class="flex flex-wrap gap-[6px] pt-[4px]">

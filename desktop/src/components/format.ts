@@ -1,5 +1,6 @@
 // format.ts —— 纯函数工具集。组件 / 页面共享的格式化逻辑。
 // 设计原则: 无副作用, 无依赖 (不引入 dayjs 等, 保持 bundle 轻量, 契合 03 技术栈"小体积"目标)。
+import { t } from "../i18n";
 
 /**
  * 把一个 epoch 毫秒时间戳格式化为中文相对时间, 如 "5 分钟前" / "刚刚" / "3 天后"。
@@ -19,27 +20,27 @@ export function formatRelativeTime(epochMs: number): string {
   const abs = Math.abs(diffMs);
 
   const sec = Math.floor(abs / 1000);
-  const suffix = future ? "后" : "前";
-  if (sec < 45) return "刚刚";
+  const suffix = future ? t("store.time.suffixFuture") : t("store.time.suffixPast");
+  if (sec < 45) return t("store.time.justNow");
 
-  // 时间梯度表: [单位上限秒数, 该单位每个对应的秒数, 中文单位]。
-  // 命中第一个 value < 上限的梯度;中文无单复数, 直接 "N 单位前/后"。
-  const units: [limit: number, divisor: number, name: string][] = [
-    [45 * 60, 60, "分钟"], // < 45min → N 分钟
-    [22 * 3600, 3600, "小时"], // < 22h → N 小时
-    [25 * 86400, 86400, "天"], // < 25d → N 天
-    [320 * 86400, 86400 * 30, "个月"], // < ~10.5mo → N 个月
-    [Infinity, 86400 * 365, "年"], // else → N 年
+  // 时间梯度表: [单位上限秒数, 该单位每个对应的秒数, i18n 词条键]。
+  // 命中第一个 value < 上限的梯度;词条用 {{ value }}/{{ suffix }} 插值。
+  const units: [limit: number, divisor: number, key: string][] = [
+    [45 * 60, 60, "store.time.minutes"], // < 45min → N 分钟
+    [22 * 3600, 3600, "store.time.hours"], // < 22h → N 小时
+    [25 * 86400, 86400, "store.time.days"], // < 25d → N 天
+    [320 * 86400, 86400 * 30, "store.time.months"], // < ~10.5mo → N 个月
+    [Infinity, 86400 * 365, "store.time.years"], // else → N 年
   ];
 
-  for (const [limit, divisor, name] of units) {
+  for (const [limit, divisor, key] of units) {
     if (sec < limit) {
       const value = Math.max(1, Math.round(sec / divisor));
-      return `${value} ${name}${suffix}`;
+      return t(key, { value, suffix });
     }
   }
   // 理论不可达 (Infinity 兜底), 保险返回。
-  return future ? "未来" : "很久以前";
+  return future ? t("store.time.future") : t("store.time.longAgo");
 }
 
 /**

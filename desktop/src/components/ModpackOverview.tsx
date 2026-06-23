@@ -5,6 +5,7 @@ import { ErrorState } from "./ErrorState";
 import Lightbox from "./Lightbox";
 import { toast } from "./Toast";
 import { api } from "../ipc/api";
+import { t } from "../i18n";
 import { renderMarkdown } from "../util/markdown";
 import type { LightboxImage } from "./Lightbox";
 import "../pages/ModpackDetail.css"; // .md markdown 标记样式
@@ -18,7 +19,7 @@ export const ModpackOverview: Component<{ projectId: string }> = (props) => {
     () => props.projectId,
     (id) =>
       api.modrinthProject(id).catch((e) => {
-        toast({ type: "error", message: `整合包详情加载失败:${e}` });
+        toast({ type: "error", message: t("discover.modpackDetailLoadFailed", { error: String(e) }) });
         return null;
       }),
   );
@@ -28,10 +29,10 @@ export const ModpackOverview: Component<{ projectId: string }> = (props) => {
     const p = project();
     if (!p) return [] as { label: string; url: string }[];
     return [
-      { label: "源码", url: p.source_url },
-      { label: "问题反馈", url: p.issues_url },
-      { label: "Wiki", url: p.wiki_url },
-      { label: "Discord", url: p.discord_url },
+      { label: t("discover.linkSource"), url: p.source_url },
+      { label: t("discover.linkIssues"), url: p.issues_url },
+      { label: t("discover.linkWiki"), url: p.wiki_url },
+      { label: t("discover.linkDiscord"), url: p.discord_url },
     ].filter((l) => !!l.url) as { label: string; url: string }[];
   };
 
@@ -40,11 +41,11 @@ export const ModpackOverview: Component<{ projectId: string }> = (props) => {
       when={!project.loading}
       fallback={
         <div class="flex items-center gap-[10px] text-dim text-[13px] py-[12px]">
-          <Spinner size={16} /> 加载整合包详情…
+          <Spinner size={16} /> {t("discover.loadingModpackDetail")}
         </div>
       }
     >
-      <Show when={project()} fallback={<ErrorState message="无法加载整合包详情" onRetry={() => void refetch()} />}>
+      <Show when={project()} fallback={<ErrorState message={t("discover.modpackDetailUnavailable")} onRetry={() => void refetch()} />}>
         {(p) => (
           <div class="flex flex-col gap-[16px]">
             {/* 头部 */}

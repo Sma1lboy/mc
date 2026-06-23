@@ -7,6 +7,7 @@ import { Avatar } from "./Avatar";
 import { toast } from "./Toast";
 import { api } from "../ipc/api";
 import { accountKindLabel } from "../util/accounts";
+import { t } from "../i18n";
 import type { AccountSummary, DeviceCode } from "../ipc/types";
 
 
@@ -75,10 +76,10 @@ export const AccountDialog: Component<{
     setPendingAcc(acc.uuid);
     try {
       await api.removeAccount(acc.uuid);
-      toast({ type: "success", message: `已移除账号:${acc.username}` });
+      toast({ type: "success", message: t("account.removed", { name: acc.username }) });
       void refetchAccounts();
     } catch (err) {
-      toast({ type: "error", message: `移除失败:${err}` });
+      toast({ type: "error", message: t("account.removeFailed", { err: String(err) }) });
     } finally {
       if (!closed) setPendingAcc(null);
     }
@@ -111,7 +112,7 @@ export const AccountDialog: Component<{
       // 阻塞轮询直到用户完成(后端内部按 interval 轮询)。
       const acc = await api.msaLoginPoll(info.device_code, info.interval);
       if (closed) return;
-      toast({ type: "success", message: `已登录:${acc.username}` });
+      toast({ type: "success", message: t("account.loggedIn", { name: acc.username }) });
       props.onDone(acc);
     } catch (e) {
       if (closed) return;
@@ -130,7 +131,7 @@ export const AccountDialog: Component<{
     try {
       const acc = await api.addOfflineAccount(name);
       if (closed) return;
-      toast({ type: "success", message: `已添加离线账号:${acc.username}` });
+      toast({ type: "success", message: t("account.offlineAdded", { name: acc.username }) });
       props.onDone(acc);
     } catch (e) {
       if (closed) return;
@@ -150,7 +151,7 @@ export const AccountDialog: Component<{
     try {
       const acc = await api.yggdrasilLogin(base, user, ygPass());
       if (closed) return;
-      toast({ type: "success", message: `已登录(外置):${acc.username}` });
+      toast({ type: "success", message: t("account.loggedInYggdrasil", { name: acc.username }) });
       props.onDone(acc);
     } catch (e) {
       if (closed) return;
@@ -162,12 +163,12 @@ export const AccountDialog: Component<{
 
   const title = () =>
     step() === "offline"
-      ? "离线登录"
+      ? t("account.titleOffline")
       : step() === "msa"
-        ? "微软登录"
+        ? t("account.titleMsa")
         : step() === "yggdrasil"
-          ? "外置登录"
-          : "添加账号";
+          ? t("account.titleYggdrasil")
+          : t("account.titleAdd");
 
   return (
     <Dialog
@@ -181,7 +182,7 @@ export const AccountDialog: Component<{
         <button
           class="border-none bg-transparent text-white text-[15px] cursor-pointer opacity-85 px-[6px] py-[2px] rounded-xs hover:bg-white/20 hover:opacity-100"
           onClick={props.onClose}
-          aria-label="关闭"
+          aria-label={t("account.close")}
         >
           ✕
         </button>
@@ -192,7 +193,7 @@ export const AccountDialog: Component<{
         <div class="p-[18px] flex flex-col gap-[12px]">
           {/* 账号列表加载失败:给错误态 + 重试,别让失败看起来像「没有账号」。 */}
           <Show when={accounts.error}>
-            <ErrorState compact message="账号列表加载失败" onRetry={() => void refetchAccounts()} />
+            <ErrorState compact message={t("account.listLoadFailed")} onRetry={() => void refetchAccounts()} />
           </Show>
           {/* 已有账号:切换(点击)或移除(✕)。当前账号打勾。 */}
           <Show when={accountList().length > 0}>
@@ -227,15 +228,15 @@ export const AccountDialog: Component<{
                     </Show>
                     <button
                       class="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150 text-[12px] text-danger-text px-[6px] py-[3px] rounded-xs hover:bg-danger-soft"
-                      title="移除账号"
+                      title={t("account.removeAccount")}
                       onClick={(e) => removeExisting(acc, e)}
                     >
-                      移除
+                      {t("account.remove")}
                     </button>
                   </div>
                 )}
               </For>
-              <div class="text-[11px] text-dim mt-[2px]">或添加新账号:</div>
+              <div class="text-[11px] text-dim mt-[2px]">{t("account.orAddNew")}</div>
             </div>
           </Show>
 
@@ -246,8 +247,8 @@ export const AccountDialog: Component<{
           >
             <span class="text-[26px]">🪟</span>
             <span class="flex flex-col gap-[2px]">
-              <b class="text-[14px] text-fg">微软账号</b>
-              <small class="text-[12px] text-dim">正版验证,可联机、用正版皮肤</small>
+              <b class="text-[14px] text-fg">{t("account.msaTitle")}</b>
+              <small class="text-[12px] text-dim">{t("account.msaDesc")}</small>
             </span>
           </button>
           <button
@@ -259,8 +260,8 @@ export const AccountDialog: Component<{
           >
             <span class="text-[26px]">👤</span>
             <span class="flex flex-col gap-[2px]">
-              <b class="text-[14px] text-fg">离线账号</b>
-              <small class="text-[12px] text-dim">仅输入用户名,单机游玩</small>
+              <b class="text-[14px] text-fg">{t("account.offlineTitle")}</b>
+              <small class="text-[12px] text-dim">{t("account.offlineDesc")}</small>
             </span>
           </button>
           <button
@@ -272,8 +273,8 @@ export const AccountDialog: Component<{
           >
             <span class="text-[26px]">🎭</span>
             <span class="flex flex-col gap-[2px]">
-              <b class="text-[14px] text-fg">外置登录</b>
-              <small class="text-[12px] text-dim">第三方皮肤站(LittleSkin 等),自动注入 authlib-injector</small>
+              <b class="text-[14px] text-fg">{t("account.yggdrasilTitle")}</b>
+              <small class="text-[12px] text-dim">{t("account.yggdrasilDesc")}</small>
             </span>
           </button>
         </div>
@@ -287,18 +288,18 @@ export const AccountDialog: Component<{
             fallback={
               <div class="flex flex-col items-center gap-[10px] p-[16px] text-dim text-[13px]">
                 <Spinner />
-                <span>正在获取登录代码…</span>
+                <span>{t("account.fetchingCode")}</span>
               </div>
             }
           >
             <p class="m-0 text-[13px] text-fg leading-[1.6]">
-              已打开微软登录页并复制代码,在页面输入以下代码完成登录:
+              {t("account.msaInstruction")}
             </p>
             <div class="self-center px-[28px] py-[12px] rounded-ctl bg-a-1 text-a-7 font-bold text-[28px] leading-none [font-family:ui-monospace,SFMono-Regular,Menlo,monospace] tracking-[4px] select-all">
               {device()!.user_code}
             </div>
             <p class="m-0 text-[12px] text-dim text-center">
-              验证地址:
+              {t("account.verificationUri")}
               <a
                 class="text-a-6 cursor-pointer"
                 href={device()!.verification_uri}
@@ -313,7 +314,7 @@ export const AccountDialog: Component<{
             <Show when={busy() && !error()}>
               <div class="flex flex-col items-center gap-[10px] px-[16px] pb-[16px] pt-[6px] text-dim text-[13px]">
                 <Spinner />
-                <span>等待你在浏览器中完成授权…</span>
+                <span>{t("account.waitingAuth")}</span>
               </div>
             </Show>
           </Show>
@@ -324,13 +325,13 @@ export const AccountDialog: Component<{
       <Show when={step() === "offline"}>
         <form class="p-[18px] flex flex-col gap-[12px]" onSubmit={submitOffline}>
           <label for="account-dialog-offline-name" class="sr-only">
-            离线用户名
+            {t("account.offlineNameLabel")}
           </label>
           <input
             id="account-dialog-offline-name"
             name="offlineAccountName"
             class={ACCOUNT_INPUT}
-            placeholder="输入用户名,例如 Steve…"
+            placeholder={t("account.offlineNamePlaceholder")}
             autocomplete="off"
             spellcheck={false}
             value={offlineName()}
@@ -343,14 +344,14 @@ export const AccountDialog: Component<{
               class={ACCOUNT_CANCEL_BTN}
               onClick={() => setStep("menu")}
             >
-              返回
+              {t("account.back")}
             </button>
             <button
               type="submit"
               class={ACCOUNT_SUBMIT_BTN}
               disabled={busy() || !offlineName().trim()}
             >
-              {busy() ? "添加中…" : "确定"}
+              {busy() ? t("account.adding") : t("account.confirm")}
             </button>
           </div>
         </form>
@@ -361,7 +362,7 @@ export const AccountDialog: Component<{
         <form class="p-[18px] flex flex-col gap-[10px]" onSubmit={submitYggdrasil}>
           <input
             class={ACCOUNT_INPUT}
-            placeholder="皮肤站 API 地址,如 https://littleskin.cn/api/yggdrasil"
+            placeholder={t("account.yggBasePlaceholder")}
             autocomplete="off"
             spellcheck={false}
             value={ygBase()}
@@ -369,7 +370,7 @@ export const AccountDialog: Component<{
           />
           <input
             class={ACCOUNT_INPUT}
-            placeholder="邮箱 / 用户名"
+            placeholder={t("account.yggUserPlaceholder")}
             autocomplete="username"
             value={ygUser()}
             onInput={(e) => setYgUser(e.currentTarget.value)}
@@ -377,7 +378,7 @@ export const AccountDialog: Component<{
           <input
             type="password"
             class={ACCOUNT_INPUT}
-            placeholder="密码"
+            placeholder={t("account.yggPassPlaceholder")}
             autocomplete="current-password"
             value={ygPass()}
             onInput={(e) => setYgPass(e.currentTarget.value)}
@@ -388,14 +389,14 @@ export const AccountDialog: Component<{
               class={ACCOUNT_CANCEL_BTN}
               onClick={() => setStep("menu")}
             >
-              返回
+              {t("account.back")}
             </button>
             <button
               type="submit"
               class={ACCOUNT_SUBMIT_BTN}
               disabled={busy() || !ygBase().trim() || !ygUser().trim()}
             >
-              {busy() ? "登录中…" : "登录"}
+              {busy() ? t("account.loggingIn") : t("account.login")}
             </button>
           </div>
         </form>
@@ -407,17 +408,15 @@ export const AccountDialog: Component<{
             when={/AADSTS700016|client_id|MC_MSA_CLIENT_ID|was not found/i.test(error()!)}
             fallback={error()}
           >
-            微软登录需要你自己的 Azure 应用 client_id(默认的老 ID 已被微软拒绝)。
-            请到 Azure 注册一个「个人 Microsoft 账户」应用并开启「公共客户端流」,
-            把 client_id 写入{" "}
+            {t("account.msaClientIdError")}
             <code class="[font-family:ui-monospace,SFMono-Regular,Menlo,monospace] bg-[rgba(192,57,43,0.12)] px-[4px] rounded-[3px]">
               desktop/src-tauri/.env
-            </code>{" "}
-            的{" "}
+            </code>
+            {t("account.msaClientIdErrorMid")}
             <code class="[font-family:ui-monospace,SFMono-Regular,Menlo,monospace] bg-[rgba(192,57,43,0.12)] px-[4px] rounded-[3px]">
               MC_MSA_CLIENT_ID
             </code>
-            ,重启应用后再试。
+            {t("account.msaClientIdErrorEnd")}
             <div class="mt-[8px] pt-[8px] border-t border-[rgba(192,57,43,0.25)] text-[11px] opacity-75">
               {error()}
             </div>
