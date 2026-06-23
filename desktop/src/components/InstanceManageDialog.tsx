@@ -331,6 +331,8 @@ const PacksPanel: Component<{
   const [installing, setInstalling] = createSignal<Set<string>>(new Set());
   // 本次浏览已添加的 project_id:行按钮即时变「已添加」。
   const [added, setAdded] = createSignal<Set<string>>(new Set());
+  // 删除资源包前确认(删除是破坏性的,与存档删除一致)。
+  const [confirmDel, setConfirmDel] = createSignal<PackInfo | null>(null);
   const startBrowse = () => {
     setAdded(new Set<string>());
     props.onBrowse(true);
@@ -490,7 +492,7 @@ const PacksPanel: Component<{
                           <Toggle checked={p.enabled} onChange={(v) => toggle(p, v)} title="启用" />
                           启用
                         </div>
-                        <button class={DEL_BTN} onClick={() => remove(p)}>
+                        <button class={DEL_BTN} onClick={() => setConfirmDel(p)}>
                           删除
                         </button>
                       </div>
@@ -549,6 +551,38 @@ const PacksPanel: Component<{
           )}
         </Show>
       </Show>
+
+      <Dialog
+        open={confirmDel() !== null}
+        onClose={() => setConfirmDel(null)}
+        label="删除资源包"
+        contentClass="w-[360px] max-w-[calc(100vw-48px)] glass-pop rounded-card overflow-hidden"
+      >
+        <div class="p-[20px] flex flex-col gap-[14px]">
+          <div class="text-[15px] font-semibold text-fg break-words">
+            删除「{confirmDel()?.file_name.replace(/\.disabled$/, "")}」?
+          </div>
+          <div class="text-[13px] text-dim leading-[1.6]">该文件将从实例目录中永久删除。</div>
+          <div class="flex justify-end gap-[10px]">
+            <button
+              class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-glass-card text-fg text-[13px] cursor-pointer transition-colors duration-150 hover:bg-glass-hover"
+              onClick={() => setConfirmDel(null)}
+            >
+              取消
+            </button>
+            <button
+              class="h-[34px] px-[16px] border-none rounded-ctl bg-danger text-white text-[13px] cursor-pointer transition-colors duration-150 hover:bg-danger-hover"
+              onClick={() => {
+                const p = confirmDel();
+                setConfirmDel(null);
+                if (p) void remove(p);
+              }}
+            >
+              删除
+            </button>
+          </div>
+        </div>
+      </Dialog>
     </div>
   );
 };
@@ -969,6 +1003,8 @@ export const InstanceManageDialog: Component<{
   const [installing, setInstalling] = createSignal<Set<string>>(new Set());
   // 本次浏览已添加的 mod project_id:行按钮即时变「已添加」,无需返回已安装确认。
   const [addedMods, setAddedMods] = createSignal<Set<string>>(new Set());
+  // 删除 mod 前确认(删除是破坏性的,与存档/资源包删除一致)。
+  const [confirmDelMod, setConfirmDelMod] = createSignal<ModInfo | null>(null);
   const startBrowse = () => {
     setAddedMods(new Set<string>());
     setBrowsing(true);
@@ -1487,7 +1523,7 @@ export const InstanceManageDialog: Component<{
                                   </div>
                                   <button
                                     class="shrink-0 text-[12px] text-danger-text px-[8px] py-[4px] rounded-xs cursor-pointer hover:bg-danger-soft"
-                                    onClick={() => removeMod(m)}
+                                    onClick={() => setConfirmDelMod(m)}
                                   >
                                     删除
                                   </button>
@@ -1614,6 +1650,38 @@ export const InstanceManageDialog: Component<{
             </button>
           </div>
         </Show>
+
+        <Dialog
+          open={confirmDelMod() !== null}
+          onClose={() => setConfirmDelMod(null)}
+          label="删除 Mod"
+          contentClass="w-[360px] max-w-[calc(100vw-48px)] glass-pop rounded-card overflow-hidden"
+        >
+          <div class="p-[20px] flex flex-col gap-[14px]">
+            <div class="text-[15px] font-semibold text-fg break-words">
+              删除「{confirmDelMod()?.name}」?
+            </div>
+            <div class="text-[13px] text-dim leading-[1.6]">该 mod 文件将从实例目录中永久删除。</div>
+            <div class="flex justify-end gap-[10px]">
+              <button
+                class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-glass-card text-fg text-[13px] cursor-pointer transition-colors duration-150 hover:bg-glass-hover"
+                onClick={() => setConfirmDelMod(null)}
+              >
+                取消
+              </button>
+              <button
+                class="h-[34px] px-[16px] border-none rounded-ctl bg-danger text-white text-[13px] cursor-pointer transition-colors duration-150 hover:bg-danger-hover"
+                onClick={() => {
+                  const m = confirmDelMod();
+                  setConfirmDelMod(null);
+                  if (m) void removeMod(m);
+                }}
+              >
+                删除
+              </button>
+            </div>
+          </div>
+        </Dialog>
       </div>
   );
 
