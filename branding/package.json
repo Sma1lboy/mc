@@ -1,0 +1,25 @@
+{
+  "name": "mc-launcher-branding",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Animated logo concepts for mc-launcher (Remotion). Source here; rendered outputs land in ../docs/assets/brand/.",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "still:cube": "remotion still src/index.ts iso-cube ../docs/assets/brand/iso-cube.png --frame=70",
+    "still:tile": "remotion still src/index.ts iso-cube-tile ../docs/assets/brand/iso-cube-tile.png --frame=40",
+    "gif:tile": "remotion render src/index.ts iso-cube-tile ../docs/assets/brand/iso-cube-tile.gif --codec=gif --every-nth-frame=2",
+    "gif:cube": "remotion render src/index.ts iso-cube ../docs/assets/brand/iso-cube.gif --codec=gif --every-nth-frame=2",
+    "mp4:tile": "remotion render src/index.ts iso-cube-tile ../docs/assets/brand/iso-cube-tile.mp4"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.380",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "remotion": "4.0.380"
+  },
+  "devDependencies": {
+    "@types/react": "19.0.0",
+    "@types/react-dom": "19.0.0",
+    "typescript": "5.8.2"
+  }
+}
