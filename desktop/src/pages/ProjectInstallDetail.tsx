@@ -1,6 +1,7 @@
 import { Component, createEffect, createResource, createSignal, onCleanup, onMount, For, Show } from "solid-js";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { Spinner } from "../components/Spinner";
+import { LOADER_BADGE_TINT } from "../components/styles";
 import { toast } from "../components/Toast";
 import type { ModpackHit } from "../components/ModpackCard";
 import { api } from "../ipc/api";
@@ -410,7 +411,7 @@ const ProjectInstallDetail: Component<{
                             onClick={() => setSelectedId(inst.id)}
                           >
                             <span
-                              class="w-[30px] h-[30px] flex-[0_0_30px] rounded-ctl grid place-items-center bg-a-4 text-white text-[13px] font-bold data-[loader=forge]:bg-[#c96a1c] data-[loader=neoforge]:bg-[#c96a1c] data-[loader=fabric]:bg-[#a87b3f] data-[loader=quilt]:bg-[#a87b3f]"
+                              class={`w-[30px] h-[30px] flex-[0_0_30px] rounded-ctl grid place-items-center bg-a-4 text-white text-[13px] font-bold ${LOADER_BADGE_TINT}`}
                               data-loader={inst.loader}
                             >
                               {(inst.name || inst.id)[0]?.toUpperCase()}

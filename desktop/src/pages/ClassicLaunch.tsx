@@ -1,5 +1,6 @@
 import { Component, createEffect, createResource, createSignal, For, Show, onCleanup } from "solid-js";
 import { Avatar, BlockedFilesDialog, InstanceManageDialog, NewInstanceDialog, Spinner, toast } from "../components";
+import { LOADER_BADGE_TINT } from "../components/styles";
 import { api, onGameLog, onLaunchProgress } from "../ipc/api";
 import { activeRoot, isRunning, isLaunching, playInstance } from "../store";
 import { openInstanceDir } from "../util/instanceActions";
@@ -224,7 +225,7 @@ const ClassicLaunch: Component = () => {
           >
             <div class="flex items-center gap-[10px] min-w-0">
               <span
-                class="w-[34px] h-[34px] flex-[0_0_34px] rounded-[4px] flex items-center justify-center font-bold text-[14px] text-white bg-classic-blue data-[loader=forge]:bg-[#c96a1c] data-[loader=neoforge]:bg-[#c96a1c] data-[loader=fabric]:bg-[#a87b3f] data-[loader=quilt]:bg-[#a87b3f]"
+                class={`w-[34px] h-[34px] flex-[0_0_34px] rounded-[4px] flex items-center justify-center font-bold text-[14px] text-white bg-classic-blue ${LOADER_BADGE_TINT}`}
                 data-loader={selected()!.loader}
               >
                 {(selected()!.name || selected()!.id)[0]?.toUpperCase()}
@@ -309,7 +310,7 @@ const ClassicLaunch: Component = () => {
                       onClick={() => openInstance(inst)}
                     >
                       <span
-                        class="w-[26px] h-[26px] flex-[0_0_26px] rounded-[4px] flex items-center justify-center font-bold text-[12px] text-white bg-classic-blue data-[loader=forge]:bg-[#c96a1c] data-[loader=neoforge]:bg-[#c96a1c] data-[loader=fabric]:bg-[#a87b3f] data-[loader=quilt]:bg-[#a87b3f]"
+                        class={`w-[26px] h-[26px] flex-[0_0_26px] rounded-[4px] flex items-center justify-center font-bold text-[12px] text-white bg-classic-blue ${LOADER_BADGE_TINT}`}
                         data-loader={inst.loader}
                       >
                         {(inst.name || inst.id)[0]?.toUpperCase()}
@@ -436,7 +437,7 @@ const ClassicLaunch: Component = () => {
                         onClick={() => openInstance(inst)}
                       >
                         <span
-                          class="w-[30px] h-[30px] flex-[0_0_30px] rounded-[4px] flex items-center justify-center font-bold text-[14px] text-white bg-classic-blue data-[loader=forge]:bg-[#c96a1c] data-[loader=neoforge]:bg-[#c96a1c] data-[loader=fabric]:bg-[#a87b3f] data-[loader=quilt]:bg-[#a87b3f]"
+                          class={`w-[30px] h-[30px] flex-[0_0_30px] rounded-[4px] flex items-center justify-center font-bold text-[14px] text-white bg-classic-blue ${LOADER_BADGE_TINT}`}
                           data-loader={inst.loader}
                         >
                           {(inst.name || inst.id)[0]?.toUpperCase()}
