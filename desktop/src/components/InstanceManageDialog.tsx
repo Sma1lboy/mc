@@ -663,7 +663,7 @@ const WorldsPanel: Component<{ instance: InstanceSummary; tick?: number }> = (pr
             打开目录
           </button>
           <button
-            class="text-[12px] text-a-6 px-[8px] py-[3px] rounded-xs cursor-pointer hover:bg-a-4/10 disabled:opacity-50"
+            class="text-[12px] text-a-6 px-[8px] py-[3px] rounded-xs cursor-pointer hover:bg-a-4/10 disabled:opacity-50 disabled:cursor-default"
             disabled={importing()}
             onClick={importZip}
           >
@@ -728,7 +728,7 @@ const WorldsPanel: Component<{ instance: InstanceSummary; tick?: number }> = (pr
                   </div>
                 </div>
                 <button
-                  class="shrink-0 text-[12px] text-dim px-[8px] py-[4px] rounded-xs cursor-pointer hover:text-fg hover:bg-a-4/10 disabled:opacity-50"
+                  class="shrink-0 text-[12px] text-dim px-[8px] py-[4px] rounded-xs cursor-pointer hover:text-fg hover:bg-a-4/10 disabled:opacity-50 disabled:cursor-default"
                   disabled={busy() === w.folder}
                   onClick={() => backup(w)}
                 >
@@ -1385,7 +1385,7 @@ export const InstanceManageDialog: Component<{
                             打开目录
                           </button>
                           <button
-                            class="text-[12px] text-a-6 px-[8px] py-[3px] rounded-xs cursor-pointer hover:bg-a-4/10 disabled:opacity-50"
+                            class="text-[12px] text-a-6 px-[8px] py-[3px] rounded-xs cursor-pointer hover:bg-a-4/10 disabled:opacity-50 disabled:cursor-default"
                             disabled={checking() || searchLoader() === null}
                             onClick={checkUpdates}
                           >
@@ -1600,7 +1600,7 @@ export const InstanceManageDialog: Component<{
         <Show when={!props.embedded}>
           <div class="flex justify-between items-center px-[20px] py-[14px] border-t border-glass-divider">
             <button
-              class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-transparent text-dim text-[13px] cursor-pointer transition-colors duration-150 hover:text-fg hover:bg-glass-hover disabled:opacity-50"
+              class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-transparent text-dim text-[13px] cursor-pointer transition-colors duration-150 hover:text-fg hover:bg-glass-hover disabled:opacity-50 disabled:cursor-default"
               disabled={copying() || !props.instance}
               onClick={copyInstance}
             >
