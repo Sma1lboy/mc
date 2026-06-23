@@ -172,6 +172,8 @@ export interface InstanceConfig {
   fullscreen: boolean;
   /** 启动后自动加入的服务器地址 */
   server: string | null;
+  /** 该实例从哪个平台的整合包安装而来;null = 非整合包安装(URL/裸 zip 导入或手动创建) */
+  source: { provider: string; project_id: string; version_id: string | null } | null;
 }
 
 /** 实例里的一个本地 mod(对应后端 ModInfo) */

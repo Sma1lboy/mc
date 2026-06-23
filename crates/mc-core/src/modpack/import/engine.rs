@@ -311,7 +311,16 @@ impl ImportEngine {
         if !plan.extra_game_args.is_empty() {
             config.game_args = plan.extra_game_args.clone();
         }
-        let _ = opts; // managed 溯源当前随 plan 落在内存模型,持久化在后续「更新整合包」阶段接入。
+        // 整合包来源溯源:持久化到实例配置,供 UI 展示来源 / 日后「更新整合包」。
+        // 仅采用 `opts.managed`(由 provider 发起安装时带入的**确切**项目 id);裸 URL/zip
+        // 导入不设它 → source 留 None,不拿 manifest 里的包名当作 id 伪造来源。
+        if let Some(m) = &opts.managed {
+            config.source = Some(crate::instance::InstanceSource {
+                provider: m.platform.clone(),
+                project_id: m.project_id.clone(),
+                version_id: m.version_id.clone(),
+            });
+        }
         inst.save_config(&config)
     }
 

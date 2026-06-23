@@ -102,6 +102,18 @@ pub fn instance_dir(root: String, id: String) -> CmdResult<String> {
     Ok(dir.to_string_lossy().to_string())
 }
 
+/// 用系统文件管理器打开一个路径(目录/文件)。直接调 OS,绕开 shell 插件只放行 URL 的作用域。
+#[tauri::command]
+pub fn reveal_path(path: String) -> CmdResult<()> {
+    #[cfg(target_os = "macos")]
+    let spawned = std::process::Command::new("open").arg(&path).spawn();
+    #[cfg(target_os = "windows")]
+    let spawned = std::process::Command::new("explorer").arg(&path).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let spawned = std::process::Command::new("xdg-open").arg(&path).spawn();
+    spawned.map(|_| ()).map_err(err)
+}
+
 /// 取实例某个子目录的绝对路径并确保其存在(供「打开目录」用前端 shell.open 打开)。
 /// sub = "mods" / "resourcepacks" / "shaderpacks" / "datapacks" / "saves" / "screenshots" / "config"。
 #[tauri::command]
@@ -1201,7 +1213,7 @@ pub async fn install_modrinth_modpack(
     project_id: String,
     instance_id: Option<String>,
 ) -> CmdResult<ImportOutcomeDto> {
-    use mc_core::modpack::import::{ImportEngine, ImportOptions, ImportSource};
+    use mc_core::modpack::import::{ImportEngine, ImportOptions, ImportSource, ManagedPack};
     use mc_core::modplatform::provider::ProviderRegistry;
 
     // 1) 取最新版本的 .mrpack 下载地址。
@@ -1211,6 +1223,7 @@ pub async fn install_modrinth_modpack(
         .into_iter()
         .next()
         .ok_or_else(|| format!("整合包 {project_id} 没有可用版本"))?;
+    let version_id = version.id.clone();
     let url = version
         .files
         .iter()
@@ -1226,6 +1239,12 @@ pub async fn install_modrinth_modpack(
     let engine = ImportEngine::with_defaults(dl, ProviderRegistry::with_defaults());
     let mut opts = ImportOptions::new(paths.root().to_path_buf());
     opts.instance_id = instance_id;
+    // 记录确切来源(Modrinth 项目 + 安装的版本),持久化到实例 instance.json 的 source。
+    opts.managed = Some(ManagedPack {
+        platform: "modrinth".to_string(),
+        project_id: project_id.clone(),
+        version_id: Some(version_id),
+    });
     let (tx, rx) = watch::channel(Progress::new("准备"));
     forward_progress(app, "install://progress", rx);
     let outcome = engine

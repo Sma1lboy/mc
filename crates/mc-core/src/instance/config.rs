@@ -34,6 +34,21 @@ pub struct InstanceConfig {
     pub fullscreen: bool,
     /// 启动即自动加入的服务器地址 (`host` 或 `host:port`)。
     pub server: Option<String>,
+    /// 该实例从哪个平台的整合包安装而来(供「更新整合包」/UI 展示来源)。
+    /// 仅在由 provider 发起、已知确切项目 id 的安装时写入;URL/裸 zip 导入留 `None`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<InstanceSource>,
+}
+
+/// 实例的整合包来源溯源:它从哪个平台的哪个项目/版本安装而来。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct InstanceSource {
+    /// 平台标识(如 `"modrinth"`)。
+    pub provider: String,
+    /// 平台上的项目 id。
+    pub project_id: String,
+    /// 安装时所用的版本 id;未知时 `None`。
+    pub version_id: Option<String>,
 }
 
 impl Default for InstanceConfig {
@@ -49,6 +64,7 @@ impl Default for InstanceConfig {
             height: None,
             fullscreen: false,
             server: None,
+            source: None,
         }
     }
 }

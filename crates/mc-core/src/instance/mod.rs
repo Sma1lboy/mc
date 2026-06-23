@@ -18,7 +18,7 @@ pub mod screenshots;
 pub mod update;
 pub mod world;
 
-pub use config::InstanceConfig;
+pub use config::{InstanceConfig, InstanceSource};
 pub use install_mod::{
     install_mod, install_mod_version, install_mod_version_with_deps, InstallReport,
 };
