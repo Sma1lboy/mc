@@ -52,11 +52,15 @@ async fn pick_loader_version(dl: &Downloader, mc_version: &str) -> Result<String
 ///
 /// `vanilla_entry` is the manifest entry for `mc_version`; pass it so we can
 /// install vanilla if it is missing without re-fetching the manifest here.
+/// `loader_version`: pin a specific Fabric loader (e.g. a modpack's `fabric-loader`
+/// dependency); `None`/empty picks the newest stable. Honoring the pin matters for
+/// modpack import — the author chose that loader for compatibility.
 pub async fn install_fabric(
     dl: &Downloader,
     paths: &GamePaths,
     mc_version: &str,
     vanilla_entry: &ManifestVersion,
+    loader_version: Option<&str>,
     progress: Option<watch::Sender<Progress>>,
 ) -> Result<String> {
     // 1. Ensure vanilla is installed (Fabric's profile inheritsFrom it).
@@ -66,7 +70,10 @@ pub async fn install_fabric(
     if let Some(tx) = &progress {
         let _ = tx.send(Progress::new("解析 Fabric loader 版本"));
     }
-    let loader_version = pick_loader_version(dl, mc_version).await?;
+    let loader_version = match loader_version.map(str::trim).filter(|v| !v.is_empty()) {
+        Some(pinned) => pinned.to_string(),
+        None => pick_loader_version(dl, mc_version).await?,
+    };
     let profile_url =
         format!("{FABRIC_META}/versions/loader/{mc_version}/{loader_version}/profile/json");
     let raw = dl.get_text(&profile_url).await?;

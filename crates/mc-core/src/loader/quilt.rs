@@ -41,11 +41,14 @@ async fn pick_loader_version(dl: &Downloader, mc_version: &str) -> Result<String
 
 /// Install Quilt for `mc_version`, ensuring vanilla is present first. Returns the
 /// launchable profile id.
+/// `loader_version`: pin a specific Quilt loader (e.g. a modpack's `quilt-loader`
+/// dependency); `None`/empty picks the newest stable (then newest available).
 pub async fn install_quilt(
     dl: &Downloader,
     paths: &GamePaths,
     mc_version: &str,
     vanilla_entry: &ManifestVersion,
+    loader_version: Option<&str>,
     progress: Option<watch::Sender<Progress>>,
 ) -> Result<String> {
     installer::ensure_vanilla(dl, paths, mc_version, vanilla_entry, &progress).await?;
@@ -53,17 +56,20 @@ pub async fn install_quilt(
     if let Some(tx) = &progress {
         let _ = tx.send(Progress::new("解析 Quilt loader 版本"));
     }
-    let loader_version = match pick_loader_version(dl, mc_version).await {
-        Ok(v) => v,
-        Err(_) => {
-            // no stable: take the newest available
-            let url = format!("{QUILT_META}/versions/loader/{mc_version}");
-            let list: Vec<LoaderEntry> = dl.get_json(&url).await?;
-            list.into_iter()
-                .next()
-                .map(|e| e.loader.version)
-                .ok_or_else(|| CoreError::other(format!("Quilt 不支持 Minecraft {mc_version}")))?
-        }
+    let loader_version = match loader_version.map(str::trim).filter(|v| !v.is_empty()) {
+        Some(pinned) => pinned.to_string(),
+        None => match pick_loader_version(dl, mc_version).await {
+            Ok(v) => v,
+            Err(_) => {
+                // no stable: take the newest available
+                let url = format!("{QUILT_META}/versions/loader/{mc_version}");
+                let list: Vec<LoaderEntry> = dl.get_json(&url).await?;
+                list.into_iter()
+                    .next()
+                    .map(|e| e.loader.version)
+                    .ok_or_else(|| CoreError::other(format!("Quilt 不支持 Minecraft {mc_version}")))?
+            }
+        },
     };
 
     let profile_url =

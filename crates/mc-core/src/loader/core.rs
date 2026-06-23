@@ -41,11 +41,11 @@ pub async fn install_core(
             }
             mc_version.to_string()
         }
-        Some((LoaderKind::Fabric, _)) => {
-            install_fabric(dl, paths, mc_version, vanilla_entry, progress).await?
+        Some((LoaderKind::Fabric, ver)) => {
+            install_fabric(dl, paths, mc_version, vanilla_entry, Some(ver.as_str()), progress).await?
         }
-        Some((LoaderKind::Quilt, _)) => {
-            install_quilt(dl, paths, mc_version, vanilla_entry, progress).await?
+        Some((LoaderKind::Quilt, ver)) => {
+            install_quilt(dl, paths, mc_version, vanilla_entry, Some(ver.as_str()), progress).await?
         }
         Some((LoaderKind::Forge, build)) => {
             install_forge(dl, paths, mc_version, build, vanilla_entry, None, progress).await?

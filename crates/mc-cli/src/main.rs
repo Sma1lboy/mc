@@ -501,7 +501,7 @@ async fn cmd_fabric(cli: &Cli, mc_version: &str) -> Result<()> {
             }
         }
     });
-    let id = mc_core::loader::install_fabric(&dl, &paths, mc_version, entry, Some(tx)).await?;
+    let id = mc_core::loader::install_fabric(&dl, &paths, mc_version, entry, None, Some(tx)).await?;
     let _ = printer.await;
     println!("✓ Fabric 安装完成,实例 id: {id}");
     println!("  用 `mc launch {id} --name <你>` 启动");
@@ -517,7 +517,7 @@ async fn cmd_quilt(cli: &Cli, mc_version: &str) -> Result<()> {
         .find(|v| v.id == mc_version)
         .with_context(|| format!("版本 {mc_version} 不在清单中"))?;
     println!("为 {mc_version} 安装 Quilt…");
-    let id = mc_core::loader::install_quilt(&dl, &paths, mc_version, entry, None).await?;
+    let id = mc_core::loader::install_quilt(&dl, &paths, mc_version, entry, None, None).await?;
     println!("✓ Quilt 安装完成,实例 id: {id}");
     Ok(())
 }
