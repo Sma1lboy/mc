@@ -121,7 +121,13 @@ git add Cargo.toml Cargo.lock \
         desktop/src-tauri/tauri.conf.json \
         desktop/package.json desktop/package-lock.json \
         CHANGELOG.md
-git commit -m "chore(release): $TAG"
+# Nothing changed when the version is already current (e.g. the very first release) —
+# skip the empty commit and just tag the current HEAD.
+if git diff --cached --quiet; then
+  echo "   version already current — nothing to commit; tagging HEAD"
+else
+  git commit -m "chore(release): $TAG"
+fi
 git tag -a "$TAG" -m "kobeMC $TAG"
 
 cat <<EOF
