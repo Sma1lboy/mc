@@ -19,6 +19,12 @@ export function headUrl(uuid: string | undefined): string {
   return id ? `https://mc-heads.net/avatar/${id}/128` : STEVE_AVATAR;
 }
 
+/** 全身皮肤渲染(mc-heads.net 正面 2D 全身);uuid 缺失/离线时回退默认 Steve 皮肤。 */
+export function skinBodyUrl(uuid: string | undefined): string {
+  const id = (uuid ?? "").replace(/-/g, "");
+  return `https://mc-heads.net/body/${id || "MHF_Steve"}/90`;
+}
+
 export const Avatar: Component<{
   uuid?: string;
   /** 账号类型;仅 "microsoft" 会去取真实皮肤,其余用 Steve。 */

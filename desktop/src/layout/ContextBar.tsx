@@ -6,6 +6,7 @@ import {
   createSignal,
 } from "solid-js";
 import { AccountDialog, Avatar, EmptyState, ErrorState, Menu } from "../components";
+import { skinBodyUrl } from "../components/Avatar";
 import { ACCENT_BTN } from "../components/styles";
 import { api } from "../ipc/api";
 import { accountKindLabel } from "../util/accounts";
@@ -116,6 +117,18 @@ const ContextBar: Component = () => {
                 </div>
               }
             >
+              {/* 当前账号的全身皮肤预览(像素硬边);mc-heads 取不到时 onError 隐藏,不留空洞。 */}
+              <Show when={current()}>
+                <div class="flex justify-center pt-[2px] pb-[12px]">
+                  <img
+                    src={skinBodyUrl(current()!.uuid)}
+                    alt=""
+                    class="h-[150px] w-auto object-contain [image-rendering:pixelated] drop-shadow-[0_4px_12px_rgba(0,0,0,0.28)]"
+                    onError={(e) => (e.currentTarget.style.display = "none")}
+                  />
+                </div>
+              </Show>
+
               {/* 账号切换:Ark Menu(键盘可达 + 点外部/Esc 自动收起) */}
               <Menu.Root
                 positioning={{ placement: "bottom", sameWidth: true }}
