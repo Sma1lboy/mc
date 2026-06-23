@@ -36,9 +36,9 @@ export const IsoCube: React.FC = () => {
   return (
     <AbsoluteFill style={{ alignItems: "center", justifyContent: "center", backgroundColor: "transparent" }}>
       <svg
-        width={440}
-        height={440}
-        viewBox="0 0 200 210"
+        width="100%"
+        height="100%"
+        viewBox="20 17 160 182"
         style={{ transform: `translateY(${bob}px) scale(${scale})`, opacity: baseOpacity, overflow: "visible" }}
       >
         {/* 左面(陶土,主) */}
