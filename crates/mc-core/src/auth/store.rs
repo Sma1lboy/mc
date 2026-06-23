@@ -81,6 +81,20 @@ impl StoredAccount {
     }
 }
 
+/// 把文件权限收紧为「仅属主可读写」(Unix `0o600`)。非 Unix 平台为 no-op。
+/// 尽力而为:取不到/设不了权限都静默忽略(不阻断保存)。
+fn restrict_to_owner(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+    }
+}
+
 /// 当前 Unix 时间(秒)。系统时钟早于纪元的极端情况回退 0。
 pub fn now_unix() -> i64 {
     std::time::SystemTime::now()
@@ -158,7 +172,11 @@ impl AccountStore {
             what: "serialize account store".to_string(),
             source: e,
         })?;
-        crate::fs::write_atomic(&self.path, text.as_bytes())
+        crate::fs::write_atomic(&self.path, text.as_bytes())?;
+        // 账号库含明文 token(见模块文档的安全 TODO:后续应迁到系统 keyring)。在 Unix 上
+        // 至少把权限收紧到「仅属主可读写」(0600),防止同机其它用户读到 token。
+        restrict_to_owner(&self.path);
+        Ok(())
     }
 
     /// 加入(或更新)一个账号。若已存在相同 uuid 则原地替换(刷新 token 场景);
@@ -399,6 +417,14 @@ mod tests {
             .unwrap();
         assert_eq!(ms.refresh_token.as_deref(), Some("refresh"));
         assert!(ms.owns_game);
+
+        // 含明文 token 的账号库应被收紧为仅属主可读写(0600)。
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&p).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600, "accounts.json 应为 0600,实际 {:o}", mode & 0o777);
+        }
 
         let _ = std::fs::remove_file(&p);
     }
