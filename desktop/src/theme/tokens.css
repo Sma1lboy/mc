@@ -47,8 +47,9 @@
   --glass-blur: 18px;
   --glass-panel: transparent; /* rail / topbar / ctxbar 统一跟随窗口面纱 */
   --glass-panel-flat: transparent;
-  --glass-card: rgba(255, 255, 255, 0.065); /* 卡片 */
-  --glass-card-hover: rgba(255, 255, 255, 0.095);
+  /* 卡片始终比窗口面纱再实一档(+offset):背景越透,卡片也跟着保持「浮起」可读。 */
+  --glass-card: rgb(34 39 48 / calc(var(--veil-strength) + 0.14));
+  --glass-card-hover: rgb(42 48 59 / calc(var(--veil-strength) + 0.2));
   --glass-card-flat: var(--n-4);
   --glass-border: rgba(255, 255, 255, 0.1);
   --glass-border-strong: rgba(255, 255, 255, 0.14);
@@ -56,7 +57,7 @@
   --glass-hi: rgba(255, 255, 255, 0.1); /* 卡片顶部内高光 */
   --glass-hi-strong: rgba(255, 255, 255, 0.16);
   --glass-hover: rgba(255, 255, 255, 0.08); /* 幽灵控件 hover 底 */
-  --glass-pop: color-mix(in srgb, var(--n-4) 82%, transparent); /* 菜单/弹窗,更实更易读 */
+  --glass-pop: rgb(30 34 42 / calc(var(--veil-strength) + 0.24)); /* 菜单/弹窗更实,保证可读 */
   --glass-pop-flat: var(--n-4);
   --glass-input: rgba(255, 255, 255, 0.05); /* 输入框/搜索 */
   --glass-input-flat: var(--n-5);
@@ -92,8 +93,8 @@
   --glass-blur: 18px;
   --glass-panel: transparent;
   --glass-panel-flat: transparent;
-  --glass-card: rgba(255, 255, 255, 0.62);
-  --glass-card-hover: rgba(255, 255, 255, 0.78);
+  --glass-card: rgb(255 255 255 / calc(var(--veil-strength) + 0.14));
+  --glass-card-hover: rgb(255 255 255 / calc(var(--veil-strength) + 0.22));
   --glass-card-flat: var(--n-4);
   --glass-border: rgba(0, 0, 0, 0.08);
   --glass-border-strong: rgba(0, 0, 0, 0.14);
@@ -101,7 +102,7 @@
   --glass-hi: rgba(255, 255, 255, 0.65);
   --glass-hi-strong: rgba(255, 255, 255, 0.85);
   --glass-hover: rgba(0, 0, 0, 0.05);
-  --glass-pop: color-mix(in srgb, #ffffff 85%, transparent);
+  --glass-pop: rgb(252 253 255 / calc(var(--veil-strength) + 0.24));
   --glass-pop-flat: var(--n-4);
   --glass-input: rgba(0, 0, 0, 0.04);
   --glass-input-flat: var(--n-5);
@@ -288,7 +289,7 @@ body {
   backdrop-filter: blur(var(--glass-blur)) saturate(1.2);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.2);
   border: 1px solid var(--glass-border);
-  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.3), inset 0 1px 0 var(--glass-hi);
+  box-shadow: inset 0 1px 0 var(--glass-hi);
   transition:
     background var(--mo-dur-base) var(--mo-ease-standard),
     border-color var(--mo-dur-base) var(--mo-ease-standard),
@@ -299,7 +300,7 @@ body {
 .glass-card--hover:hover {
   background: var(--glass-card-hover);
   border-color: var(--glass-border-strong);
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.4), inset 0 1px 0 var(--glass-hi-strong);
+  box-shadow: inset 0 1px 0 var(--glass-hi-strong);
 }
 
 [data-blur="off"] .glass-panel {
@@ -339,7 +340,7 @@ body {
   backdrop-filter: blur(var(--glass-blur)) saturate(1.2);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.2);
   border: 1px solid var(--glass-border);
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.4), inset 0 1px 0 var(--glass-hi);
+  box-shadow: inset 0 1px 0 var(--glass-hi);
 }
 .glass-input {
   background: var(--glass-input);

@@ -27,7 +27,7 @@ export const Tooltip: Component<TooltipProps> = (props) => {
       </Ark.Trigger>
       <Portal>
         <Ark.Positioner>
-          <Ark.Content class="z-[300] max-w-[280px] px-[10px] py-[6px] rounded-ctl bg-n-8 text-n-1 text-[12px] leading-[1.5] shadow-card">
+          <Ark.Content class="z-[300] max-w-[280px] px-[10px] py-[6px] rounded-ctl bg-n-8 text-n-1 text-[12px] leading-[1.5]">
             {props.content}
           </Ark.Content>
         </Ark.Positioner>

@@ -83,7 +83,7 @@ const Lightbox: Component<{
       >
         {/* 当前图:contain 适配,圆角 + 深阴影。lb-img 残留类仅承载弹入动画。 */}
         <img
-          class="lb-img max-w-full max-h-[calc(100vh-200px)] object-contain rounded-[8px] shadow-[0_12px_48px_rgba(0,0,0,0.5)]"
+          class="lb-img max-w-full max-h-[calc(100vh-200px)] object-contain rounded-[8px]"
           src={cur()?.url}
           alt={cur()?.title ?? ""}
         />

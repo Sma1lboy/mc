@@ -44,7 +44,7 @@ function SegmentedControl<T extends string>(props: SegmentedControlProps<T>) {
               type="button"
               class="inline-flex h-[30px] items-center justify-center gap-[6px] rounded-[4px] border-none px-[10px] text-[13px] font-medium leading-none cursor-pointer select-none transition-[background-color,color,box-shadow] duration-[var(--dur)] ease-app focus-visible:ring-2 focus-visible:ring-a-4 focus-visible:ring-offset-2 focus-visible:ring-offset-n-3 disabled:opacity-45 disabled:cursor-not-allowed"
               classList={{
-                "bg-a-4 text-white shadow-[0_1px_4px_rgba(0,0,0,0.12)]": selected(),
+                "bg-a-4 text-white": selected(),
                 "bg-transparent text-fg hover:bg-glass-hover": !selected(),
               }}
               aria-pressed={selected()}
@@ -227,7 +227,7 @@ const Settings: Component = () => {
                         onClick={() => pickPreset(p)}
                       >
                         <Show when={isSelectedPreset(p)}>
-                          <Check size={13} aria-hidden="true" class="text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]" />
+                          <Check size={13} aria-hidden="true" class="text-white" />
                         </Show>
                       </button>
                     )}
