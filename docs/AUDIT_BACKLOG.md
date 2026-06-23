@@ -32,8 +32,25 @@ Generated 2026-06-22 from a multi-agent end-to-end audit (10 chains, adversarial
 - **#24** Screenshot load failures show retry. **#25** Theme preserved across layout switch.
 - **#29** Custom game roots from settings are discovered.
 
-Remaining: #27 (datapack in Discover — needs world picker), #28 (Yggdrasil login),
-#30 (token keyring), #31 (incompatible-dependency conflicts surfaced).
+### Shipped 2026-06-22 (round 3)
+
+- **#27** Datapacks browsable + installable from Discover (per-world picker in the install detail).
+- **#28** Yggdrasil / authlib-injector external login: `yggdrasil_login` command, client_token + base persisted,
+  UI branch in the shared dialog, authlib-injector auto-downloaded and `-javaagent` injected at launch.
+- **#31** Declared mod incompatibilities surfaced in the install toast (InstallReport.incompatible).
+- **#30 (partial)** `accounts.json` restricted to owner-only (0600) on Unix as interim hardening.
+
+### Still open
+
+- **#30 (full keyring migration)** — move access_token / refresh_token / client_token out of plaintext
+  `accounts.json` into the OS keyring (keyring crate), keyed by uuid. Deferred deliberately: it needs a
+  *verified* cross-platform pass (the keychain path can't be exercised headlessly without polluting the real
+  macOS Keychain / hitting prompts; a subtle bug risks logging users out; the dep affects Linux/CI builds).
+  Recommended approach: keyring-with-plaintext-fallback, gated behind a default-on Cargo feature so CI can
+  disable it, with the `keyring` mock store used in tests. The 0600 hardening above mitigates the
+  same-machine-other-user read in the interim.
+
+Every other ranked item (#1–#29, #31) is shipped.
 
 ## Cross-cutting themes
 
