@@ -152,6 +152,11 @@ const Settings: Component = () => {
   async function addCustomRoot() {
     const picked = await openDialog({ directory: true, title: "选择游戏目录" }).catch(() => null);
     if (!picked || typeof picked !== "string") return;
+    // 已在已发现列表(便携/官方/已有自定义)里 → 直接切过去,不往设置里塞重复项。
+    if ((roots() ?? []).some((r) => r.path === picked)) {
+      setCurrentRoot(picked);
+      return;
+    }
     const list = settings()?.custom_roots ?? [];
     if (!list.includes(picked)) await persistCustomRoots([...list, picked]);
     setCurrentRoot(picked); // 切到新加的根
