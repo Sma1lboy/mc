@@ -1,7 +1,7 @@
 import { Component, createEffect, createResource, createSignal, For, Show, onCleanup } from "solid-js";
 import { Avatar, BlockedFilesDialog, InstanceManageDialog, NewInstanceDialog, Spinner, toast } from "../components";
 import { api, onGameLog, onLaunchProgress } from "../ipc/api";
-import { activeRoot, isRunning } from "../store";
+import { activeRoot, isRunning, isLaunching, playInstance } from "../store";
 import { openInstanceDir } from "../util/instanceActions";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import type { AccountSummary, ImportOutcome, InstanceSummary } from "../ipc/types";
@@ -49,7 +49,12 @@ const ClassicLaunch: Component = () => {
 
   const [selected, setSelected] = createSignal<InstanceSummary | null>(null);
   const [logs, setLogs] = createSignal<string[]>([]);
-  const [launching, setLaunching] = createSignal(false);
+  // 启动中状态以 store 为准(点 Play→game://started 的中间态),与工作台一致,
+  // 避免本地 launching 在 launchInstance 一返回就清掉、留出二次点击空窗导致重复启动。
+  const launching = () => {
+    const inst = selected();
+    return !!inst && isLaunching(inst.id);
+  };
   const [rightView, setRightView] = createSignal<RightView>("news");
   const [importOutcome, setImportOutcome] = createSignal<ImportOutcome | null>(null);
   const [instanceTab, setInstanceTab] = createSignal<InstanceTab>("home");
@@ -110,30 +115,14 @@ const ClassicLaunch: Component = () => {
       setRightView("versions");
       return;
     }
-    // 运行中再点 = 停止。
-    if (isRunning(inst.id)) {
-      try {
-        await api.stopInstance(inst.id);
-      } catch (e) {
-        toast({ type: "error", message: `停止失败:${e}` });
-      }
-      return;
+    // 启动(非停止)时切到日志视图并播种首行;运行中点击=停止,不切视图。
+    if (!isRunning(inst.id)) {
+      setRightView("log");
+      setLogs([`正在启动 ${inst.name || inst.id} …`]);
     }
-    const acc = activeAccount();
-    const name = acc?.username ?? "Player";
-    const online = !!acc && acc.kind !== "offline";
-    setLaunching(true);
-    setRightView("log");
-    setLogs([`正在启动 ${inst.name || inst.id} …`]);
-    try {
-      await api.launchInstance(activeRoot(), inst.id, name, online);
-      // 成功/退出/崩溃的 toast 由 store 统一发(基于真实进程事件)。
-    } catch (e) {
-      toast({ type: "error", message: `启动失败:${e}` });
-      setLogs((p) => [...p, `启动失败:${e}`]);
-    } finally {
-      setLaunching(false);
-    }
+    // 统一走 store.playInstance:处理 运行中→停止、防重复点击(launching 守到 game://started)、
+    // 账号解析与启动/停止/失败 toast。避免本页再写一份带空窗竞态的启动逻辑。
+    await playInstance(inst.id);
   }
 
   // 导入整合包:选文件(.mrpack/.zip,自动识别格式)→ 建实例 → 刷新版本列表。
