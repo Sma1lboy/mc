@@ -8,18 +8,10 @@ const dict = {
     "launch.crashed": "游戏异常退出",
     "launch.crashedWithCode": "游戏异常退出(代码 {{ code }})",
 
-    "instance.pickModpack": "选择整合包",
-    "instance.modpackFilter": "整合包",
-    "instance.importFailed": "导入失败:{{ error }}",
     "instance.openDirFailed": "打开目录失败:{{ error }}",
     "instance.stopBeforeDelete": "请先停止运行中的游戏,再删除该实例",
     "instance.deleted": "已删除实例「{{ name }}」",
     "instance.deleteFailed": "删除失败:{{ error }}",
-    "instance.exportModpack": "导出整合包",
-    "instance.exportFilter": "Modrinth 整合包",
-    "instance.exporting": "正在导出整合包…",
-    "instance.exported": "已导出:{{ path }}",
-    "instance.exportFailed": "导出失败:{{ error }}",
 
     "loader.vanilla": "原版",
 
@@ -46,18 +38,10 @@ const dict = {
     "launch.crashed": "Game crashed",
     "launch.crashedWithCode": "Game crashed (code {{ code }})",
 
-    "instance.pickModpack": "Select modpack",
-    "instance.modpackFilter": "Modpack",
-    "instance.importFailed": "Import failed: {{ error }}",
     "instance.openDirFailed": "Failed to open folder: {{ error }}",
     "instance.stopBeforeDelete": "Stop the running game before deleting this instance",
     "instance.deleted": "Deleted instance “{{ name }}”",
     "instance.deleteFailed": "Delete failed: {{ error }}",
-    "instance.exportModpack": "Export modpack",
-    "instance.exportFilter": "Modrinth modpack",
-    "instance.exporting": "Exporting modpack…",
-    "instance.exported": "Exported: {{ path }}",
-    "instance.exportFailed": "Export failed: {{ error }}",
 
     "loader.vanilla": "Vanilla",
 
