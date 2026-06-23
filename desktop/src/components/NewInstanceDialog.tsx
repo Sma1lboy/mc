@@ -50,12 +50,14 @@ export const NewInstanceDialog: Component<{
     (versions() ?? []).map((v) => ({ label: v.id, value: v.id })),
   );
 
+  // forge/neoforge 必须选具体构建号;fabric/quilt 版本可选(留空=最新);vanilla 无 loader 版本。
   const needsLoaderVersion = () => loader() === "forge" || loader() === "neoforge";
+  const supportsLoaderVersion = () => loader() !== "vanilla";
 
-  // Forge/NeoForge 的可用构建号由 daemon 拉真实 maven 元数据,免去手填精确 build。
-  // 仅在选了 loader + MC 版本时请求;失败/为空时下面回退到手填输入框,绝不卡住用户。
+  // 可用 loader 版本由 daemon 拉真实元数据(forge/neoforge maven、fabric/quilt meta),
+  // 免去手填。仅在选了 loader + MC 版本时请求;失败/为空时回退,绝不卡住用户。
   const [loaderVersions] = createResource(
-    () => (needsLoaderVersion() && mcVersion() ? ([loader(), mcVersion()] as const) : null),
+    () => (supportsLoaderVersion() && mcVersion() ? ([loader(), mcVersion()] as const) : null),
     async ([ld, mc]) => {
       try {
         return await api.listLoaderVersions(ld, mc);
@@ -64,10 +66,12 @@ export const NewInstanceDialog: Component<{
       }
     },
   );
-  const loaderVersionOptions = createMemo(() =>
-    (loaderVersions() ?? []).map((v) => ({ label: v, value: v })),
-  );
-  // 列表到手即预选最新(第一个);用户未手动改过时随版本变化刷新默认值。
+  // 可选(fabric/quilt)在列表前加「最新(推荐)」哨兵(value 空 → 后端选最新)。
+  const loaderVersionOptions = createMemo(() => {
+    const list = (loaderVersions() ?? []).map((v) => ({ label: v, value: v }));
+    return needsLoaderVersion() ? list : [{ label: "最新(推荐)", value: "" }, ...list];
+  });
+  // 列表到手即预选最新(第一个);仅对必填(forge/neoforge)生效,可选 loader 默认留空=最新。
   createEffect(() => {
     const list = loaderVersions();
     if (!needsLoaderVersion()) return;
@@ -95,7 +99,8 @@ export const NewInstanceDialog: Component<{
         name().trim(),
         mcVersion(),
         loader(),
-        needsLoaderVersion() ? loaderVersion().trim() : null,
+        // 非 vanilla 时传所选版本;空串(fabric/quilt 选「最新」或 vanilla)→ null=最新。
+        loaderVersion().trim() || null,
       );
       toast({ type: "success", message: `已创建实例「${name().trim()}」` });
       props.onCreated?.(id);
@@ -145,13 +150,27 @@ export const NewInstanceDialog: Component<{
 
         <label class="flex flex-col gap-[5px]">
           <span class="text-[12px] text-dim">加载器</span>
-          <Select value={loader()} onChange={setLoader} options={LOADERS} />
+          {/* 切换 loader 时清掉上一个 loader 的版本选择,避免把 forge build 号带进 fabric。 */}
+          <Select
+            value={loader()}
+            onChange={(v) => {
+              setLoader(v);
+              setLoaderVersion("");
+            }}
+            options={LOADERS}
+          />
         </label>
 
-        <Show when={needsLoaderVersion()}>
+        <Show when={supportsLoaderVersion()}>
           <label class="flex flex-col gap-[5px]">
             <span class="text-[12px] text-dim">
-              {loader() === "forge" ? "Forge 版本" : "NeoForge 版本"}
+              {loader() === "forge"
+                ? "Forge 版本"
+                : loader() === "neoforge"
+                  ? "NeoForge 版本"
+                  : loader() === "fabric"
+                    ? "Fabric 版本(可选)"
+                    : "Quilt 版本(可选)"}
             </span>
             <Show
               when={!loaderVersions.loading && loaderVersionOptions().length > 0}
