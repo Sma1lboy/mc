@@ -1,4 +1,5 @@
-import { onMount, Show, type Component } from "solid-js";
+import { onCleanup, onMount, Show, type Component } from "solid-js";
+import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { initTheme } from "./theme/theme";
 import AppShell from "./layout/AppShell";
 import ClassicShell from "./layout/classic/ClassicShell";
@@ -31,6 +32,20 @@ const App: Component = () => {
       .catch(() => {
         /* Tauri 后端不可用时忽略,页面会用 "" 落到后端默认根 */
       });
+
+    // 全局外链拦截:webview 里点 http(s) 链接(含 markdown innerHTML 渲染的链接)若直接导航,
+    // 整个 SPA 会被外站替换且无法返回。这里统一拦下,改用系统浏览器打开。一处兜住所有 <a>。
+    const onDocClick = (e: MouseEvent) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)
+        return;
+      const a = (e.target as HTMLElement | null)?.closest("a");
+      const href = a?.getAttribute("href") ?? "";
+      if (!/^https?:\/\//i.test(href)) return; // 仅拦外部 http(s),站内/锚点照常
+      e.preventDefault();
+      void shellOpen(href).catch(() => window.open(href, "_blank"));
+    };
+    document.addEventListener("click", onDocClick);
+    onCleanup(() => document.removeEventListener("click", onDocClick));
   });
 
   return (

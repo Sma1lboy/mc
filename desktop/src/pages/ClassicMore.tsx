@@ -33,7 +33,7 @@ const ClassicMore: Component = () => {
       <div class="grid grid-cols-2 gap-[12px]">
         {LINKS.map((l) => (
           <a
-            class="flex items-center gap-[10px] px-[16px] py-[14px] glass-card glass-card--hover rounded-[5px] no-underline transition-[box-shadow,transform] duration-150 ease-[ease] hover:-translate-y-px"
+            class="flex items-center gap-[10px] px-[16px] py-[14px] glass-card glass-card--hover rounded-[5px] no-underline transition-[box-shadow,transform] duration-150 ease-[ease] hover:-translate-y-px cursor-pointer"
             href={l.href}
             target="_blank"
             rel="noreferrer"
