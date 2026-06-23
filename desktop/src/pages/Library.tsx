@@ -2,6 +2,7 @@ import { Component, createResource, createSignal, For, Show, onCleanup } from "s
 import {
   InstanceRow,
   Button,
+  BlockedFilesDialog,
   EmptyState,
   ErrorState,
   Spinner,
@@ -11,9 +12,14 @@ import {
 } from "../components";
 import { api, onInstallProgress } from "../ipc/api";
 import { activeRoot, openInstance, playInstance } from "../store";
-import { openInstanceDir, exportInstanceMrpack, deleteInstance } from "../util/instanceActions";
+import {
+  openInstanceDir,
+  exportInstanceMrpack,
+  deleteInstance,
+  importModpackFile,
+} from "../util/instanceActions";
 import { sortByRecent } from "../util/instances";
-import type { InstanceSummary, ManifestVersion } from "../ipc/types";
+import type { InstanceSummary, ManifestVersion, ImportOutcome } from "../ipc/types";
 
 /**
  * Library —— 当前根目录的全部实例 + "安装新版本" 抽屉。
@@ -46,6 +52,26 @@ const Library: Component = () => {
   const [instQuery, setInstQuery] = createSignal("");
   const [installing, setInstalling] = createSignal<string | null>(null);
   const [progress, setProgress] = createSignal("");
+  // 本地导入(.mrpack/.zip)进行态 + 需手动下载文件的产物弹窗。
+  const [importing, setImporting] = createSignal(false);
+  const [importOutcome, setImportOutcome] = createSignal<ImportOutcome | null>(null);
+
+  async function importLocal() {
+    if (importing()) return;
+    setImporting(true);
+    try {
+      const out = await importModpackFile(activeRoot());
+      if (!out) return; // 取消或失败(失败已 toast)
+      refetch();
+      if (out.blocked.length > 0 || out.skipped_optional.length > 0) {
+        setImportOutcome(out); // 摊开需手动下载 / 被跳过的文件
+      } else {
+        toast({ type: "success", message: `已导入整合包「${out.instance_id}」` });
+      }
+    } finally {
+      setImporting(false);
+    }
+  }
 
   const off = onInstallProgress((p) => {
     if (p.total > 0) setProgress(`${p.stage} ${p.current}/${p.total}`);
@@ -91,9 +117,14 @@ const Library: Component = () => {
     <div class="p-[24px_28px] overflow-y-auto h-full">
       <div class="flex items-center justify-between mb-[18px]">
         <h1 class="text-[24px] font-bold text-fg m-0">库</h1>
-        <Button variant="primary" onClick={() => setShowInstall((s) => !s)}>
-          {showInstall() ? "关闭" : "安装新版本"}
-        </Button>
+        <div class="flex items-center gap-[10px]">
+          <Button variant="ghost" disabled={importing()} onClick={() => void importLocal()}>
+            {importing() ? "导入中…" : "导入整合包"}
+          </Button>
+          <Button variant="primary" onClick={() => setShowInstall((s) => !s)}>
+            {showInstall() ? "关闭" : "安装新版本"}
+          </Button>
+        </div>
       </div>
 
       <Show when={showInstall()}>
@@ -180,6 +211,16 @@ const Library: Component = () => {
         </Show>
       </Show>
 
+      <Show when={importOutcome()}>
+        {(o) => (
+          <BlockedFilesDialog
+            instanceId={o().instance_id}
+            blocked={o().blocked}
+            skipped={o().skipped_optional}
+            onClose={() => setImportOutcome(null)}
+          />
+        )}
+      </Show>
     </div>
   );
 };
