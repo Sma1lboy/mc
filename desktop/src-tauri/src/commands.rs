@@ -1087,19 +1087,19 @@ fn push_tail(tail: &Arc<Mutex<Vec<String>>>, line: &str) {
     }
 }
 
-#[derive(Serialize, Clone)]
-struct GameLog {
+#[derive(Serialize, Clone, specta::Type)]
+pub struct GameLog {
     line: String,
     level: &'static str,
 }
 
-#[derive(Serialize, Clone)]
-struct GameStarted {
+#[derive(Serialize, Clone, specta::Type)]
+pub struct GameStarted {
     id: String,
 }
 
-#[derive(Serialize, Clone)]
-struct GameExit {
+#[derive(Serialize, Clone, specta::Type)]
+pub struct GameExit {
     id: String,
     /// 进程退出码(被信号杀死时可能为 `None`)。
     code: Option<i32>,

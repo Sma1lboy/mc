@@ -239,11 +239,31 @@ export type GalleryImage = {
 	featured: boolean,
 };
 
+export type GameExit = {
+	id: string,
+	/**  进程退出码(被信号杀死时可能为 `None`)。 */
+	code: number | null,
+	success: boolean,
+	/**  非零退出时的人话崩溃原因(诊断命中才有)。 */
+	reason: string | null,
+	/**  崩溃诊断给出的可执行建议(可能为空)。 */
+	suggestions: string[],
+};
+
+export type GameLog = {
+	line: string,
+	level: string,
+};
+
 /**  A `.minecraft`-style game directory that holds versions / libraries / assets. */
 export type GameRoot = {
 	name: string,
 	path: string,
 	kind: RootKind,
+};
+
+export type GameStarted = {
+	id: string,
 };
 
 /**
@@ -514,6 +534,18 @@ export type PackInfo_Serialize = {
  *  不含 Mod / Modpack(它们的管理逻辑不同);并额外携带"落在哪个子目录"的信息。
  */
 export type PackKind = "resource_pack" | "shader" | "datapack";
+
+/**  Progress report emitted by long-running tasks (download, verify, launch). */
+export type Progress = {
+	/**  Human-readable description of the current stage, e.g. "下载 libraries". */
+	stage: string,
+	/**  Units completed so far. */
+	current: number,
+	/**  Total units (0 if unknown). */
+	total: number,
+	/**  Instantaneous speed in bytes/sec (0 if not applicable). */
+	speed_bps: number,
+};
 
 /**
  *  一个项目的展示详情(整合包详情页「简介」用):长描述正文(markdown)、

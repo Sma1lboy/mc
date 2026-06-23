@@ -47,38 +47,8 @@ export type ProjectKind = "mod" | "modpack" | "shader" | "resourcepack" | "datap
 /** 主题明暗模式(前端联合;ThemeConfig.mode 用)。 */
 export type ThemeMode = "dark" | "light" | "system";
 
-// ===== 事件 payload(由 Tauri event 推送,非命令返回)=====
-
-/** 安装进度事件 payload(event: "install://progress") */
-export interface InstallProgress {
-  stage: string;
-  current: number;
-  total: number;
-}
-
-/** 启动进度事件 payload(event: "launch://progress") */
-export interface LaunchProgress {
-  stage: string;
-  current: number;
-  total: number;
-}
-
-/** 游戏日志事件 payload(event: "game://log") */
-export interface GameLog {
-  line: string;
-  level?: "info" | "warn" | "error";
-}
-
-/** 进程 spawn 成功事件 payload(event: "game://started") */
-export interface GameStarted {
-  id: string;
-}
-
-/** 进程退出事件 payload(event: "game://exit") */
-export interface GameExit {
-  id: string;
-  code: number | null;
-  success: boolean;
-  reason?: string | null;
-  suggestions: string[];
-}
+// ===== 事件 payload(由 Tauri event 推送)=====
+// 类型同样由 Rust 生成(lib.rs 用 .typ::<…>() 注册进 bindings);emit/listen 机制不变。
+// 安装/启动进度都用 mc_types::Progress(含 stage/current/total/speed_bps)。
+export type { GameLog, GameStarted, GameExit } from "./bindings";
+export type { Progress as InstallProgress, Progress as LaunchProgress } from "./bindings";

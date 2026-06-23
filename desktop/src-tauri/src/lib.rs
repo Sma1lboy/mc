@@ -26,6 +26,11 @@ pub fn run() {
     // u64/i64(下载数、时间戳、字节数)按 number 导出,与既有前端一致(量级在 JS 安全整数内)。
     let builder = Builder::<tauri::Wry>::new()
         .dangerously_cast_bigints_to_number()
+        // 事件 payload 类型也纳入生成(emit/listen 机制不变,仅消除手写事件类型漂移)。
+        .typ::<mc_types::Progress>()
+        .typ::<commands::GameLog>()
+        .typ::<commands::GameStarted>()
+        .typ::<commands::GameExit>()
         .commands(collect_commands![
         commands::list_roots,
         commands::list_instances,
