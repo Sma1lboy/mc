@@ -1,32 +1,11 @@
 // 实例操作 —— Home / Library 等页面共享的实例上下文菜单动作实现。
 // InstanceRow 只发出 onPlay/onOpenDir/onExport/onDelete 事件,真正的副作用
 // (打开目录、导出、删除)集中在这里,避免在每个页面重复一遍。
-import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { api } from "../ipc/api";
 import { isRunning } from "../store";
 import { toast, type InstanceRowData } from "../components";
-import type { ImportOutcome } from "../ipc/types";
 import { t } from "../i18n";
-
-/**
- * 选本地 `.mrpack`/`.zip` 导入为实例。两套布局共用(经典启动页 + 工作台库)。
- * 返回成功导入的产物(含 blocked / skipped,调用方据此弹手动下载对话框);取消返回 null。
- * 失败已在此 toast,调用方拿到 null 即可。
- */
-export async function importModpackFile(root: string): Promise<ImportOutcome | null> {
-  const picked = await openDialog({
-    title: t("store.instance.pickModpack"),
-    multiple: false,
-    filters: [{ name: t("store.instance.modpackFilter"), extensions: ["mrpack", "zip"] }],
-  }).catch(() => null);
-  if (!picked || typeof picked !== "string") return null;
-  try {
-    return await api.importModpack(root, picked, null);
-  } catch (e) {
-    toast({ type: "error", message: t("store.instance.importFailed", { error: String(e) }) });
-    return null;
-  }
-}
 
 /** 打开实例的游戏目录(向后端取路径后用系统文件管理器打开)。 */
 export async function openInstanceDir(root: string, id: string): Promise<void> {
