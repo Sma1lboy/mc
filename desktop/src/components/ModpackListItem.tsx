@@ -4,10 +4,12 @@ import type { ModpackHit } from "./ModpackCard";
 
 // ModpackListItem —— Discover 的整合包**列表项**(横行,密度高于大卡)。
 // 复用 ModpackCard 的 ModpackHit 契约,只是换一种排版:左侧方形缩略图 +
-// 中部标题/作者/单行描述/分类 + 右侧下载数。
+// 中部标题/作者/单行描述/分类 + 右侧下载数 + 可选尾部操作(下载/安装按钮)。
 export interface ModpackListItemProps {
   hit: ModpackHit;
   onClick?: (hit: ModpackHit) => void;
+  /** 右侧尾部操作槽:渲染在下载数之后(如「安装」按钮)。点击不应冒泡到行 onClick。 */
+  action?: JSX.Element;
 }
 
 export function ModpackListItem(props: ModpackListItemProps): JSX.Element {
@@ -82,8 +84,8 @@ export function ModpackListItem(props: ModpackListItemProps): JSX.Element {
         </Show>
       </div>
 
-      {/* 右:下载数。 */}
-      <div class="flex-[0_0_auto] flex items-center">
+      {/* 右:下载数 + 可选操作(安装/下载)。 */}
+      <div class="flex-[0_0_auto] flex items-center gap-[10px]">
         <span
           class="inline-flex items-center gap-[5px] text-[13px] text-dim [font-variant-numeric:tabular-nums]"
           title={`${hit().downloads} downloads`}
@@ -101,6 +103,10 @@ export function ModpackListItem(props: ModpackListItemProps): JSX.Element {
           </svg>
           {formatCount(hit().downloads)}
         </span>
+        {/* 尾部操作:阻止冒泡,避免点按钮同时触发整行的打开详情。 */}
+        <Show when={props.action}>
+          <div onClick={(e) => e.stopPropagation()}>{props.action}</div>
+        </Show>
       </div>
     </div>
   );

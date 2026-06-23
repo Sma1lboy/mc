@@ -1,5 +1,4 @@
 import { Component, createMemo, createResource, createSignal, For, Show, onMount } from "solid-js";
-import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { Button, Spinner, Select, Tooltip, toast } from "../components";
 import { Check, Info, Monitor, Moon, RotateCcw, Sun, type LucideIcon } from "lucide-solid";
 import {
@@ -455,7 +454,7 @@ const Settings: Component = () => {
                   onClick={async () => {
                     try {
                       const dir = await api.openLogsDir();
-                      await shellOpen(dir);
+                      await api.revealPath(dir);
                     } catch (e) {
                       toast({ type: "error", message: `打开日志目录失败:${e}` });
                     }

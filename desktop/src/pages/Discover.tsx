@@ -1,12 +1,13 @@
-import { Component, createEffect, createSignal, For, Show } from "solid-js";
-import { ModpackListItem, SearchBox, Spinner, toast, type ModpackHit } from "../components";
-import { api } from "../ipc/api";
-import type { ProjectKind, SearchHit } from "../ipc/types";
+import { Component, createSignal, For, Show } from "solid-js";
+import { ContentBrowser, type ModpackHit } from "../components";
+import type { ProjectKind } from "../ipc/types";
 import ModpackDetail from "./ModpackDetail";
 import ProjectInstallDetail from "./ProjectInstallDetail";
 
 /**
- * Discover —— Modrinth 搜索页。类型切换 + 防抖搜索 + 卡片网格。
+ * Discover —— Modrinth 搜索页。类型切换 + 防抖搜索 + 列表。
+ * 搜索/分页/列表渲染复用 <ContentBrowser>;Discover 不绑定实例,故不按
+ * 版本/加载器过滤(mcVersion="" + loader=null),点击行打开详情页而非直接下载。
  */
 
 const KINDS: { key: ProjectKind; label: string }[] = [
@@ -19,87 +20,10 @@ const KINDS: { key: ProjectKind; label: string }[] = [
 
 type SelectedProject = { hit: ModpackHit; kind: ProjectKind };
 
-function toHit(h: SearchHit): ModpackHit {
-  return {
-    id: (h as any).id ?? h.project_id,
-    slug: h.slug,
-    title: h.title,
-    description: h.description,
-    author: h.author,
-    downloads: h.downloads,
-    icon_url: h.icon_url || undefined,
-    gallery_url: (h as any).gallery_url || undefined,
-    categories: h.categories,
-  };
-}
-
-function isDesktopBackendUnavailable(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return (
-    message.includes("__TAURI_INTERNALS__") ||
-    message.includes("reading 'invoke'") ||
-    message.includes("Cannot read properties of undefined")
-  );
-}
-
 const Discover: Component = () => {
-  const [query, setQuery] = createSignal("");
   const [kind, setKind] = createSignal<ProjectKind>("modpack");
-  const [backendUnavailable, setBackendUnavailable] = createSignal(false);
-  // 防抖后的查询键,作为 resource 的 source。
-  const [debounced, setDebounced] = createSignal("");
-  let timer: number | undefined;
 
-  function onInput(v: string) {
-    setQuery(v);
-    clearTimeout(timer);
-    timer = setTimeout(() => setDebounced(v), 350) as unknown as number;
-  }
-
-  // 分页:每页 PAGE 条,首屏替换、「加载更多」追加,直到某页不足一页视为到底。
-  const PAGE = 30;
-  const [results, setResults] = createSignal<SearchHit[]>([]);
-  const [loading, setLoading] = createSignal(true);
-  const [loadingMore, setLoadingMore] = createSignal(false);
-  const [reachedEnd, setReachedEnd] = createSignal(false);
-
-  async function fetchPage(q: string, k: ProjectKind, offset: number): Promise<SearchHit[] | null> {
-    try {
-      const hits = await api.modrinthSearch(q, k, null, null, PAGE, offset);
-      setReachedEnd(hits.length < PAGE);
-      return hits;
-    } catch (e) {
-      if (isDesktopBackendUnavailable(e)) {
-        setBackendUnavailable(true);
-      } else {
-        toast({ type: "error", message: `搜索失败:${e}` });
-      }
-      return null;
-    }
-  }
-
-  // 查询关键词 / 类型变化 → 重新拉第一页(替换)。
-  createEffect(() => {
-    const q = debounced();
-    const k = kind();
-    setBackendUnavailable(false);
-    setLoading(true);
-    setReachedEnd(false);
-    void fetchPage(q, k, 0).then((hits) => {
-      setResults(hits ?? []);
-      setLoading(false);
-    });
-  });
-
-  async function loadMore() {
-    if (loadingMore() || reachedEnd()) return;
-    setLoadingMore(true);
-    const hits = await fetchPage(debounced(), kind(), results().length);
-    if (hits) setResults((prev) => [...prev, ...hits]);
-    setLoadingMore(false);
-  }
-
-  // 当前打开详情的项目(null = 显示搜索网格)。点击卡片进入详情页,而非直接下载。
+  // 当前打开详情的项目(null = 显示搜索网格)。点击卡片/按钮进入详情页,而非直接下载。
   const [selected, setSelected] = createSignal<SelectedProject | null>(null);
 
   function openHit(h: ModpackHit) {
@@ -128,10 +52,9 @@ const Discover: Component = () => {
       <Show when={!selected()}>
       <div class="flex items-center justify-between gap-[16px] mb-[16px]">
         <h1 class="text-[24px] font-bold text-fg m-0">Discover</h1>
-        <SearchBox value={query()} onInput={onInput} placeholder="搜索 Modrinth…" />
       </div>
 
-      <div class="flex gap-[8px] mb-[20px]">
+      <div class="flex gap-[8px] mb-[16px]">
         <For each={KINDS}>
           {(k) => (
             <button
@@ -148,40 +71,19 @@ const Discover: Component = () => {
         </For>
       </div>
 
-      <Show when={!loading()} fallback={<div class="flex justify-center p-[40px]"><Spinner /></div>}>
-        <Show
-          when={results().length > 0}
-          fallback={
-            <div class="p-[32px] text-dim text-center">
-              <Show
-                when={!backendUnavailable()}
-                fallback={"浏览器预览未连接桌面后端。打开桌面应用后即可搜索 Modrinth。"}
-              >
-                {debounced().trim() ? "没有结果,换个关键词试试。" : "输入关键词搜索 Modrinth。"}
-              </Show>
-            </div>
-          }
-        >
-          <div class="flex flex-col gap-[8px]">
-            <For each={results()}>
-              {(hit) => (
-                <ModpackListItem hit={toHit(hit)} onClick={openHit} />
-              )}
-            </For>
-          </div>
-
-          <Show when={!reachedEnd()}>
-            <div class="flex justify-center mt-[16px]">
-              <button
-                class="px-[20px] py-[8px] rounded-ctl border border-glass-border bg-glass-card text-fg text-[13px] cursor-pointer transition-[background-color] duration-[var(--dur)] ease-app hover:bg-glass-hover disabled:opacity-50 disabled:cursor-default"
-                disabled={loadingMore()}
-                onClick={loadMore}
-              >
-                {loadingMore() ? "加载中…" : "加载更多"}
-              </button>
-            </div>
-          </Show>
-        </Show>
+      {/* 切类型时整体重挂 ContentBrowser,清空上一类型的搜索词/分页。
+          Discover 不绑定实例:mcVersion="" + loader=null;点击行或「添加」均打开详情页。 */}
+      <Show when={kind()} keyed>
+        {(k) => (
+          <ContentBrowser
+            kind={k}
+            mcVersion=""
+            loader={null}
+            onAdd={openHit}
+            onOpenDetail={openHit}
+            placeholder="搜索 Modrinth…"
+          />
+        )}
       </Show>
       </Show>
     </div>

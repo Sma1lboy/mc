@@ -13,6 +13,8 @@ import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialo
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Dialog } from "./Dialog";
 import Lightbox from "./Lightbox";
+import { ContentBrowser } from "./ContentBrowser";
+import { ModpackOverview } from "./ModpackOverview";
 import { ProjectDetailPanel } from "./ProjectDetailPanel";
 import { Spinner } from "./Spinner";
 import { toast } from "./Toast";
@@ -47,6 +49,7 @@ const TAB =
 const TAB_ACTIVE = "!text-a-4 !border-b-a-4";
 
 export type InstanceManageTab =
+  | "overview"
   | "settings"
   | "mods"
   | "resource_pack"
@@ -312,22 +315,8 @@ const PacksPanel: Component<{
     ([id, kind, , w]) => api.instancePacks(activeRoot(), id, kind, w),
   );
 
-  const [query, setQuery] = createSignal("");
-  const [debounced, setDebounced] = createSignal("");
   const [installing, setInstalling] = createSignal<string | null>(null);
   const [detail, setDetail] = createSignal<{ id: string; title: string; icon?: string | null } | null>(null);
-  let timer: number | undefined;
-  function onInput(v: string) {
-    setQuery(v);
-    clearTimeout(timer);
-    timer = window.setTimeout(() => setDebounced(v.trim()), 280);
-  }
-  onCleanup(() => clearTimeout(timer));
-
-  const [hits] = createResource(
-    () => (debounced() ? ([props.searchKind, debounced()] as const) : false),
-    () => api.modrinthSearch(debounced(), props.searchKind, props.instance.mc_version, null),
-  );
 
   async function install(projectId: string, title: string) {
     setInstalling(projectId);
@@ -396,62 +385,20 @@ const PacksPanel: Component<{
         </Show>
       </Show>
 
-      <div class="relative">
-        <input
-          class={`${FIELD} w-full pr-[30px]`}
-          placeholder={`搜索 Modrinth(${props.instance.mc_version})`}
-          value={query()}
-          onInput={(e) => onInput(e.currentTarget.value)}
-        />
-        <Show when={hits.loading}>
-          <div class="absolute right-[10px] top-1/2 -translate-y-1/2">
-            <Spinner size={14} />
-          </div>
-        </Show>
-      </div>
-
-      <Show when={debounced() && !hits.loading && (hits() ?? []).length === 0}>
-        <div class="text-[12px] text-dim py-[4px]">没有匹配的结果。</div>
-      </Show>
-
-      <Show when={(hits() ?? []).length > 0}>
-        <div class="flex flex-col gap-[6px] max-h-[180px] overflow-y-auto">
-          <For each={hits()}>
-            {(h) => (
-              <div class="glass-card flex items-center gap-[10px] py-[7px] px-[10px] rounded-ctl">
-                <Show
-                  when={h.icon_url}
-                  fallback={<div class="w-[30px] h-[30px] rounded-xs bg-glass-card shrink-0" />}
-                >
-                  <img src={h.icon_url!} alt="" width="30" height="30" class="w-[30px] h-[30px] rounded-xs object-cover shrink-0" />
-                </Show>
-                <div class="flex-1 min-w-0">
-                  <div class="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">
-                    {h.title}
-                  </div>
-                  <div class="text-[11px] text-dim whitespace-nowrap overflow-hidden text-ellipsis">
-                    {h.description}
-                  </div>
-                </div>
-                <button
-                  class={OPEN_BTN}
-                  onClick={() => setDetail({ id: h.project_id, title: h.title, icon: h.icon_url })}
-                >
-                  详情
-                </button>
-                <button
-                  class={INSTALL_BTN}
-                  disabled={installing() !== null || (isDatapack() && !world())}
-                  title={isDatapack() && !world() ? "先选择目标存档" : ""}
-                  onClick={() => install(h.project_id, h.title)}
-                >
-                  {installing() === h.project_id ? "安装中…" : "安装"}
-                </button>
-              </div>
-            )}
-          </For>
-        </div>
-      </Show>
+      {/* 搜索体验复用 <ContentBrowser>;「添加」装最新兼容版到本实例,点击行打开详情。
+          资源包/光影/数据包在 Modrinth 不按加载器细分,loader 传 null。 */}
+      <ContentBrowser
+        kind={props.searchKind}
+        mcVersion={props.instance.mc_version}
+        loader={null}
+        adding={installing()}
+        onAdd={(hit) => install(hit.id, hit.title)}
+        onOpenDetail={(hit) =>
+          setDetail({ id: hit.id, title: hit.title, icon: hit.icon_url ?? null })
+        }
+        disabledReason={() => (isDatapack() && !world() ? "先选择目标存档" : null)}
+        placeholder={`搜索 Modrinth(${props.instance.mc_version})`}
+      />
 
       <div class="h-px bg-glass-divider my-[2px]" />
       <div class="flex items-center justify-between">
@@ -765,6 +712,13 @@ export const InstanceManageDialog: Component<{
     const t = tab();
     return isPackTab(t) ? t : "resource_pack";
   };
+  // 整合包来源(modrinth)→ 多一个「概览」标签并置于首位。
+  const modpackSource = () => {
+    const s = cfg()?.source;
+    return s && s.provider === "modrinth" ? s : null;
+  };
+  const visibleTabs = (): { key: InstanceManageTab; label: string }[] =>
+    modpackSource() ? [{ key: "overview", label: "概览" }, ...TABS] : TABS;
 
   // 是否「活动」(应加载数据 / 接受拖放):弹窗模式看 open,内嵌模式只要挂载即活动。
   const active = () => props.embedded || props.open;
@@ -792,7 +746,12 @@ export const InstanceManageDialog: Component<{
       setCfg(null);
       api
         .getInstanceConfig(activeRoot(), inst.id)
-        .then(setCfg)
+        .then((c) => {
+          setCfg(c);
+          // 整合包来源实例默认落在「概览」标签(仅非受控时)。
+          if (props.tab === undefined)
+            setInternalTab(c.source?.provider === "modrinth" ? "overview" : "settings");
+        })
         .catch((e) => toast({ type: "error", message: `读取配置失败:${e}` }));
     } else if (!active()) {
       setCfg(null);
@@ -812,27 +771,8 @@ export const InstanceManageDialog: Component<{
     const l = props.instance?.loader;
     return l && l !== "vanilla" ? l : null;
   };
-  const [query, setQuery] = createSignal("");
-  const [debounced, setDebounced] = createSignal("");
   const [installing, setInstalling] = createSignal<string | null>(null);
   const [modDetail, setModDetail] = createSignal<{ id: string; title: string; icon?: string | null } | null>(null);
-  let debounceTimer: number | undefined;
-
-  function onQueryInput(v: string) {
-    setQuery(v);
-    clearTimeout(debounceTimer);
-    debounceTimer = window.setTimeout(() => setDebounced(v.trim()), 280);
-  }
-  onCleanup(() => clearTimeout(debounceTimer));
-
-  // 搜索结果:仅在 Mods 标签 + 有关键词时请求。
-  const [hits] = createResource(
-    () =>
-      active() && props.instance && tab() === "mods" && debounced()
-        ? ([props.instance.id, debounced()] as const)
-        : false,
-    () => api.modrinthSearch(debounced(), "mod", props.instance?.mc_version ?? null, searchLoader()),
-  );
 
   async function installHit(projectId: string, title: string) {
     const inst = props.instance;
@@ -1048,7 +988,7 @@ export const InstanceManageDialog: Component<{
 
         <Show when={!props.hideTabs}>
           <div class="flex gap-[4px] px-[16px] border-b border-glass-divider mt-[10px] overflow-x-auto">
-            <For each={TABS}>
+            <For each={visibleTabs()}>
               {(item) => (
                 <button
                   class={`${TAB} whitespace-nowrap ${tab() === item.key ? TAB_ACTIVE : ""}`}
@@ -1062,6 +1002,11 @@ export const InstanceManageDialog: Component<{
         </Show>
 
         <div class="p-[20px] flex flex-col gap-[14px] overflow-y-auto">
+          {/* ---- 概览(整合包来源)---- */}
+          <Show when={tab() === "overview" && modpackSource()}>
+            {(s) => <ModpackOverview projectId={s().project_id} />}
+          </Show>
+
           {/* ---- 设置 ---- */}
           <Show when={tab() === "settings"}>
             <Show
@@ -1194,74 +1139,28 @@ export const InstanceManageDialog: Component<{
 
           {/* ---- Mods ---- */}
           <Show when={tab() === "mods"}>
-            {/* 从 Modrinth 搜索并安装(按本实例的 MC 版本 + 加载器过滤) */}
+            {/* 从 Modrinth 搜索并安装(按本实例的 MC 版本 + 加载器过滤)。
+                搜索体验复用 <ContentBrowser>;「添加」装最新兼容版,点击行打开详情。 */}
             <div class="flex flex-col gap-[8px]">
-              <div class="relative">
-                <input
-                  class={`${FIELD} w-full pr-[30px]`}
-                  placeholder={`搜索 Modrinth mod(${props.instance?.mc_version ?? ""} · ${searchLoader() ?? "无加载器"})`}
-                  value={query()}
-                  onInput={(e) => onQueryInput(e.currentTarget.value)}
-                />
-                <Show when={hits.loading}>
-                  <div class="absolute right-[10px] top-1/2 -translate-y-1/2">
-                    <Spinner size={14} />
+              <Show
+                when={searchLoader() !== null}
+                fallback={
+                  <div class="text-[12px] text-dim py-[4px]">
+                    该实例没有加载器(原版),无法安装 mod。
                   </div>
-                </Show>
-              </div>
-
-              <Show when={searchLoader() === null}>
-                <div class="text-[11px] text-dim">
-                  该实例没有加载器(原版),无法安装 mod。
-                </div>
-              </Show>
-
-              <Show when={debounced() && !hits.loading && (hits() ?? []).length === 0}>
-                <div class="text-[12px] text-dim py-[4px]">没有匹配的 mod。</div>
-              </Show>
-
-              <Show when={(hits() ?? []).length > 0}>
-                <div class="flex flex-col gap-[6px] max-h-[200px] overflow-y-auto">
-                  <For each={hits()}>
-                    {(h) => (
-                      <div class="glass-card flex items-center gap-[10px] py-[7px] px-[10px] rounded-ctl">
-                        <Show
-                          when={h.icon_url}
-                          fallback={<div class="w-[30px] h-[30px] rounded-xs bg-glass-card shrink-0" />}
-                        >
-                          <img
-                            src={h.icon_url!}
-                            alt=""
-                            width="30"
-                            height="30"
-                            class="w-[30px] h-[30px] rounded-xs object-cover shrink-0"
-                          />
-                        </Show>
-                        <div class="flex-1 min-w-0">
-                          <div class="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">
-                            {h.title}
-                          </div>
-                          <div class="text-[11px] text-dim whitespace-nowrap overflow-hidden text-ellipsis">
-                            {h.description}
-                          </div>
-                        </div>
-                        <button
-                          class={OPEN_BTN}
-                          onClick={() => setModDetail({ id: h.project_id, title: h.title, icon: h.icon_url })}
-                        >
-                          详情
-                        </button>
-                        <button
-                          class="shrink-0 h-[28px] px-[12px] rounded-ctl bg-a-4 text-white text-[12px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90 disabled:opacity-50 disabled:cursor-default"
-                          disabled={installing() !== null}
-                          onClick={() => installHit(h.project_id, h.title)}
-                        >
-                          {installing() === h.project_id ? "安装中…" : "安装"}
-                        </button>
-                      </div>
-                    )}
-                  </For>
-                </div>
+                }
+              >
+                <ContentBrowser
+                  kind="mod"
+                  mcVersion={props.instance?.mc_version ?? ""}
+                  loader={searchLoader()}
+                  adding={installing()}
+                  onAdd={(hit) => installHit(hit.id, hit.title)}
+                  onOpenDetail={(hit) =>
+                    setModDetail({ id: hit.id, title: hit.title, icon: hit.icon_url ?? null })
+                  }
+                  placeholder={`搜索 Modrinth mod(${props.instance?.mc_version ?? ""} · ${searchLoader() ?? "无加载器"})`}
+                />
               </Show>
 
               <div class="h-px bg-glass-divider my-[2px]" />

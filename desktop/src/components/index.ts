@@ -52,6 +52,9 @@ export type { ModpackCardProps, ModpackHit } from "./ModpackCard";
 export { ModpackListItem } from "./ModpackListItem";
 export type { ModpackListItemProps } from "./ModpackListItem";
 
+export { ContentBrowser } from "./ContentBrowser";
+export type { ContentBrowserProps } from "./ContentBrowser";
+
 // Toast 通道
 export { toast, ToastContainer } from "./Toast";
 export type { ToastType, ToastOptions } from "./Toast";

@@ -1,7 +1,6 @@
 // 实例操作 —— Home / Library 等页面共享的实例上下文菜单动作实现。
 // InstanceRow 只发出 onPlay/onOpenDir/onExport/onDelete 事件,真正的副作用
 // (打开目录、导出、删除)集中在这里,避免在每个页面重复一遍。
-import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { api } from "../ipc/api";
 import { toast, type InstanceRowData } from "../components";
@@ -10,7 +9,7 @@ import { toast, type InstanceRowData } from "../components";
 export async function openInstanceDir(root: string, id: string): Promise<void> {
   try {
     const dir = await api.instanceDir(root, id);
-    await shellOpen(dir);
+    await api.revealPath(dir);
   } catch (e) {
     toast({ type: "error", message: `打开目录失败:${e}` });
   }
@@ -20,7 +19,7 @@ export async function openInstanceDir(root: string, id: string): Promise<void> {
 export async function openInstanceSubdir(root: string, id: string, sub: string): Promise<void> {
   try {
     const dir = await api.instanceSubdir(root, id, sub);
-    await shellOpen(dir);
+    await api.revealPath(dir);
   } catch (e) {
     toast({ type: "error", message: `打开目录失败:${e}` });
   }

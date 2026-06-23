@@ -64,6 +64,11 @@ export const api = {
     return invoke<string>("instance_subdir", { root, id, sub });
   },
 
+  /** 用系统文件管理器打开路径(后端直开,绕过 shell 插件 URL 作用域) */
+  revealPath(path: string): Promise<void> {
+    return invoke<void>("reveal_path", { path });
+  },
+
   /** 读取单实例配置(名字/内存/Java/JVM/窗口…) */
   getInstanceConfig(root: string, id: string): Promise<InstanceConfig> {
     return invoke<InstanceConfig>("get_instance_config", { root, id });
