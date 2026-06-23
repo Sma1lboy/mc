@@ -15,6 +15,20 @@
 > (vanilla **and** Fabric) end-to-end, verified on macOS arm64. See
 > [Implementation status](#implementation-status).
 
+## Install
+
+**macOS — Homebrew** (Apple Silicon + Intel):
+
+```bash
+brew install --cask sma1lboy/tap/kobemc
+```
+
+The app is unsigned for now; if macOS blocks it on first launch, right-click → Open
+(or `xattr -dr com.apple.quarantine "/Applications/kobeMC.app"`).
+
+**All platforms:** grab the `.dmg` / `.msi` / `.AppImage` from
+[Releases](https://github.com/Sma1lboy/mc/releases). Or [build from source](#build--run).
+
 ## What works today (verified)
 
 **Core launch**
