@@ -45,5 +45,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Type-check (vite build does NOT type-check)
+        run: npx tsc --noEmit
+
+      - name: i18n key coverage
+        run: node scripts/check-i18n.mjs
+
       - name: Build frontend
         run: npm run build
