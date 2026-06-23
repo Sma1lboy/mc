@@ -149,6 +149,45 @@ export function oklchToHex(L: number, C: number, H: number, alpha = 1): string {
 }
 
 /* ----------------------------------------------------------------------------
+ * 2b) hex → OKLCH(oklchToHex 的逆向,同一套 OKLab 矩阵 / gamma)
+ *     让上层用设计 hex 表达颜色,色相精确派生,不用手写 OKLCH 裸数字。
+ * -------------------------------------------------------------------------- */
+
+/** 解析 #rgb / #rrggbb → 0..1 sRGB 分量(无效回退黑)。 */
+function parseHexRgb(hex: string): [number, number, number] {
+  let h = hex.trim().replace(/^#/, "");
+  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+  if (h.length < 6) return [0, 0, 0];
+  const r = parseInt(h.slice(0, 2), 16) / 255;
+  const g = parseInt(h.slice(2, 4), 16) / 255;
+  const b = parseInt(h.slice(4, 6), 16) / 255;
+  return [Number.isFinite(r) ? r : 0, Number.isFinite(g) ? g : 0, Number.isFinite(b) ? b : 0];
+}
+
+/** gamma sRGB(0..1)→ 线性(linearToGamma 的逆)。 */
+function gammaToLinear(c: number): number {
+  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+
+/** hex → OKLCH{L:0..1, C, H:度 0..360}。用与 oklchToHex 同源的 Björn Ottosson 矩阵反推。 */
+export function hexToOklch(hex: string): { L: number; C: number; H: number } {
+  const [R, G, B] = parseHexRgb(hex);
+  const r = gammaToLinear(R);
+  const g = gammaToLinear(G);
+  const b = gammaToLinear(B);
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  const L = 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s;
+  const a = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s;
+  const bb = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
+  const C = Math.hypot(a, bb);
+  let H = (Math.atan2(bb, a) * 180) / Math.PI;
+  if (H < 0) H += 360;
+  return { L, C, H };
+}
+
+/* ----------------------------------------------------------------------------
  * 3) 调色板生成 —— Classic `_CalculateGrays` / `_CalculateColors` 的 Web 落地
  * -------------------------------------------------------------------------- */
 

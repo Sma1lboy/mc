@@ -220,7 +220,7 @@ const Settings: Component = () => {
                         classList={{
                           "border-white shadow-[0_0_0_2px_var(--a-4)]": isSelectedPreset(p),
                         }}
-                        style={{ background: `hsl(${p.hue} ${p.saturation}% ${p.lightness}%)` }}
+                        style={{ background: p.hex }}
                         title={p.name}
                         aria-label={`使用${p.name}色强调色`}
                         aria-pressed={isSelectedPreset(p)}

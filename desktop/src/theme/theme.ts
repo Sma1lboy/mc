@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { createSignal, createMemo, createRoot, createEffect } from "solid-js";
-import { generatePalette, type Palette } from "./palette";
+import { generatePalette, hexToOklch, type Palette } from "./palette";
 import { toneFor, type ThemeAccent, type ToneMode } from "./tone";
 
 /* ============================================================================
@@ -29,13 +29,26 @@ export interface ThemeConfig {
   lightness: number; // 0..100(映射到 OKLCH 亮度旋钮)
 }
 
-/** 默认主题:深色 + 陶土橙(h16 s58 l52,参考 kobe/Claude 暖色)。invoke 失败时的兜底。logo 固定绿,不随此色变。 */
-export const DEFAULT_THEME: ThemeConfig = {
-  mode: "dark",
-  hue: 16,
-  saturation: 58,
-  lightness: 52,
-};
+/**
+ * 用设计 hex 表达强调色 → 引擎旋钮。hue 取自 OKLCH 色相(精确,不再手写裸数字),
+ * saturation/lightness 由 OKLCH 色度/亮度线性标定到滑块刻度(50/45 为中性锚点)。
+ * 以后定义/调整主题色,只写 hex。
+ */
+export function accentFromHex(hex: string): {
+  hue: number;
+  saturation: number;
+  lightness: number;
+} {
+  const { L, C, H } = hexToOklch(hex);
+  return {
+    hue: Math.round(((H % 360) + 360) % 360),
+    saturation: Math.round(clampRange(50 + (C - 0.1) * 330, 0, 100)),
+    lightness: Math.round(clampRange(20 + (L - 0.3) * 80, 20, 70)),
+  };
+}
+
+/** 默认主题:深色 + 陶土橙(kobe/Claude 暖色,以 hex 表达)。invoke 失败时的兜底。logo 固定绿,不随此色变。 */
+export const DEFAULT_THEME: ThemeConfig = { mode: "dark", ...accentFromHex("#cc785c") };
 
 /**
  * 各布局「对味」的默认主题。布局与主题是耦合的:工作台配深色+绿,
@@ -240,19 +253,20 @@ export function applyTheme(cfg: ThemeConfig): void {
   setThemeConfigInternal(cfg);
 }
 
-/** 预设主题色(绿/蓝/粉/紫/橙)。lightness 作为基色明度锚点(滑块语义保持)。 */
+/** 预设强调色:用设计 hex 表达,hue/sat/light 由 accentFromHex 派生(swatch 直接显示 hex)。 */
 export const PRESETS: {
   name: string;
+  hex: string;
   hue: number;
   saturation: number;
   lightness: number;
 }[] = [
-  { name: "绿", hue: 150, saturation: 60, lightness: 45 }, // 工作台绿(默认)
-  { name: "蓝", hue: 255, saturation: 40, lightness: 45 }, // 经典蓝
-  { name: "粉", hue: 330, saturation: 70, lightness: 58 },
-  { name: "紫", hue: 265, saturation: 60, lightness: 58 },
-  { name: "橙", hue: 28, saturation: 85, lightness: 54 },
-];
+  { name: "陶土", hex: "#cc785c" },
+  { name: "绿", hex: "#28a062" },
+  { name: "蓝", hex: "#3b82f6" },
+  { name: "紫", hex: "#8b5cf6" },
+  { name: "粉", hex: "#ec4899" },
+].map((p) => ({ ...p, ...accentFromHex(p.hex) }));
 
 /**
  * 启动时初始化主题:向后端取持久化配置并应用。
