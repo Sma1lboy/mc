@@ -1355,11 +1355,14 @@ export const InstanceManageDialog: Component<{
                       <input
                         class={FIELD}
                         type="number"
+                        min="1"
+                        max="7680"
                         placeholder="默认"
                         value={c().width ?? ""}
-                        onChange={(e) =>
-                          patch({ width: e.currentTarget.value ? +e.currentTarget.value : null })
-                        }
+                        onChange={(e) => {
+                          const n = Math.floor(+e.currentTarget.value);
+                          patch({ width: Number.isFinite(n) && n > 0 ? n : null });
+                        }}
                       />
                     </label>
                     <label class="flex-1 flex flex-col gap-[5px]">
@@ -1367,11 +1370,14 @@ export const InstanceManageDialog: Component<{
                       <input
                         class={FIELD}
                         type="number"
+                        min="1"
+                        max="4320"
                         placeholder="默认"
                         value={c().height ?? ""}
-                        onChange={(e) =>
-                          patch({ height: e.currentTarget.value ? +e.currentTarget.value : null })
-                        }
+                        onChange={(e) => {
+                          const n = Math.floor(+e.currentTarget.value);
+                          patch({ height: Number.isFinite(n) && n > 0 ? n : null });
+                        }}
                       />
                     </label>
                   </div>
