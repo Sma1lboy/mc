@@ -156,7 +156,7 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
               取消
             </button>
             <button
-              class="h-[34px] px-[16px] border-none rounded-xs bg-[#d9534f] text-white text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-[#c44]"
+              class="h-[34px] px-[16px] border-none rounded-xs bg-danger text-white text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-danger-hover"
               onClick={() => {
                 setConfirmOpen(false);
                 props.onDelete?.(inst().id);

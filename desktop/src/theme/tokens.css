@@ -33,6 +33,12 @@
   --a-7: #a8e8c4;
   --a-8: #d9f6e6; /* 最浅:浅底 */
 
+  /* 危险/破坏性操作色(删除/关闭等):solid 用于实心按钮,text/soft 用于幽灵态。 */
+  --danger: #d9534f; /* 实心破坏性按钮底 */
+  --danger-hover: #c9433f;
+  --danger-text: #e5848a; /* 深色面上的危险文字/图标(较亮,保证可读) */
+  --danger-soft: rgba(229, 132, 138, 0.14); /* 幽灵危险项 hover 底 */
+
   --bg-card: var(--n-4);
   --text: var(--n-8);
   --text-dim: var(--n-7);
@@ -81,6 +87,12 @@
   --n-8: #343d4a;
 
   /* accent 同样由引擎生成,浅色默认仍给绿色兜底,保证未注入前可用 */
+
+  /* 危险色:浅底上文字改用更深的红保证可读。 */
+  --danger: #d9534f;
+  --danger-hover: #c9433f;
+  --danger-text: #d23b30;
+  --danger-soft: rgba(217, 83, 79, 0.12);
 
   --bg-card: var(--n-4);
   --text: var(--n-8);

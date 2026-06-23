@@ -1,5 +1,6 @@
 import { Component, createResource, For, Show, onCleanup } from "solid-js";
 import {
+  EmptyState,
   InstanceRow,
   ModpackCard,
   Spinner,
@@ -28,20 +29,20 @@ function toRowData(i: InstanceSummary): InstanceRowData {
     loader_version: i.loader_version || undefined,
     icon: i.icon || undefined,
     last_played: i.last_played ?? 0,
-    running: i.running,
+    running: i.running ?? false,
   };
 }
 
 function toHit(h: SearchHit): ModpackHit {
   return {
-    id: (h as any).id ?? h.project_id,
+    id: h.id,
     slug: h.slug,
     title: h.title,
     description: h.description,
     author: h.author,
     downloads: h.downloads,
     icon_url: h.icon_url || undefined,
-    gallery_url: (h as any).gallery_url || undefined,
+    gallery_url: h.gallery_url || undefined,
     categories: h.categories,
   };
 }
@@ -55,7 +56,7 @@ const Home: Component = () => {
 
   // 整合包推荐:一次性拉取热门 modpack。
   const [packs] = createResource(() =>
-    api.modrinthSearch("", "modpack", null, null).catch(() => [] as SearchHit[]),
+    api.modrinthSearch("", "modpack", null, null, null, null).catch(() => [] as SearchHit[]),
   );
 
   // 启动反馈:仅订阅进度提示。成功/退出/崩溃的 toast 与运行态由 store 统一处理
@@ -92,43 +93,43 @@ const Home: Component = () => {
 
   return (
     <div class="py-[24px] px-[28px] overflow-y-auto h-full">
-      <header>
-        <h1 class="text-[28px] font-bold text-fg m-0 mb-[4px]">Welcome back!</h1>
-        <h2 class="text-[18px] font-semibold text-fg my-[12px]">Jump back in</h2>
+      <header class="mb-[20px]">
+        <h1 class="text-[28px] font-bold text-fg m-0">Welcome back!</h1>
       </header>
 
-      <Show
-        when={!instances.loading}
-        fallback={<div class="flex justify-center p-[32px]"><Spinner /></div>}
-      >
+      <section>
+        <h2 class="text-[18px] font-semibold text-fg m-0 mb-[14px]">Jump back in</h2>
         <Show
-          when={recent().length > 0}
-          fallback={
-            <div class="p-[24px] rounded-card bg-glass-card border border-glass-border text-dim text-center">
-              还没有实例。去 <b>库 / Discover</b> 安装一个版本开始游玩。
-            </div>
-          }
+          when={!instances.loading}
+          fallback={<div class="flex justify-center p-[32px]"><Spinner /></div>}
         >
-          <div class="flex flex-col gap-[10px]">
-            <For each={recent()}>
-              {(inst) => (
-                <InstanceRow
-                  instance={toRowData(inst)}
-                  onPlay={play}
-                  onOpen={openInstance}
-                  onManage={openInstance}
-                  onOpenDir={(id) => void openInstanceDir(activeRoot(), id)}
-                  onExport={() => void exportInstanceMrpack(activeRoot(), toRowData(inst))}
-                  onDelete={async (id) => {
-                    if (await deleteInstance(activeRoot(), { id, name: toRowData(inst).name }))
-                      refetchInstances();
-                  }}
-                />
-              )}
-            </For>
-          </div>
+          <Show
+            when={recent().length > 0}
+            fallback={
+              <EmptyState title={<>还没有实例。去 <b>库 / Discover</b> 安装一个版本开始游玩。</>} />
+            }
+          >
+            <div class="flex flex-col gap-[10px]">
+              <For each={recent()}>
+                {(inst) => (
+                  <InstanceRow
+                    instance={toRowData(inst)}
+                    onPlay={play}
+                    onOpen={openInstance}
+                    onManage={openInstance}
+                    onOpenDir={(id) => void openInstanceDir(activeRoot(), id)}
+                    onExport={() => void exportInstanceMrpack(activeRoot(), toRowData(inst))}
+                    onDelete={async (id) => {
+                      if (await deleteInstance(activeRoot(), { id, name: toRowData(inst).name }))
+                        refetchInstances();
+                    }}
+                  />
+                )}
+              </For>
+            </div>
+          </Show>
         </Show>
-      </Show>
+      </section>
 
       <section class="mt-[28px]">
         <h2 class="text-[18px] font-semibold text-fg m-0 mb-[14px] cursor-pointer">Discover a modpack →</h2>

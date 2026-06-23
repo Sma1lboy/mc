@@ -6,7 +6,7 @@ import {
   createSignal,
 } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
-import { AccountDialog, Avatar, Menu } from "../components";
+import { AccountDialog, Avatar, EmptyState, Menu } from "../components";
 import type { AccountSummary, AccountKind } from "../ipc/types";
 import "./ContextBar.css"; // 残留:@keyframes ctx-pulse(骨架脉冲)
 
@@ -32,10 +32,6 @@ const KIND_LABEL: Record<AccountKind, string> = {
 // 通用栏目标题(灰色小标题)。
 const HEADING =
   "m-0 text-[13px] font-semibold text-dim tracking-[0.2px]";
-// Friends / News 通用空态卡片。
-const EMPTY_CARD =
-  "flex flex-col gap-[2px] px-[12px] py-[16px] border border-dashed border-glass-border " +
-  "rounded-ctl bg-glass-card text-center";
 // 元信息列(用户名 + 类型),可截断。
 const META = "flex flex-col gap-px min-w-0 flex-[1_1_auto]";
 // 用户名(单行截断)。
@@ -207,7 +203,7 @@ const ContextBar: Component = () => {
 
               {/* 切换错误提示 */}
               <Show when={switchErr()}>
-                <div class="mt-[6px] text-[12px] text-[#e5848a]">{switchErr()}</div>
+                <div class="mt-[6px] text-[12px] text-danger-text">{switchErr()}</div>
               </Show>
             </Show>
           </Show>
@@ -218,20 +214,14 @@ const ContextBar: Component = () => {
       <section class="flex flex-col gap-[8px]">
         <h3 class={HEADING}>Friends</h3>
         {/* 社交功能未接入:空态占位。接入后此处渲染好友 + 在线状态点。 */}
-        <div class={EMPTY_CARD}>
-          <span class="text-[13px] text-dim">暂无好友</span>
-          <span class="text-[11px] text-n-7">联机/社交功能开发中</span>
-        </div>
+        <EmptyState compact title="暂无好友" hint="联机/社交功能开发中" />
       </section>
 
       {/* ===== News ===== */}
       <section class="flex flex-col gap-[8px]">
         <h3 class={HEADING}>News</h3>
         {/* 新闻 feed 未接入:空态占位。接入后渲染公告/更新卡片列表。 */}
-        <div class={EMPTY_CARD}>
-          <span class="text-[13px] text-dim">暂无动态</span>
-          <span class="text-[11px] text-n-7">敬请期待</span>
-        </div>
+        <EmptyState compact title="暂无动态" hint="敬请期待" />
       </section>
 
       <Show when={loginOpen()}>

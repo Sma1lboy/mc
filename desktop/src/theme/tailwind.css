@@ -36,6 +36,12 @@
   --color-fg: var(--text);
   --color-dim: var(--text-dim);
 
+  /* 危险/破坏性:bg-danger / bg-danger-hover / text-danger-text / bg-danger-soft */
+  --color-danger: var(--danger);
+  --color-danger-hover: var(--danger-hover);
+  --color-danger-text: var(--danger-text);
+  --color-danger-soft: var(--danger-soft);
+
   /* 沉静毛玻璃边框/底色:border-glass-* / bg-glass-* */
   --color-glass-divider: var(--glass-divider);
   --color-glass-border: var(--glass-border);

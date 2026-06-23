@@ -398,7 +398,7 @@ const ClassicLaunch: Component = () => {
                 <div class="text-[14px] font-bold mt-[12px] text-classic-blue">新特性</div>
                 <Show when={latestSnapshot()}>
                   <ul class="list-disc mt-[6px] mb-0 pl-[18px] text-classic-text2 text-[13px] leading-[1.9]">
-                    <li>发布时间:{new Date(latestSnapshot()!.release_time).toLocaleDateString()}</li>
+                    <li>发布时间:{new Date(latestSnapshot()!.release_time ?? "").toLocaleDateString()}</li>
                     <li>到「下载」标签页可一键安装该快照</li>
                     <li>快照为开发版,建议另建实例体验</li>
                   </ul>

@@ -2,6 +2,7 @@ import { Component, createResource, createSignal, For, Show, onCleanup } from "s
 import {
   InstanceRow,
   Button,
+  EmptyState,
   Spinner,
   SearchBox,
   toast,
@@ -26,7 +27,7 @@ function toRowData(i: InstanceSummary): InstanceRowData {
     loader_version: i.loader_version || undefined,
     icon: i.icon || undefined,
     last_played: i.last_played ?? 0,
-    running: i.running,
+    running: i.running ?? false,
   };
 }
 
@@ -97,19 +98,19 @@ const Library: Component = () => {
       </div>
 
       <Show when={showInstall()}>
-        <div class="bg-glass-card rounded-card p-[16px] mb-[20px]">
+        <div class="bg-glass-card rounded-card p-[18px] mb-[20px]">
           <SearchBox
             value={filter()}
             onInput={setFilter}
             placeholder="搜索版本号,如 1.20.1"
           />
           <Show when={installing()}>
-            <div class="flex items-center gap-[8px] text-a-5 my-[10px] text-[13px]">
+            <div class="flex items-center gap-[8px] text-a-5 mt-[12px] text-[13px]">
               <Spinner /> 安装 {installing()} · {progress()}
             </div>
           </Show>
-          <Show when={!versions.loading} fallback={<Spinner />}>
-            <div class="max-h-[320px] overflow-y-auto mt-[12px] flex flex-col gap-[4px]">
+          <Show when={!versions.loading} fallback={<div class="flex justify-center mt-[14px]"><Spinner /></div>}>
+            <div class="max-h-[320px] overflow-y-auto mt-[14px] flex flex-col gap-[6px]">
               <For each={filtered()}>
                 {(v) => (
                   <div class="flex items-center gap-[12px] px-[10px] py-[6px] rounded-ctl hover:bg-glass-hover">
@@ -133,7 +134,7 @@ const Library: Component = () => {
       <Show when={!instances.loading} fallback={<div class="flex justify-center p-[32px]"><Spinner /></div>}>
         <Show
           when={(instances() ?? []).length > 0}
-          fallback={<div class="p-[24px] rounded-card bg-glass-card text-dim text-center">这个根目录还没有实例,点「安装新版本」开始。</div>}
+          fallback={<EmptyState title="这个根目录还没有实例,点「安装新版本」开始。" />}
         >
           <div class="flex flex-col gap-[10px]">
             <For each={instances()}>

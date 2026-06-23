@@ -21,7 +21,7 @@ const ITEM_NORMAL =
   "text-fg data-[highlighted]:bg-glass-hover motion-reduce:transition-none";
 const ITEM_DANGER =
   "flex items-center px-[10px] py-[7px] rounded-xs cursor-pointer select-none " +
-  "text-[#e5848a] data-[highlighted]:bg-[rgba(229,132,138,0.14)] motion-reduce:transition-none";
+  "text-danger-text data-[highlighted]:bg-danger-soft motion-reduce:transition-none";
 
 interface MenuContentProps {
   children: JSX.Element;

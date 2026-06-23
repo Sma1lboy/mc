@@ -16,7 +16,7 @@ const BTN_VARIANT: Record<string, string> = {
   ghost:
     "bg-transparent text-fg hover:enabled:bg-glass-hover active:enabled:bg-n-6",
   danger:
-    "bg-[#ff5c5c] text-white hover:enabled:bg-[#ff7575] active:enabled:bg-[#e34a4a]",
+    "bg-danger text-white hover:enabled:bg-danger-hover active:enabled:bg-danger-hover",
 };
 
 // Button —— 通用按钮组件。

@@ -1,4 +1,4 @@
-import { Component, createResource, createSignal, For, Show, onCleanup } from "solid-js";
+import { Component, createResource, createSignal, For, Show, onMount, onCleanup } from "solid-js";
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { BlockedFilesDialog, Spinner, toast, Lightbox, type ModpackHit, type LightboxImage } from "../components";
@@ -74,6 +74,18 @@ const ModpackDetail: Component<{
   onCleanup(offProgress);
   // 装完后若有需手动下载 / 被跳过的文件,弹窗摊开给用户(而不是只在 toast 里报个数字)。
   const [outcome, setOutcome] = createSignal<ImportOutcome | null>(null);
+
+  // Esc 返回(与列表/灯箱一致);灯箱/结果弹窗打开或安装进行中时不抢 Esc。
+  onMount(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (lbIndex() !== null || outcome() !== null || installing()) return;
+      e.preventDefault();
+      props.onBack();
+    };
+    document.addEventListener("keydown", onKey);
+    onCleanup(() => document.removeEventListener("keydown", onKey));
+  });
 
   // 版本列表虚拟化(热门整合包可达数百版本,只渲染可视区 + overscan)。
   // 行高可变(更新日志可展开),靠 measureElement(ResizeObserver)动态测量。

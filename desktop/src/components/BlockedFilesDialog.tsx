@@ -39,7 +39,7 @@ export const BlockedFilesDialog: Component<{
                     <div class="text-[13px] font-semibold text-fg whitespace-nowrap overflow-hidden text-ellipsis">
                       {b.name}
                       <Show when={b.required}>
-                        <span class="ml-[6px] text-[11px] text-[#e5848a]">必需</span>
+                        <span class="ml-[6px] text-[11px] text-danger-text">必需</span>
                       </Show>
                     </div>
                     <div class="mt-[2px] text-[11px] text-dim whitespace-nowrap overflow-hidden text-ellipsis">

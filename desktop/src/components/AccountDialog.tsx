@@ -193,7 +193,7 @@ export const AccountDialog: Component<{
                       <span class="text-a-6 text-[14px]" aria-hidden="true">✓</span>
                     </Show>
                     <button
-                      class="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150 text-[12px] text-[#e5848a] px-[6px] py-[3px] rounded-xs hover:bg-[rgba(229,132,138,0.14)]"
+                      class="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150 text-[12px] text-danger-text px-[6px] py-[3px] rounded-xs hover:bg-danger-soft"
                       title="移除账号"
                       onClick={(e) => removeExisting(acc, e)}
                     >

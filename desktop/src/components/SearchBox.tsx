@@ -1,4 +1,4 @@
-import { JSX, Show } from "solid-js";
+import { JSX, Show, onMount } from "solid-js";
 
 // SearchBox —— 圆角搜索框, 背景 n-5, 带放大镜图标。
 // props 契约:
@@ -13,10 +13,18 @@ export interface SearchBoxProps {
   name?: string;
   /** 回车回调 (如触发搜索)。 */
   onEnter?: (value: string) => void;
+  /** Esc 回调 (如清空 / 退出浏览)。 */
+  onEscape?: () => void;
+  /** 挂载即聚焦输入框 (进入浏览/添加模式时直接可打字)。 */
+  autofocus?: boolean;
   class?: string;
 }
 
 export function SearchBox(props: SearchBoxProps): JSX.Element {
+  let inputEl: HTMLInputElement | undefined;
+  onMount(() => {
+    if (props.autofocus) inputEl?.focus();
+  });
   return (
     <div
       class={
@@ -48,6 +56,7 @@ export function SearchBox(props: SearchBoxProps): JSX.Element {
       </svg>
 
       <input
+        ref={inputEl}
         // 输入框:占满剩余、可收缩、无边框/描边、透明底、主文字色、基础字号、
         // 继承字体;placeholder 用 dim 文字色。
         class="flex-1 min-w-0 border-none bg-transparent text-fg text-[var(--fs-base)] font-[inherit] placeholder:text-dim focus-visible:outline-none"
@@ -62,6 +71,10 @@ export function SearchBox(props: SearchBoxProps): JSX.Element {
         onInput={(e) => props.onInput(e.currentTarget.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter") props.onEnter?.(props.value);
+          else if (e.key === "Escape" && props.onEscape) {
+            e.preventDefault();
+            props.onEscape();
+          }
         }}
       />
 

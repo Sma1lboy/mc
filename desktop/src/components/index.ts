@@ -18,6 +18,8 @@ export type { PlayButtonProps } from "./PlayButton";
 export { Spinner } from "./Spinner";
 export type { SpinnerProps } from "./Spinner";
 
+export { EmptyState } from "./EmptyState";
+
 export { SearchBox } from "./SearchBox";
 export type { SearchBoxProps } from "./SearchBox";
 
