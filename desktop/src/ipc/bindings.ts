@@ -212,6 +212,11 @@ export const commands = {
 	 *  非整合包来源 / 非 modrinth / 缺 project_id 时返回空(前端据此不显示更新提示)。
 	 */
 	checkModpackUpdates: (root: string, id: string) => typedError<VersionDetail[], string>(__TAURI_INVOKE("check_modpack_updates", { root, id })),
+	/**
+	 *  把一个由 Modrinth 整合包安装的实例**就地更新**到指定版本:覆盖导入新包到既有实例,
+	 *  再清理新版移除的受管理文件(移入回收站)。存档 / 实例配置 / 用户自行添加的 mod 均保留。
+	 */
+	applyModpackUpdate: (root: string, id: string, versionId: string) => typedError<ModpackUpdateDto, string>(__TAURI_INVOKE("apply_modpack_update", { root, id, versionId })),
 };
 
 /* Types */
@@ -506,6 +511,15 @@ export type ModUpdate = {
 	sha1: string | null,
 	/**  最新文件大小(字节)。 */
 	size: number | null,
+};
+
+/**  整合包就地更新的返回:实例 id + 被清理的旧包文件 + 仍需手动下载 / 跳过的文件。 */
+export type ModpackUpdateDto = {
+	instance_id: string,
+	/**  因新版本移除而被移入回收站的旧包文件相对路径。 */
+	removed: string[],
+	blocked: BlockedFileDto[],
+	skipped_optional: string[],
 };
 
 export type NewsItem = {

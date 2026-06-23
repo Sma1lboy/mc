@@ -90,6 +90,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::read_log_tail,
             commands::fetch_news,
             commands::check_modpack_updates,
+            commands::apply_modpack_update,
         ])
 }
 

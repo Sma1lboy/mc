@@ -1475,6 +1475,92 @@ pub async fn check_modpack_updates(
     Ok(mc_core::modpack::update::newer_versions(all, src.version_id.as_deref()))
 }
 
+/// 整合包就地更新的返回:实例 id + 被清理的旧包文件 + 仍需手动下载 / 跳过的文件。
+#[derive(Serialize, specta::Type)]
+pub struct ModpackUpdateDto {
+    pub instance_id: String,
+    /// 因新版本移除而被移入回收站的旧包文件相对路径。
+    pub removed: Vec<String>,
+    pub blocked: Vec<BlockedFileDto>,
+    pub skipped_optional: Vec<String>,
+}
+
+/// 把一个由 Modrinth 整合包安装的实例**就地更新**到指定版本:覆盖导入新包到既有实例,
+/// 再清理新版移除的受管理文件(移入回收站)。存档 / 实例配置 / 用户自行添加的 mod 均保留。
+#[tauri::command]
+#[specta::specta]
+pub async fn apply_modpack_update(
+    app: AppHandle,
+    root: String,
+    id: String,
+    version_id: String,
+) -> CmdResult<ModpackUpdateDto> {
+    use mc_core::modpack::import::ImportEngine;
+    use mc_core::modplatform::provider::ProviderRegistry;
+
+    let paths = root_paths(&root);
+    let inst = Instance::new(id.as_str(), paths.root().to_path_buf());
+    let src = inst
+        .load_config()
+        .map_err(err)?
+        .source
+        .ok_or_else(|| "该实例没有整合包来源,无法更新".to_string())?;
+    if src.provider != "modrinth" {
+        return Err("目前仅支持更新 Modrinth 整合包".to_string());
+    }
+
+    // 解析目标版本与旧版本的 .mrpack 下载地址(旧版用于算出被移除的文件)。
+    let api = ModrinthApi::new();
+    let details = api.version_details(&src.project_id).await.map_err(err)?;
+    let new = details
+        .iter()
+        .find(|v| v.id == version_id)
+        .ok_or_else(|| format!("目标版本 {version_id} 不存在"))?;
+    let new_url = new
+        .mrpack_url
+        .clone()
+        .ok_or_else(|| "目标版本没有可下载的 .mrpack 文件".to_string())?;
+    let old_url = src
+        .version_id
+        .as_deref()
+        .and_then(|vid| details.iter().find(|v| v.id == vid))
+        .and_then(|v| v.mrpack_url.clone());
+
+    let engine = ImportEngine::with_defaults(make_downloader()?, ProviderRegistry::with_defaults());
+    let index_dl = make_downloader()?;
+    let (tx, rx) = watch::channel(Progress::new("准备更新"));
+    forward_progress(app, "install://progress", rx);
+    let outcome = mc_core::modpack::update::apply_modpack_update(
+        &engine,
+        &index_dl,
+        &paths,
+        &id,
+        &src.project_id,
+        &version_id,
+        &new_url,
+        old_url.as_deref(),
+        Some(tx),
+    )
+    .await
+    .map_err(err)?;
+
+    Ok(ModpackUpdateDto {
+        instance_id: outcome.instance_id,
+        removed: outcome.removed,
+        blocked: outcome
+            .blocked
+            .into_iter()
+            .map(|b| BlockedFileDto {
+                name: b.name,
+                website_url: b.website_url,
+                target_dir: b.target_dir,
+                required: b.required,
+            })
+            .collect(),
+        skipped_optional: outcome.skipped_optional,
+    })
+}
+
 /// 取一个 Modrinth 项目的完整详情(简介标签页用:长描述正文 markdown + 画廊 +
 /// 关注数 + 源码/issue/wiki/discord 等外部链接)。
 #[tauri::command]

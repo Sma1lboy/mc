@@ -3,7 +3,7 @@ import { InstanceManageDialog, Dialog, toast, type InstanceRowData } from "../co
 import { PlayButton } from "../components/PlayButton";
 import { Menu } from "../components/Menu";
 import { formatRelativeTime } from "../components/format";
-import { api } from "../ipc/api";
+import { api, onInstallProgress } from "../ipc/api";
 import { openInstanceDir, exportInstanceMrpack, deleteInstance } from "../util/instanceActions";
 import { loaderLabel as fmtLoader } from "../util/loaders";
 import { activeRoot, isRunning, isLaunching, playInstance, currentInstanceId, closeInstance, openInstance } from "../store";
@@ -26,7 +26,7 @@ const InstanceDetail: Component = () => {
   );
   const inst = () => data() ?? null;
   // 整合包更新检查(仅对由 Modrinth 整合包安装的实例返回非空);失败/无来源都安静返回空。
-  const [updates] = createResource(
+  const [updates, { refetch: refetchUpdates }] = createResource(
     () => currentInstanceId(),
     (id) => (id ? api.checkModpackUpdates(activeRoot(), id).catch(() => []) : []),
   );
@@ -39,6 +39,36 @@ const InstanceDetail: Component = () => {
     const pid = cfg()?.source?.project_id;
     return pid ? `https://modrinth.com/project/${pid}` : null;
   };
+  // 整合包就地更新:确认弹窗 + 进度。覆盖导入新包到既有实例,存档/配置保留,被移除的模组进回收站。
+  const [updateOpen, setUpdateOpen] = createSignal(false);
+  const [updating, setUpdating] = createSignal(false);
+  const [updateProgress, setUpdateProgress] = createSignal("");
+
+  async function applyUpdate() {
+    const i = inst();
+    const target = latestUpdate();
+    if (!i || !target) return;
+    setUpdating(true);
+    setUpdateProgress("");
+    const off = onInstallProgress((p) =>
+      setUpdateProgress(p.total > 0 ? `${p.stage} ${p.current}/${p.total}` : p.stage),
+    );
+    try {
+      const out = await api.applyModpackUpdate(activeRoot(), i.id, target.id);
+      toast({ type: "success", message: t("instance.updateSuccess", { version: target.version_number }) });
+      if (out.removed.length > 0)
+        toast({ type: "info", message: t("instance.updateRemoved", { count: out.removed.length }) });
+      setUpdateOpen(false);
+      void refetch();
+      void refetchUpdates();
+    } catch (e) {
+      toast({ type: "error", message: t("instance.updateFailed", { err: String(e) }) });
+    } finally {
+      off();
+      setUpdating(false);
+      setUpdateProgress("");
+    }
+  }
   // 进入「添加」浏览模式时整页让给复用的探索视图,隐藏头部(返回路径用视图内的「← 返回已安装」)。
   const [browsing, setBrowsing] = createSignal(false);
   // 删除实例前确认(与实例行的删除确认一致,避免 ⋮ 菜单一点就删)。
@@ -159,16 +189,17 @@ const InstanceDetail: Component = () => {
                 <div class="text-[12px] text-dim whitespace-nowrap overflow-hidden text-ellipsis">
                   {loaderLabel()} · {playedLabel()}
                 </div>
-                {/* 整合包更新提示:有更新且能定位到 Modrinth 项目时给个可点击的小药丸,跳到项目页查看/下载。 */}
-                <Show when={latestUpdate() && modrinthUrl()}>
-                  <a
-                    href={modrinthUrl()!}
+                {/* 整合包更新提示:有更新时给个可点击的小药丸,点开确认弹窗就地更新。 */}
+                <Show when={latestUpdate()}>
+                  <button
+                    type="button"
                     class="inline-flex items-center gap-[5px] mt-[5px] h-[22px] pl-[8px] pr-[9px] rounded-full bg-a-1 border border-a-4/40 text-a-7 text-[11px] font-semibold no-underline cursor-pointer transition-colors duration-150 hover:bg-a-2"
                     title={t("instance.updateAvailableHint")}
+                    onClick={() => setUpdateOpen(true)}
                   >
                     <span class="w-[6px] h-[6px] rounded-full bg-a-5 shrink-0" aria-hidden="true" />
                     {t("instance.updateAvailable", { version: latestUpdate()!.version_number })}
-                  </a>
+                  </button>
                 </Show>
               </div>
               <PlayButton running={isRunning(i().id)} disabled={isLaunching(i().id)} onClick={() => void playInstance(i().id)} />
@@ -240,6 +271,49 @@ const InstanceDetail: Component = () => {
               onClick={() => void doDelete()}
             >
               {t("instance.delete")}
+            </button>
+          </div>
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={updateOpen()}
+        onClose={() => !updating() && setUpdateOpen(false)}
+        label={t("instance.updateTitle")}
+        contentClass="w-[400px] max-w-[calc(100vw-48px)] glass-pop rounded-card overflow-hidden"
+      >
+        <div class="p-[20px] flex flex-col gap-[14px]">
+          <div class="text-[15px] font-semibold text-fg break-words">{t("instance.updateTitle")}</div>
+          <div class="text-[13px] text-dim leading-[1.6]">
+            {t("instance.updateBody", { version: latestUpdate()?.version_number ?? "" })}
+          </div>
+          <Show when={modrinthUrl()}>
+            <a
+              href={modrinthUrl()!}
+              class="self-start text-[12px] text-a-7 no-underline hover:underline"
+            >
+              {t("instance.viewOnModrinth")} →
+            </a>
+          </Show>
+          <Show when={updating() && updateProgress()}>
+            <div class="text-[12px] text-dim font-mono truncate">{updateProgress()}</div>
+          </Show>
+          <div class="flex justify-end gap-[10px]">
+            <button
+              disabled={updating()}
+              class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-glass-card text-fg text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-glass-hover disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={() => setUpdateOpen(false)}
+            >
+              {t("instance.cancel")}
+            </button>
+            <button
+              disabled={updating()}
+              class="h-[34px] px-[16px] border-none rounded-ctl bg-a-5 text-white text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-a-6 disabled:opacity-60 disabled:cursor-not-allowed"
+              onClick={() => void applyUpdate()}
+            >
+              {updating()
+                ? t("instance.updating")
+                : t("instance.updateNow", { version: latestUpdate()?.version_number ?? "" })}
             </button>
           </div>
         </div>
