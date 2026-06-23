@@ -5,7 +5,7 @@ import {
   createResource,
   createSignal,
 } from "solid-js";
-import { AccountDialog, Avatar, EmptyState, Menu } from "../components";
+import { AccountDialog, Avatar, EmptyState, ErrorState, Menu } from "../components";
 import { ACCENT_BTN } from "../components/styles";
 import { api } from "../ipc/api";
 import type { AccountSummary, AccountKind } from "../ipc/types";
@@ -104,17 +104,7 @@ const ContextBar: Component = () => {
           {/* 错误态:list_accounts 失败 */}
           <Show
             when={!accounts.error}
-            fallback={
-              <div class="flex items-center justify-between gap-[8px] p-[12px] border border-glass-border rounded-ctl bg-glass-card text-[13px] text-dim">
-                <span>账号载入失败</span>
-                <button
-                  class="border border-glass-border bg-glass-card text-fg rounded-xs px-[10px] py-[4px] text-[12px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-glass-hover motion-reduce:transition-none"
-                  onClick={() => refetch()}
-                >
-                  重试
-                </button>
-              </div>
-            }
+            fallback={<ErrorState compact message="账号载入失败" onRetry={() => void refetch()} />}
           >
             {/* 空态:无任何账号 */}
             <Show
