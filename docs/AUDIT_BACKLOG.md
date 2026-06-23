@@ -17,7 +17,23 @@ Generated 2026-06-22 from a multi-agent end-to-end audit (10 chains, adversarial
 - **#24** Failed screenshot loads show a click-to-retry tile, not an endless spinner.
 - **#25** Switching layout no longer overwrites a customized theme.
 
-Remaining: ranks #8, #9, #11, #12, #13, #16, #17, #18, #20, #21, #22, #26–#31 below.
+### Shipped 2026-06-22 (round 2)
+
+- **#8** Datapacks install per-world (`saves/<world>/datapacks`) so the game actually loads them; UI world picker.
+- **#9** Microsoft tokens auto-refresh before launch (expires_at + `refresh_selected_microsoft` + `refresh_account` IPC).
+- **#11** A half-imported modpack instance rolls back on failure (no orphaned broken instance).
+- **#12** Global default memory + Java path now applied at instance create / launch.
+- **#13** Launch repairs files when a real account is selected (Home/Library/classic consistent).
+- **#16** Explicit version install resolves required deps + reports them.
+- **#17** Modpack install streams progress to the UI.
+- **#18** Files needing manual download (CurseForge blocked) + skipped optionals shown in a dialog.
+- **#20** Account switch + remove in the shared dialog (classic dedup'd to it too).
+- **#21** Version list uncapped. **#22** Discover search paginates (load more). **#26** Lightbox preloads neighbors.
+- **#24** Screenshot load failures show retry. **#25** Theme preserved across layout switch.
+- **#29** Custom game roots from settings are discovered.
+
+Remaining: #27 (datapack in Discover — needs world picker), #28 (Yggdrasil login),
+#30 (token keyring), #31 (incompatible-dependency conflicts surfaced).
 
 ## Cross-cutting themes
 
