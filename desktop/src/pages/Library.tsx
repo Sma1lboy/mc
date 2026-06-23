@@ -57,9 +57,13 @@ const Library: Component = () => {
     return (versions() ?? []).filter((v) => v.id.toLowerCase().includes(q)).slice(0, 60);
   };
 
-  // 按名称 / 版本 / 加载器过滤实例(空查询返回全部)。
+  // 默认按上次游玩降序(最近玩的在前,与首页「继续游玩」同序);未玩过的(0)沉底。
+  const sortedInstances = () =>
+    [...(instances() ?? [])].sort((a, b) => (b.last_played ?? 0) - (a.last_played ?? 0));
+
+  // 在排序基础上按名称 / 版本 / 加载器过滤(空查询返回全部)。
   const filteredInstances = () => {
-    const all = instances() ?? [];
+    const all = sortedInstances();
     const q = instQuery().trim().toLowerCase();
     if (!q) return all;
     return all.filter((i) =>
