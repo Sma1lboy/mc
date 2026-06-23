@@ -12,6 +12,7 @@ import {
 import { api, onInstallProgress } from "../ipc/api";
 import { activeRoot, openInstance, playInstance } from "../store";
 import { openInstanceDir, exportInstanceMrpack, deleteInstance } from "../util/instanceActions";
+import { sortByRecent } from "../util/instances";
 import type { InstanceSummary, ManifestVersion } from "../ipc/types";
 
 /**
@@ -58,8 +59,7 @@ const Library: Component = () => {
   };
 
   // 默认按上次游玩降序(最近玩的在前,与首页「继续游玩」同序);未玩过的(0)沉底。
-  const sortedInstances = () =>
-    [...(instances() ?? [])].sort((a, b) => (b.last_played ?? 0) - (a.last_played ?? 0));
+  const sortedInstances = () => sortByRecent(instances() ?? []);
 
   // 在排序基础上按名称 / 版本 / 加载器过滤(空查询返回全部)。
   const filteredInstances = () => {

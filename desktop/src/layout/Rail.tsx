@@ -2,6 +2,7 @@ import { Component, JSX, For, Show, createResource, createSignal } from "solid-j
 import { AccountDialog, Avatar, NewInstanceDialog } from "../components";
 import { currentPage, setCurrentPage, activeRoot, openInstance, currentInstanceId } from "../store";
 import { api } from "../ipc/api";
+import { sortByRecent } from "../util/instances";
 import type { AccountSummary } from "../ipc/types";
 import "./Rail.css";
 
@@ -125,10 +126,7 @@ const Rail: Component = () => {
     () => activeRoot(),
     (root) => api.listInstances(root),
   );
-  const pinned = () =>
-    [...(instances() ?? [])]
-      .sort((a, b) => (b.last_played ?? 0) - (a.last_played ?? 0))
-      .slice(0, 3);
+  const pinned = () => sortByRecent(instances() ?? []).slice(0, 3);
 
   // 新增实例对话框。
   const [newOpen, setNewOpen] = createSignal(false);

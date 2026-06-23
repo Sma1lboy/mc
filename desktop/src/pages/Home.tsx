@@ -11,6 +11,7 @@ import {
 import { api, onLaunchProgress } from "../ipc/api";
 import { activeRoot, openInstance, setCurrentPage, openDiscover, playInstance } from "../store";
 import { openInstanceDir, exportInstanceMrpack, deleteInstance } from "../util/instanceActions";
+import { sortByRecent } from "../util/instances";
 import type { InstanceSummary, SearchHit } from "../ipc/types";
 
 /**
@@ -70,8 +71,7 @@ const Home: Component = () => {
 
   // Home 只当快捷入口:最近游玩取前 5;完整列表在「库」页(下方「查看全部」跳转)。
   const RECENT_CAP = 5;
-  const sortedByPlayed = () =>
-    [...(instances() ?? [])].sort((a, b) => (b.last_played ?? 0) - (a.last_played ?? 0));
+  const sortedByPlayed = () => sortByRecent(instances() ?? []);
   const recent = () => sortedByPlayed().slice(0, RECENT_CAP);
 
   return (
