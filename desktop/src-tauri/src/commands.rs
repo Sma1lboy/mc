@@ -63,11 +63,60 @@ fn custom_roots() -> Vec<PathBuf> {
     settings_global().custom_roots.iter().map(PathBuf::from).collect()
 }
 
-/// 按全局设置构造下载器:并发数 + 镜像源(官方/BMCLAPI+McIM)都来自用户设置,
-/// 让「下载源/并发」这些全局设置真正生效。
+/// 解析最终生效的 CurseForge API key(设置 → 编译期 baked → 环境)。
+/// 既给注册表决定是否注册 CurseForge,也给下载器附 `x-api-key` 让 CF CDN 直链可下。
+fn cf_api_key() -> Option<String> {
+    mc_core::modplatform::provider::resolve_cf_api_key(settings_global().cf_api_key.as_deref())
+}
+
+/// 按用户设置/环境构造 Provider 注册表:总有 Modrinth;解析出 CurseForge key 才注册 CurseForge。
+/// 搜索 / 浏览安装 / 整合包导入导出共用同一份(让「设置里的 CF key」与环境 key 都生效)。
+fn make_registry() -> mc_core::modplatform::provider::ProviderRegistry {
+    mc_core::modplatform::provider::ProviderRegistry::with_defaults_keyed(cf_api_key())
+}
+
+/// 按平台标识取一个已注册的 provider;未注册(如无 CF key)时报清晰错误。
+fn provider_or_err(
+    reg: &mc_core::modplatform::provider::ProviderRegistry,
+    id: mc_core::modplatform::ProviderId,
+) -> CmdResult<std::sync::Arc<dyn mc_core::modplatform::provider::ResourceProvider>> {
+    reg.get(id).ok_or_else(|| match id {
+        mc_core::modplatform::ProviderId::CurseForge => "CurseForge 未配置 API Key".to_string(),
+        mc_core::modplatform::ProviderId::Modrinth => "Modrinth 不可用".to_string(),
+    })
+}
+
+/// 把前端传入的 provider 字符串(缺省 `modrinth`)映射成 [`ProviderId`]。
+fn parse_provider(s: Option<&str>) -> CmdResult<mc_core::modplatform::ProviderId> {
+    use mc_core::modplatform::ProviderId;
+    match s.map(str::trim).filter(|s| !s.is_empty()).unwrap_or("modrinth") {
+        "modrinth" => Ok(ProviderId::Modrinth),
+        "curseforge" => Ok(ProviderId::CurseForge),
+        other => Err(format!("未知内容平台: {other}")),
+    }
+}
+
+/// CurseForge 作者禁第三方分发时,平台不给 `downloadUrl`(映射后 `file.url` 为空串)。
+/// 用与整合包导入相同的官网手动下载页拼法,给前端 BlockedFilesDialog 引导用户手动下载。
+fn cf_blocked_dto(project_id: &str, file_id: &str, file_name: &str, target_dir: &str) -> BlockedFileDto {
+    BlockedFileDto {
+        name: file_name.to_string(),
+        website_url: format!(
+            "https://www.curseforge.com/api/v1/mods/{project_id}/files/{file_id}/download"
+        ),
+        target_dir: target_dir.to_string(),
+        required: true,
+    }
+}
+
+/// 按全局设置构造下载器:并发数 + 镜像源(官方/BMCLAPI+McIM)+ CurseForge key 都来自
+/// 用户设置/环境,让「下载源/并发」这些全局设置真正生效、CF CDN 直链带上 `x-api-key`。
 fn make_downloader() -> CmdResult<Downloader> {
     let s = settings_global();
-    Ok(Downloader::new(s.concurrency.max(1)).map_err(err)?.with_mirror(s.mirror_resolver()))
+    Ok(Downloader::new(s.concurrency.max(1))
+        .map_err(err)?
+        .with_mirror(s.mirror_resolver())
+        .with_cf_api_key(cf_api_key()))
 }
 
 // --- DTOs that differ from the core types --------------------------------
@@ -300,8 +349,35 @@ pub fn delete_mod(root: String, id: String, file_name: String) -> CmdResult<()> 
     mc_core::instance::mods::delete_mod(&inst, &file_name).map_err(err)
 }
 
-/// 从 Modrinth 把一个 mod(及其必需依赖)装进实例。loader/mc_version 用于挑兼容版本。
-/// 返回安装报告(已装 / 已满足 / 未解决依赖)。
+/// 「装最新版」mod 的结果:沿用核心的依赖解析报告,再带上需手动下载的 blocked 文件
+/// (CurseForge 作者禁第三方分发时)。`blocked` 非空时前端弹 BlockedFilesDialog 引导手动下。
+#[derive(Default, Serialize, specta::Type)]
+pub struct ModInstallReport {
+    pub installed: Vec<mc_core::instance::install_mod::InstalledMod>,
+    pub satisfied: Vec<String>,
+    pub unresolved: Vec<String>,
+    #[serde(default)]
+    pub incompatible: Vec<String>,
+    #[serde(default)]
+    pub blocked: Vec<BlockedFileDto>,
+}
+
+impl From<mc_core::instance::InstallReport> for ModInstallReport {
+    fn from(r: mc_core::instance::InstallReport) -> Self {
+        ModInstallReport {
+            installed: r.installed,
+            satisfied: r.satisfied,
+            unresolved: r.unresolved,
+            incompatible: r.incompatible,
+            blocked: Vec::new(),
+        }
+    }
+}
+
+/// 把一个 mod 的最新兼容版本装进实例。`provider` 缺省 `modrinth`:
+/// - Modrinth 走核心的「装最新版 + 解析 required 依赖」路径。
+/// - CurseForge 经 provider 取最新兼容版本直接落盘(CF 文件级不带依赖,故不解析);
+///   遇作者禁分发的文件经 `blocked` 回传,前端走手动下载流而非假装成功。
 #[tauri::command]
 #[specta::specta]
 pub async fn install_mod(
@@ -310,19 +386,54 @@ pub async fn install_mod(
     project: String,
     mc_version: String,
     loader: String,
-) -> CmdResult<mc_core::instance::InstallReport> {
+    provider: Option<String>,
+) -> CmdResult<ModInstallReport> {
     let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
     let dl = make_downloader()?;
-    let api = ModrinthApi::new();
-    mc_core::instance::install_mod(&api, &dl, &inst, &project, &mc_version, &loader, true)
-        .await
-        .map_err(err)
+    match parse_provider(provider.as_deref())? {
+        mc_core::modplatform::ProviderId::Modrinth => {
+            let api = ModrinthApi::new();
+            mc_core::instance::install_mod(&api, &dl, &inst, &project, &mc_version, &loader, true)
+                .await
+                .map(ModInstallReport::from)
+                .map_err(err)
+        }
+        id @ mc_core::modplatform::ProviderId::CurseForge => {
+            let p = provider_or_err(&make_registry(), id)?;
+            let versions = p
+                .list_versions(&project, Some(&mc_version), Some(&loader))
+                .await
+                .map_err(err)?;
+            let v = mc_core::instance::install_mod::pick_version(&versions, &mc_version, &loader)
+                .or_else(|| versions.first())
+                .ok_or_else(|| format!("项目 {project} 没有兼容 {mc_version}/{loader} 的版本"))?;
+            let Some(file) = v.primary_file() else {
+                return Err(format!("版本 {} 没有可下载文件", v.id));
+            };
+            if file.url.is_empty() {
+                return Ok(ModInstallReport {
+                    blocked: vec![cf_blocked_dto(&project, &v.id, &file.filename, "mods")],
+                    ..Default::default()
+                });
+            }
+            let file_name = mc_core::instance::install_mod::install_mod_version(&inst, &dl, v)
+                .await
+                .map_err(err)?;
+            Ok(ModInstallReport {
+                installed: vec![mc_core::instance::install_mod::InstalledMod {
+                    project_id: project,
+                    file_name,
+                }],
+                ..Default::default()
+            })
+        }
+    }
 }
 
-/// 显式选版安装的结果:落盘主文件 + (仅 mod)依赖解析摘要。
-#[derive(Serialize, specta::Type)]
+/// 显式选版安装的结果:落盘主文件 + (仅 mod)依赖解析摘要 + 需手动下载的 blocked 文件。
+#[derive(Default, Serialize, specta::Type)]
 pub struct VersionInstallReport {
-    /// 主文件落盘名。
+    /// 主文件落盘名(被 blocked 时为空)。
     file: String,
     /// 新装入的 required 依赖数量(仅 mod;packs 恒为 0)。
     installed_deps: usize,
@@ -331,14 +442,31 @@ pub struct VersionInstallReport {
     /// 所装版本声明为不兼容的项目 project_id(冲突;仅 mod)。
     #[serde(default)]
     incompatible: Vec<String>,
+    /// CurseForge 作者禁第三方分发时需用户手动下载的文件;非空时前端弹 BlockedFilesDialog。
+    #[serde(default)]
+    blocked: Vec<BlockedFileDto>,
 }
 
-/// 安装一个**指定版本**(by Modrinth version id)到实例对应位置。
+/// `target` → 包类型 + blocked 引导用的落盘目录名。
+fn pack_kind_for(target: &str) -> CmdResult<(mc_core::instance::PackKind, &'static str)> {
+    use mc_core::instance::PackKind;
+    Ok(match target {
+        "resourcepack" => (PackKind::ResourcePack, "resourcepacks"),
+        "shader" => (PackKind::Shader, "shaderpacks"),
+        "datapack" => (PackKind::Datapack, "datapacks"),
+        other => return Err(format!("不支持的安装目标: {other}")),
+    })
+}
+
+/// 安装一个**指定版本**(by version id)到实例对应位置。`provider` 缺省 `modrinth`,
+/// `project` 是该版本所属项目 id(CurseForge 经 `get_files_bulk` 反查需要,Modrinth 可空)。
 /// target = "mod" / "resourcepack" / "shader" / "datapack"。
 ///
-/// mod:在装入所选版本的同时解析它声明的 required 依赖(取各依赖最新兼容版本),与「装最新版」
-/// 行为一致 —— 避免选版安装出一个缺前置、进不去游戏的孤立 jar。需要 `mc_version` + `loader`
-/// 才能给依赖挑兼容版本;缺省时退回只装主文件。packs 不涉及依赖。
+/// mod(仅 Modrinth):在装入所选版本的同时解析它声明的 required 依赖(取各依赖最新兼容版本),
+/// 与「装最新版」一致 —— 避免选版安装出一个缺前置、进不去游戏的孤立 jar。需要 `mc_version` +
+/// `loader` 才能给依赖挑兼容版本;缺省时退回只装主文件。packs 与 CurseForge 不涉及依赖。
+/// CurseForge 作者禁分发的文件经 `blocked` 回传,前端走手动下载流而非假装成功。
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 #[specta::specta]
 pub async fn install_version_file(
@@ -349,24 +477,60 @@ pub async fn install_version_file(
     mc_version: Option<String>,
     loader: Option<String>,
     world: Option<String>,
+    provider: Option<String>,
+    project: Option<String>,
 ) -> CmdResult<VersionInstallReport> {
-    use mc_core::instance::PackKind;
     let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
     let dl = make_downloader()?;
-    let api = ModrinthApi::new();
-    let v = api.get_version(&version_id).await.map_err(err)?;
     let w = world.as_deref();
 
-    let pack_report = |file: String| VersionInstallReport {
-        file,
-        installed_deps: 0,
-        unresolved: Vec::new(),
-        incompatible: Vec::new(),
+    let pack_report = |file: String| VersionInstallReport { file, ..Default::default() };
+
+    let (v, is_modrinth) = match parse_provider(provider.as_deref())? {
+        mc_core::modplatform::ProviderId::Modrinth => {
+            (ModrinthApi::new().get_version(&version_id).await.map_err(err)?, true)
+        }
+        id @ mc_core::modplatform::ProviderId::CurseForge => {
+            let project = project
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| "CurseForge 安装需要项目 id".to_string())?;
+            let p = provider_or_err(&make_registry(), id)?;
+            let mut files = p
+                .get_files_bulk(&[(project.to_string(), version_id.clone())])
+                .await
+                .map_err(err)?;
+            let resolved = files
+                .pop()
+                .ok_or_else(|| format!("CurseForge 版本 {version_id} 不存在"))?;
+            // 禁第三方分发 → url 为空串:走与导入相同的 blocked 流,绝不假装成功。
+            if resolved.file.url.is_empty() {
+                let dir = if target == "mod" { "mods" } else { pack_kind_for(&target)?.1 };
+                return Ok(VersionInstallReport {
+                    blocked: vec![cf_blocked_dto(project, &version_id, &resolved.file.filename, dir)],
+                    ..Default::default()
+                });
+            }
+            // 把解析出的文件包成一个单文件 ProjectVersion 喂给与平台无关的落盘函数。
+            let v = mc_core::modplatform::ProjectVersion {
+                id: resolved.version_id,
+                name: resolved.file.filename.clone(),
+                version_number: resolved.file.filename.clone(),
+                game_versions: Vec::new(),
+                loaders: Vec::new(),
+                files: vec![resolved.file],
+                dependencies: Vec::new(),
+            };
+            (v, false)
+        }
     };
 
     match target.as_str() {
-        "mod" => match (mc_version.as_deref(), loader.as_deref()) {
-            (Some(mc), Some(ld)) => {
+        // CurseForge 文件级不带依赖模型 → 只装主文件;Modrinth 且给了 mc/loader 才解析依赖。
+        "mod" => match (is_modrinth, mc_version.as_deref(), loader.as_deref()) {
+            (true, Some(mc), Some(ld)) => {
+                let api = ModrinthApi::new();
                 let report =
                     mc_core::instance::install_mod_version_with_deps(&api, &dl, &inst, &v, mc, ld)
                         .await
@@ -385,6 +549,7 @@ pub async fn install_version_file(
                     installed_deps,
                     unresolved: report.unresolved,
                     incompatible: report.incompatible,
+                    ..Default::default()
                 })
             }
             _ => mc_core::instance::install_mod_version(&inst, &dl, &v)
@@ -392,21 +557,13 @@ pub async fn install_version_file(
                 .map(pack_report)
                 .map_err(err),
         },
-        "resourcepack" => {
-            mc_core::instance::packs::install_pack_version(&inst, &dl, PackKind::ResourcePack, &v, None)
+        other => {
+            let (kind, _) = pack_kind_for(other)?;
+            mc_core::instance::packs::install_pack_version(&inst, &dl, kind, &v, w)
                 .await
                 .map(pack_report)
                 .map_err(err)
         }
-        "shader" => mc_core::instance::packs::install_pack_version(&inst, &dl, PackKind::Shader, &v, None)
-            .await
-            .map(pack_report)
-            .map_err(err),
-        "datapack" => mc_core::instance::packs::install_pack_version(&inst, &dl, PackKind::Datapack, &v, w)
-            .await
-            .map(pack_report)
-            .map_err(err),
-        other => Err(format!("不支持的安装目标: {other}")),
     }
 }
 
@@ -514,7 +671,10 @@ pub fn delete_pack(
     mc_core::instance::packs::delete_pack(&inst, kind, &file_name, world.as_deref()).map_err(err)
 }
 
-/// 从 Modrinth 安装一个包到实例对应目录,返回落盘文件名。
+/// 安装一个包(资源包 / 光影 / 数据包)的最新兼容版本到实例对应目录。`provider` 缺省
+/// `modrinth`。返回落盘文件名;CurseForge 作者禁分发的文件经 `blocked` 回传(file 为空),
+/// 前端走手动下载流而非假装成功。
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 #[specta::specta]
 pub async fn install_pack(
@@ -524,13 +684,48 @@ pub async fn install_pack(
     project: String,
     mc_version: String,
     world: Option<String>,
-) -> CmdResult<String> {
+    provider: Option<String>,
+) -> CmdResult<VersionInstallReport> {
+    use mc_core::instance::PackKind;
     let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
     let dl = make_downloader()?;
-    let api = ModrinthApi::new();
-    mc_core::instance::install_pack(&api, &dl, &inst, kind, &project, &mc_version, world.as_deref())
-        .await
-        .map_err(err)
+    let w = world.as_deref();
+    match parse_provider(provider.as_deref())? {
+        mc_core::modplatform::ProviderId::Modrinth => {
+            let api = ModrinthApi::new();
+            mc_core::instance::install_pack(&api, &dl, &inst, kind, &project, &mc_version, w)
+                .await
+                .map(|file| VersionInstallReport { file, ..Default::default() })
+                .map_err(err)
+        }
+        pid @ mc_core::modplatform::ProviderId::CurseForge => {
+            let p = provider_or_err(&make_registry(), pid)?;
+            let versions = p.list_versions(&project, Some(&mc_version), None).await.map_err(err)?;
+            let v = versions
+                .iter()
+                .find(|v| v.game_versions.iter().any(|g| g == mc_version.as_str()))
+                .or_else(|| versions.first())
+                .ok_or_else(|| format!("项目 {project} 没有兼容 {mc_version} 的版本"))?;
+            let Some(file) = v.primary_file() else {
+                return Err(format!("版本 {} 没有可下载文件", v.id));
+            };
+            if file.url.is_empty() {
+                let dir = match kind {
+                    PackKind::ResourcePack => "resourcepacks",
+                    PackKind::Shader => "shaderpacks",
+                    PackKind::Datapack => "datapacks",
+                };
+                return Ok(VersionInstallReport {
+                    blocked: vec![cf_blocked_dto(&project, &v.id, &file.filename, dir)],
+                    ..Default::default()
+                });
+            }
+            mc_core::instance::packs::install_pack_version(&inst, &dl, kind, v, w)
+                .await
+                .map(|file| VersionInstallReport { file, ..Default::default() })
+                .map_err(err)
+        }
+    }
 }
 
 /// 列出某实例的截图(仅元数据,按修改时间倒序)。
@@ -828,6 +1023,10 @@ pub async fn detect_java() -> CmdResult<Vec<JavaDto>> {
         .collect())
 }
 
+/// 跨平台内容搜索:`provider` 缺省 `modrinth`(也可 `curseforge`,需配 CF key),`sort`
+/// 缺省按相关度。经 Provider 注册表路由,统一返回 [`SearchHit`]。命令名保持 `modrinth_search`
+/// 以稳定绑定,但实际是泛平台搜索。
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 #[specta::specta]
 pub async fn modrinth_search(
@@ -837,25 +1036,35 @@ pub async fn modrinth_search(
     loader: Option<String>,
     limit: Option<u32>,
     offset: Option<u32>,
+    provider: Option<String>,
+    sort: Option<String>,
 ) -> CmdResult<Vec<mc_core::modplatform::SearchHit>> {
-    let api = ModrinthApi::new();
-    let rk = match kind.as_str() {
+    use mc_core::modplatform::{SearchQuery, SortMethod};
+    let kind = match kind.as_str() {
         "modpack" => ResourceKind::Modpack,
         "shader" => ResourceKind::Shader,
         "resourcepack" => ResourceKind::ResourcePack,
         "datapack" => ResourceKind::Datapack,
         _ => ResourceKind::Mod,
     };
-    api.search(
-        &query,
-        rk,
-        game_version.as_deref(),
-        loader.as_deref(),
-        limit.unwrap_or(30),
-        offset.unwrap_or(0),
-    )
-    .await
-    .map_err(err)
+    let sort = match sort.as_deref() {
+        Some("downloads") => SortMethod::Downloads,
+        Some("newest") => SortMethod::Newest,
+        Some("updated") => SortMethod::Updated,
+        _ => SortMethod::Relevance,
+    };
+    let q = SearchQuery {
+        text: query,
+        kind,
+        game_version: game_version.filter(|s| !s.is_empty()),
+        loader: loader.filter(|s| !s.is_empty()),
+        offset: offset.unwrap_or(0),
+        limit: limit.unwrap_or(30),
+        sort,
+    };
+    let pid = parse_provider(provider.as_deref())?;
+    let p = provider_or_err(&make_registry(), pid)?;
+    p.search(&q).await.map_err(err)
 }
 
 // --- theme persistence ----------------------------------------------------
@@ -968,6 +1177,9 @@ pub async fn launch_instance(
     let accounts_path = data_dir().join("accounts.json");
     if let Ok(mut store) = AccountStore::load(&accounts_path) {
         let _ = auth::refresh_selected_microsoft(&mut store, &msa_client(), 600).await;
+        // 外置登录账号:启动前校验 token,失效则用 client_token 免密续期并写回
+        // (best-effort:校验/续期失败就用现有 token 继续,不阻断启动)。
+        let _ = auth::refresh_selected_yggdrasil(&mut store, dl.client().clone()).await;
     }
 
     // 外置登录账号:启动前下载 authlib-injector,并把 `-javaagent` 注入 JVM 参数,
@@ -1249,11 +1461,10 @@ pub async fn import_modpack(
     instance_id: Option<String>,
 ) -> CmdResult<ImportOutcomeDto> {
     use mc_core::modpack::import::{ImportEngine, ImportOptions, ImportSource};
-    use mc_core::modplatform::provider::ProviderRegistry;
 
     let paths = root_paths(&root);
     let dl = make_downloader()?;
-    let engine = ImportEngine::with_defaults(dl, ProviderRegistry::with_defaults());
+    let engine = ImportEngine::with_defaults(dl, make_registry());
 
     let mut opts = ImportOptions::new(paths.root().to_path_buf());
     opts.instance_id = instance_id;
@@ -1383,7 +1594,6 @@ pub async fn install_modrinth_modpack(
     instance_id: Option<String>,
 ) -> CmdResult<ImportOutcomeDto> {
     use mc_core::modpack::import::{ImportEngine, ImportOptions, ImportSource, ManagedPack};
-    use mc_core::modplatform::provider::ProviderRegistry;
 
     // 1) 取最新版本的 .mrpack 下载地址。
     let api = ModrinthApi::new();
@@ -1405,7 +1615,7 @@ pub async fn install_modrinth_modpack(
     // 2) 从 URL 导入(引擎先下到临时文件,再识别格式 + 安装)。
     let paths = root_paths(&root);
     let dl = make_downloader()?;
-    let engine = ImportEngine::with_defaults(dl, ProviderRegistry::with_defaults());
+    let engine = ImportEngine::with_defaults(dl, make_registry());
     let mut opts = ImportOptions::new(paths.root().to_path_buf());
     opts.instance_id = instance_id;
     // 记录确切来源(Modrinth 项目 + 安装的版本),持久化到实例 instance.json 的 source。
@@ -1456,14 +1666,51 @@ impl From<mc_core::modpack::import::ImportOutcome> for ImportOutcomeDto {
     }
 }
 
-/// 列出一个 Modrinth 整合包项目的所有版本详情(详情页用:版本号/类型/MC/loader/
-/// 发布时间/下载数/changelog + 该版本 .mrpack 地址)。
+/// 列出一个项目的所有版本详情(详情页用:版本号/类型/MC/loader/发布时间/下载数/changelog
+/// + 该版本下载地址)。`provider` 缺省 `modrinth`。CurseForge 经 provider 的统一版本模型
+/// 映射成同一 [`VersionDetail`] 形状(无 changelog/发布时间等富信息时留空),保持绑定稳定。
 #[tauri::command]
 #[specta::specta]
 pub async fn modrinth_versions(
     project_id: String,
+    provider: Option<String>,
 ) -> CmdResult<Vec<mc_core::modplatform::modrinth::VersionDetail>> {
-    ModrinthApi::new().version_details(&project_id).await.map_err(err)
+    use mc_core::modplatform::modrinth::VersionDetail;
+    match parse_provider(provider.as_deref())? {
+        mc_core::modplatform::ProviderId::Modrinth => {
+            ModrinthApi::new().version_details(&project_id).await.map_err(err)
+        }
+        id @ mc_core::modplatform::ProviderId::CurseForge => {
+            let p = provider_or_err(&make_registry(), id)?;
+            let versions = p.list_versions(&project_id, None, None).await.map_err(err)?;
+            Ok(versions
+                .into_iter()
+                .map(|v| {
+                    let file = v.primary_file();
+                    let (url, filename, size) = match file {
+                        Some(f) if !f.url.is_empty() => {
+                            (Some(f.url.clone()), Some(f.filename.clone()), f.size)
+                        }
+                        _ => (None, None, None),
+                    };
+                    VersionDetail {
+                        id: v.id,
+                        version_number: v.version_number,
+                        name: v.name,
+                        version_type: "release".to_string(),
+                        game_versions: v.game_versions,
+                        loaders: v.loaders,
+                        date_published: String::new(),
+                        downloads: 0,
+                        changelog: String::new(),
+                        mrpack_url: url,
+                        mrpack_filename: filename,
+                        file_size: size,
+                    }
+                })
+                .collect())
+        }
+    }
 }
 
 /// 检查某实例(由 Modrinth 整合包安装)是否有更新:返回比当前来源版本更新的版本列表。
@@ -1506,7 +1753,6 @@ pub async fn apply_modpack_update(
     version_id: String,
 ) -> CmdResult<ModpackUpdateDto> {
     use mc_core::modpack::import::ImportEngine;
-    use mc_core::modplatform::provider::ProviderRegistry;
 
     let paths = root_paths(&root);
     let inst = Instance::new(id.as_str(), paths.root().to_path_buf());
@@ -1536,7 +1782,7 @@ pub async fn apply_modpack_update(
         .and_then(|vid| details.iter().find(|v| v.id == vid))
         .and_then(|v| v.mrpack_url.clone());
 
-    let engine = ImportEngine::with_defaults(make_downloader()?, ProviderRegistry::with_defaults());
+    let engine = ImportEngine::with_defaults(make_downloader()?, make_registry());
     let index_dl = make_downloader()?;
     let (tx, rx) = watch::channel(Progress::new("准备更新"));
     forward_progress(app, "install://progress", rx);
@@ -1591,11 +1837,10 @@ pub async fn install_modpack_url(
     instance_id: Option<String>,
 ) -> CmdResult<ImportOutcomeDto> {
     use mc_core::modpack::import::{ImportEngine, ImportOptions, ImportSource};
-    use mc_core::modplatform::provider::ProviderRegistry;
 
     let paths = root_paths(&root);
     let dl = make_downloader()?;
-    let engine = ImportEngine::with_defaults(dl, ProviderRegistry::with_defaults());
+    let engine = ImportEngine::with_defaults(dl, make_registry());
     let mut opts = ImportOptions::new(paths.root().to_path_buf());
     opts.instance_id = instance_id;
     let (tx, rx) = watch::channel(Progress::new("准备"));
