@@ -171,12 +171,27 @@ pub enum SortMethod {
 }
 
 /// 统一搜索查询参数。
+///
+/// `game_version` / `loader` 是**单值兼容入口**:嵌入式 ContentBrowser 仍按当前实例的
+/// 兼容性传单个游戏版本 / loader 过滤。新增的 `game_versions` / `loaders` / `categories` /
+/// `environment` 是 Discover 多选 facet 入口——两者并存,构造 Modrinth facets 时取并集
+/// (见 [`modrinth::build_facets`])。CurseForge 只消费单值 `game_version` / `loader`。
 #[derive(Debug, Clone)]
 pub struct SearchQuery {
     pub text: String,
     pub kind: ResourceKind,
     pub game_version: Option<String>,
     pub loader: Option<String>,
+    /// 多选游戏版本(Modrinth `versions:` OR 组)。与 `game_version` 合并去重。
+    pub game_versions: Vec<String>,
+    /// 多选 loader(Modrinth `categories:` OR 组)。与 `loader` 合并去重(经 `accepted_loaders`)。
+    pub loaders: Vec<String>,
+    /// 多选内容分类(Modrinth `categories:` —— 每个分类各成一个 AND 组)。
+    pub categories: Vec<String>,
+    /// 运行环境过滤:`"client"` / `"server"`(其余忽略)。Modrinth `client_side` / `server_side` facet。
+    pub environment: Option<String>,
+    /// 仅开源项目(Modrinth `open_source:true` facet);`None`/`Some(false)` = 不过滤。
+    pub open_source: Option<bool>,
     pub offset: u32,
     pub limit: u32,
     pub sort: SortMethod,
@@ -190,6 +205,11 @@ impl SearchQuery {
             kind,
             game_version: None,
             loader: None,
+            game_versions: Vec::new(),
+            loaders: Vec::new(),
+            categories: Vec::new(),
+            environment: None,
+            open_source: None,
             offset: 0,
             limit: 20,
             sort: SortMethod::default(),

@@ -150,10 +150,27 @@ export const commands = {
 	detectJava: () => typedError<JavaDto[], string>(__TAURI_INVOKE("detect_java")),
 	/**
 	 *  跨平台内容搜索:`provider` 缺省 `modrinth`(也可 `curseforge`,需配 CF key),`sort`
-	 *  缺省按相关度。经 Provider 注册表路由,统一返回 [`SearchHit`]。命令名保持 `modrinth_search`
-	 *  以稳定绑定,但实际是泛平台搜索。
+	 *  缺省按相关度。`facets` 是 Discover 的多选 facet 过滤(仅 Modrinth 消费)。经 Provider
+	 *  注册表路由,统一返回 [`SearchHit`]。命令名保持 `modrinth_search` 以稳定绑定,但实际是
+	 *  泛平台搜索。
 	 */
-	modrinthSearch: (query: string, kind: string, gameVersion: string | null, loader: string | null, limit: number | null, offset: number | null, provider: string | null, sort: string | null) => typedError<SearchHit[], string>(__TAURI_INVOKE("modrinth_search", { query, kind, gameVersion, loader, limit, offset, provider, sort })),
+	modrinthSearch: (query: string, kind: string, gameVersion: string | null, loader: string | null, limit: number | null, offset: number | null, provider: string | null, sort: string | null, facets: {
+	/**  多选内容分类(每个各成一个 AND 组)。 */
+	categories?: string[],
+	/**  多选 loader(合成一个 OR 组)。 */
+	loaders?: string[],
+	/**  多选游戏版本(合成一个 OR 组)。 */
+	game_versions?: string[],
+	/**  运行环境:`"client"` / `"server"`(其余忽略)。 */
+	environment?: string | null,
+	/**  仅开源项目(License facet)。 */
+	open_source?: boolean | null,
+} | null) => typedError<SearchHit[], string>(__TAURI_INVOKE("modrinth_search", { query, kind, gameVersion, loader, limit, offset, provider, sort, facets })),
+	/**
+	 *  Modrinth 的 facet 分类法(内容分类 / loader / 游戏版本),供 Discover 渲染过滤面板。
+	 *  进程内缓存(见 [`ModrinthApi::content_facets`]),仅 Modrinth 提供;CurseForge 不走此处。
+	 */
+	contentFacets: () => typedError<FacetTagsDto, string>(__TAURI_INVOKE("content_facets")),
 	getTheme: () => typedError<ThemeConfig, string>(__TAURI_INVOKE("get_theme")),
 	setTheme: (cfg: ThemeConfig) => typedError<null, string>(__TAURI_INVOKE("set_theme", { cfg })),
 	installVersion: (root: string, id: string) => typedError<null, string>(__TAURI_INVOKE("install_version", { root, id })),
@@ -271,6 +288,17 @@ export type BlockedFileDto = {
 };
 
 /**
+ *  一个内容分类(`GET /tag/category` 的一项)。`header` 把分类分组
+ *  (`categories` / `features` / `resolutions` / `performance impact`);
+ *  `project_type` 指出该分类适用于哪个资源类型(`mod` / `modpack` / `shader` / …)。
+ */
+export type CategoryTag = {
+	name: string,
+	header: string,
+	project_type: string,
+};
+
+/**
  *  The device-code prompt shown to the user. `device_code` is the opaque handle
  *  passed back to [`msa_login_poll`]; everything else is for display.
  */
@@ -280,6 +308,16 @@ export type DeviceCodeDto = {
 	device_code: string,
 	interval: number,
 	expires_in: number,
+};
+
+/**
+ *  Modrinth 的 facet 分类法:内容分类 / loader / 游戏版本。前端据此渲染过滤面板。
+ *  注意:这些是平台动态数据(分类名直接来自 Modrinth),**不**走 i18n,原样展示。
+ */
+export type FacetTagsDto = {
+	categories: CategoryTag[],
+	loaders: LoaderTag[],
+	game_versions: GameVersionTag[],
 };
 
 /**  项目画廊里的一张图。 */
@@ -315,6 +353,15 @@ export type GameRoot = {
 
 export type GameStarted = {
 	id: string,
+};
+
+/**
+ *  一个游戏版本(`GET /tag/game_version` 的一项)。`version_type` 区分
+ *  `release` / `snapshot` / `alpha` / `beta`,前端默认可只展示 release。
+ */
+export type GameVersionTag = {
+	version: string,
+	version_type: string,
 };
 
 /**
@@ -472,6 +519,15 @@ export type JavaDto = {
 
 /**  Mod loader families. */
 export type LoaderKind = "vanilla" | "forge" | "neoforge" | "fabric" | "quilt" | "liteloader" | "optifine";
+
+/**
+ *  一个 loader(`GET /tag/loader` 的一项)。`supported_project_types` 指出该 loader
+ *  适用于哪些资源类型(过滤面板据此只在相关 kind 下显示对应 loader)。
+ */
+export type LoaderTag = {
+	name: string,
+	supported_project_types: string[],
+};
 
 /**  One entry from Mojang's version manifest. */
 export type ManifestVersion = {
@@ -672,6 +728,24 @@ export type ScreenshotInfo = {
 	size: number,
 	/**  修改时间(epoch 毫秒;取不到为 0)。用于倒序排列。 */
 	modified: number,
+};
+
+/**
+ *  Discover 多选 facet 过滤(可选)。空字段即"不按该维度过滤"。仅 Modrinth 消费这些
+ *  (Modrinth 把 loader 放在 categories 维度、环境是 `client_side`/`server_side` facet);
+ *  `provider==curseforge` 时这些被忽略,只用顶层 `game_version` / `loader`。
+ */
+export type SearchFacetsArg = {
+	/**  多选内容分类(每个各成一个 AND 组)。 */
+	categories?: string[],
+	/**  多选 loader(合成一个 OR 组)。 */
+	loaders?: string[],
+	/**  多选游戏版本(合成一个 OR 组)。 */
+	game_versions?: string[],
+	/**  运行环境:`"client"` / `"server"`(其余忽略)。 */
+	environment?: string | null,
+	/**  仅开源项目(License facet)。 */
+	open_source?: boolean | null,
 };
 
 /**  搜索结果中的一个项目(或 `get_project` 的精简视图)。 */

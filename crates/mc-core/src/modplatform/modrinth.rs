@@ -19,7 +19,9 @@ use serde::Deserialize;
 
 use crate::error::{CoreError, Result};
 
-use super::{Dependency, ProjectVersion, ResourceKind, SearchHit, SortMethod, VersionFile};
+use super::{
+    Dependency, ProjectVersion, ResourceKind, SearchHit, SearchQuery, SortMethod, VersionFile,
+};
 
 /// Modrinth API v2 根地址。
 const API_BASE: &str = "https://api.modrinth.com/v2";
@@ -97,16 +99,35 @@ impl ModrinthApi {
         offset: u32,
         sort: SortMethod,
     ) -> Result<Vec<SearchHit>> {
-        let facets = build_facets(kind, game_version, loader);
-        let limit = limit.clamp(1, 100);
+        let facets = build_facets(&FacetSelection::single(kind, game_version, loader));
+        self.run_search(query, &facets, limit, offset, sort).await
+    }
 
+    /// 用完整 [`SearchQuery`] 搜索:把单值兼容字段(`game_version` / `loader`)与多选 facet
+    /// 字段(`game_versions` / `loaders` / `categories` / `environment`)合并成正确的 Modrinth
+    /// facets(见 [`build_facets`])。Discover 多选过滤经此路由。
+    pub async fn search_query(&self, q: &SearchQuery) -> Result<Vec<SearchHit>> {
+        let facets = build_facets(&FacetSelection::from_query(q));
+        self.run_search(&q.text, &facets, q.limit, q.offset, q.sort).await
+    }
+
+    /// 共享的 `/search` 请求逻辑:已构造好的 `facets` 串 + 文本 + 分页 + 排序。
+    async fn run_search(
+        &self,
+        query: &str,
+        facets: &str,
+        limit: u32,
+        offset: u32,
+        sort: SortMethod,
+    ) -> Result<Vec<SearchHit>> {
+        let limit = limit.clamp(1, 100);
         let url = format!("{}/search", self.base);
         let resp: RawSearchResponse = self
             .client
             .get(&url)
             .query(&[
                 ("query", query),
-                ("facets", facets.as_str()),
+                ("facets", facets),
                 ("limit", &limit.to_string()),
                 ("offset", &offset.to_string()),
                 ("index", modrinth_index(sort)),
@@ -347,34 +368,128 @@ fn modrinth_index(sort: SortMethod) -> &'static str {
     }
 }
 
+/// 构造 [`build_facets`] 的输入:把单值兼容字段与多选 facet 字段都收拢到一处,
+/// 单值入口([`Self::single`])与完整查询入口([`Self::from_query`])复用同一构造逻辑。
+#[derive(Debug, Default)]
+struct FacetSelection {
+    kind: Option<ResourceKind>,
+    /// 游戏版本并集(单值 `game_version` + 多选 `game_versions`,去重)。
+    game_versions: Vec<String>,
+    /// loader 并集(单值 `loader` + 多选 `loaders`,各经 `accepted_loaders` 展开后去重)。
+    loaders: Vec<String>,
+    /// 内容分类(各自成一个 AND 组)。
+    categories: Vec<String>,
+    /// 运行环境:`"client"` / `"server"`(其余忽略)。
+    environment: Option<String>,
+    /// 仅开源项目。
+    open_source: bool,
+}
+
+impl FacetSelection {
+    /// 单值兼容入口(旧 `search` / `search_sorted` 用):只有 kind + 单个游戏版本 + 单个 loader。
+    fn single(kind: ResourceKind, game_version: Option<&str>, loader: Option<&str>) -> Self {
+        let mut sel = Self { kind: Some(kind), ..Self::default() };
+        if let Some(v) = game_version.filter(|s| !s.is_empty()) {
+            sel.game_versions.push(v.to_string());
+        }
+        sel.add_loader(loader);
+        sel
+    }
+
+    /// 完整查询入口:合并单值兼容字段与多选 facet 字段(并集 + 去重)。
+    fn from_query(q: &SearchQuery) -> Self {
+        let mut sel = Self { kind: Some(q.kind), ..Self::default() };
+
+        // 游戏版本:单值 + 多选,去重保序。
+        for v in q.game_version.iter().chain(q.game_versions.iter()) {
+            push_unique(&mut sel.game_versions, v);
+        }
+        // loader:单值 + 多选,各经 accepted_loaders 展开(Quilt→quilt+fabric)后去重保序。
+        sel.add_loader(q.loader.as_deref());
+        for l in &q.loaders {
+            sel.add_loader(Some(l.as_str()));
+        }
+        // 分类:去重保序。
+        for c in &q.categories {
+            push_unique(&mut sel.categories, c);
+        }
+        sel.environment = q.environment.as_deref().filter(|s| !s.is_empty()).map(str::to_string);
+        sel.open_source = q.open_source.unwrap_or(false);
+        sel
+    }
+
+    /// 把一个 loader 经 [`super::accepted_loaders`] 展开后并入 `self.loaders`(去重保序)。
+    fn add_loader(&mut self, loader: Option<&str>) {
+        if let Some(l) = loader.filter(|s| !s.is_empty()) {
+            for accepted in super::accepted_loaders(l) {
+                push_unique(&mut self.loaders, &accepted);
+            }
+        }
+    }
+}
+
+/// 追加到 `vec`,跳过空串与已存在项(保序去重)。
+fn push_unique(vec: &mut Vec<String>, item: &str) {
+    if !item.is_empty() && !vec.iter().any(|x| x == item) {
+        vec.push(item.to_string());
+    }
+}
+
 /// 构造 Modrinth `facets` 参数(一个 json 字符串)。
 ///
-/// facets 形如 `[["project_type:mod"],["versions:1.20.1"],["categories:fabric"]]`,
-/// 外层数组各元素之间是 AND,内层数组各元素之间是 OR。我们每个维度只放一个值,
-/// 因此内层都是单元素。
+/// facets 是 "AND of OR" 的二维数组,形如
+/// `[["project_type:mod"],["categories:base"],["categories:fabric","categories:forge"],["versions:1.20.1","versions:1.21"]]`:
+/// 外层各组之间是 AND,内层各项之间是 OR。映射规则:
+/// - `project_type:<kind>` —— 始终一个组。
+/// - 每个**内容分类**各成一个 AND 组(`["categories:<name>"]`),多选即 AND(都得带)。
+/// - 所有 **loader** 合成一个 OR 组(`["categories:fabric","categories:forge",…]`)。
+/// - 所有**游戏版本**合成一个 OR 组(`["versions:1.20.1","versions:1.21",…]`)。
+/// - **环境**:`client` → `["client_side:optional","client_side:required"]`;
+///   `server` → `["server_side:optional","server_side:required"]`。
 ///
-/// 数据包(`ResourceKind::Datapack`)在 Modrinth 是 `mod` 项目 + `datapack`
-/// category,故额外追加 `categories:datapack`。
-fn build_facets(kind: ResourceKind, game_version: Option<&str>, loader: Option<&str>) -> String {
+/// 数据包(`ResourceKind::Datapack`)在 Modrinth 是 `mod` 项目 + `datapack` category,
+/// 故额外追加 `["categories:datapack"]`。
+fn build_facets(sel: &FacetSelection) -> String {
     let mut groups: Vec<String> = Vec::new();
 
-    groups.push(facet_group(&[&format!("project_type:{}", kind.as_modrinth_project_type())]));
-
-    if matches!(kind, ResourceKind::Datapack) {
-        groups.push(facet_group(&["categories:datapack"]));
-    }
-
-    if let Some(v) = game_version {
-        groups.push(facet_group(&[&format!("versions:{v}")]));
-    }
-    if let Some(l) = loader {
-        // Quilt 同时匹配 fabric category;其余 loader 为单元素,facet 与之前一致。
-        let accepted = super::accepted_loaders(l);
-        if !accepted.is_empty() {
-            let items: Vec<String> = accepted.iter().map(|x| format!("categories:{x}")).collect();
-            let refs: Vec<&str> = items.iter().map(String::as_str).collect();
-            groups.push(facet_group(&refs));
+    if let Some(kind) = sel.kind {
+        groups.push(facet_group(&[&format!("project_type:{}", kind.as_modrinth_project_type())]));
+        if matches!(kind, ResourceKind::Datapack) {
+            groups.push(facet_group(&["categories:datapack"]));
         }
+    }
+
+    // 每个内容分类各成一个 AND 组。
+    for c in &sel.categories {
+        groups.push(facet_group(&[&format!("categories:{c}")]));
+    }
+
+    // 所有 loader 合成一个 OR 组。
+    if !sel.loaders.is_empty() {
+        let items: Vec<String> = sel.loaders.iter().map(|x| format!("categories:{x}")).collect();
+        let refs: Vec<&str> = items.iter().map(String::as_str).collect();
+        groups.push(facet_group(&refs));
+    }
+
+    // 所有游戏版本合成一个 OR 组。
+    if !sel.game_versions.is_empty() {
+        let items: Vec<String> = sel.game_versions.iter().map(|x| format!("versions:{x}")).collect();
+        let refs: Vec<&str> = items.iter().map(String::as_str).collect();
+        groups.push(facet_group(&refs));
+    }
+
+    // 环境:client/server 各自是一个 OR 组(optional 或 required 都算)。
+    if let Some(env) = sel.environment.as_deref() {
+        match env {
+            "client" => groups.push(facet_group(&["client_side:optional", "client_side:required"])),
+            "server" => groups.push(facet_group(&["server_side:optional", "server_side:required"])),
+            _ => {}
+        }
+    }
+
+    // 仅开源:open_source:true 单独一个组。
+    if sel.open_source {
+        groups.push(facet_group(&["open_source:true"]));
     }
 
     format!("[{}]", groups.join(","))
@@ -729,6 +844,137 @@ impl ModrinthApi {
     }
 }
 
+// ============================ facet 分类法(tags) ============================
+
+/// 进程内缓存:Modrinth 的 tag 端点(分类 / loader / 游戏版本)极少变动,首次拉取后
+/// 缓存到进程结束,避免每次打开浏览页都打三次网络。仅用于**默认 base** 的客户端;
+/// 自定义 base(测试 / 镜像)绕过缓存,见 [`ModrinthApi::content_facets`]。
+static FACET_TAGS_CACHE: tokio::sync::OnceCell<FacetTagsDto> = tokio::sync::OnceCell::const_new();
+
+/// Modrinth 的 facet 分类法:内容分类 / loader / 游戏版本。前端据此渲染过滤面板。
+/// 注意:这些是平台动态数据(分类名直接来自 Modrinth),**不**走 i18n,原样展示。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct FacetTagsDto {
+    pub categories: Vec<CategoryTag>,
+    pub loaders: Vec<LoaderTag>,
+    pub game_versions: Vec<GameVersionTag>,
+}
+
+/// 一个内容分类(`GET /tag/category` 的一项)。`header` 把分类分组
+/// (`categories` / `features` / `resolutions` / `performance impact`);
+/// `project_type` 指出该分类适用于哪个资源类型(`mod` / `modpack` / `shader` / …)。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct CategoryTag {
+    pub name: String,
+    pub header: String,
+    pub project_type: String,
+}
+
+/// 一个 loader(`GET /tag/loader` 的一项)。`supported_project_types` 指出该 loader
+/// 适用于哪些资源类型(过滤面板据此只在相关 kind 下显示对应 loader)。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct LoaderTag {
+    pub name: String,
+    pub supported_project_types: Vec<String>,
+}
+
+/// 一个游戏版本(`GET /tag/game_version` 的一项)。`version_type` 区分
+/// `release` / `snapshot` / `alpha` / `beta`,前端默认可只展示 release。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct GameVersionTag {
+    pub version: String,
+    pub version_type: String,
+}
+
+/// `GET /tag/category` 的一项原始 json。
+#[derive(Debug, Deserialize)]
+struct RawCategoryTag {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    header: String,
+    #[serde(default)]
+    project_type: String,
+}
+
+/// `GET /tag/loader` 的一项原始 json。
+#[derive(Debug, Deserialize)]
+struct RawLoaderTag {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    supported_project_types: Vec<String>,
+}
+
+/// `GET /tag/game_version` 的一项原始 json。
+#[derive(Debug, Deserialize)]
+struct RawGameVersionTag {
+    #[serde(default)]
+    version: String,
+    #[serde(default)]
+    version_type: String,
+}
+
+fn map_category_tag(r: RawCategoryTag) -> CategoryTag {
+    CategoryTag { name: r.name, header: r.header, project_type: r.project_type }
+}
+
+fn map_loader_tag(r: RawLoaderTag) -> LoaderTag {
+    LoaderTag { name: r.name, supported_project_types: r.supported_project_types }
+}
+
+fn map_game_version_tag(r: RawGameVersionTag) -> GameVersionTag {
+    GameVersionTag { version: r.version, version_type: r.version_type }
+}
+
+impl ModrinthApi {
+    /// 取 Modrinth 的 facet 分类法(`/tag/category` + `/tag/loader` + `/tag/game_version`)。
+    ///
+    /// 默认 base 的客户端用进程内 [`FACET_TAGS_CACHE`] 缓存——这些 tag 极少变动,重复调用
+    /// 不再打网络。自定义 base(测试 / 镜像)绕过缓存,直接拉取。
+    pub async fn content_facets(&self) -> Result<FacetTagsDto> {
+        if self.base == API_BASE {
+            FACET_TAGS_CACHE.get_or_try_init(|| self.fetch_facets()).await.cloned()
+        } else {
+            self.fetch_facets().await
+        }
+    }
+
+    /// 三个 tag 端点并发拉取并解析(无缓存)。失败映射成 [`CoreError::Network`] / [`CoreError::Parse`]。
+    async fn fetch_facets(&self) -> Result<FacetTagsDto> {
+        let cat_url = format!("{}/tag/category", self.base);
+        let loader_url = format!("{}/tag/loader", self.base);
+        let gv_url = format!("{}/tag/game_version", self.base);
+
+        let (cat_bytes, loader_bytes, gv_bytes) = futures::try_join!(
+            async { self.client.get(&cat_url).send().await?.error_for_status()?.bytes().await },
+            async { self.client.get(&loader_url).send().await?.error_for_status()?.bytes().await },
+            async { self.client.get(&gv_url).send().await?.error_for_status()?.bytes().await },
+        )?;
+
+        Self::parse_facets(&cat_bytes, &loader_bytes, &gv_bytes)
+    }
+
+    /// 纯解析:把三个 tag 端点的字节映射成 [`FacetTagsDto`](可单测)。
+    pub fn parse_facets(
+        categories: &[u8],
+        loaders: &[u8],
+        game_versions: &[u8],
+    ) -> Result<FacetTagsDto> {
+        let raw_cats: Vec<RawCategoryTag> = serde_json::from_slice(categories)
+            .map_err(|e| CoreError::Parse { what: "modrinth tag/category".into(), source: e })?;
+        let raw_loaders: Vec<RawLoaderTag> = serde_json::from_slice(loaders)
+            .map_err(|e| CoreError::Parse { what: "modrinth tag/loader".into(), source: e })?;
+        let raw_gvs: Vec<RawGameVersionTag> = serde_json::from_slice(game_versions)
+            .map_err(|e| CoreError::Parse { what: "modrinth tag/game_version".into(), source: e })?;
+        Ok(FacetTagsDto {
+            categories: raw_cats.into_iter().map(map_category_tag).collect(),
+            loaders: raw_loaders.into_iter().map(map_loader_tag).collect(),
+            game_versions: raw_gvs.into_iter().map(map_game_version_tag).collect(),
+        })
+    }
+}
+
 fn map_file(r: RawFile) -> VersionFile {
     VersionFile {
         url: r.url,
@@ -756,7 +1002,7 @@ use std::collections::HashMap;
 use futures::future::{try_join_all, BoxFuture};
 
 use super::provider::ResourceProvider;
-use super::{HashAlgo, ProviderCaps, ProviderId, ResolvedFile, SearchQuery};
+use super::{HashAlgo, ProviderCaps, ProviderId, ResolvedFile};
 
 /// Modrinth 支持反查的哈希算法,按偏好序(sha512 优先,sha1 兜底)。
 /// `&'static [HashAlgo]` 需要一个 `'static` 数组,故声明为 const。
@@ -838,19 +1084,7 @@ impl ResourceProvider for ModrinthProvider {
     }
 
     fn search<'a>(&'a self, q: &'a SearchQuery) -> BoxFuture<'a, Result<Vec<SearchHit>>> {
-        Box::pin(async move {
-            self.api
-                .search_sorted(
-                    &q.text,
-                    q.kind,
-                    q.game_version.as_deref(),
-                    q.loader.as_deref(),
-                    q.limit,
-                    q.offset,
-                    q.sort,
-                )
-                .await
-        })
+        Box::pin(async move { self.api.search_query(q).await })
     }
 
     fn get_project<'a>(&'a self, project_id: &'a str) -> BoxFuture<'a, Result<SearchHit>> {
@@ -937,38 +1171,145 @@ impl ResourceProvider for ModrinthProvider {
 mod tests {
     use super::*;
 
+    /// 由前端单值/多选参数构造一个 [`SearchQuery`] 的测试便捷工具。
+    fn query_for_facets(
+        kind: ResourceKind,
+        game_versions: &[&str],
+        loaders: &[&str],
+        categories: &[&str],
+        environment: Option<&str>,
+    ) -> SearchQuery {
+        SearchQuery {
+            game_versions: game_versions.iter().map(|s| s.to_string()).collect(),
+            loaders: loaders.iter().map(|s| s.to_string()).collect(),
+            categories: categories.iter().map(|s| s.to_string()).collect(),
+            environment: environment.map(str::to_string),
+            ..SearchQuery::new("", kind)
+        }
+    }
+
     #[test]
     fn facets_only_kind() {
-        let f = build_facets(ResourceKind::Mod, None, None);
+        let f = build_facets(&FacetSelection::single(ResourceKind::Mod, None, None));
         assert_eq!(f, r#"[["project_type:mod"]]"#);
     }
 
     #[test]
     fn facets_with_version_and_loader() {
-        let f = build_facets(ResourceKind::Mod, Some("1.20.1"), Some("fabric"));
+        // 单值入口:loader OR 组在 version OR 组之前。
+        let f = build_facets(&FacetSelection::single(
+            ResourceKind::Mod,
+            Some("1.20.1"),
+            Some("fabric"),
+        ));
         assert_eq!(
             f,
-            r#"[["project_type:mod"],["versions:1.20.1"],["categories:fabric"]]"#
+            r#"[["project_type:mod"],["categories:fabric"],["versions:1.20.1"]]"#
         );
     }
 
     #[test]
     fn facets_datapack_adds_category() {
         // 数据包 → project_type:mod + categories:datapack
-        let f = build_facets(ResourceKind::Datapack, None, None);
+        let f = build_facets(&FacetSelection::single(ResourceKind::Datapack, None, None));
         assert_eq!(f, r#"[["project_type:mod"],["categories:datapack"]]"#);
     }
 
     #[test]
     fn facets_resourcepack_and_shader_type() {
         assert_eq!(
-            build_facets(ResourceKind::ResourcePack, None, None),
+            build_facets(&FacetSelection::single(ResourceKind::ResourcePack, None, None)),
             r#"[["project_type:resourcepack"]]"#
         );
         assert_eq!(
-            build_facets(ResourceKind::Shader, None, None),
+            build_facets(&FacetSelection::single(ResourceKind::Shader, None, None)),
             r#"[["project_type:shader"]]"#
         );
+    }
+
+    #[test]
+    fn facets_multi_categories_loaders_versions_environment() {
+        // 多选:每个分类各成 AND 组;loaders 合成一个 OR 组;versions 合成一个 OR 组;
+        // environment=client 展开成 client_side optional|required。顺序:
+        // project_type → 各分类 → loaders OR → versions OR → environment OR。
+        let q = query_for_facets(
+            ResourceKind::Mod,
+            &["1.20.1", "1.21"],
+            &["fabric", "forge"],
+            &["optimization", "utility"],
+            Some("client"),
+        );
+        let f = build_facets(&FacetSelection::from_query(&q));
+        assert_eq!(
+            f,
+            r#"[["project_type:mod"],["categories:optimization"],["categories:utility"],["categories:fabric","categories:forge"],["versions:1.20.1","versions:1.21"],["client_side:optional","client_side:required"]]"#
+        );
+    }
+
+    #[test]
+    fn facets_environment_server_and_quilt_expands_fabric() {
+        // environment=server → server_side optional|required;Quilt loader 展开成 quilt+fabric
+        // (经 accepted_loaders),合成同一个 OR 组。
+        let q = query_for_facets(ResourceKind::Mod, &[], &["quilt"], &[], Some("server"));
+        let f = build_facets(&FacetSelection::from_query(&q));
+        assert_eq!(
+            f,
+            r#"[["project_type:mod"],["categories:quilt","categories:fabric"],["server_side:optional","server_side:required"]]"#
+        );
+    }
+
+    #[test]
+    fn facets_merge_single_and_multi_dedups() {
+        // 单值 game_version/loader 与多选数组合并去重(并集保序):
+        // game_version=1.20.1 + game_versions=[1.20.1,1.21] → [1.20.1,1.21]。
+        let q = SearchQuery {
+            game_version: Some("1.20.1".to_string()),
+            game_versions: vec!["1.20.1".to_string(), "1.21".to_string()],
+            loader: Some("fabric".to_string()),
+            loaders: vec!["fabric".to_string(), "forge".to_string()],
+            ..SearchQuery::new("", ResourceKind::Mod)
+        };
+        let f = build_facets(&FacetSelection::from_query(&q));
+        assert_eq!(
+            f,
+            r#"[["project_type:mod"],["categories:fabric","categories:forge"],["versions:1.20.1","versions:1.21"]]"#
+        );
+    }
+
+    #[test]
+    fn parse_facets_maps_three_tag_endpoints() {
+        // /tag/category、/tag/loader、/tag/game_version 三个数组各映射一项,字段保形。
+        let cats = r#"[
+            {"icon":"<svg/>","name":"optimization","project_type":"mod","header":"categories"},
+            {"icon":"<svg/>","name":"adventure","project_type":"modpack","header":"categories"}
+        ]"#;
+        let loaders = r#"[
+            {"icon":"<svg/>","name":"fabric","supported_project_types":["mod","modpack"]},
+            {"icon":"<svg/>","name":"forge","supported_project_types":["mod"]}
+        ]"#;
+        let gvs = r#"[
+            {"version":"1.21","version_type":"release","date":"2024-06-13T00:00:00Z","major":true},
+            {"version":"24w14a","version_type":"snapshot","date":"2024-04-03T00:00:00Z","major":false}
+        ]"#;
+        let dto =
+            ModrinthApi::parse_facets(cats.as_bytes(), loaders.as_bytes(), gvs.as_bytes()).unwrap();
+        assert_eq!(dto.categories.len(), 2);
+        assert_eq!(dto.categories[0].name, "optimization");
+        assert_eq!(dto.categories[0].header, "categories");
+        assert_eq!(dto.categories[0].project_type, "mod");
+        assert_eq!(dto.loaders.len(), 2);
+        assert_eq!(dto.loaders[0].name, "fabric");
+        assert_eq!(dto.loaders[0].supported_project_types, vec!["mod", "modpack"]);
+        assert_eq!(dto.game_versions.len(), 2);
+        assert_eq!(dto.game_versions[0].version, "1.21");
+        assert_eq!(dto.game_versions[0].version_type, "release");
+        assert_eq!(dto.game_versions[1].version_type, "snapshot");
+    }
+
+    #[test]
+    fn parse_facets_malformed_is_parse_error() {
+        let err = ModrinthApi::parse_facets(b"not json", b"[]", b"[]").unwrap_err();
+        assert!(matches!(err, CoreError::Parse { .. }));
     }
 
     #[test]

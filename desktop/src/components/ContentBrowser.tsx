@@ -3,6 +3,7 @@ import { ModpackListItem } from "./ModpackListItem";
 import type { ModpackHit } from "./ModpackCard";
 import { ACCENT_BTN_COMPACT } from "./styles";
 import { SearchBox } from "./SearchBox";
+import { Select } from "./Select";
 import { Spinner } from "./Spinner";
 import { toast } from "./Toast";
 import { api } from "../ipc/api";
@@ -86,6 +87,18 @@ export interface ContentBrowserProps {
   onEscape?: () => void;
   /** 本次浏览已添加的 project_id 集合:这些行按钮显示「已添加」并禁用,给即时反馈。 */
   addedIds?: Set<string>;
+  /** Discover 侧栏的多选内容分类(每个各成一 AND 组);仅 Modrinth 消费。缺省=无过滤。 */
+  categories?: () => string[];
+  /** Discover 侧栏的多选 loader(合成一 OR 组);仅 Modrinth 消费。缺省=无过滤。 */
+  loaders?: () => string[];
+  /** Discover 侧栏的多选游戏版本(合成一 OR 组);仅 Modrinth 消费。缺省=无过滤。 */
+  gameVersions?: () => string[];
+  /** Discover 侧栏的运行环境("client"/"server");仅 Modrinth 消费。缺省=不过滤。 */
+  environment?: () => string | null;
+  /** Discover 侧栏 License:仅开源;仅 Modrinth 消费。缺省=不过滤。 */
+  openSource?: () => boolean;
+  /** 内部内容平台切换时上报(Discover 据此决定 facet 侧栏显示哪些组)。 */
+  onProviderChange?: (provider: ContentProvider) => void;
 }
 
 const ADD_BTN = ACCENT_BTN_COMPACT;
@@ -125,6 +138,21 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
     setProvider(p);
   }
 
+  // 平台变化(用户切换或 CF 未配置回退)即上报,供 Discover 调整 facet 侧栏。
+  createEffect(() => props.onProviderChange?.(provider()));
+
+  // Discover 侧栏的多选 facet → 后端 SearchFacetsArg(仅 Modrinth 消费;CF 忽略)。
+  // 任一维度非空才下发,否则传 null 保持原行为(实例弹窗等不传 facet props 的场景)。
+  function buildFacets() {
+    const categories = props.categories?.() ?? [];
+    const loaders = props.loaders?.() ?? [];
+    const gameVersions = props.gameVersions?.() ?? [];
+    const environment = props.environment?.() ?? null;
+    const openSource = props.openSource?.() ?? false;
+    if (!categories.length && !loaders.length && !gameVersions.length && !environment && !openSource) return null;
+    return { categories, loaders, game_versions: gameVersions, environment, open_source: openSource };
+  }
+
   async function fetchPage(q: string, offset: number): Promise<SearchHit[] | null> {
     const p = provider();
     try {
@@ -137,6 +165,7 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
         offset,
         p,
         sort(),
+        buildFacets(),
       );
       setReachedEnd(hits.length < PAGE);
       return hits;
@@ -159,12 +188,17 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
   // 关键词 / 类型 / 实例版本 / 加载器 / 平台 / 排序变化 → 重新拉第一页(替换)。
   createEffect(() => {
     const q = debounced();
-    // 订阅以下信号,使切换实例/类型/平台/排序时也会重搜。
+    // 订阅以下信号,使切换实例/类型/平台/排序/facet 时也会重搜(从 offset 0)。
     void props.kind;
     void props.mcVersion;
     void props.loader;
     void provider();
     void sort();
+    void props.categories?.();
+    void props.loaders?.();
+    void props.gameVersions?.();
+    void props.environment?.();
+    void props.openSource?.();
     setBackendUnavailable(false);
     setSearchError(null);
     setLoading(true);
@@ -249,18 +283,15 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
           </For>
         </div>
 
-        <label class="inline-flex items-center gap-[6px] text-dim text-[12px]">
+        <div class="inline-flex items-center gap-[6px] text-dim text-[12px]">
           {t("discover.sortLabel")}
-          <select
-            class="h-[28px] px-[8px] rounded-ctl glass-input text-fg text-[12px] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5"
+          <Select
+            class="!min-w-[150px]"
             value={sort()}
-            onChange={(e) => setSort(e.currentTarget.value as SortKey)}
-          >
-            <For each={SORTS()}>
-              {(o) => <option value={o.key}>{o.label}</option>}
-            </For>
-          </select>
-        </label>
+            onChange={(v) => setSort(v as SortKey)}
+            options={SORTS().map((o) => ({ value: o.key, label: o.label }))}
+          />
+        </div>
       </div>
 
       <Show when={cfUnavailable()}>
