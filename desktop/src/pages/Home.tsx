@@ -2,6 +2,7 @@ import { Component, createResource, createSignal, For, Show, onCleanup } from "s
 import {
   BlockedFilesDialog,
   EmptyState,
+  ErrorState,
   ExportModpackDialog,
   Icon,
   ImportModpackDialog,
@@ -63,7 +64,7 @@ const Home: Component = () => {
 
   // 整合包推荐:一次性拉取热门 modpack。
   const [packs] = createResource(() =>
-    api.modrinthSearch("", "modpack", null, null, null, null).catch(() => [] as SearchHit[]),
+    api.modrinthSearch("", "modpack", null, null, null, null, null, null).catch(() => [] as SearchHit[]),
   );
 
   // 导出整合包:选格式弹窗(非空 = 打开,目标实例即其值)。
@@ -132,6 +133,12 @@ const Home: Component = () => {
           fallback={<div class="flex justify-center p-[32px]"><Spinner /></div>}
         >
           <Show
+            when={!instances.error}
+            fallback={
+              <ErrorState message={t("library.instanceListError")} onRetry={() => void refetchInstances()} />
+            }
+          >
+          <Show
             when={recent().length > 0}
             fallback={
               <EmptyState title={<>{t("library.emptyHomePrefix")}<b>{t("library.emptyHomeLink")}</b>{t("library.emptyHomeSuffix")}</>} />
@@ -155,6 +162,7 @@ const Home: Component = () => {
                 )}
               </For>
             </div>
+          </Show>
           </Show>
         </Show>
       </section>

@@ -58,7 +58,7 @@ const ModpackDetail: Component<{
   const [versions] = createResource(
     () => props.hit.id,
     (id) =>
-      api.modrinthVersions(id).catch((e) => {
+      api.modrinthVersions(id, "modrinth").catch((e) => {
         toast({ type: "error", message: t("discover.versionsLoadFailed", { error: String(e) }) });
         return [] as ModrinthVersion[];
       }),

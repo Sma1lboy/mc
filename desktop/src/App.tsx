@@ -1,11 +1,10 @@
-import { onCleanup, onMount, Show, type Component } from "solid-js";
+import { onCleanup, onMount, type Component } from "solid-js";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { initTheme } from "./theme/theme";
 import AppShell from "./layout/AppShell";
-import ClassicShell from "./layout/classic/ClassicShell";
 import { ToastContainer } from "./components";
 import { api } from "./ipc/api";
-import { currentRoot, setCurrentRoot, layoutMode } from "./store";
+import { currentRoot, setCurrentRoot } from "./store";
 
 /**
  * 应用根组件。
@@ -21,8 +20,7 @@ import { currentRoot, setCurrentRoot, layoutMode } from "./store";
 const App: Component = () => {
   onMount(() => {
     // 异步初始化主题,不阻塞渲染;tokens.css 已提供默认值兜底首帧观感。
-    // 初始化时把当前布局传进去,让旧默认值迁移和布局相称主题都走 theme.ts。
-    void initTheme(layoutMode());
+    void initTheme();
     // 选定默认游戏根目录(发现的第一个),供各页面作为查询参数。
     api
       .listRoots()
@@ -54,10 +52,7 @@ const App: Component = () => {
 
   return (
     <>
-      {/* 两套界面:工作台视图与经典视图,按 layoutMode 切换。 */}
-      <Show when={layoutMode() === "classic"} fallback={<AppShell />}>
-        <ClassicShell />
-      </Show>
+      <AppShell />
       {/* 全局 Toast 容器:左下角滑入提示,挂在根部一次即可。 */}
       <ToastContainer />
     </>

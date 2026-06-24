@@ -53,6 +53,15 @@ const dict = {
     changelog: "更新日志",
     collapseChangelog: "收起更新日志",
 
+    sourceModrinth: "Modrinth",
+    sourceCurseforge: "CurseForge",
+    cfUnconfiguredHint: "CurseForge 需要先在「设置 → 下载」里填入 API Key 才能搜索/下载。",
+    sortLabel: "排序",
+    sortRelevance: "相关度",
+    sortDownloads: "下载量",
+    sortUpdated: "最近更新",
+    sortNewest: "最新",
+
     install: "安装",
     add: "添加",
     added: "已添加",
@@ -72,6 +81,7 @@ const dict = {
     declaredConflicts: "声明与 {{ count }} 个 mod 冲突",
     installedFiles: "已装入 {{ count }} 个文件",
     installedToFile: "已安装到「{{ instance }}」:{{ file }}",
+    blockedManual: "{{ count }} 个文件被作者限制第三方下载,请到 CurseForge 网页手动获取",
     noCompatibleInstance: "当前实例没有兼容版本,请换一个实例",
 
     selectInstanceFirst: "先在右侧选择一个实例",
@@ -144,6 +154,15 @@ const dict = {
     changelog: "Changelog",
     collapseChangelog: "Hide changelog",
 
+    sourceModrinth: "Modrinth",
+    sourceCurseforge: "CurseForge",
+    cfUnconfiguredHint: "CurseForge needs an API Key — add one under Settings → Downloads to search and download.",
+    sortLabel: "Sort",
+    sortRelevance: "Relevance",
+    sortDownloads: "Downloads",
+    sortUpdated: "Recently updated",
+    sortNewest: "Newest",
+
     install: "Install",
     add: "Add",
     added: "Added",
@@ -163,6 +182,7 @@ const dict = {
     declaredConflicts: "declares conflicts with {{ count }} mods",
     installedFiles: "Installed {{ count }} files",
     installedToFile: "Installed to “{{ instance }}”: {{ file }}",
+    blockedManual: "{{ count }} file(s) blocked from third-party download — get them manually on CurseForge",
     noCompatibleInstance: "This instance has no compatible version — try another",
 
     selectInstanceFirst: "Select an instance on the right first",

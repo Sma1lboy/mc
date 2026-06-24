@@ -27,6 +27,8 @@ export const ProjectDetailPanel: Component<{
   loader: string | null;
   /** 数据包安装的目标存档(逐存档生效);其它类型传 null */
   world?: string | null;
+  /** 内容来源平台(modrinth / curseforge);决定走哪个 provider。缺省 modrinth。 */
+  provider?: string;
   onClose: () => void;
   onInstalled: () => void;
 }> = (props) => {
@@ -36,7 +38,7 @@ export const ProjectDetailPanel: Component<{
   );
   const [versions] = createResource(
     () => props.projectId,
-    (id) => api.modrinthVersions(id),
+    (id) => api.modrinthVersions(id, props.provider ?? "modrinth"),
   );
   const [installing, setInstalling] = createSignal<string | null>(null);
   const [showAll, setShowAll] = createSignal(false);
@@ -75,6 +77,8 @@ export const ProjectDetailPanel: Component<{
         isMod ? props.mcVersion : null,
         isMod ? props.loader : null,
         props.target === "datapack" ? props.world ?? null : null,
+        props.provider ?? "modrinth",
+        props.projectId,
       );
       const parts = [`已安装 ${v.version_number}`];
       if (report.installed_deps > 0) parts.push(`+${report.installed_deps} 个依赖`);

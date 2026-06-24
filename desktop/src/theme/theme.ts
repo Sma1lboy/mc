@@ -50,57 +50,6 @@ export function accentFromHex(hex: string): {
 /** 默认主题:深色 + 陶土橙(kobe/Claude 暖色,以 hex 表达)。invoke 失败时的兜底。logo 固定绿,不随此色变。 */
 export const DEFAULT_THEME: ThemeConfig = { mode: "dark", ...accentFromHex("#cc785c") };
 
-/**
- * 各布局「对味」的默认主题。布局与主题是耦合的:工作台配深色+绿,
- * 经典视图配浅色+蓝。switchLayout / 启动注入 / 设置页「重置」都走这同一份,避免
- * 三处各写一份魔法数导致跑偏(例如经典布局却套深色,出现顶栏浅、正文深的诡异组合)。
- */
-export const WORKSPACE_THEME: ThemeConfig = DEFAULT_THEME;
-export const CLASSIC_THEME: ThemeConfig = {
-  mode: "light",
-  hue: 255,
-  saturation: 40,
-  lightness: 45,
-};
-
-const LEGACY_CLASSIC_ACCENTS = [
-  { hue: 214, saturation: 88, lightness: 52 },
-  { hue: 214, saturation: 90, lightness: 51 },
-];
-
-/** 取某布局相称的默认主题。 */
-export function themeForLayout(layout: "workspace" | "classic"): ThemeConfig {
-  return layout === "classic" ? CLASSIC_THEME : WORKSPACE_THEME;
-}
-
-/**
- * 当前主题是否仍等于某布局的默认(即用户从未自定义过配色)。
- * 切换布局时据此判断:未自定义才套用新布局默认皮肤,自定义过则原样保留。
- */
-export function isThemeUntouchedFor(layout: "workspace" | "classic"): boolean {
-  return sameTheme(themeConfig(), themeForLayout(layout));
-}
-
-function sameTheme(a: ThemeConfig, b: ThemeConfig): boolean {
-  return (
-    a.mode === b.mode &&
-    Math.abs(a.hue - b.hue) < 0.5 &&
-    Math.abs(a.saturation - b.saturation) < 0.5 &&
-    Math.abs(a.lightness - b.lightness) < 0.5
-  );
-}
-
-function sameAccent(
-  a: Pick<ThemeConfig, "hue" | "saturation" | "lightness">,
-  b: Pick<ThemeConfig, "hue" | "saturation" | "lightness">,
-): boolean {
-  return (
-    Math.abs(a.hue - b.hue) < 0.5 &&
-    Math.abs(a.saturation - b.saturation) < 0.5 &&
-    Math.abs(a.lightness - b.lightness) < 0.5
-  );
-}
-
 function numberOrDefault(value: unknown, fallback: number): number {
   const num = Number(value);
   return Number.isFinite(num) ? num : fallback;
@@ -117,7 +66,6 @@ function sanitizeThemeConfig(cfg: Partial<ThemeConfig> | null | undefined): Them
 
 export function normalizeThemeConfig(
   cfg: Partial<ThemeConfig> | null | undefined,
-  layout?: "workspace" | "classic",
 ): { config: ThemeConfig; changed: boolean } {
   const safe = sanitizeThemeConfig(cfg);
   const rawChanged =
@@ -126,14 +74,6 @@ export function normalizeThemeConfig(
     cfg.hue !== safe.hue ||
     cfg.saturation !== safe.saturation ||
     cfg.lightness !== safe.lightness;
-
-  if (LEGACY_CLASSIC_ACCENTS.some((accent) => sameAccent(safe, accent))) {
-    return { config: CLASSIC_THEME, changed: true };
-  }
-
-  if (layout === "classic" && sameTheme(safe, DEFAULT_THEME)) {
-    return { config: CLASSIC_THEME, changed: true };
-  }
 
   return { config: safe, changed: rawChanged };
 }
@@ -273,18 +213,17 @@ export const PRESETS: {
  * 后端不可用(开发期未起 Tauri / 命令未实现)时,回落默认主题,保证 UI 可用。
  * 返回实际生效的配置,供设置页初始化滑块。
  */
-export async function initTheme(layout?: "workspace" | "classic"): Promise<ThemeConfig> {
+export async function initTheme(): Promise<ThemeConfig> {
   try {
     const cfg = await invoke<ThemeConfig>("get_theme");
-    const { config, changed } = normalizeThemeConfig(cfg, layout);
+    const { config, changed } = normalizeThemeConfig(cfg);
     applyTheme(config);
     if (changed) void invoke("set_theme", { cfg: config }).catch(() => {});
     return config;
   } catch {
     // get_theme 失败(如非 Tauri 环境):用默认主题兜底,不抛错阻塞渲染。
-    const fallback = layout ? themeForLayout(layout) : DEFAULT_THEME;
-    applyTheme(fallback);
-    return fallback;
+    applyTheme(DEFAULT_THEME);
+    return DEFAULT_THEME;
   }
 }
 

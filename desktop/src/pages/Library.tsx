@@ -182,6 +182,10 @@ const Library: Component = () => {
 
       <Show when={!instances.loading} fallback={<div class="flex justify-center p-[32px]"><Spinner /></div>}>
         <Show
+          when={!instances.error}
+          fallback={<ErrorState message={t("library.instanceListError")} onRetry={() => void refetch()} />}
+        >
+        <Show
           when={(instances() ?? []).length > 0}
           fallback={<EmptyState title={t("library.emptyRoot")} />}
         >
@@ -218,6 +222,7 @@ const Library: Component = () => {
             </For>
           </div>
           </Show>
+        </Show>
         </Show>
       </Show>
 
