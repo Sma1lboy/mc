@@ -69,6 +69,12 @@ pub struct GlobalSettings {
     /// 额外的自定义数据根目录列表(多游戏根/外部实例库)。
     #[serde(default)]
     pub custom_roots: Vec<String>,
+
+    /// 用户提供的 CurseForge API key(Prism 风格:用户自带 key 才能用 CurseForge)。
+    /// `None` 或空 = 回退到内建/环境 key(见 [`crate::modplatform::resolve_cf_api_key`]),
+    /// 仍无则不注册 CurseForge provider。**secret**,勿打日志。
+    #[serde(default)]
+    pub cf_api_key: Option<String>,
 }
 
 fn default_download_source() -> String {
@@ -95,6 +101,7 @@ impl Default for GlobalSettings {
             language: default_language(),
             server_url: None,
             custom_roots: Vec::new(),
+            cf_api_key: None,
         }
     }
 }
@@ -194,6 +201,7 @@ mod tests {
         assert_eq!(s.language, "zh-CN");
         assert!(s.server_url.is_none());
         assert!(s.custom_roots.is_empty());
+        assert!(s.cf_api_key.is_none());
     }
 
     #[test]
@@ -208,6 +216,7 @@ mod tests {
             language: "en-US".to_string(),
             server_url: Some("https://example.com".to_string()),
             custom_roots: vec!["/games/a".to_string(), "/games/b".to_string()],
+            cf_api_key: Some("cf-secret-key".to_string()),
         };
 
         // 目录尚不存在,save 必须自动创建。
@@ -224,6 +233,7 @@ mod tests {
         assert_eq!(loaded.language, s.language);
         assert_eq!(loaded.server_url, s.server_url);
         assert_eq!(loaded.custom_roots, s.custom_roots);
+        assert_eq!(loaded.cf_api_key, s.cf_api_key);
 
         let _ = std::fs::remove_dir_all(&dir);
     }
