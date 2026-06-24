@@ -1,4 +1,4 @@
-import { createSignal } from "solid-js";
+import { createSignal, createResource } from "solid-js";
 import { api, onGameExit, onGameStarted } from "./ipc/api";
 import { toast } from "./components/Toast";
 import { t } from "./i18n";
@@ -52,6 +52,16 @@ export function setCurrentRoot(path: string | null): void {
  * createResource 的 root 源都经此取根,把这个「空根 → 默认根」的约定收敛到一处。
  */
 export const activeRoot = (): string => currentRoot() ?? "";
+
+// ===== 实例列表(全局单一真相)=====
+// 整个应用只有这一份实例列表:库页、首页、侧栏 rail、安装目标选择器都读 instances(),
+// 任何增 / 删 / 装 / 改之后调用 refreshInstances() 统一刷新,避免「一处删了、另一处还显示」
+// 的状态分叉。源随 activeRoot() 变化,切换根目录自动重拉。
+const [instances, { refetch: refreshInstances }] = createResource(
+  () => activeRoot(),
+  (root) => api.listInstances(root),
+);
+export { instances, refreshInstances };
 
 // ===== 实例详情页 =====
 // 点击实例进入详情页(currentPage="instance"),记住来源页用于返回。

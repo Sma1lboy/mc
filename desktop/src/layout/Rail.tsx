@@ -1,6 +1,6 @@
 import { Component, JSX, For, Show, createResource, createSignal } from "solid-js";
 import { AccountDialog, Avatar, InstanceIcon, NewInstanceDialog } from "../components";
-import { currentPage, setCurrentPage, activeRoot, openInstance, currentInstanceId } from "../store";
+import { currentPage, setCurrentPage, openInstance, currentInstanceId, instances, refreshInstances } from "../store";
 import { api } from "../ipc/api";
 import { sortByRecent } from "../util/instances";
 import type { AccountSummary } from "../ipc/types";
@@ -123,10 +123,7 @@ const Rail: Component = () => {
   const [accounts, { refetch }] = createResource<AccountSummary[]>(() => api.listAccounts());
 
   // 最近实例:按上次游玩排序取前 3,作为 rail 快捷入口(点击进详情)。
-  const [instances, { refetch: refetchInstances }] = createResource(
-    () => activeRoot(),
-    (root) => api.listInstances(root),
-  );
+  // 实例列表来自全局 store(单一真相),库页删除后这里同步更新。
   const pinned = () => sortByRecent(instances() ?? []).slice(0, 3);
 
   // 新增实例对话框。
@@ -279,7 +276,7 @@ const Rail: Component = () => {
         open={newOpen()}
         onClose={() => setNewOpen(false)}
         onCreated={(id) => {
-          void refetchInstances();
+          void refreshInstances();
           openInstance(id);
         }}
       />
