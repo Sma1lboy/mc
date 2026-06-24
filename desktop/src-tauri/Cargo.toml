@@ -38,6 +38,10 @@ tauri-specta = { version = "=2.0.0-rc.25", features = ["typescript"] }
 specta-typescript = "0.0.12"
 specta = { version = "=2.0.0-rc.25", features = ["derive", "function"] }
 
+# 画廊截图(gallery.rs)按 CGWindowID 抓窗口,需向 NSWindow 取 windowNumber。仅 macOS。
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+
 # 让本包脱离父级 mc-launcher workspace 独立成一个 cargo 包。
 # 空 [workspace] 表声明"这里就是 workspace 根",从而不会被 ../../Cargo.toml 收编。
 [workspace]

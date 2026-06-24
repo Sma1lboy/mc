@@ -5,6 +5,7 @@ import AppShell from "./layout/AppShell";
 import { ToastContainer } from "./components";
 import { api } from "./ipc/api";
 import { currentRoot, setCurrentRoot } from "./store";
+import { maybeRunGallery } from "./gallery/runner";
 
 /**
  * 应用根组件。
@@ -48,6 +49,9 @@ const App: Component = () => {
     };
     document.addEventListener("click", onDocClick);
     onCleanup(() => document.removeEventListener("click", onDocClick));
+
+    // 画廊模式(MC_GALLERY=1):挂载后自动逐页截图并生成 index.html。非画廊模式零开销。
+    void maybeRunGallery();
   });
 
   return (
