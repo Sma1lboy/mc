@@ -6,6 +6,7 @@ import { LOADER_BADGE_TINT } from "../components/styles";
 import { toast } from "../components/Toast";
 import type { ModpackHit } from "../components/ModpackCard";
 import { api } from "../ipc/api";
+import { cached } from "../ipc/cache";
 import { activeRoot } from "../store";
 import { t } from "../i18n";
 import type { InstanceSummary, ModrinthProject, ModrinthVersion, PackKind, ProjectKind } from "../ipc/types";
@@ -103,7 +104,7 @@ const ProjectInstallDetail: Component<{
   const [project] = createResource(
     () => props.hit.id,
     (id) =>
-      api.modrinthProject(id).catch((e) => {
+      cached(`project|${provider()}|${id}`, () => api.modrinthProject(id)).catch((e) => {
         toast({ type: "error", message: t("discover.aboutLoadFailed", { error: String(e) }) });
         return null as ModrinthProject | null;
       }),
@@ -111,7 +112,7 @@ const ProjectInstallDetail: Component<{
   const [versions] = createResource(
     () => props.hit.id,
     (id) =>
-      api.modrinthVersions(id, provider()).catch((e) => {
+      cached(`versions|${provider()}|${id}`, () => api.modrinthVersions(id, provider())).catch((e) => {
         toast({ type: "error", message: t("discover.versionsLoadFailed", { error: String(e) }) });
         return [] as ModrinthVersion[];
       }),

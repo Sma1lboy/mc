@@ -1,8 +1,10 @@
-import { Component, createSignal, createEffect, For, Show } from "solid-js";
-import { ContentBrowser, type ModpackHit } from "../components";
+import { Component, createSignal, createEffect, createResource, onMount, For, Show } from "solid-js";
+import { ContentBrowser, Spinner, type ModpackHit } from "../components";
 import { FacetSidebar, type FacetSelection } from "../components/FacetSidebar";
 import type { ContentProvider } from "../components/ContentBrowser";
 import type { ProjectKind } from "../ipc/types";
+import { api } from "../ipc/api";
+import { prefetchKinds } from "../util/contentSearch";
 import { discoverTarget, setDiscoverTarget } from "../store";
 import { t } from "../i18n";
 import ModpackDetail from "./ModpackDetail";
@@ -40,8 +42,18 @@ const Discover: Component = () => {
   // facet 多选选择(上提:侧栏渲染/编辑 + 浏览器搜索)。切类型时重置(分类/加载器随类型变)。
   const [facets, setFacets] = createSignal<FacetSelection>(EMPTY_FACETS);
 
+  // 分类法统一在此拉取(进程内缓存),下传侧栏;与首屏搜索一起决定「整体就绪」。
+  const [facetTags] = createResource(() => api.contentFacets());
+  // 首屏搜索是否已就绪(ContentBrowser 首次 loading→false 时置真);切类型时重置。
+  const [seeded, setSeeded] = createSignal(false);
+  const viewReady = () => !facetTags.loading && seeded();
+
+  // 进入发现页即后台预取所有类型的默认首屏(空搜索 / Modrinth),切换类型时直接命中缓存、即时显示。
+  onMount(() => prefetchKinds(KINDS().map((k) => k.key)));
+
   function switchKind(k: ProjectKind) {
     if (k === kind()) return;
+    setSeeded(false);
     setKind(k);
     setFacets(EMPTY_FACETS);
   }
@@ -106,28 +118,40 @@ const Discover: Component = () => {
             Discover 不绑定实例:mcVersion="" + loader=null;点击行或「添加」均打开详情页。 */}
         <Show when={kind()} keyed>
           {(k) => (
-            <div class="flex gap-[20px] items-start">
-              <FacetSidebar
-                kind={k}
-                provider={provider()}
-                selected={facets}
-                onChange={setFacets}
-              />
-              <div class="flex-1 min-w-0">
-                <ContentBrowser
+            <div class="relative">
+              {/* 整体就绪(facet 分类法 + 首屏搜索都好)前盖一个统一 spinner,避免两栏错峰出现。 */}
+              <Show when={!viewReady()}>
+                <div class="absolute inset-0 z-10 flex items-start justify-center pt-[60px]">
+                  <Spinner />
+                </div>
+              </Show>
+              <div class="flex gap-[20px] items-start" classList={{ invisible: !viewReady() }}>
+                <FacetSidebar
                   kind={k}
-                  mcVersion=""
-                  loader={null}
-                  onAdd={openHit}
-                  onOpenDetail={openHit}
-                  placeholder={t("discover.searchPlaceholder")}
-                  onProviderChange={setProvider}
-                  categories={() => facets().categories}
-                  loaders={() => facets().loaders}
-                  gameVersions={() => facets().gameVersions}
-                  environment={() => facets().environment}
-                  openSource={() => facets().openSource}
+                  provider={provider()}
+                  selected={facets}
+                  onChange={setFacets}
+                  tags={facetTags}
                 />
+                <div class="flex-1 min-w-0">
+                  <ContentBrowser
+                    kind={k}
+                    mcVersion=""
+                    loader={null}
+                    onAdd={openHit}
+                    onOpenDetail={openHit}
+                    placeholder={t("discover.searchPlaceholder")}
+                    onProviderChange={setProvider}
+                    onLoadingChange={(l) => {
+                      if (!l) setSeeded(true);
+                    }}
+                    categories={() => facets().categories}
+                    loaders={() => facets().loaders}
+                    gameVersions={() => facets().gameVersions}
+                    environment={() => facets().environment}
+                    openSource={() => facets().openSource}
+                  />
+                </div>
               </div>
             </div>
           )}
