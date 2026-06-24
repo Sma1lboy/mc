@@ -205,21 +205,27 @@ body {
   height: 100%;
 }
 
-/* ===== 自定义滚动条(美化,随主题变色)===== */
-/* WebKit(Tauri webview 即 WebKit/WebView2)*/
+/* ===== 自定义滚动条(隐形 overlay 风格)===== */
+/* 默认完全透明、不占视觉:滑块只在指针进入滚动区域时淡出现身(:hover 会冒泡到
+   滚动容器,故悬停其任意子元素即显示),离开即隐没。WebKit(Tauri webview)。 */
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
+  background: transparent;
   border-radius: 999px;
   border: 2px solid transparent;
   background-clip: padding-box;
   transition: background var(--dur) var(--ease);
+}
+/* 指针位于滚动区域内才显示滑块(容器及其后代 hover 都会让容器进入 :hover 态)。 */
+:hover::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
@@ -228,9 +234,12 @@ body {
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
-/* Firefox 兜底(若用其它内核调试)*/
+/* Firefox 兜底(若用其它内核调试):默认隐形,悬停滚动区才现身。 */
 * {
   scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+*:hover {
   scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
