@@ -9,6 +9,8 @@ To cut a release, move the `[Unreleased]` notes into a stamped version section w
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-23
+
 ### Added
 
 - **Saved servers** — each instance gains a "服务器 / Servers" tab listing the multiplayer servers
@@ -19,9 +21,20 @@ To cut a release, move the `[Unreleased]` notes into a stamped version section w
 - **Skin preview** — full-body player skin render in the workspace account panel.
 - **News feed** — the 动态 / classic news sections now show the launcher feed from mc-server (degrades to empty when the server is unavailable).
 - **Modpack update** — instances installed from a Modrinth modpack show an "update available"
-  chip; clicking it updates the pack in place (re-imports the new version over the existing
-  instance and trashes mods the new version dropped). Worlds, instance config, and
-  user-added mods are preserved.
+  chip; clicking it shows the new version's changelog and updates the pack in place (re-imports the
+  new version over the existing instance and trashes mods the new version dropped). Worlds, instance
+  config, and user-added mods are preserved.
+- **Import dialog** — importing a modpack now shows the supported formats (Modrinth `.mrpack`,
+  CurseForge `.zip`, MultiMC / Prism, MCBBS), drag-and-drop, and import tips. Dragging a
+  `.mrpack`/`.zip` onto Home or the Library imports it directly, with progress.
+- **Export dialog** — export an instance as a Modrinth `.mrpack`, a CurseForge `.zip`, or a mod
+  list (Markdown / HTML / JSON / CSV / plain text), instead of Modrinth-only.
+
+### Changed
+
+- Smaller release build — the desktop app binary shrank from ~7 MB to ~5.6 MB via a size-tuned
+  release profile (the app crate is a separate workspace and was building with Cargo defaults),
+  trimmed `tokio` features, and `zip` reduced to the deflate codec.
 
 ### Security / hardening
 
