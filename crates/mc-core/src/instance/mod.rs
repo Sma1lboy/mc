@@ -4,10 +4,11 @@
 //! 直接把每个 game root 下的 `versions/<id>/` 当作一个实例(贴近官启/HMCL/PCL 的
 //! 目录布局,见 `docs/07-directory-model-portability.md` 与 `docs/modules/instance.md`)。
 //!
-//! 一个目录 `versions/<id>/` 被视为实例,当且仅当其中存在版本 json
-//! (`versions/<id>/<id>.json`)。实例的可覆盖设置存放在同目录的
-//! `instance.json`(见 [`config`])。本模块只负责"枚举/读写已存在的实例目录",
-//! 实际的版本/库/资源下载由 launch/meta 层负责。
+//! 一个目录 `versions/<id>/` 被视为**用户实例**,当且仅当其中存在版本 json
+//! (`versions/<id>/<id>.json`)**且没有其它目录 `inheritsFrom` 指向它** —— 后者是被
+//! 继承的依赖核心(原版 / loader profile),不是用户实例,枚举时隐藏(见 [`list_instances`])。
+//! 实例的可覆盖设置存放在同目录的 `instance.json`(见 [`config`])。本模块只负责
+//! "枚举/读写已存在的实例目录",实际的版本/库/资源下载由 launch/meta 层负责。
 
 pub mod config;
 pub mod install_mod;
@@ -294,12 +295,14 @@ fn resolve_base_mc_version(paths: &GamePaths, id: &str, inherits: Option<&str>) 
     }
 }
 
-/// 扫描一个 game root,列出其中所有实例。
+/// 扫描一个 game root,列出其中所有**用户实例**。
 ///
-/// 规则:遍历 `versions/` 下每个子目录,若存在 `versions/<id>/<id>.json` 则视为实例。
-/// 对每个实例做轻量读取(只取 id / inheritsFrom)推断 loader 与基础 mc 版本。
-/// 任何一步读取或解析失败的目录会被**跳过**(不 panic、不中断其余实例),
-/// 保证一个坏目录不会让整个列表不可用。
+/// 规则:遍历 `versions/` 下每个带可解析 `<id>/<id>.json` 的子目录;但「版本即实例」模型下
+/// `versions/` 同时存放真实例与它们 `inheritsFrom` 的核心(原版)/ loader profile —— 后者是被
+/// 继承的依赖,不该作为独立实例出现(否则装一个 Fabric 整合包会冒出「原版 + loader + 实例」三行)。
+/// 故**凡是被另一目录 `inheritsFrom` 指向的 id 一律隐藏**,只保留继承链顶端的叶子(= 真正可启动
+/// 的用户实例)。对每个保留项做轻量读取(只取 id / inheritsFrom)推断 loader 与基础 mc 版本。
+/// 任何一步读取或解析失败的目录会被**跳过**(不 panic、不中断其余实例)。
 pub fn list_instances(paths: &GamePaths) -> Vec<InstanceSummary> {
     let versions_dir = paths.versions_dir();
 
@@ -309,35 +312,49 @@ pub fn list_instances(paths: &GamePaths) -> Vec<InstanceSummary> {
         Err(_) => return Vec::new(),
     };
 
-    let mut out: Vec<InstanceSummary> = Vec::new();
-
+    // 第一遍:收集所有带可解析 <id>/<id>.json 的版本目录(dir, dir_id, head)。
+    let mut collected: Vec<(PathBuf, String, VersionHead)> = Vec::new();
     for entry in entries.flatten() {
         let dir = entry.path();
         if !dir.is_dir() {
             continue;
         }
-
         // 目录名即版本 id。
         let dir_id = match dir.file_name().and_then(|n| n.to_str()) {
             Some(s) if !s.is_empty() => s.to_string(),
             _ => continue,
         };
-
-        // 必须存在 <id>/<id>.json 才算实例。
-        let json_path = paths.version_json(&dir_id);
-        let raw = match std::fs::read_to_string(&json_path) {
+        // 必须存在 <id>/<id>.json 才算候选(没有版本 json = 纯 natives/临时目录,跳过)。
+        let raw = match std::fs::read_to_string(paths.version_json(&dir_id)) {
             Ok(r) => r,
-            Err(_) => continue, // 没有版本 json,跳过(不是实例,如纯 natives/临时目录)。
+            Err(_) => continue,
         };
-
         // 轻量解析;解析失败的损坏 json 跳过。
         let head: VersionHead = match serde_json::from_str(&raw) {
             Ok(h) => h,
             Err(_) => continue,
         };
+        collected.push((dir, dir_id, head));
+    }
 
+    // 被任一目录 inheritsFrom 指向的 id 集合 = 被继承的依赖核心(原版 / loader profile)。
+    // 它们不是用户实例,从列表隐藏;只留继承链顶端的叶子。
+    let inherited: std::collections::HashSet<String> = collected
+        .iter()
+        .filter_map(|(_, _, head)| head.inherits_from.clone())
+        .collect();
+
+    let mut out: Vec<InstanceSummary> = Vec::new();
+    for (dir, dir_id, head) in &collected {
         // 优先用 json 内的 id,回退到目录名。
-        let id = head.id.filter(|s| !s.is_empty()).unwrap_or_else(|| dir_id.clone());
+        let id = head.id.clone().filter(|s| !s.is_empty()).unwrap_or_else(|| dir_id.clone());
+
+        // 被其它实例继承的核心(原版 / loader)= 依赖,非用户实例,隐藏。
+        // dir_id 与 id 都查一遍:inheritsFrom 指向的是父目录 id,二者通常相等但容错。
+        if inherited.contains(&id) || inherited.contains(dir_id) {
+            continue;
+        }
+
         let inherits = head.inherits_from.clone();
         let loader = infer_loader(&id, inherits.as_deref());
 
@@ -358,8 +375,8 @@ pub fn list_instances(paths: &GamePaths) -> Vec<InstanceSummary> {
                 LoaderKind::Vanilla => None,
                 _ => Some(dir_id.clone()),
             },
-            icon: detect_icon(&dir), // versions/<id>/icon.png(导入器写入)→ data URL,无则 None。
-            last_played: last_played_for(&dir),
+            icon: detect_icon(dir), // versions/<id>/icon.png(导入器写入)→ data URL,无则 None。
+            last_played: last_played_for(dir),
             running: false, // 运行态由上层进程管理器维护,列表层不感知。
         });
     }
@@ -416,11 +433,14 @@ mod tests {
 
 
     #[test]
-    fn lists_vanilla_and_loader_instances() {
+    fn hides_inherited_cores_lists_leaf_instances() {
         let root = TempRoot::new("mixed");
+        // 共享原版核心:被 fabric 与 forge 两个实例 inheritsFrom → 是依赖,应从列表隐藏。
         root.add_version("1.20.1", None);
         root.add_version("fabric-loader-0.15.7-1.20.1", Some("1.20.1"));
         root.add_version("1.20.1-forge-47.2.0", Some("1.20.1"));
+        // 没有任何目录继承它的独立原版实例(叶子)→ 应保留。
+        root.add_version("1.18.2", None);
 
         // 一个没有版本 json 的目录(如 natives 残留),应被跳过。
         fs::create_dir_all(root.path.join("versions").join("junk")).unwrap();
@@ -432,21 +452,27 @@ mod tests {
         let paths = GamePaths::new(root.path.clone());
         let list = list_instances(&paths);
 
-        assert_eq!(list.len(), 3, "should list exactly the 3 valid instances");
+        // 隐藏被继承的 1.20.1 核心;保留两个 loader 叶子 + 独立原版叶子 = 3。
+        assert_eq!(list.len(), 3, "shared 1.20.1 core hidden; 3 leaf instances remain");
 
-        let by_id = |id: &str| list.iter().find(|s| s.id == id).cloned().unwrap();
+        let by_id = |id: &str| list.iter().find(|s| s.id == id).cloned();
 
-        let vanilla = by_id("1.20.1");
-        assert_eq!(vanilla.loader, LoaderKind::Vanilla);
-        assert_eq!(vanilla.mc_version, "1.20.1");
-        assert!(vanilla.loader_version.is_none());
+        assert!(
+            by_id("1.20.1").is_none(),
+            "vanilla core inherited by other instances is hidden, not a phantom instance",
+        );
 
-        let fabric = by_id("fabric-loader-0.15.7-1.20.1");
+        let standalone = by_id("1.18.2").expect("standalone vanilla leaf is listed");
+        assert_eq!(standalone.loader, LoaderKind::Vanilla);
+        assert_eq!(standalone.mc_version, "1.18.2");
+        assert!(standalone.loader_version.is_none());
+
+        let fabric = by_id("fabric-loader-0.15.7-1.20.1").expect("fabric leaf listed");
         assert_eq!(fabric.loader, LoaderKind::Fabric);
         assert_eq!(fabric.mc_version, "1.20.1");
         assert!(fabric.loader_version.is_some());
 
-        let forge = by_id("1.20.1-forge-47.2.0");
+        let forge = by_id("1.20.1-forge-47.2.0").expect("forge leaf listed");
         assert_eq!(forge.loader, LoaderKind::Forge);
         assert_eq!(forge.mc_version, "1.20.1");
     }
