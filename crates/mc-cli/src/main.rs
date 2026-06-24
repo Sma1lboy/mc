@@ -7,7 +7,10 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
-use mc_core::auth::{offline_session, AccountStore, MsaClient, StoredAccount};
+use mc_core::auth::{
+    self, offline_session, now_unix, AccountStore, MsaClient, StoredAccount, YggdrasilClient,
+    MC_TOKEN_TTL_SECS,
+};
 use mc_core::download::{Downloader, MirrorResolver};
 use mc_core::instance::Instance;
 use mc_core::launch::{self, LaunchSpec};
@@ -146,6 +149,20 @@ enum Command {
     },
     /// Microsoft device-code login; stores the resulting account.
     Login,
+    /// Add (or update) an offline account by username, and select it.
+    LoginOffline {
+        /// Offline player name.
+        name: String,
+    },
+    /// External (Yggdrasil / authlib-injector) login against a skin site.
+    LoginYggdrasil {
+        /// authlib-injector API root, e.g. https://littleskin.cn/api/yggdrasil.
+        base: String,
+        /// Skin-site account (email or username).
+        username: String,
+        /// Skin-site password.
+        password: String,
+    },
     /// List stored accounts.
     Accounts,
     /// Search a content platform (Modrinth; --cf for CurseForge, needs MC_CF_API_KEY).
@@ -314,6 +331,10 @@ async fn main() -> Result<()> {
             cmd_launch(&cli, id, name, *account, *online, java.clone()).await
         }
         Command::Login => cmd_login().await,
+        Command::LoginOffline { name } => cmd_login_offline(name),
+        Command::LoginYggdrasil { base, username, password } => {
+            cmd_login_yggdrasil(base, username, password).await
+        }
         Command::Accounts => cmd_accounts(),
         Command::Search { query, cf, kind, mc_version, loader } => {
             cmd_search(query, *cf, kind, mc_version.clone(), loader.clone()).await
@@ -687,9 +708,27 @@ async fn cmd_launch(
 ) -> Result<()> {
     let paths = resolve_root(&cli.dir);
     let dl = downloader(cli.mirror)?;
+    let accounts_path = data_dir().join("accounts.json");
 
+    // 选中的账号在启动前续期,镜像桌面端行为,避免 >24h 的旧 session 静默掉线:
+    // 微软走 refresh_token 免浏览器续期;外置(Yggdrasil)走 validate/refresh。续期失败
+    // best-effort 忽略,用现有 token 继续启动(由皮肤站/会话服务器在游戏内最终把关)。
+    let mut extra_jvm_args: Vec<String> = Vec::new();
     let session = if use_account {
-        let store = AccountStore::load(data_dir().join("accounts.json"))?;
+        let mut store = AccountStore::load(&accounts_path)?;
+        let _ = auth::refresh_selected_microsoft(&mut store, &msa_client(), 600).await;
+        if let Err(e) = refresh_selected_yggdrasil(&mut store).await {
+            eprintln!("外置登录续期失败(用现有 token 继续):{e}");
+        }
+        // 外置账号:下载 authlib-injector 并注入 `-javaagent`,否则外置皮肤/联机校验不生效。
+        if let Some(yg_base) =
+            store.selected_account().and_then(|a| a.yggdrasil_base.clone())
+        {
+            let jar = auth::yggdrasil::download_authlib_injector(&dl, &data_dir().join("authlib"))
+                .await
+                .context("下载 authlib-injector")?;
+            extra_jvm_args.push(auth::yggdrasil::javaagent_arg(&jar, &yg_base));
+        }
         store
             .selected_session()
             .context("没有选中的账号,先运行 `mc login`")?
@@ -711,7 +750,7 @@ async fn cmd_launch(
             .java_path
             .filter(|p| !p.is_empty())
             .map(std::path::PathBuf::from),
-        extra_jvm_args: Vec::new(),
+        extra_jvm_args,
         server_override: None,
     };
 
@@ -752,8 +791,69 @@ async fn cmd_launch(
     Ok(())
 }
 
+/// Build the Microsoft auth client, mirroring the desktop's resolution order so
+/// CLI login uses the same Azure app id: runtime `MC_MSA_CLIENT_ID` → compile-time
+/// baked id → vanilla legacy id. The application (client) id is a public
+/// identifier (device-code / public-client flow uses no secret).
+fn msa_client() -> MsaClient {
+    let runtime = std::env::var("MC_MSA_CLIENT_ID").ok();
+    let baked = option_env!("MC_MSA_CLIENT_ID").map(str::to_string);
+    match runtime.or(baked).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) {
+        Some(id) => MsaClient::with_client_id(id),
+        None => MsaClient::new(),
+    }
+}
+
+/// 若当前选中的是外置(Yggdrasil)账号,启动前用 validate/refresh 续期并写回 store。
+///
+/// 先 `validate`:仍有效则直接复用现有 token(no-op);若失效(403)则用旧
+/// access_token + 持久化的 client_token `refresh` 出新 token,原地更新并保持选中。
+/// 非外置账号、缺少 client_token / base 时直接返回 `Ok(())`。
+async fn refresh_selected_yggdrasil(store: &mut AccountStore) -> Result<()> {
+    let (uuid, base, access_token, client_token) = match store.selected_account() {
+        Some(a) if a.kind == AccountKind::Yggdrasil => {
+            match (a.yggdrasil_base.clone(), a.client_token.clone()) {
+                (Some(base), Some(ct)) => {
+                    (a.uuid.clone(), base, a.access_token.clone(), ct)
+                }
+                // 缺 base 或 client_token(老数据)无法续期,交由游戏内校验兜底。
+                _ => return Ok(()),
+            }
+        }
+        _ => return Ok(()),
+    };
+
+    let client = YggdrasilClient::new(base.clone());
+    // 仍有效就不动 token,避免无谓地让旧 token 失效。
+    if client.validate(&access_token, &client_token).await? {
+        return Ok(());
+    }
+
+    let refreshed = client.refresh(&access_token, &client_token).await?;
+    let prev = store
+        .selected_account()
+        .cloned()
+        .context("外置账号在续期过程中丢失")?;
+    store.add(StoredAccount {
+        kind: AccountKind::Yggdrasil,
+        username: if refreshed.username.is_empty() { prev.username } else { refreshed.username },
+        uuid: uuid.clone(),
+        access_token: refreshed.access_token,
+        refresh_token: None,
+        xuid: String::new(),
+        user_type: "msa".to_string(),
+        owns_game: true,
+        expires_at: None,
+        client_token: Some(refreshed.client_token),
+        yggdrasil_base: Some(base),
+    });
+    store.select(&uuid)?;
+    store.save()?;
+    Ok(())
+}
+
 async fn cmd_login() -> Result<()> {
-    let client = MsaClient::new();
+    let client = msa_client();
     let code = client.device_code_start().await.context("获取设备码")?;
     println!("\n请在浏览器打开:  {}", code.verification_uri);
     println!("输入代码:        {}\n", code.user_code);
@@ -772,13 +872,70 @@ async fn cmd_login() -> Result<()> {
         xuid: session.xuid.clone(),
         user_type: session.user_type.clone(),
         owns_game: true,
-        expires_at: Some(mc_core::auth::now_unix() + 86_400),
+        expires_at: Some(now_unix() + MC_TOKEN_TTL_SECS),
         client_token: None,
         yggdrasil_base: None,
     });
     store.select(&session.uuid)?;
     store.save()?;
     println!("\n✓ 登录成功:{} ({})", session.username, session.uuid);
+    Ok(())
+}
+
+/// 离线登录:由用户名派生稳定 UUID,落库为离线账号并选中。
+fn cmd_login_offline(name: &str) -> Result<()> {
+    let name = name.trim();
+    if name.is_empty() {
+        anyhow::bail!("用户名不能为空");
+    }
+    let session = offline_session(name);
+    let mut store = AccountStore::load(data_dir().join("accounts.json"))?;
+    store.add(StoredAccount {
+        kind: AccountKind::Offline,
+        username: session.username.clone(),
+        uuid: session.uuid.clone(),
+        access_token: session.access_token,
+        refresh_token: None,
+        xuid: session.xuid,
+        user_type: session.user_type,
+        owns_game: false,
+        expires_at: None,
+        client_token: None,
+        yggdrasil_base: None,
+    });
+    store.select(&session.uuid)?;
+    store.save()?;
+    println!("✓ 已添加离线账号:{} ({})", session.username, session.uuid);
+    Ok(())
+}
+
+/// 外置(Yggdrasil)登录:用 base + 用户名 + 密码登录皮肤站,落库为外置账号并选中,
+/// 持久化 client_token(续期所需)与 base(启动时注入 authlib-injector 所需)。
+async fn cmd_login_yggdrasil(base: &str, username: &str, password: &str) -> Result<()> {
+    let base = base.trim();
+    if base.is_empty() || username.trim().is_empty() {
+        anyhow::bail!("皮肤站地址和用户名不能为空");
+    }
+    let client = YggdrasilClient::new(base);
+    println!("在 {} 外置登录 {} …", client.base(), username.trim());
+    let session = client.authenticate(username.trim(), password).await?;
+    let mut store = AccountStore::load(data_dir().join("accounts.json"))?;
+    store.add(StoredAccount {
+        kind: AccountKind::Yggdrasil,
+        username: session.username.clone(),
+        uuid: session.uuid.clone(),
+        access_token: session.access_token,
+        refresh_token: None,
+        xuid: String::new(),
+        user_type: "msa".to_string(),
+        owns_game: true,
+        expires_at: None,
+        client_token: Some(session.client_token),
+        yggdrasil_base: Some(client.base().to_string()),
+    });
+    store.select(&session.uuid)?;
+    store.save()?;
+    println!("\n✓ 外置登录成功:{} ({})", session.username, session.uuid);
     Ok(())
 }
 

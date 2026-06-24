@@ -171,6 +171,28 @@ impl YggdrasilClient {
         }
     }
 
+    /// 启动前的登录态续期:先 [`validate`](Self::validate) 当前 token,失效则用
+    /// [`refresh`](Self::refresh) 免密续期。
+    ///
+    /// 返回:
+    /// - `Ok(None)` —— token 仍有效,无需续期(调用方继续用现有 token)。
+    /// - `Ok(Some(session))` —— token 已失效但续期成功,带回新的 access/client token。
+    /// - `Err(_)` —— refresh 被皮肤站硬拒(token 与 clientToken 失配 / 账号失效),
+    ///   调用方应把它当作「需要重新登录」的明确信号,**不要**拿已知失效的 token 启动。
+    ///
+    /// `validate` 自身的网络/异常错误会上抛,由调用方决定 best-effort 与否。
+    pub async fn refresh_session(
+        &self,
+        access_token: &str,
+        client_token: &str,
+    ) -> Result<Option<YggdrasilSession>> {
+        if self.validate(access_token, client_token).await? {
+            return Ok(None);
+        }
+        let session = self.refresh(access_token, client_token).await?;
+        Ok(Some(session))
+    }
+
     // ── 内部辅助 ────────────────────────────────────────────────────────
 
     /// 把相对路径拼到 `base` 上,得到完整端点 URL。
