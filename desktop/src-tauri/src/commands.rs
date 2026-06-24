@@ -1023,9 +1023,32 @@ pub async fn detect_java() -> CmdResult<Vec<JavaDto>> {
         .collect())
 }
 
+/// Discover 多选 facet 过滤(可选)。空字段即"不按该维度过滤"。仅 Modrinth 消费这些
+/// (Modrinth 把 loader 放在 categories 维度、环境是 `client_side`/`server_side` facet);
+/// `provider==curseforge` 时这些被忽略,只用顶层 `game_version` / `loader`。
+#[derive(Debug, Default, serde::Deserialize, specta::Type)]
+pub struct SearchFacetsArg {
+    /// 多选内容分类(每个各成一个 AND 组)。
+    #[serde(default)]
+    pub categories: Vec<String>,
+    /// 多选 loader(合成一个 OR 组)。
+    #[serde(default)]
+    pub loaders: Vec<String>,
+    /// 多选游戏版本(合成一个 OR 组)。
+    #[serde(default)]
+    pub game_versions: Vec<String>,
+    /// 运行环境:`"client"` / `"server"`(其余忽略)。
+    #[serde(default)]
+    pub environment: Option<String>,
+    /// 仅开源项目(License facet)。
+    #[serde(default)]
+    pub open_source: Option<bool>,
+}
+
 /// 跨平台内容搜索:`provider` 缺省 `modrinth`(也可 `curseforge`,需配 CF key),`sort`
-/// 缺省按相关度。经 Provider 注册表路由,统一返回 [`SearchHit`]。命令名保持 `modrinth_search`
-/// 以稳定绑定,但实际是泛平台搜索。
+/// 缺省按相关度。`facets` 是 Discover 的多选 facet 过滤(仅 Modrinth 消费)。经 Provider
+/// 注册表路由,统一返回 [`SearchHit`]。命令名保持 `modrinth_search` 以稳定绑定,但实际是
+/// 泛平台搜索。
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
 #[specta::specta]
@@ -1038,6 +1061,7 @@ pub async fn modrinth_search(
     offset: Option<u32>,
     provider: Option<String>,
     sort: Option<String>,
+    facets: Option<SearchFacetsArg>,
 ) -> CmdResult<Vec<mc_core::modplatform::SearchHit>> {
     use mc_core::modplatform::{SearchQuery, SortMethod};
     let kind = match kind.as_str() {
@@ -1053,11 +1077,17 @@ pub async fn modrinth_search(
         Some("updated") => SortMethod::Updated,
         _ => SortMethod::Relevance,
     };
+    let facets = facets.unwrap_or_default();
     let q = SearchQuery {
         text: query,
         kind,
         game_version: game_version.filter(|s| !s.is_empty()),
         loader: loader.filter(|s| !s.is_empty()),
+        game_versions: facets.game_versions,
+        loaders: facets.loaders,
+        categories: facets.categories,
+        environment: facets.environment.filter(|s| !s.is_empty()),
+        open_source: facets.open_source,
         offset: offset.unwrap_or(0),
         limit: limit.unwrap_or(30),
         sort,
@@ -1065,6 +1095,14 @@ pub async fn modrinth_search(
     let pid = parse_provider(provider.as_deref())?;
     let p = provider_or_err(&make_registry(), pid)?;
     p.search(&q).await.map_err(err)
+}
+
+/// Modrinth 的 facet 分类法(内容分类 / loader / 游戏版本),供 Discover 渲染过滤面板。
+/// 进程内缓存(见 [`ModrinthApi::content_facets`]),仅 Modrinth 提供;CurseForge 不走此处。
+#[tauri::command]
+#[specta::specta]
+pub async fn content_facets() -> CmdResult<mc_core::modplatform::modrinth::FacetTagsDto> {
+    ModrinthApi::new().content_facets().await.map_err(err)
 }
 
 // --- theme persistence ----------------------------------------------------

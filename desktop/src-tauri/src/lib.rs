@@ -71,6 +71,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::refresh_account,
             commands::detect_java,
             commands::modrinth_search,
+            commands::content_facets,
             commands::get_theme,
             commands::set_theme,
             commands::install_version,

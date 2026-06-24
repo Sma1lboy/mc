@@ -64,7 +64,7 @@ const Home: Component = () => {
 
   // 整合包推荐:一次性拉取热门 modpack。
   const [packs] = createResource(() =>
-    api.modrinthSearch("", "modpack", null, null, null, null, null, null).catch(() => [] as SearchHit[]),
+    api.modrinthSearch("", "modpack", null, null, null, null, null, null, null).catch(() => [] as SearchHit[]),
   );
 
   // 导出整合包:选格式弹窗(非空 = 打开,目标实例即其值)。
@@ -90,8 +90,13 @@ const Home: Component = () => {
 
   // 启动反馈:仅订阅进度提示。成功/退出/崩溃的 toast 与运行态由 store 统一处理
   //(基于真实的 game://started/exit 事件,而非「第一行日志」这种会把崩溃误报成成功的信号)。
+  // 后端可能把同一启动 stage 连发多次;去重,避免「启动游戏进程」弹两遍。
+  let lastStage = "";
   const offProgress = onLaunchProgress((p) => {
-    if (p.stage) toast({ type: "info", message: p.stage });
+    if (p.stage && p.stage !== lastStage) {
+      lastStage = p.stage;
+      toast({ type: "info", message: p.stage });
+    }
   });
   onCleanup(() => {
     offProgress();
