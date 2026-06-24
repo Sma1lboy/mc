@@ -125,6 +125,38 @@ const REGISTRY = {
     strokeWidth: 1.9,
     paths: [{ d: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Z" }, { d: "m20 20-3.5-3.5" }],
   },
+  /** 微软四宫格徽标(账号登录:微软正版)。 */
+  microsoft: {
+    viewBox: "0 0 24 24",
+    mode: "fill",
+    paths: [
+      { d: "M3 3h8.2v8.2H3z" },
+      { d: "M12.8 3H21v8.2h-8.2z" },
+      { d: "M3 12.8h8.2V21H3z" },
+      { d: "M12.8 12.8H21V21h-8.2z" },
+    ],
+  },
+  /** 用户/人像(账号登录:离线账号)。 */
+  user: {
+    viewBox: "0 0 24 24",
+    mode: "stroke",
+    strokeWidth: 1.8,
+    paths: [
+      { d: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" },
+      { d: "M5 20a7 7 0 0 1 14 0" },
+    ],
+  },
+  /** 链接/外接(账号登录:外置登录)。 */
+  link: {
+    viewBox: "0 0 24 24",
+    mode: "stroke",
+    strokeWidth: 1.8,
+    paths: [
+      { d: "M9.5 17H7.5a5 5 0 0 1 0-10h2" },
+      { d: "M14.5 7h2a5 5 0 0 1 0 10h-2" },
+      { d: "M8.5 12h7" },
+    ],
+  },
 } satisfies Record<string, IconDef>;
 
 /** 所有已注册图标名(由注册表键推导,新增图标自动并入)。 */
