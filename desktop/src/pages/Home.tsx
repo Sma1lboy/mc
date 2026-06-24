@@ -1,7 +1,10 @@
 import { Component, createResource, createSignal, For, Show, onCleanup } from "solid-js";
 import {
+  BlockedFilesDialog,
   EmptyState,
   ExportModpackDialog,
+  Icon,
+  ImportModpackDialog,
   InstanceRow,
   ModpackCard,
   Spinner,
@@ -12,9 +15,10 @@ import {
 import { api, onLaunchProgress } from "../ipc/api";
 import { activeRoot, openInstance, setCurrentPage, openDiscover, playInstance } from "../store";
 import { openInstanceDir, deleteInstance } from "../util/instanceActions";
+import { useModpackDrop } from "../util/useModpackDrop";
 import { sortByRecent } from "../util/instances";
 import { t } from "../i18n";
-import type { InstanceSummary, SearchHit } from "../ipc/types";
+import type { ImportOutcome, InstanceSummary, SearchHit } from "../ipc/types";
 
 /**
  * Home —— 工作台 dashboard。
@@ -65,6 +69,24 @@ const Home: Component = () => {
   // 导出整合包:选格式弹窗(非空 = 打开,目标实例即其值)。
   const [exportRow, setExportRow] = createSignal<InstanceRowData | null>(null);
 
+  // 导入整合包:把文件拖到本页任意处即导入(打开弹窗并自动开始);弹窗已开时让它自己接管。
+  const [importOpen, setImportOpen] = createSignal(false);
+  const [importPath, setImportPath] = createSignal<string | null>(null);
+  const [importOutcome, setImportOutcome] = createSignal<ImportOutcome | null>(null);
+  function handleImported(out: ImportOutcome) {
+    refetchInstances();
+    if (out.blocked.length > 0 || out.skipped_optional.length > 0) setImportOutcome(out);
+    else toast({ type: "success", message: t("library.imported", { id: out.instance_id }) });
+  }
+  const dragOver = useModpackDrop({
+    enabled: () => !importOpen(),
+    onFile: (path) => {
+      setImportPath(path);
+      setImportOpen(true);
+    },
+    onUnsupported: () => toast({ type: "info", message: t("components.import.unsupported") }),
+  });
+
   // 启动反馈:仅订阅进度提示。成功/退出/崩溃的 toast 与运行态由 store 统一处理
   //(基于真实的 game://started/exit 事件,而非「第一行日志」这种会把崩溃误报成成功的信号)。
   const offProgress = onLaunchProgress((p) => {
@@ -80,7 +102,15 @@ const Home: Component = () => {
   const recent = () => sortedByPlayed().slice(0, RECENT_CAP);
 
   return (
-    <div class="py-[24px] px-[28px] overflow-y-auto h-full">
+    <div class="relative py-[24px] px-[28px] overflow-y-auto h-full">
+      <Show when={dragOver()}>
+        <div class="absolute inset-0 z-30 flex items-center justify-center bg-black/40 backdrop-blur-sm pointer-events-none">
+          <div class="flex flex-col items-center gap-[10px] rounded-card border-2 border-dashed border-a-4 bg-glass-card px-[40px] py-[32px]">
+            <Icon name="download" size={30} class="text-a-5" />
+            <div class="text-[14px] font-semibold text-fg">{t("components.import.dropOverlay")}</div>
+          </div>
+        </div>
+      </Show>
       <header class="mb-[20px]">
         <h1 class="text-[28px] font-bold text-fg m-0">{t("library.welcomeBack")}</h1>
       </header>
@@ -159,6 +189,28 @@ const Home: Component = () => {
         instance={exportRow()}
         onClose={() => setExportRow(null)}
       />
+
+      <ImportModpackDialog
+        open={importOpen()}
+        root={activeRoot()}
+        initialPath={importPath()}
+        onClose={() => {
+          setImportOpen(false);
+          setImportPath(null);
+        }}
+        onImported={handleImported}
+      />
+
+      <Show when={importOutcome()}>
+        {(o) => (
+          <BlockedFilesDialog
+            instanceId={o().instance_id}
+            blocked={o().blocked}
+            skipped={o().skipped_optional}
+            onClose={() => setImportOutcome(null)}
+          />
+        )}
+      </Show>
     </div>
   );
 };
