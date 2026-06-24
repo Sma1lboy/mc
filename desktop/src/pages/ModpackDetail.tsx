@@ -40,7 +40,10 @@ const ModpackDetail: Component<{
   hit: ModpackHit;
   onBack: () => void;
   onInstalled?: () => void;
+  /** 内容来源平台(modrinth / curseforge);决定走哪个 provider 取版本/安装。缺省 modrinth。 */
+  provider?: "modrinth" | "curseforge";
 }> = (props) => {
+  const provider = () => props.provider ?? "modrinth";
   const [tab, setTab] = createSignal<Tab>("about");
   // 灯箱当前下标(null = 关闭)。画廊图片源自 daemon 的 project().gallery。
   const [lbIndex, setLbIndex] = createSignal<number | null>(null);
@@ -56,9 +59,9 @@ const ModpackDetail: Component<{
   );
 
   const [versions] = createResource(
-    () => props.hit.id,
-    (id) =>
-      api.modrinthVersions(id, "modrinth").catch((e) => {
+    () => [props.hit.id, provider()] as const,
+    ([id, prov]) =>
+      api.modrinthVersions(id, prov).catch((e) => {
         toast({ type: "error", message: t("discover.versionsLoadFailed", { error: String(e) }) });
         return [] as ModrinthVersion[];
       }),
@@ -118,7 +121,8 @@ const ModpackDetail: Component<{
 
   async function install(v: ModrinthVersion) {
     if (installing()) return;
-    if (!v.mrpack_url) {
+    // Modrinth 走 .mrpack:无下载地址即不可装;CurseForge 无 mrpack_url,按 version_id 取档。
+    if (provider() === "modrinth" && !v.mrpack_url) {
       toast({ type: "error", message: t("discover.noMrpack") });
       return;
     }
@@ -129,7 +133,7 @@ const ModpackDetail: Component<{
       message: t("discover.installStart", { title: props.hit.title, version: v.version_number }),
     });
     try {
-      const out = await api.installModpackUrl(activeRoot(), v.mrpack_url, null);
+      const out = await api.installModpack(activeRoot(), provider(), props.hit.id, v.id, null);
       if (out.blocked.length > 0 || out.skipped_optional.length > 0) {
         setOutcome(out); // 弹窗摊开需手动下载 / 被跳过的文件
       } else {
@@ -393,7 +397,7 @@ const ModpackDetail: Component<{
                     </div>
                             <button
                               class="flex-[0_0_auto] py-[8px] px-[16px] border-none rounded-ctl bg-a-4 text-white text-[13px] font-semibold cursor-pointer transition-[background-color,opacity] duration-[var(--mo-dur-fast)] ease-emph hover:not-disabled:bg-a-5 disabled:opacity-50 disabled:cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5/40"
-                              disabled={!v.mrpack_url || installing() !== null}
+                              disabled={(provider() === "modrinth" && !v.mrpack_url) || installing() !== null}
                               onClick={() => install(v)}
                             >
                               {installing() === v.id ? (progress() || t("discover.installing")) : t("discover.installThisVersion")}

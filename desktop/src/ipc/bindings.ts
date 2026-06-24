@@ -192,6 +192,18 @@ export const commands = {
 	/**  从一个 `.mrpack` 直链安装整合包(详情页「安装此版本」用)。 */
 	installModpackUrl: (root: string, url: string, instanceId: string | null) => typedError<ImportOutcomeDto, string>(__TAURI_INVOKE("install_modpack_url", { root, url, instanceId })),
 	/**
+	 *  浏览安装整合包(provider 感知,详情页「安装此版本」用):给定 `(provider, project, version_id)`,
+	 *  经对应平台解析出整合包归档(Modrinth `.mrpack` / CurseForge `.zip`)的下载直链,再走与
+	 *  [`install_modpack_url`] 完全相同的导入引擎(下载 → 识别格式 → 安装原版+loader+mods+overrides)。
+	 * 
+	 *  `provider` 缺省 `modrinth`。`name` 作为目标实例 id(`None` 时由整合包名派生唯一 id)。
+	 *  安装的版本会写进实例 `instance.json` 的 source,供后续「检查更新」溯源。
+	 * 
+	 *  CurseForge 作者禁第三方分发时平台不给整合包直链(`file.url` 为空),此处把该包文件经
+	 *  [`ImportOutcomeDto::blocked`] 的既有机制回传,让前端引导手动下载,而非抛不透明错误。
+	 */
+	installModpack: (root: string, provider: string | null, project: string, versionId: string, name: string | null) => typedError<ImportOutcomeDto, string>(__TAURI_INVOKE("install_modpack", { root, provider, project, versionId, name })),
+	/**
 	 *  列出一个项目的所有版本详情(详情页用:版本号/类型/MC/loader/发布时间/下载数/changelog
 	 *  + 该版本下载地址)。`provider` 缺省 `modrinth`。CurseForge 经 provider 的统一版本模型
 	 *  映射成同一 [`VersionDetail`] 形状(无 changelog/发布时间等富信息时留空),保持绑定稳定。

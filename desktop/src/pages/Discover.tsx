@@ -57,7 +57,7 @@ const Discover: Component = () => {
               />
             }
           >
-            <ModpackDetail hit={project().hit} onBack={() => setSelected(null)} />
+            <ModpackDetail hit={project().hit} provider={project().provider} onBack={() => setSelected(null)} />
           </Show>
         )}
       </Show>
