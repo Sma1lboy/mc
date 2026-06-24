@@ -74,9 +74,16 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
   return (
     <>
       <div
-        class="flex items-center gap-[14px] glass-card glass-card--hover rounded-card px-[14px] py-[12px] transition-[transform,box-shadow,border-color,background-color] duration-[var(--dur)] ease-app hover:-translate-y-[2px]"
-        classList={{ "ring-2 ring-a-5 ring-offset-0": !!props.selectable && !!props.selected }}
+        class="relative flex items-center gap-[14px] glass-card glass-card--hover rounded-card px-[14px] py-[12px] transition-[transform,box-shadow,border-color,background-color] duration-[var(--dur)] ease-app hover:-translate-y-[2px]"
       >
+        {/* 选中:边缘 accent 高亮 + 柔光。用覆盖层而非 ring 类,绕开 glass-card 的 box-shadow,
+            hover 时不会被 .glass-card--hover 的 box-shadow 覆盖丢失。 */}
+        <Show when={props.selectable && props.selected}>
+          <span
+            class="pointer-events-none absolute inset-0 rounded-card ring-[1.5px] ring-inset ring-a-5 shadow-[0_0_12px_-1px_color-mix(in_srgb,var(--a-5)_45%,transparent)]"
+            aria-hidden="true"
+          />
+        </Show>
         {/* 多选模式下的勾选框(纯追加,默认不渲染)。 */}
         <Show when={props.selectable}>
           <button
