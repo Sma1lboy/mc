@@ -5,6 +5,7 @@
 //! 前端类型/调用签名从此由 Rust 单一真相生成,杜绝手写 TS 与后端漂移。
 
 mod commands;
+mod gallery;
 mod logging;
 
 use tauri_specta::{collect_commands, Builder};
@@ -94,6 +95,9 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::fetch_news,
             commands::check_modpack_updates,
             commands::apply_modpack_update,
+            gallery::gallery_enabled,
+            gallery::gallery_capture,
+            gallery::gallery_build,
         ])
 }
 

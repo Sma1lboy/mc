@@ -262,6 +262,12 @@ export const commands = {
 	 *  再清理新版移除的受管理文件(移入回收站)。存档 / 实例配置 / 用户自行添加的 mod 均保留。
 	 */
 	applyModpackUpdate: (root: string, id: string, versionId: string) => typedError<ModpackUpdateDto, string>(__TAURI_INVOKE("apply_modpack_update", { root, id, versionId })),
+	/**  是否处于画廊模式(环境变量 `MC_GALLERY` 非空且非 "0")。前端据此决定是否自动跑截图流程。 */
+	galleryEnabled: () => typedError<boolean, string>(__TAURI_INVOKE("gallery_enabled")),
+	/**  抓「main」窗口当前画面到 `<data_dir>/gallery/<name>.png`,返回文件绝对路径。 */
+	galleryCapture: (name: string) => typedError<string, string>(__TAURI_INVOKE("gallery_capture", { name })),
+	/**  用已抓好的截图生成 `<data_dir>/gallery/index.html` 网格画廊,返回其绝对路径。 */
+	galleryBuild: (shots: GalleryShot[]) => typedError<string, string>(__TAURI_INVOKE("gallery_build", { shots })),
 };
 
 /* Types */
@@ -326,6 +332,12 @@ export type GalleryImage = {
 	title: string | null,
 	description: string | null,
 	featured: boolean,
+};
+
+/**  一张截图的元信息:`name` 对应 `<name>.png`,`title` 是画廊里显示的标题。 */
+export type GalleryShot = {
+	name: string,
+	title: string,
 };
 
 export type GameExit = {
