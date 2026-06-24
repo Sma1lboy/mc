@@ -23,7 +23,9 @@ tauri-plugin-dialog = "2"
 window-vibrancy = "0.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["full"] }
+# 仅启用用到的 tokio 功能(替代 "full"):运行时 + sync + io(读子进程输出)+ process(管理
+# 游戏子进程)+ fs/time。net/signal 等不需要,缩小二进制。
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "fs", "io-util", "process", "time"] }
 # 统一日志:收集 mc-core(daemon)的 tracing 事件 + 前端(client)经命令转发的日志,
 # 按日滚动写到全局日志目录。
 tracing = "0.1"
@@ -39,3 +41,14 @@ specta = { version = "=2.0.0-rc.25", features = ["derive", "function"] }
 # 让本包脱离父级 mc-launcher workspace 独立成一个 cargo 包。
 # 空 [workspace] 表声明"这里就是 workspace 根",从而不会被 ../../Cargo.toml 收编。
 [workspace]
+
+# 发布构建按**体积**优化(本 crate 是独立 workspace,父级 [profile.release] 不会下发到这里;
+# 不加这段会用 cargo 默认 release,二进制明显偏大)。opt-level="z" 最小体积;fat LTO + 单
+# codegen unit 跨 crate 内联裁剪;panic="abort" 去掉展开表(代码全走 Result,panic 即 bug);
+# strip 去符号。代价:发布构建更慢(一次性)。
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
