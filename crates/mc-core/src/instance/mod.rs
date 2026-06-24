@@ -120,20 +120,31 @@ impl Instance {
     /// 但真实格式由 [`detect_icon`] 嗅探决定 mime。
     pub fn set_icon(&self, source: &Path) -> Result<()> {
         let bytes = std::fs::read(source).with_path(source)?;
+        self.set_icon_bytes(&bytes)
+    }
+
+    /// [`set_icon`] 的字节版:校验(非空 / ≤1 MiB / 魔数可识别)后写入 [`Instance::icon_path`]。
+    /// 用于「从 URL 下载的整合包图标」直接落盘,不必先写临时文件再读回。
+    pub fn set_icon_bytes(&self, bytes: &[u8]) -> Result<()> {
         if bytes.is_empty() {
             return Err(CoreError::other("图标文件为空"));
         }
         if bytes.len() > 1024 * 1024 {
             return Err(CoreError::other("图标过大(上限 1 MiB)"));
         }
-        if sniff_image_mime_opt(&bytes).is_none() {
+        if sniff_image_mime_opt(bytes).is_none() {
             return Err(CoreError::other("无法识别的图片格式(支持 png/jpg/gif/bmp/webp)"));
         }
         let dest = self.icon_path();
         if let Some(parent) = dest.parent() {
             std::fs::create_dir_all(parent).with_path(parent)?;
         }
-        std::fs::write(&dest, &bytes).with_path(&dest)
+        std::fs::write(&dest, bytes).with_path(&dest)
+    }
+
+    /// 该实例是否已有本地图标文件(`versions/<id>/icon.png`)。补齐图标前先判这个,避免重复下载。
+    pub fn has_icon(&self) -> bool {
+        self.icon_path().exists()
     }
 
     /// 读取该实例的配置;文件不存在时返回 [`InstanceConfig::default`]。

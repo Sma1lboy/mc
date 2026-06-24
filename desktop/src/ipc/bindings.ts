@@ -52,6 +52,13 @@ export const commands = {
 	 *  之后 list_instances 会把它探测为 data URL 回传前端。
 	 */
 	setInstanceIcon: (root: string, id: string, source: string) => typedError<null, string>(__TAURI_INVOKE("set_instance_icon", { root, id, source })),
+	/**
+	 *  给整合包来源的实例补齐图标:实例还没有本地 `icon.png` 时,下载 `icon_url` 写入。
+	 *  早于「安装即存图标」特性安装的实例本地没图标,详情页发现缺失时调用一次,让侧栏/首页/详情
+	 *  统一显示整合包真实 logo,而不再退回默认像素占位。返回 `true` 表示这次补上了。
+	 *  已有图标或下载失败都安静返回 `false`(图标纯展示性,失败不打断任何流程)。
+	 */
+	backfillInstanceIcon: (root: string, id: string, iconUrl: string) => typedError<boolean, string>(__TAURI_INVOKE("backfill_instance_icon", { root, id, iconUrl })),
 	/**  列出某实例 mods 目录里的 mod(含启停态)。 */
 	instanceMods: (root: string, id: string) => typedError<ModInfo[], string>(__TAURI_INVOKE("instance_mods", { root, id })),
 	/**  启用/停用一个 mod(改 `.jar` ↔ `.jar.disabled`)。file_name 为 list 返回的稳定标识。 */

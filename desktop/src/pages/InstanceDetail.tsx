@@ -1,4 +1,4 @@
-import { Component, createResource, createSignal, onCleanup, onMount, For, Show } from "solid-js";
+import { Component, createEffect, createResource, createSignal, onCleanup, onMount, For, Show } from "solid-js";
 import { InstanceManageDialog, InstanceIcon, Dialog, ExportModpackDialog, toast, type InstanceRowData } from "../components";
 import { PlayButton } from "../components/PlayButton";
 import { Menu } from "../components/Menu";
@@ -45,6 +45,21 @@ const InstanceDetail: Component = () => {
     },
     (id) => api.modrinthProject(id).catch(() => null),
   );
+  // 早于「安装即存图标」的整合包实例本地没 icon.png:发现缺失且项目有 logo 时补齐一次,
+  // 刷新后侧栏/首页/详情都用上真实 logo(而非默认像素占位)。每实例只尝试一次。
+  const backfilledIcon = new Set<string>();
+  createEffect(() => {
+    const i = inst();
+    const url = project()?.icon_url;
+    if (!i || i.icon || !url || backfilledIcon.has(i.id)) return;
+    backfilledIcon.add(i.id);
+    void api.backfillInstanceIcon(activeRoot(), i.id, url).then((done) => {
+      if (done) {
+        refreshInstances();
+        void refetch();
+      }
+    });
+  });
   const latestUpdate = () => (updates() ?? [])[0];
   const modrinthUrl = () => {
     const pid = cfg()?.source?.project_id;

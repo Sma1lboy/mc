@@ -91,6 +91,15 @@ const overrides = {
     }
     return rawInvoke<ImportOutcome>("install_modpack", { root, provider, project, versionId, name, iconUrl });
   },
+  // backfill_instance_icon:给早于「安装即存图标」的整合包实例补齐本地图标(详情页缺图标时调一次,
+  // 让侧栏/首页/详情统一显示真实 logo)。bindings 重新生成前回退到原始 invoke。
+  backfillInstanceIcon: (root: string, id: string, iconUrl: string): Promise<boolean> => {
+    const gen = (commands as Record<string, unknown>).backfillInstanceIcon;
+    if (typeof gen === "function") {
+      return unwrap((gen as (...a: unknown[]) => Promise<SpectaResult<boolean, unknown>>)(root, id, iconUrl));
+    }
+    return rawInvoke<boolean>("backfill_instance_icon", { root, id, iconUrl });
+  },
   // 主题:对前端暴露 theme.ts 的严格 ThemeConfig(后端 wire 形状更宽松,边界处转换)。
   getTheme: (): Promise<ThemeConfig> => unwrap(commands.getTheme()) as Promise<ThemeConfig>,
   setTheme: (cfg: ThemeConfig): Promise<null> =>
