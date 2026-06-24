@@ -1,7 +1,6 @@
 // "discover" 命名空间词条。zh 为真相源;en 缺项自动回退中文。
 const dict = {
   zh: {
-    heading: "发现",
     kindModpack: "整合包",
     kindMod: "模组",
     kindShader: "光影",
@@ -104,7 +103,6 @@ const dict = {
     downloadsTooltip: "{{ count }} 次下载",
   } as Record<string, string>,
   en: {
-    heading: "Discover",
     kindModpack: "Modpacks",
     kindMod: "Mods",
     kindShader: "Shaders",
