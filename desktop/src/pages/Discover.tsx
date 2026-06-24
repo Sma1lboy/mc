@@ -6,7 +6,16 @@ import type { ProjectKind, ImportOutcome } from "../ipc/types";
 import { api } from "../ipc/api";
 import { cached } from "../ipc/cache";
 import { prefetchKinds } from "../util/contentSearch";
-import { activeRoot, discoverKind, setDiscoverKind, DISCOVER_KINDS, discoverTarget, setDiscoverTarget } from "../store";
+import { enqueueDownload, downloadForRef, fractionOf, tasks } from "../util/downloads";
+import {
+  activeRoot,
+  discoverKind,
+  setDiscoverKind,
+  DISCOVER_KINDS,
+  discoverTarget,
+  setDiscoverTarget,
+  refreshInstances,
+} from "../store";
 import { t } from "../i18n";
 import ModpackDetail from "./ModpackDetail";
 import ProjectInstallDetail from "./ProjectInstallDetail";
@@ -49,39 +58,56 @@ const Discover: Component = () => {
     setSelected({ hit: h, kind: kind(), provider: prov });
   }
 
-  // 列表「添加」:整合包直接装最新版(新建实例,行内「安装中」反馈);其它类型没有目标实例,进详情选实例装。
-  const [installing, setInstalling] = createSignal<Set<string>>(new Set());
-  const [added, setAdded] = createSignal<Set<string>>(new Set());
+  // 列表「添加」:整合包经全局下载队列直接装最新版(顶栏队列可见 + 行内进度条);
+  // 其它类型没有目标实例,进详情选实例装。安装中 / 已添加 / 进度都由队列派生(以 hit.id 为 refId),
+  // 与顶栏面板同一份状态。
   const [outcome, setOutcome] = createSignal<ImportOutcome | null>(null);
 
-  async function quickAdd(hit: ModpackHit, prov: ContentProvider) {
+  const installing = () =>
+    new Set(
+      tasks()
+        .filter((dl) => (dl.status === "active" || dl.status === "queued") && dl.refId)
+        .map((dl) => dl.refId!),
+    );
+  const added = () =>
+    new Set(
+      tasks()
+        .filter((dl) => dl.status === "done" && dl.refId)
+        .map((dl) => dl.refId!),
+    );
+  const progressOf = (id: string): number | null | undefined => {
+    const task = downloadForRef(id);
+    if (!task || task.status === "done" || task.status === "error") return undefined;
+    return fractionOf(task);
+  };
+
+  function quickAdd(hit: ModpackHit, prov: ContentProvider) {
     if (kind() !== "modpack") {
       openHit(hit, prov); // 非整合包:没有目标实例,进详情选实例安装
       return;
     }
-    if (installing().has(hit.id) || added().has(hit.id)) return;
-    setInstalling((s) => new Set(s).add(hit.id));
-    try {
-      const versions = await cached(`versions|${prov}|${hit.id}`, () => api.modrinthVersions(hit.id, prov));
-      const latest = versions[0];
-      if (!latest) throw new Error(t("discover.noVersions"));
-      toast({ type: "info", message: t("discover.installStart", { title: hit.title, version: latest.version_number }) });
-      const out = await api.installModpack(activeRoot(), prov, hit.id, latest.id, null, hit.icon_url ?? null);
-      if (out.blocked.length > 0 || out.skipped_optional.length > 0) {
-        setOutcome(out);
-      } else {
-        toast({ type: "success", message: t("discover.installedModpack", { id: out.instance_id }) });
-        setAdded((s) => new Set(s).add(hit.id));
-      }
-    } catch (e) {
-      toast({ type: "error", message: t("discover.installFailed", { error: String(e) }) });
-    } finally {
-      setInstalling((s) => {
-        const n = new Set(s);
-        n.delete(hit.id);
-        return n;
-      });
-    }
+    const existing = downloadForRef(hit.id);
+    if (existing && existing.status !== "error") return; // 已在队列 / 已装,避免重复
+    enqueueDownload({
+      refId: hit.id,
+      title: hit.title,
+      icon: hit.icon_url ?? null,
+      kind: "modpack",
+      run: async () => {
+        const versions = await cached(`versions|${prov}|${hit.id}`, () => api.modrinthVersions(hit.id, prov));
+        const latest = versions[0];
+        if (!latest) throw new Error(t("discover.noVersions"));
+        return api.installModpack(activeRoot(), prov, hit.id, latest.id, null, hit.icon_url ?? null);
+      },
+      onComplete: (result) => {
+        const out = result as ImportOutcome;
+        refreshInstances(); // 新建了实例,库 / 侧栏 / 首页同步
+        if (out.blocked.length > 0 || out.skipped_optional.length > 0) setOutcome(out);
+        else toast({ type: "success", message: t("discover.installedModpack", { id: out.instance_id }) });
+      },
+      onError: (e) => toast({ type: "error", message: t("discover.installFailed", { error: String(e) }) }),
+    });
+    toast({ type: "info", message: t("discover.installQueued", { title: hit.title }) });
   }
 
   // 顶栏切换类型 → 重置筛选 / 首屏就绪态,并关掉可能打开的详情(回到该类型的浏览)。
@@ -159,6 +185,7 @@ const Discover: Component = () => {
                     onOpenDetail={openHit}
                     addingIds={installing()}
                     addedIds={added()}
+                    progressOf={progressOf}
                     placeholder={t("discover.searchPlaceholder")}
                     onProviderChange={setProvider}
                     onLoadingChange={(l) => {

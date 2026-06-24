@@ -3,7 +3,7 @@ import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { BlockedFilesDialog, Spinner, toast, Lightbox, type ModpackHit, type LightboxImage } from "../components";
 import { api, onInstallProgress } from "../ipc/api";
 import { cached } from "../ipc/cache";
-import { activeRoot } from "../store";
+import { activeRoot, refreshInstances } from "../store";
 import { t } from "../i18n";
 import type { ImportOutcome, ModrinthVersion, ModrinthProject } from "../ipc/types";
 import { renderMarkdown } from "../util/markdown";
@@ -125,6 +125,7 @@ const ModpackDetail: Component<{
     });
     try {
       const out = await api.installModpack(activeRoot(), provider(), props.hit.id, v.id, null, props.hit.icon_url ?? null);
+      refreshInstances(); // 新建了实例,库 / 侧栏 / 首页统一刷新
       if (out.blocked.length > 0 || out.skipped_optional.length > 0) {
         setOutcome(out); // 弹窗摊开需手动下载 / 被跳过的文件
       } else {
