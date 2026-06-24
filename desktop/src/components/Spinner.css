@@ -1,23 +1,49 @@
-/* Spinner.css —— 像素风 loading 的关键帧(Tailwind 不覆盖自定义 @keyframes)。
- * 8 个方块用同一明灭动画 + 各自负延迟错相,形成绕环彗尾;crispEdges 在 tsx 里保像素硬边。 */
+/* Spinner.css —— 盲文风 loading 的关键帧(Tailwind 不覆盖自定义 @keyframes)。
+ * 用 ::before 的 content 逐帧切换 10 个盲文点阵字符,形成连续旋转。 */
 
-.ui-pixel-cell {
-  animation: ui-pixel-spin 0.8s linear infinite;
+.ui-braille::before {
+  content: "⠋";
+  animation: ui-braille-spin 0.8s steps(1) infinite;
 }
 
-@keyframes ui-pixel-spin {
+@keyframes ui-braille-spin {
   0% {
-    opacity: 1;
+    content: "⠋";
   }
-  70%,
+  10% {
+    content: "⠙";
+  }
+  20% {
+    content: "⠹";
+  }
+  30% {
+    content: "⠸";
+  }
+  40% {
+    content: "⠼";
+  }
+  50% {
+    content: "⠴";
+  }
+  60% {
+    content: "⠦";
+  }
+  70% {
+    content: "⠧";
+  }
+  80% {
+    content: "⠇";
+  }
+  90% {
+    content: "⠏";
+  }
   100% {
-    opacity: 0.15;
+    content: "⠋";
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ui-pixel-cell {
+  .ui-braille::before {
     animation: none;
-    opacity: 0.6;
   }
 }
