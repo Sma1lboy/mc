@@ -1862,7 +1862,13 @@ pub async fn apply_modpack_update(
 pub async fn modrinth_project(
     project_id: String,
 ) -> CmdResult<mc_core::modplatform::modrinth::ProjectDetail> {
-    ModrinthApi::new().project_details(&project_id).await.map_err(err)
+    // 走本地持久缓存:实例详情头部 + 概览每次打开都要这份数据,缓存 24h 避免每次都打 Modrinth
+    // (抓取失败时回退旧缓存,离线也能显示)。
+    let cache = data_dir().join("cache");
+    ModrinthApi::new()
+        .project_details_cached(&project_id, &cache, std::time::Duration::from_secs(24 * 3600))
+        .await
+        .map_err(err)
 }
 
 /// 从一个 `.mrpack` 直链安装整合包(详情页「安装此版本」用)。

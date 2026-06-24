@@ -842,6 +842,76 @@ impl ModrinthApi {
             self.client.get(&url).send().await?.error_for_status()?.bytes().await?;
         Self::parse_project_detail(&bytes)
     }
+
+    /// [`project_details`] 的本地持久缓存版:实例详情头部 + 「概览」标签每次打开都要这份数据,
+    /// 不该每次都打 Modrinth。命中新鲜缓存(`< ttl`)直接返回;过期或无缓存则抓取并回写;
+    /// **抓取失败时回退到旧缓存**(stale-while-error,离线也能显示上次的 logo/简介)。
+    /// 缓存落在 `<cache_dir>/modrinth/project/<id>.json`,按 `id` 索引。
+    pub async fn project_details_cached(
+        &self,
+        id: &str,
+        cache_dir: &std::path::Path,
+        ttl: std::time::Duration,
+    ) -> Result<ProjectDetail> {
+        let path = project_cache_path(cache_dir, id);
+        if let Some(hit) = read_project_cache(&path, Some(ttl)) {
+            return Ok(hit);
+        }
+        match self.project_details(id).await {
+            Ok(fresh) => {
+                write_project_cache(&path, &fresh);
+                Ok(fresh)
+            }
+            // 网络/解析失败:有旧缓存就用旧的(忽略 ttl),否则把错误抛出去。
+            Err(e) => read_project_cache(&path, None).ok_or(e),
+        }
+    }
+}
+
+/// 缓存文件路径:`<cache_dir>/modrinth/project/<sanitized-id>.json`。
+/// id 来自 Modrinth(slug/id 均为 `[a-zA-Z0-9!@$()`.+]`),仍过滤一遍只留文件名安全字符。
+fn project_cache_path(cache_dir: &std::path::Path, id: &str) -> std::path::PathBuf {
+    let safe: String = id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
+    cache_dir.join("modrinth").join("project").join(format!("{safe}.json"))
+}
+
+/// 带抓取时间戳的缓存包裹体。
+#[derive(serde::Serialize, serde::Deserialize)]
+struct CachedProject {
+    /// 抓取时刻(Unix 秒)。用于 ttl 判断。
+    fetched_at: u64,
+    data: ProjectDetail,
+}
+
+fn now_unix_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// 读缓存:`ttl = Some(d)` 时只返回新鲜的(age < d);`ttl = None` 时无视年龄返回(stale 回退)。
+/// 文件缺失/损坏/反序列化失败都安静返回 None。
+fn read_project_cache(path: &std::path::Path, ttl: Option<std::time::Duration>) -> Option<ProjectDetail> {
+    let bytes = std::fs::read(path).ok()?;
+    let cached: CachedProject = serde_json::from_slice(&bytes).ok()?;
+    if let Some(ttl) = ttl {
+        let age = now_unix_secs().saturating_sub(cached.fetched_at);
+        if age >= ttl.as_secs() {
+            return None;
+        }
+    }
+    Some(cached.data)
+}
+
+/// 写缓存(best-effort:建目录 + 写文件,失败仅放弃,不影响主流程)。
+fn write_project_cache(path: &std::path::Path, data: &ProjectDetail) {
+    let wrapped = CachedProject { fetched_at: now_unix_secs(), data: data.clone() };
+    let Ok(json) = serde_json::to_vec(&wrapped) else { return };
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(path, json);
 }
 
 // ============================ facet 分类法(tags) ============================
@@ -1484,6 +1554,30 @@ mod tests {
         assert!(p.gallery.is_empty());
         assert_eq!(p.followers, 0);
         assert!(p.source_url.is_none());
+    }
+
+    #[test]
+    fn project_cache_round_trips_and_respects_ttl() {
+        // 缓存的价值在于「命中新鲜的就别再打网络」:写一份缓存,大 ttl 命中、ttl=0 视为过期、
+        // stale 回退(ttl=None)永远命中。覆盖 project_details_cached 的取舍逻辑而不依赖网络。
+        let sample = r#"{"id":"P","slug":"s","title":"Cool","description":"d","downloads":9,"followers":3}"#;
+        let detail = ModrinthApi::parse_project_detail(sample.as_bytes()).unwrap();
+
+        let dir = std::env::temp_dir().join(format!("mc-cache-test-{}", std::process::id()));
+        let path = project_cache_path(&dir, "P");
+        write_project_cache(&path, &detail);
+        assert!(path.exists(), "缓存文件应写入 modrinth/project/<id>.json");
+
+        // 新鲜:大 ttl 命中。
+        let hit = read_project_cache(&path, Some(std::time::Duration::from_secs(3600))).unwrap();
+        assert_eq!(hit.title, "Cool");
+        assert_eq!(hit.downloads, 9);
+        // 过期:ttl=0 → 视为过期(下次会重新抓取)。
+        assert!(read_project_cache(&path, Some(std::time::Duration::from_secs(0))).is_none());
+        // stale 回退:无视年龄(网络失败时用)。
+        assert!(read_project_cache(&path, None).is_some());
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
