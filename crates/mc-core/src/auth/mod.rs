@@ -76,3 +76,43 @@ pub async fn refresh_selected_microsoft(
     store.save()?;
     Ok(true)
 }
+
+/// 若当前选中的是外置登录(Yggdrasil)账号,启动前校验其 access_token;失效则用持久化的
+/// `client_token` 免密续期并写回 `store`(保持选中)。返回是否真的执行了续期。
+///
+/// 非外置 / 缺少 `client_token` 或 `yggdrasil_base`(老数据)时直接返回 `Ok(false)`(no-op)。
+/// 校验或续期的网络/协议错误以 `Err` 上抛:启动路径可 best-effort 忽略(用现有 token 继续),
+/// 显式「刷新登录」入口则据此提示用户重新登录。续期不改变账号身份(uuid/username/base 沿用),
+/// 只替换 access/client token —— 与微软续期一致的「原地更新」语义。
+pub async fn refresh_selected_yggdrasil(
+    store: &mut AccountStore,
+    http: reqwest::Client,
+) -> Result<bool> {
+    let acc = match store.selected_account() {
+        Some(a) if a.kind == AccountKind::Yggdrasil => a.clone(),
+        _ => return Ok(false),
+    };
+    let (base, client_token) = match (acc.yggdrasil_base.clone(), acc.client_token.clone()) {
+        (Some(b), Some(c)) => (b, c),
+        _ => return Ok(false),
+    };
+
+    let client = YggdrasilClient::new(base).with_http(http);
+    match client.refresh_session(&acc.access_token, &client_token).await? {
+        // token 仍有效:无需续期。
+        None => Ok(false),
+        // 续期成功:仅更新 token,其余身份字段沿用原账号。
+        Some(session) => {
+            let updated = StoredAccount {
+                access_token: session.access_token,
+                client_token: Some(session.client_token),
+                ..acc
+            };
+            let uuid = updated.uuid.clone();
+            store.add(updated);
+            let _ = store.select(&uuid);
+            store.save()?;
+            Ok(true)
+        }
+    }
+}
