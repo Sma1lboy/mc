@@ -1263,7 +1263,7 @@ export const InstanceManageDialog: Component<{
         </Show>
 
         <Show when={!props.hideTabs && !browsing()}>
-          <div class="flex gap-[4px] px-[16px] border-b border-glass-divider mt-[10px] overflow-x-auto">
+          <div class="shrink-0 flex gap-[4px] px-[16px] border-b border-glass-divider mt-[10px] overflow-x-auto">
             <For each={visibleTabs()}>
               {(item) => (
                 <button
@@ -1277,7 +1277,7 @@ export const InstanceManageDialog: Component<{
           </div>
         </Show>
 
-        <div class="p-[20px] flex flex-col gap-[14px] overflow-y-auto">
+        <div class="flex-1 min-h-0 p-[20px] flex flex-col gap-[14px] overflow-y-auto">
           {/* ---- 概览(整合包来源)---- */}
           <Show when={tab() === "overview" && modpackSource()}>
             {(s) => <ModpackOverview projectId={s().project_id} />}
