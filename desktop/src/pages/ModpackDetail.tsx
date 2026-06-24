@@ -124,7 +124,7 @@ const ModpackDetail: Component<{
       message: t("discover.installStart", { title: props.hit.title, version: v.version_number }),
     });
     try {
-      const out = await api.installModpack(activeRoot(), provider(), props.hit.id, v.id, null);
+      const out = await api.installModpack(activeRoot(), provider(), props.hit.id, v.id, null, props.hit.icon_url ?? null);
       if (out.blocked.length > 0 || out.skipped_optional.length > 0) {
         setOutcome(out); // 弹窗摊开需手动下载 / 被跳过的文件
       } else {

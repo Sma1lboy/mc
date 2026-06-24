@@ -1908,6 +1908,7 @@ pub async fn install_modpack(
     project: String,
     version_id: String,
     name: Option<String>,
+    icon_url: Option<String>,
 ) -> CmdResult<ImportOutcomeDto> {
     use mc_core::modpack::import::{ImportEngine, ImportOptions, ImportSource, ManagedPack};
 
@@ -1958,9 +1959,23 @@ pub async fn install_modpack(
     // 与 install_modpack_url 同路径:引擎先下到临时文件,再识别格式 + 安装。
     let paths = root_paths(&root);
     let dl = make_downloader()?;
+    // 实例图标:把整合包项目图标下到临时文件,作为 ImportOptions.icon 拷进实例,使其保留原 logo
+    // 而非默认像素占位(失败不致命 → 退回默认)。在 dl 移入引擎前用引用下载。
+    let icon_path = match icon_url.filter(|u| !u.trim().is_empty()) {
+        Some(u) => match dl.get_bytes(&u).await {
+            Ok(bytes) => {
+                let safe: String = project.chars().filter(|c| c.is_ascii_alphanumeric()).take(24).collect();
+                let tmp = std::env::temp_dir().join(format!("mc-modpack-icon-{}-{}.img", std::process::id(), safe));
+                std::fs::write(&tmp, &bytes).ok().map(|_| tmp)
+            }
+            Err(_) => None,
+        },
+        None => None,
+    };
     let engine = ImportEngine::with_defaults(dl, make_registry());
     let mut opts = ImportOptions::new(paths.root().to_path_buf());
     opts.instance_id = name;
+    opts.icon = icon_path;
     opts.managed = Some(ManagedPack {
         platform: platform.to_string(),
         project_id: project,
