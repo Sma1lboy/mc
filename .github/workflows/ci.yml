@@ -30,6 +30,34 @@ jobs:
       - name: Test workspace
         run: cargo test --workspace
 
+  bindings:
+    name: IPC Bindings (no drift)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      # Regenerate desktop/src/ipc/bindings.ts from the registered tauri commands
+      # (mc-launcher-desktop is NOT in the workspace, so run it from its own dir),
+      # then fail if the committed file differs — the #1 recurring bug class is
+      # hand-mirrored TS drifting from the Rust command set / DTOs.
+      - name: Regenerate TS bindings
+        working-directory: desktop/src-tauri
+        run: cargo test export_bindings
+
+      - name: Fail on stale bindings
+        run: |
+          if ! git diff --exit-code -- desktop/src/ipc/bindings.ts; then
+            echo "::error::desktop/src/ipc/bindings.ts is stale. Run 'cd desktop/src-tauri && cargo test export_bindings' and commit the result."
+            exit 1
+          fi
+
   desktop:
     name: Desktop Frontend
     runs-on: ubuntu-latest
