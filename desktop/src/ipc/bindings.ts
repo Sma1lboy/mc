@@ -219,7 +219,7 @@ export const commands = {
 	 *  CurseForge 作者禁第三方分发时平台不给整合包直链(`file.url` 为空),此处把该包文件经
 	 *  [`ImportOutcomeDto::blocked`] 的既有机制回传,让前端引导手动下载,而非抛不透明错误。
 	 */
-	installModpack: (root: string, provider: string | null, project: string, versionId: string, name: string | null) => typedError<ImportOutcomeDto, string>(__TAURI_INVOKE("install_modpack", { root, provider, project, versionId, name })),
+	installModpack: (root: string, provider: string | null, project: string, versionId: string, name: string | null, iconUrl: string | null) => typedError<ImportOutcomeDto, string>(__TAURI_INVOKE("install_modpack", { root, provider, project, versionId, name, iconUrl })),
 	/**
 	 *  列出一个项目的所有版本详情(详情页用:版本号/类型/MC/loader/发布时间/下载数/changelog
 	 *  + 该版本下载地址)。`provider` 缺省 `modrinth`。CurseForge 经 provider 的统一版本模型

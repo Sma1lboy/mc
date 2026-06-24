@@ -74,6 +74,7 @@ const overrides = {
     project: string,
     versionId: string,
     name: string | null,
+    iconUrl: string | null,
   ): Promise<ImportOutcome> => {
     const gen = (commands as Record<string, unknown>).installModpack;
     if (typeof gen === "function") {
@@ -84,10 +85,11 @@ const overrides = {
           project,
           versionId,
           name,
+          iconUrl,
         ),
       );
     }
-    return rawInvoke<ImportOutcome>("install_modpack", { root, provider, project, versionId, name });
+    return rawInvoke<ImportOutcome>("install_modpack", { root, provider, project, versionId, name, iconUrl });
   },
   // 主题:对前端暴露 theme.ts 的严格 ThemeConfig(后端 wire 形状更宽松,边界处转换)。
   getTheme: (): Promise<ThemeConfig> => unwrap(commands.getTheme()) as Promise<ThemeConfig>,

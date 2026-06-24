@@ -66,7 +66,7 @@ const Discover: Component = () => {
       const latest = versions[0];
       if (!latest) throw new Error(t("discover.noVersions"));
       toast({ type: "info", message: t("discover.installStart", { title: hit.title, version: latest.version_number }) });
-      const out = await api.installModpack(activeRoot(), prov, hit.id, latest.id, null);
+      const out = await api.installModpack(activeRoot(), prov, hit.id, latest.id, null, hit.icon_url ?? null);
       if (out.blocked.length > 0 || out.skipped_optional.length > 0) {
         setOutcome(out);
       } else {
