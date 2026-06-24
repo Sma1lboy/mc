@@ -2,7 +2,8 @@
  * 这些规则作用于 renderMarkdown 经 innerHTML 注入的 HTML(h/p/a/ul/li/code/…),
  * 那些元素没有可挂工具类的 class,所以必须留在 CSS 里。页面其余 chrome 已迁到
  * ModpackDetail.tsx 的 Tailwind 工具类。
- * 注意:Tailwind preflight 会清空列表符号,所以下面的 ul/ol 显式 list-style。 */
+ * 注意:Tailwind preflight 会清空列表符号,所以下面的 ul/ol 显式 list-style。
+ * 配色:Blocky Craft 令牌(暖黑底 + 沙金/熔岩橙强调),不用圆角(直角方块感)。 */
 
 /* ---- markdown body (.md) ---- */
 .md h1.md-h,
@@ -11,7 +12,7 @@
 .md h4.md-h,
 .md h5.md-h,
 .md h6.md-h {
-  color: var(--n-8, #222);
+  color: var(--text-strong, #f3ecda);
   font-weight: 700;
   line-height: 1.3;
   margin: 1.1em 0 0.5em;
@@ -22,7 +23,7 @@
 .md h2.md-h {
   font-size: 1.3em;
   padding-bottom: 0.25em;
-  border-bottom: 1px solid var(--n-3, rgba(0, 0, 0, 0.08));
+  border-bottom: 1px solid var(--bg-titlebar, rgba(0, 0, 0, 0.45));
 }
 .md h3.md-h {
   font-size: 1.12em;
@@ -34,7 +35,7 @@
   text-align: center;
 }
 .md a {
-  color: var(--a-6, #1370f3);
+  color: var(--accent, #e8590c);
   text-decoration: none;
 }
 .md a:hover {
@@ -56,7 +57,7 @@
 .md img {
   max-width: 100%;
   height: auto;
-  border-radius: 6px;
+  border-radius: 0;
   margin: 0.4em 0;
 }
 .md iframe {
@@ -65,24 +66,24 @@
   aspect-ratio: 16 / 9;
   height: auto;
   border: 0;
-  border-radius: 8px;
+  border-radius: 0;
   margin: 0.6em auto;
   display: block;
-  background: var(--n-2, rgba(0, 0, 0, 0.06));
+  background: var(--panel-2, #2a2c20);
 }
 .md code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.88em;
   padding: 1px 5px;
-  border-radius: 4px;
-  background: var(--n-2, rgba(0, 0, 0, 0.06));
+  border-radius: 0;
+  background: var(--panel-2, #2a2c20);
 }
 .md pre.md-code {
   margin: 0.7em 0;
   padding: 12px 14px;
   overflow-x: auto;
-  border-radius: 8px;
-  background: var(--n-2, rgba(0, 0, 0, 0.06));
+  border-radius: 0;
+  background: var(--panel-2, #2a2c20);
 }
 .md pre.md-code code {
   padding: 0;
@@ -94,13 +95,13 @@
 .md blockquote.md-quote {
   margin: 0.7em 0;
   padding: 4px 14px;
-  border-left: 3px solid var(--a-4, #4890f5);
-  color: var(--n-6, #777);
-  background: var(--n-1, rgba(0, 0, 0, 0.02));
-  border-radius: 0 6px 6px 0;
+  border-left: 3px solid var(--accent, #e8590c);
+  color: var(--text-muted, #8f8f7e);
+  background: var(--panel-2, #2a2c20);
+  border-radius: 0;
 }
 .md hr.md-hr {
   border: none;
-  border-top: 1px solid var(--n-3, rgba(0, 0, 0, 0.1));
+  border-top: 1px solid var(--bg-titlebar, rgba(0, 0, 0, 0.45));
   margin: 1.2em 0;
 }

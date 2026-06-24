@@ -3,8 +3,13 @@ import { api } from "../ipc/api";
 import { activeRoot } from "../store";
 import { toast } from "./Toast";
 import { Spinner } from "./Spinner";
+import { Panel } from "./Panel";
+import { Heading } from "./Typography";
+import { Toggle } from "./Toggle";
+import { ACCENT_BTN_COMPACT } from "./styles";
 import { renderMarkdown } from "../util/markdown";
 import { acceptedLoaders } from "../util/loaders";
+import { t } from "../i18n";
 import type { ModrinthVersion } from "../ipc/types";
 import "../pages/ModpackDetail.css"; // 复用 .md markdown 排版
 
@@ -62,7 +67,7 @@ export const ProjectDetailPanel: Component<{
 
   async function install(v: ModrinthVersion) {
     if (blocked(v)) {
-      toast({ type: "error", message: "这个版本不兼容当前实例的加载器/游戏版本" });
+      toast({ type: "error", message: t("projectDetail.incompatibleVersion") });
       return;
     }
     setInstalling(v.id);
@@ -80,15 +85,15 @@ export const ProjectDetailPanel: Component<{
         props.provider ?? "modrinth",
         props.projectId,
       );
-      const parts = [`已安装 ${v.version_number}`];
-      if (report.installed_deps > 0) parts.push(`+${report.installed_deps} 个依赖`);
-      if (report.unresolved.length > 0) parts.push(`${report.unresolved.length} 个依赖未解决`);
+      const parts = [t("projectDetail.installedVersion", { version: v.version_number })];
+      if (report.installed_deps > 0) parts.push(t("projectDetail.depsAdded", { count: report.installed_deps }));
+      if (report.unresolved.length > 0) parts.push(t("projectDetail.depsUnresolved", { count: report.unresolved.length }));
       const conflicts = report.incompatible?.length ?? 0;
-      if (conflicts > 0) parts.push(`声明与 ${conflicts} 个 mod 冲突`);
+      if (conflicts > 0) parts.push(t("projectDetail.declaredConflicts", { count: conflicts }));
       toast({ type: report.unresolved.length > 0 || conflicts > 0 ? "warn" : "success", message: parts.join(",") });
       props.onInstalled();
     } catch (e) {
-      toast({ type: "error", message: `安装失败:${e}` });
+      toast({ type: "error", message: t("projectDetail.installFailed", { error: String(e) }) });
     } finally {
       setInstalling(null);
     }
@@ -100,20 +105,20 @@ export const ProjectDetailPanel: Component<{
   }
 
   return (
-    <div class="absolute inset-0 z-20 flex flex-col glass-panel">
-      <div class="flex items-center gap-[10px] px-[16px] py-[12px] border-b border-glass-divider">
+    <Panel as="div" variant="sunken" class="absolute inset-0 z-20 flex flex-col bg-window">
+      <div class="flex items-center gap-[10px] px-[16px] py-[12px] border-b border-titlebar">
         <button
-          class="h-[28px] px-[10px] rounded-ctl bg-glass-card border border-glass-border text-fg text-[12px] cursor-pointer hover:bg-glass-hover"
+          class="shrink-0 h-[28px] px-[12px] rounded-none bg-panel-3 text-fg text-[12px] cursor-pointer shadow-raised active:shadow-pressed transition-[box-shadow] duration-[var(--dur)] ease-app"
           onClick={props.onClose}
         >
-          ← 返回
+          {t("projectDetail.back")}
         </button>
         <Show when={props.iconUrl}>
-          <img src={props.iconUrl!} alt="" width="26" height="26" class="w-[26px] h-[26px] rounded-xs object-cover shrink-0" />
+          <img src={props.iconUrl!} alt="" width="26" height="26" class="w-[26px] h-[26px] rounded-none object-cover shrink-0 shadow-sunken" style="image-rendering:pixelated" />
         </Show>
-        <div class="text-[15px] font-bold text-fg whitespace-nowrap overflow-hidden text-ellipsis">
+        <Heading size="sub" class="whitespace-nowrap overflow-hidden text-ellipsis">
           {props.title}
-        </div>
+        </Heading>
       </div>
 
       <div class="flex-1 overflow-y-auto p-[16px] flex flex-col gap-[16px]">
@@ -121,59 +126,55 @@ export const ProjectDetailPanel: Component<{
         <Show
           when={!project.loading}
           fallback={
-            <div class="flex items-center gap-[10px] text-dim text-[13px] py-[8px]">
-              <Spinner size={16} /> 加载简介…
+            <div class="flex items-center gap-[10px] text-muted text-[13px] py-[8px]">
+              <Spinner size={16} /> {t("projectDetail.loadingAbout")}
             </div>
           }
         >
           <Show
             when={project()?.body?.trim()}
-            fallback={<div class="text-dim text-[13px]">该项目没有简介。</div>}
+            fallback={<div class="text-muted text-[13px]">{t("projectDetail.noAbout")}</div>}
           >
             {/* renderMarkdown 转义优先,输出仅含白名单标签,innerHTML 安全 */}
-            <div class="md text-[13px] text-fg" innerHTML={renderMarkdown(project()!.body)} />
+            <div class="md text-[13px] text-sub" innerHTML={renderMarkdown(project()!.body)} />
           </Show>
         </Show>
 
         {/* 版本 */}
         <div class="flex items-center justify-between">
-          <div class="text-[12px] text-dim">版本</div>
-          <label class="flex items-center gap-[5px] text-[11px] text-dim cursor-pointer">
-            <input
-              type="checkbox"
-              class="w-[14px] h-[14px] accent-[var(--a-4)] cursor-pointer"
-              checked={showAll()}
-              onChange={(e) => setShowAll(e.currentTarget.checked)}
-            />
-            显示全部版本
+          <Heading size="sub">{t("projectDetail.versions")}</Heading>
+          <label class="flex items-center gap-[8px] text-[11px] text-muted cursor-pointer select-none">
+            {t("projectDetail.showAllVersions")}
+            <Toggle checked={showAll()} onChange={setShowAll} />
           </label>
         </div>
 
         <Show
           when={!versions.loading}
           fallback={
-            <div class="flex items-center gap-[10px] text-dim text-[13px] py-[8px]">
-              <Spinner size={16} /> 加载版本…
+            <div class="flex items-center gap-[10px] text-muted text-[13px] py-[8px]">
+              <Spinner size={16} /> {t("projectDetail.loadingVersions")}
             </div>
           }
         >
           <Show
             when={shown().length > 0}
-            fallback={<div class="text-dim text-[13px]">没有可用版本。</div>}
+            fallback={<div class="text-muted text-[13px]">{t("projectDetail.noVersions")}</div>}
           >
             <div class="flex flex-col gap-[6px]">
               <For each={shown()}>
                 {(v) => (
-                  <div
-                    class="flex items-center gap-[10px] py-[8px] px-[10px] rounded-ctl glass-panel border border-glass-border"
+                  <Panel
+                    variant="sunken"
+                    class="flex items-center gap-[10px] py-[8px] px-[10px] bg-panel-2"
                     classList={{ "opacity-60": !compatible(v) }}
                   >
                     <div class="flex-1 min-w-0">
                       <div class="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">
                         {v.version_number}
-                        <span class="text-[11px] text-dim ml-[6px]">{v.version_type}</span>
+                        <span class="text-[11px] text-muted ml-[6px]">{v.version_type}</span>
                       </div>
-                      <div class="text-[11px] text-dim whitespace-nowrap overflow-hidden text-ellipsis">
+                      <div class="text-[11px] text-muted whitespace-nowrap overflow-hidden text-ellipsis">
                         {[
                           v.game_versions.join(", "),
                           v.loaders.join(", "),
@@ -184,21 +185,21 @@ export const ProjectDetailPanel: Component<{
                       </div>
                     </div>
                     <button
-                      class="shrink-0 h-[28px] px-[12px] rounded-ctl bg-a-4 text-white text-[12px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90 disabled:opacity-50 disabled:cursor-default"
+                      class={ACCENT_BTN_COMPACT}
                       disabled={installing() !== null || blocked(v)}
-                      title={blocked(v) ? "当前实例的加载器/版本不兼容这个文件" : ""}
+                      title={blocked(v) ? t("projectDetail.incompatibleTooltip") : ""}
                       onClick={() => install(v)}
                     >
-                      {installing() === v.id ? "安装中…" : "安装"}
+                      {installing() === v.id ? t("projectDetail.installing") : t("projectDetail.install")}
                     </button>
-                  </div>
+                  </Panel>
                 )}
               </For>
             </div>
           </Show>
         </Show>
       </div>
-    </div>
+    </Panel>
   );
 };
 

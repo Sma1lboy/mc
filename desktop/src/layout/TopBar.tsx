@@ -1,30 +1,30 @@
-import { Component, For, Show } from "solid-js";
+import { Component, Show } from "solid-js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { runningIds, currentPage, discoverKind, setDiscoverKind, DISCOVER_KINDS } from "../store";
+import { runningIds } from "../store";
 import { DownloadQueue } from "../components/DownloadQueue";
+import { PixelLabel } from "../components";
 import { t } from "../i18n";
 
 /**
- * TopBar —— 48px 顶栏(无边框窗口的自绘标题栏)。
+ * TopBar —— 48px 顶栏(无边框窗口的自绘标题栏,Blocky Craft 石质标题栏)。
  *
- * 左: 空拖拽区(页面标题由各页自己的 H1 承担,顶栏不再重复)。
- * 右: 运行状态药丸 + 品牌名(kobeMC,灰) + 窗口控制(最小化/关闭)。
+ * 左: 空拖拽区(页面标题由各页 H1 承担;Discover 的内容类型 tab 落在发现页内)。
+ * 右: 下载队列 + 运行状态(凹陷方块药丸,状态点 + 文案)+ 品牌名 kobeMC(点阵沙金)。
  *
- * 拖拽:整条 .topbar 用 data-tauri-drag-region(Tauri v2 原生属性)实现窗口拖动;
- * 所有可点击区域(窗口按钮)用 .no-drag(-webkit-app-region:no-drag)排除,
- * 否则点击会被拖拽吞掉。
+ * 拖拽:整条顶栏 data-tauri-drag-region 实现窗口拖动;可点区域用 -webkit-app-region:no-drag
+ * 排除,否则点击会被拖拽吞掉。
  */
 
 const MinimizeIcon = () => (
   <svg class="w-[12px] h-[12px]" viewBox="0 0 12 12" aria-hidden="true">
-    <line x1="2.5" y1="6" x2="9.5" y2="6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" />
+    <line x1="2.5" y1="6" x2="9.5" y2="6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
   </svg>
 );
 
 const CloseIcon = () => (
   <svg class="w-[12px] h-[12px]" viewBox="0 0 12 12" aria-hidden="true">
-    <line x1="3" y1="3" x2="9" y2="9" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" />
-    <line x1="9" y1="3" x2="3" y2="9" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" />
+    <line x1="3" y1="3" x2="9" y2="9" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
+    <line x1="9" y1="3" x2="3" y2="9" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
   </svg>
 );
 
@@ -47,62 +47,47 @@ const TopBar: Component = () => {
   return (
     // data-tauri-drag-region:让顶栏空白处可拖动窗口
     <header
-      class="[grid-area:topbar] h-[48px] flex items-center justify-between glass-panel border-b border-glass-divider pl-[14px] pr-[8px] box-border select-none"
+      class="[grid-area:topbar] h-[48px] flex items-center justify-between bg-titlebar border-b border-titlebar pl-[12px] pr-[8px] box-border select-none"
       data-tauri-drag-region
     >
-      {/* 左侧:Discover 内容类型标签(仅发现页显示)。标签上提到顶栏,页面下方就纯粹是筛选 + 内容。 */}
-      <div class="flex items-center gap-[4px] [-webkit-app-region:no-drag]">
-        <Show when={currentPage() === "discover"}>
-          <For each={DISCOVER_KINDS}>
-            {(k) => (
-              <button
-                class="h-[28px] px-[12px] rounded-ctl border-none text-[12px] font-medium cursor-pointer transition-[background-color,color] duration-[var(--dur)] ease-app focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5"
-                classList={{
-                  "bg-a-4 text-white": discoverKind() === k,
-                  "bg-transparent text-dim hover:text-fg hover:bg-glass-hover": discoverKind() !== k,
-                }}
-                onClick={() => setDiscoverKind(k)}
-              >
-                {t(`discover.kind${k[0].toUpperCase()}${k.slice(1)}`)}
-              </button>
-            )}
-          </For>
-        </Show>
-      </div>
+      {/* 左侧:空拖拽区(占位,把右侧控件推到右上角)。 */}
+      <div class="flex-1 h-full" data-tauri-drag-region />
 
-      {/* 右侧:下载队列 + 运行状态(玻璃药丸)+ 品牌名 + 窗口控制 */}
+      {/* 右侧:下载队列 + 运行状态(凹陷方块药丸)+ 品牌名 + 窗口控制 */}
       <div class="flex items-center gap-[10px]">
         <DownloadQueue />
+
+        {/* 运行状态:凹陷方块药丸,直角倒角。 */}
         <div
-          class="inline-flex items-center gap-[6px] h-[26px] pl-[9px] pr-[11px] rounded-full bg-glass-card border border-glass-border"
+          class="inline-flex items-center gap-[7px] h-[26px] px-[10px] bg-panel-2 shadow-sunken"
           data-tauri-drag-region
         >
           <Show
             when={runningCount() > 0}
             fallback={
               <>
-                <span class="w-[7px] h-[7px] rounded-full shrink-0 bg-n-6" aria-hidden="true" />
-                <span class="text-[12px] text-dim whitespace-nowrap">{t("layout.noInstanceRunning")}</span>
+                <span class="w-[7px] h-[7px] shrink-0 bg-muted" aria-hidden="true" />
+                <span class="text-[12px] text-muted whitespace-nowrap">{t("layout.noInstanceRunning")}</span>
               </>
             }
           >
-            <span class="w-[7px] h-[7px] rounded-full shrink-0 bg-a-5" aria-hidden="true" />
+            <span class="w-[7px] h-[7px] shrink-0 bg-accent" aria-hidden="true" />
             <span class="text-[12px] text-fg whitespace-nowrap">{t("layout.running", { n: runningCount() })}</span>
           </Show>
         </div>
 
-        {/* 品牌名:低存在感的灰色字,落在右上角。 */}
-        <span
-          class="text-[12px] text-dim font-semibold tracking-[0.3px] whitespace-nowrap"
+        {/* 品牌名:点阵沙金短词,落在右上角。 */}
+        <PixelLabel
+          class="text-[11px] text-tag tracking-[0.5px] whitespace-nowrap"
           data-tauri-drag-region
         >
           kobeMC
-        </span>
+        </PixelLabel>
 
         {/* 窗口控制:no-drag,调 Tauri window API。原生交通灯按钮已提供,这里隐藏自绘控制以免重复。 */}
         <div class="hidden items-center gap-[2px] [-webkit-app-region:no-drag]">
           <button
-            class="w-[30px] h-[30px] border-none bg-transparent rounded-ctl text-n-7 cursor-pointer grid place-items-center transition-[background-color,color] duration-[var(--dur)] ease-app motion-reduce:transition-none hover:bg-glass-hover hover:text-fg"
+            class="w-[30px] h-[30px] border-none bg-panel-3 text-sub cursor-pointer grid place-items-center shadow-raised active:shadow-pressed transition-colors duration-[var(--dur)] ease-app motion-reduce:transition-none hover:text-fg"
             title={t("layout.minimize")}
             aria-label={t("layout.minimize")}
             onClick={() => windowAction((w) => w.minimize())}
@@ -110,7 +95,7 @@ const TopBar: Component = () => {
             <MinimizeIcon />
           </button>
           <button
-            class="w-[30px] h-[30px] border-none bg-transparent rounded-ctl text-n-7 cursor-pointer grid place-items-center transition-[background-color,color] duration-[var(--dur)] ease-app motion-reduce:transition-none hover:bg-danger hover:text-white"
+            class="w-[30px] h-[30px] border-none bg-panel-3 text-sub cursor-pointer grid place-items-center shadow-raised active:shadow-pressed transition-colors duration-[var(--dur)] ease-app motion-reduce:transition-none hover:bg-danger hover:text-danger-text"
             title={t("layout.close")}
             aria-label={t("layout.close")}
             onClick={() => windowAction((w) => w.close())}

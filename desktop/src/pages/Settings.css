@@ -28,12 +28,6 @@
   gap: 18px;
 }
 
-.settings-section {
-  border-radius: var(--radius-card);
-  background: var(--n-3);
-  padding: 18px 20px;
-}
-
 @media (min-width: 1440px) {
   .settings-page__grid {
     grid-template-columns: minmax(0, 1.25fr) minmax(420px, 0.75fr);

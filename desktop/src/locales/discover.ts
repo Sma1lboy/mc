@@ -1,6 +1,11 @@
 // "discover" 命名空间词条。zh 为真相源;en 缺项自动回退中文。
 const dict = {
   zh: {
+    pageTitle: "发现内容",
+    sourceLabel: "内容源",
+    moreFilters: "更多筛选",
+    removeFilter: "移除筛选",
+    byAuthor: "作者 {{ author }}",
     kindModpack: "整合包",
     kindMod: "模组",
     kindShader: "光影",
@@ -104,6 +109,11 @@ const dict = {
     downloadsTooltip: "{{ count }} 次下载",
   } as Record<string, string>,
   en: {
+    pageTitle: "Discover",
+    sourceLabel: "Source",
+    moreFilters: "More filters",
+    removeFilter: "Remove filter",
+    byAuthor: "by {{ author }}",
     kindModpack: "Modpacks",
     kindMod: "Mods",
     kindShader: "Shaders",

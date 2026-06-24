@@ -1,6 +1,18 @@
 import { Component, createMemo, createResource, createSignal, For, Show, onMount } from "solid-js";
-import { Button, Spinner, Select, Tooltip, ErrorState, toast } from "../components";
-import { Check, Info, Monitor, Moon, RotateCcw, Sun, type LucideIcon } from "lucide-solid";
+import {
+  Button,
+  Spinner,
+  Select,
+  Tooltip,
+  ErrorState,
+  toast,
+  Panel,
+  Segmented,
+  Slider,
+  Heading,
+  Tag,
+} from "../components";
+import { Check, Info, RotateCcw } from "lucide-solid";
 import {
   applyThemeColor,
   setMode,
@@ -11,7 +23,6 @@ import {
 } from "../theme/theme";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { api } from "../ipc/api";
-import { ACCENT_BTN } from "../components/styles";
 import {
   veilStrength,
   setVeilStrength,
@@ -21,57 +32,6 @@ import {
 import { t, locale, setLocale, type Locale } from "../i18n";
 import type { ThemeConfig, ThemeMode, GlobalSettings } from "../ipc/types";
 import "./Settings.css";
-
-type SegmentOption<T extends string> = {
-  value: T;
-  label: string;
-  icon?: LucideIcon;
-};
-
-interface SegmentedControlProps<T extends string> {
-  ariaLabel: string;
-  value: T;
-  options: SegmentOption<T>[];
-  onChange: (value: T) => void;
-}
-
-function SegmentedControl<T extends string>(props: SegmentedControlProps<T>) {
-  return (
-    <div
-      class="inline-flex items-center gap-[2px] rounded-ctl border border-glass-border bg-glass-card p-[3px]"
-      role="group"
-      aria-label={props.ariaLabel}
-    >
-      <For each={props.options}>
-        {(option) => {
-          const selected = () => props.value === option.value;
-          return (
-            <button
-              type="button"
-              class="inline-flex h-[30px] items-center justify-center gap-[6px] rounded-xs border-none px-[10px] text-[13px] font-medium leading-none cursor-pointer select-none transition-[background-color,color,box-shadow] duration-[var(--dur)] ease-app focus-visible:ring-2 focus-visible:ring-a-4 focus-visible:ring-offset-2 focus-visible:ring-offset-n-3 disabled:opacity-50 disabled:cursor-not-allowed"
-              classList={{
-                "bg-a-4 text-white": selected(),
-                "bg-transparent text-fg hover:bg-glass-hover": !selected(),
-              }}
-              aria-pressed={selected()}
-              onClick={() => props.onChange(option.value)}
-            >
-              <Show when={option.icon}>
-                {(icon) => {
-                  const Icon = icon();
-                  return <Icon size={14} aria-hidden="true" />;
-                }}
-              </Show>
-              <span>{option.label}</span>
-            </button>
-          );
-        }}
-      </For>
-    </div>
-  );
-}
-
-const SECTION_CLASS = "settings-section";
 
 /**
  * Settings —— 主题(HSL 三滑块实时换肤 + 预设 + 深浅切换)
@@ -97,15 +57,15 @@ const Settings: Component = () => {
     }
   }
 
-  const languageOptions: SegmentOption<Locale>[] = [
+  const languageOptions = (): { value: Locale; label: string }[] => [
     { value: "zh", label: "中文" },
     { value: "en", label: "English" },
   ];
 
-  const themeModeOptions = (): SegmentOption<ThemeMode>[] => [
-    { value: "light", label: t("settings.themeModeLight"), icon: Sun },
-    { value: "dark", label: t("settings.themeModeDark"), icon: Moon },
-    { value: "system", label: t("settings.themeModeSystem"), icon: Monitor },
+  const themeModeOptions = (): { value: ThemeMode; label: string }[] => [
+    { value: "light", label: t("settings.themeModeLight") },
+    { value: "dark", label: t("settings.themeModeDark") },
+    { value: "system", label: t("settings.themeModeSystem") },
   ];
 
   // 初始化:从后端取当前主题 + 全局设置。
@@ -199,6 +159,15 @@ const Settings: Component = () => {
     ...(javas() ?? []).map((j) => ({ label: `Java ${j.version} — ${j.path}`, value: j.path })),
   ]);
 
+  // 默认内存:MiB → "2G"/"1.5G"/"768M" 的友好显示。
+  function formatMem(mib: number): string {
+    if (mib >= 1024) {
+      const g = mib / 1024;
+      return `${Number.isInteger(g) ? g : g.toFixed(1)}G`;
+    }
+    return `${mib}M`;
+  }
+
   function current(): ThemeConfig {
     return { mode: mode(), hue: hue(), saturation: sat(), lightness: light() };
   }
@@ -254,32 +223,41 @@ const Settings: Component = () => {
     toast({ type: "success", message: t("settings.resetThemeDone") });
   }
 
+  // 块标题(像素体) + 内距统一的设置块。
+  const sectionClass = "p-[20px]";
+
   return (
     <div class="settings-page">
       <div class="settings-page__inner">
-        <h1 class="text-[24px] font-bold text-fg mt-0 mb-[20px] mx-0">{t("settings.title")}</h1>
+        <Heading size="page" as="h1" class="mt-0 mb-[20px]">
+          {t("settings.title")}
+        </Heading>
 
         <div class="settings-page__grid">
           <div class="settings-page__main">
-            <section class={SECTION_CLASS}>
-              <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">{t("settings.sectionLanguage")}</h2>
-              <div class="flex items-center justify-between mb-[14px] text-fg text-[14px]">
+            <Panel variant="sunken" class={sectionClass}>
+              <Heading size="sub" as="h2" class="mb-[14px]">
+                {t("settings.sectionLanguage")}
+              </Heading>
+              <div class="flex items-center justify-between text-fg text-[14px]">
                 <span>{t("settings.language")}</span>
-                <SegmentedControl
+                <Segmented
                   ariaLabel={t("settings.langAriaLabel")}
                   value={locale()}
-                  options={languageOptions}
+                  options={languageOptions()}
                   onChange={setLocale}
                 />
               </div>
-            </section>
+            </Panel>
 
-            <section class={SECTION_CLASS}>
-              <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">{t("settings.sectionAppearance")}</h2>
+            <Panel variant="sunken" class={sectionClass}>
+              <Heading size="sub" as="h2" class="mb-[14px]">
+                {t("settings.sectionAppearance")}
+              </Heading>
 
-              <div class="flex items-center justify-between mb-[14px] text-fg text-[14px]">
+              <div class="flex items-center justify-between mb-[16px] text-fg text-[14px]">
                 <span>{t("settings.themeMode")}</span>
-                <SegmentedControl
+                <Segmented
                   ariaLabel={t("settings.themeMode")}
                   value={mode()}
                   options={themeModeOptions()}
@@ -287,16 +265,16 @@ const Settings: Component = () => {
                 />
               </div>
 
-              <div class="flex items-center justify-between mb-[14px] text-fg text-[14px]">
+              <div class="flex items-center justify-between mb-[16px] text-fg text-[14px]">
                 <span>{t("settings.presetAccent")}</span>
                 <div class="flex gap-[8px]">
                   <For each={PRESETS}>
                     {(p) => (
                       <button
                         type="button"
-                        class="relative grid w-[26px] h-[26px] place-items-center rounded-full border-2 border-n-6 cursor-pointer transition-[transform,border-color,box-shadow] duration-[var(--dur)] ease-app hover:scale-[1.12] focus-visible:ring-2 focus-visible:ring-a-4 focus-visible:ring-offset-2 focus-visible:ring-offset-n-3"
+                        class="relative grid w-[28px] h-[28px] place-items-center rounded-none shadow-raised cursor-pointer transition-[transform,box-shadow] duration-[var(--dur)] ease-app hover:-translate-y-[1px] active:shadow-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                         classList={{
-                          "border-white shadow-[0_0_0_2px_var(--a-4)]": isSelectedPreset(p),
+                          "ring-2 ring-tag": isSelectedPreset(p),
                         }}
                         style={{ background: p.hex }}
                         title={p.name}
@@ -305,7 +283,7 @@ const Settings: Component = () => {
                         onClick={() => pickPreset(p)}
                       >
                         <Show when={isSelectedPreset(p)}>
-                          <Check size={13} aria-hidden="true" class="text-white" />
+                          <Check size={14} aria-hidden="true" class="text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.6)]" />
                         </Show>
                       </button>
                     )}
@@ -313,124 +291,99 @@ const Settings: Component = () => {
                 </div>
               </div>
 
-              <div class="flex flex-col gap-[4px] mb-[12px]">
-                <label for="theme-hue" class="text-[12px] text-dim">
-                  {t("settings.hue")} {Math.round(hue())}
-                </label>
-                <input
-                  id="theme-hue"
-                  name="theme-hue"
-                  autocomplete="off"
-                  class="w-full accent-[var(--a-4)]"
-                  type="range"
-                  aria-label={t("settings.hue")}
-                  min="0"
-                  max="360"
-                  value={hue()}
-                  onInput={(e) => {
-                    setHue(+e.currentTarget.value);
-                    apply(false);
-                  }}
-                  onChange={() => apply()}
-                />
-              </div>
-              <div class="flex flex-col gap-[4px] mb-[12px]">
-                <label for="theme-saturation" class="text-[12px] text-dim">
-                  {t("settings.saturation")} {Math.round(sat())}
-                </label>
-                <input
-                  id="theme-saturation"
-                  name="theme-saturation"
-                  autocomplete="off"
-                  class="w-full accent-[var(--a-4)]"
-                  type="range"
-                  aria-label={t("settings.saturation")}
-                  min="0"
-                  max="100"
-                  value={sat()}
-                  onInput={(e) => {
-                    setSat(+e.currentTarget.value);
-                    apply(false);
-                  }}
-                  onChange={() => apply()}
-                />
-              </div>
-              <div class="flex flex-col gap-[4px] mb-[12px]">
-                <label for="theme-lightness" class="text-[12px] text-dim">
-                  {t("settings.lightness")} {Math.round(light())}
-                </label>
-                <input
-                  id="theme-lightness"
-                  name="theme-lightness"
-                  autocomplete="off"
-                  class="w-full accent-[var(--a-4)]"
-                  type="range"
-                  aria-label={t("settings.lightness")}
-                  min="20"
-                  max="70"
-                  value={light()}
-                  onInput={(e) => {
-                    setLight(+e.currentTarget.value);
-                    apply(false);
-                  }}
-                  onChange={() => apply()}
-                />
-              </div>
+              <Slider
+                class="mb-[14px]"
+                label={t("settings.hue")}
+                display={(v) => String(Math.round(v))}
+                min={0}
+                max={360}
+                value={hue()}
+                ariaLabel={t("settings.hue")}
+                onInput={(v) => {
+                  setHue(v);
+                  apply();
+                }}
+              />
+              <Slider
+                class="mb-[14px]"
+                label={t("settings.saturation")}
+                display={(v) => String(Math.round(v))}
+                min={0}
+                max={100}
+                value={sat()}
+                ariaLabel={t("settings.saturation")}
+                onInput={(v) => {
+                  setSat(v);
+                  apply();
+                }}
+              />
+              <Slider
+                class="mb-[14px]"
+                label={t("settings.lightness")}
+                display={(v) => String(Math.round(v))}
+                min={20}
+                max={70}
+                value={light()}
+                ariaLabel={t("settings.lightness")}
+                onInput={(v) => {
+                  setLight(v);
+                  apply();
+                }}
+              />
+              <Slider
+                class="mb-[16px]"
+                label={t("settings.uiTransparency")}
+                display={(v) => `${v}%`}
+                min={0}
+                max={65}
+                step={1}
+                value={Math.round((1 - veilStrength()) * 100)}
+                ariaLabel={t("settings.uiTransparency")}
+                onInput={(v) => setVeilStrength(1 - v / 100)}
+              />
 
-              <div class="flex flex-col gap-[4px] mb-[12px]">
-                <label for="ui-transparency" class="text-[12px] text-dim">
-                  {t("settings.uiTransparency")} {Math.round((1 - veilStrength()) * 100)}%
-                </label>
-                <input
-                  id="ui-transparency"
-                  name="ui-transparency"
-                  autocomplete="off"
-                  class="w-full accent-[var(--a-4)]"
-                  type="range"
-                  aria-label={t("settings.uiTransparency")}
-                  min="0"
-                  max="65"
-                  step="1"
-                  value={Math.round((1 - veilStrength()) * 100)}
-                  onInput={(e) => setVeilStrength(1 - +e.currentTarget.value / 100)}
-                />
-              </div>
-
-              <div class="flex gap-[4px] mt-[12px]">
+              <div class="flex gap-[3px] mb-[16px]">
                 <For each={[1, 2, 3, 4, 5, 6, 7, 8]}>
-                  {(i) => <span class="flex-1 h-[24px] rounded-xs" style={{ background: `var(--a-${i})` }} />}
+                  {(i) => (
+                    <span
+                      class="flex-1 h-[24px] rounded-none shadow-sunken"
+                      style={{ background: `var(--a-${i})` }}
+                    />
+                  )}
                 </For>
               </div>
 
-              <div class="flex items-center justify-between mb-[14px] text-fg text-[14px]">
+              <div class="flex items-center justify-between text-fg text-[14px]">
                 <span>{t("settings.resetTheme")}</span>
                 <Button variant="ghost" onClick={resetTheme}>
                   <RotateCcw size={14} aria-hidden="true" />
                   {t("settings.reset")}
                 </Button>
               </div>
-            </section>
+            </Panel>
           </div>
 
           <div class="settings-page__side">
-            <section class={SECTION_CLASS}>
-              <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">{t("settings.sectionDownloadGame")}</h2>
+            <Panel variant="sunken" class={sectionClass}>
+              <Heading size="sub" as="h2" class="mb-[14px]">
+                {t("settings.sectionDownloadGame")}
+              </Heading>
               <Show
                 when={settings()}
                 fallback={
                   settingsError()
                     ? <ErrorState message={t("settings.downloadSettingsFailed")} onRetry={() => void loadSettings()} />
-                    : <div class="text-dim">{t("settings.loadingSettings")}</div>
+                    : <div class="text-muted">{t("settings.loadingSettings")}</div>
                 }
               >
-                <div class="flex items-center justify-between mb-[14px] text-fg text-[14px]">
+                <div class="flex items-center justify-between mb-[16px] text-fg text-[14px]">
                   <span class="flex items-center gap-[6px]">
                     {t("settings.downloadSource")}
                     <Tooltip content={t("settings.downloadSourceTip")}>
                       <Info size={14} aria-hidden="true" />
                     </Tooltip>
                   </span>
-                  <SegmentedControl
+                  <Segmented
                     ariaLabel={t("settings.downloadSource")}
                     value={
                       settings()!.use_mirror || settings()!.download_source === "bmclapi"
@@ -450,48 +403,29 @@ const Settings: Component = () => {
                   />
                 </div>
 
-                <div class="flex flex-col gap-[4px] mb-[12px]">
-                  <label for="download-concurrency" class="text-[12px] text-dim">
-                    {t("settings.concurrency")} {settings()!.concurrency}
-                  </label>
-                  <input
-                    id="download-concurrency"
-                    name="download-concurrency"
-                    autocomplete="off"
-                    class="w-full accent-[var(--a-4)]"
-                    type="range"
-                    aria-label={t("settings.concurrency")}
-                    min="1"
-                    max="128"
-                    value={settings()!.concurrency}
-                    onInput={(e) => setSettings({ ...settings()!, concurrency: +e.currentTarget.value })}
-                    onChange={() => patchSettings({})}
-                  />
-                </div>
+                <Slider
+                  class="mb-[16px]"
+                  label={t("settings.concurrency")}
+                  min={1}
+                  max={128}
+                  value={settings()!.concurrency ?? 64}
+                  ariaLabel={t("settings.concurrency")}
+                  onInput={(v) => patchSettings({ concurrency: v })}
+                />
 
-                <div class="flex flex-col gap-[4px] mb-[12px]">
-                  <label for="default-memory" class="text-[12px] text-dim">
-                    {t("settings.defaultMemory")} {settings()!.default_memory_mb} MiB
-                  </label>
-                  <input
-                    id="default-memory"
-                    name="default-memory"
-                    autocomplete="off"
-                    class="w-full accent-[var(--a-4)]"
-                    type="range"
-                    aria-label={t("settings.defaultMemory")}
-                    min="512"
-                    max="16384"
-                    step="256"
-                    value={settings()!.default_memory_mb}
-                    onInput={(e) =>
-                      setSettings({ ...settings()!, default_memory_mb: +e.currentTarget.value })
-                    }
-                    onChange={() => patchSettings({})}
-                  />
-                </div>
+                <Slider
+                  class="mb-[16px]"
+                  label={t("settings.defaultMemory")}
+                  display={formatMem}
+                  min={512}
+                  max={16384}
+                  step={256}
+                  value={settings()!.default_memory_mb ?? 2048}
+                  ariaLabel={t("settings.defaultMemory")}
+                  onInput={(v) => patchSettings({ default_memory_mb: v })}
+                />
 
-                <div class="flex items-center justify-between mb-[14px] text-fg text-[14px]">
+                <div class="flex items-center justify-between text-fg text-[14px]">
                   <span>{t("settings.java")}</span>
                   <Select
                     class="max-w-[60%]"
@@ -502,66 +436,73 @@ const Settings: Component = () => {
                   />
                 </div>
               </Show>
-            </section>
+            </Panel>
 
-            <section class={SECTION_CLASS}>
-              <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">{t("settings.sectionContentSource")}</h2>
+            <Panel variant="sunken" class={sectionClass}>
+              <Heading size="sub" as="h2" class="mb-[14px]">
+                {t("settings.sectionContentSource")}
+              </Heading>
               <Show
                 when={settings()}
                 fallback={
                   settingsError()
                     ? <ErrorState message={t("settings.downloadSettingsFailed")} onRetry={() => void loadSettings()} />
-                    : <div class="text-dim">{t("settings.loadingSettings")}</div>
+                    : <div class="text-muted">{t("settings.loadingSettings")}</div>
                 }
               >
-                <div class="flex flex-col gap-[6px]">
+                <div class="flex flex-col gap-[8px]">
                   <label for="cf-api-key" class="text-[14px] text-fg">{t("settings.cfApiKey")}</label>
                   <input
                     id="cf-api-key"
                     name="cf-api-key"
                     type="password"
                     autocomplete="off"
-                    class="w-full rounded-ctl border border-glass-border bg-glass-card px-[10px] py-[7px] text-[13px] text-fg placeholder:text-dim outline-none focus-visible:ring-2 focus-visible:ring-a-4"
+                    class="w-full rounded-none bg-sidebar shadow-input px-[12px] h-[36px] text-[13px] text-fg placeholder:text-faint border-none outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     placeholder={t("settings.cfApiKeyPlaceholder")}
                     value={settings()!.cf_api_key ?? ""}
                     onInput={(e) => setSettings({ ...settings()!, cf_api_key: e.currentTarget.value || null })}
                     onChange={(e) => patchSettings({ cf_api_key: e.currentTarget.value.trim() || null })}
                   />
-                  <span class="text-[12px] text-dim">{t("settings.cfApiKeyHint")}</span>
+                  <span class="text-[12px] text-muted">{t("settings.cfApiKeyHint")}</span>
                 </div>
               </Show>
-            </section>
+            </Panel>
 
-            <section class={SECTION_CLASS}>
-              <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">{t("settings.sectionJava")}</h2>
+            <Panel variant="sunken" class={sectionClass}>
+              <Heading size="sub" as="h2" class="mb-[14px]">
+                {t("settings.sectionJava")}
+              </Heading>
               <Show when={!javas.loading} fallback={<div class="flex justify-center p-[20px]"><Spinner /></div>}>
                 <Show
                   when={(javas() ?? []).length > 0}
                   fallback={
                     javas.error
                       ? <ErrorState compact message={t("settings.javaDetectFailed")} onRetry={() => void refetchJavas()} />
-                      : <div class="text-dim">{t("settings.noJava")}</div>
+                      : <div class="text-muted">{t("settings.noJava")}</div>
                   }
                 >
                   <div class="flex flex-col gap-[8px]">
                     <For each={javas()}>
                       {(j) => (
-                        <div class="flex flex-col gap-[2px] px-[10px] py-[8px] glass-card rounded-ctl">
-                          <span class="font-semibold text-fg">Java {j.version}</span>
-                          <span class="text-[12px] text-a-5">
-                            {j.is_64bit ? t("settings.bit64") : t("settings.bit32")} · {j.source}
+                        <Panel variant="raised" class="flex flex-col gap-[3px] px-[12px] py-[9px]">
+                          <span class="flex items-center gap-[8px]">
+                            <span class="font-display text-[14px] text-strong">Java {j.version}</span>
+                            <Tag>{j.is_64bit ? t("settings.bit64") : t("settings.bit32")}</Tag>
+                            <span class="text-[12px] text-accent">{j.source}</span>
                           </span>
-                          <span class="text-[11px] text-dim break-all">{j.path}</span>
-                        </div>
+                          <span class="text-[11px] text-faint break-all">{j.path}</span>
+                        </Panel>
                       )}
                     </For>
                   </div>
                 </Show>
               </Show>
-            </section>
+            </Panel>
 
-            <section class={SECTION_CLASS}>
-              <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">{t("settings.sectionGameDir")}</h2>
+            <Panel variant="sunken" class={sectionClass}>
+              <Heading size="sub" as="h2" class="mb-[14px]">
+                {t("settings.sectionGameDir")}
+              </Heading>
               <Show
                 when={!roots.loading}
                 fallback={<div class="flex justify-center p-[20px]"><Spinner /></div>}
@@ -571,9 +512,9 @@ const Settings: Component = () => {
                     {(r) => {
                       const active = () => (currentRoot() ?? "") === r.path;
                       return (
-                        <div
-                          class="flex items-center gap-[10px] py-[8px] px-[10px] rounded-ctl bg-glass-card border border-transparent transition-colors duration-150"
-                          classList={{ "!border-a-4 bg-a-1": active() }}
+                        <Panel
+                          variant="raised"
+                          class={`flex items-center gap-[10px] py-[9px] px-[12px]${active() ? " ring-2 ring-accent" : ""}`}
                         >
                           <button
                             class="flex-1 min-w-0 flex flex-col gap-[2px] text-left bg-transparent border-none p-0 cursor-pointer"
@@ -583,36 +524,38 @@ const Settings: Component = () => {
                             <span class="flex items-center gap-[6px] text-[13px] text-fg">
                               {r.name}
                               <Show when={active()}>
-                                <span class="text-a-6 text-[12px]" aria-hidden="true">{t("settings.current")}</span>
+                                <span class="text-accent text-[12px]" aria-hidden="true">{t("settings.current")}</span>
                               </Show>
                             </span>
-                            <span class="text-[11px] text-dim break-all">{r.path}</span>
+                            <span class="text-[11px] text-faint break-all">{r.path}</span>
                           </button>
                           <Show when={r.kind === "custom"}>
                             <button
-                              class="shrink-0 text-[12px] text-danger-text px-[8px] py-[4px] rounded-xs cursor-pointer hover:bg-danger-soft"
+                              class="shrink-0 text-[12px] text-danger-text px-[8px] py-[4px] rounded-none cursor-pointer hover:bg-danger-soft"
                               onClick={() => void removeCustomRoot(r.path)}
                             >
                               {t("settings.remove")}
                             </button>
                           </Show>
-                        </div>
+                        </Panel>
                       );
                     }}
                   </For>
-                  <button class={`${ACCENT_BTN} self-start`} onClick={() => void addCustomRoot()}>
+                  <Button variant="primary" class="self-start" onClick={() => void addCustomRoot()}>
                     {t("settings.addDir")}
-                  </button>
+                  </Button>
                 </div>
               </Show>
-            </section>
+            </Panel>
 
-            <section class={SECTION_CLASS}>
-              <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">{t("settings.sectionDiagnostics")}</h2>
+            <Panel variant="sunken" class={sectionClass}>
+              <Heading size="sub" as="h2" class="mb-[14px]">
+                {t("settings.sectionDiagnostics")}
+              </Heading>
               <div class="flex items-center justify-between text-fg text-[14px]">
                 <div class="flex flex-col gap-[2px] min-w-0">
                   <span>{t("settings.logs")}</span>
-                  <span class="text-[12px] text-dim">{t("settings.logsDesc")}</span>
+                  <span class="text-[12px] text-muted">{t("settings.logsDesc")}</span>
                 </div>
                 <div class="flex items-center gap-[8px] shrink-0">
                   <Button variant="ghost" onClick={toggleLog}>
@@ -638,7 +581,7 @@ const Settings: Component = () => {
                 <div class="mt-[12px]">
                   <div class="flex justify-end mb-[6px]">
                     <button
-                      class="text-[12px] text-dim hover:text-fg disabled:opacity-50 cursor-pointer bg-transparent border-none transition-colors duration-150"
+                      class="text-[12px] text-muted hover:text-fg disabled:opacity-50 cursor-pointer bg-transparent border-none transition-colors duration-150"
                       onClick={() => void loadLog()}
                       disabled={logLoading()}
                     >
@@ -647,13 +590,13 @@ const Settings: Component = () => {
                   </div>
                   <pre
                     ref={logBox}
-                    class="max-h-[340px] overflow-auto m-0 rounded-ctl border border-glass-border bg-glass-card p-[10px] text-[11px] leading-[1.55] text-dim font-mono whitespace-pre-wrap break-all"
+                    class="max-h-[340px] overflow-auto m-0 bg-sidebar shadow-input rounded-none p-[12px] text-[11px] leading-[1.55] text-muted font-mono whitespace-pre-wrap break-all"
                   >
                     {logText() || t("settings.logEmpty")}
                   </pre>
                 </div>
               </Show>
-            </section>
+            </Panel>
           </div>
         </div>
       </div>

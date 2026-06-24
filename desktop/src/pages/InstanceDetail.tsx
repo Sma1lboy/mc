@@ -1,5 +1,5 @@
 import { Component, createEffect, createResource, createSignal, onCleanup, onMount, For, Show } from "solid-js";
-import { InstanceManageDialog, InstanceIcon, Dialog, ExportModpackDialog, toast, type InstanceRowData } from "../components";
+import { InstanceManageDialog, InstanceIcon, Dialog, ExportModpackDialog, toast, Button, Heading, PixelLabel, Tag, type InstanceRowData } from "../components";
 import { PlayButton } from "../components/PlayButton";
 import { Menu } from "../components/Menu";
 import { formatRelativeTime } from "../components/format";
@@ -50,8 +50,16 @@ const InstanceDetail: Component = () => {
   const backfilledIcon = new Set<string>();
   createEffect(() => {
     const i = inst();
-    const url = project()?.icon_url;
-    if (!i || i.icon || !url || backfilledIcon.has(i.id)) return;
+    if (!i || i.icon || backfilledIcon.has(i.id)) return;
+    // 防 resource 串接竞态:project 由 cfg().source.project_id 异步派生,切换实例时 inst 可能
+    // 先于 project 更新——此刻 project() 还是上一个实例的项目,直接拿它的 icon_url 会把别人的
+    // logo 写错给当前实例(且 backfilledIcon 锁死再不重试)。只在 project 确实对应当前实例来源
+    // (id 对得上)时才补齐,对不上就这轮跳过、等 project 追上后再来。
+    const src = cfg()?.source;
+    const proj = project();
+    if (!src || src.provider !== "modrinth" || !proj || proj.id !== src.project_id) return;
+    const url = proj.icon_url;
+    if (!url) return;
     backfilledIcon.add(i.id);
     void api.backfillInstanceIcon(activeRoot(), i.id, url).then((done) => {
       if (done) {
@@ -186,14 +194,14 @@ const InstanceDetail: Component = () => {
     <div class="flex flex-col h-full min-h-0 overflow-hidden">
       {/* 头部:浏览(添加)模式下隐藏,整页让给复用的探索视图。 */}
       <Show when={!browsing()}>
-      <div class="flex flex-col gap-[12px] px-[28px] pt-[14px] pb-[14px] border-b border-glass-divider">
-        {/* 返回:与其它详情页一致的文字返回(整行最上方),不再用漂浮的箭头按钮。 */}
+      <div class="flex flex-col gap-[12px] px-[28px] pt-[14px] pb-[16px] border-b border-titlebar">
+        {/* 返回:整行最上方的文字返回,与其它详情页一致。 */}
         <button
-          class="self-start inline-flex items-center gap-[3px] bg-transparent border-none text-dim text-[13px] cursor-pointer py-[2px] px-0 transition-colors duration-150 hover:text-fg"
+          class="self-start inline-flex items-center gap-[4px] bg-transparent border-none text-muted text-[13px] cursor-pointer py-[2px] px-0 transition-colors duration-150 hover:text-fg"
           onClick={closeInstance}
           aria-label={t("instance.back")}
         >
-          <svg class="w-[16px] h-[16px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg class="w-[16px] h-[16px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <path d="m14 6-6 6 6 6" />
           </svg>
           {t("instance.back")}
@@ -201,28 +209,42 @@ const InstanceDetail: Component = () => {
 
         <Show
           when={inst()}
-          fallback={<div class="text-dim text-[14px] py-[8px]">{t("instance.loading")}</div>}
+          fallback={<div class="text-muted text-[14px] py-[8px]">{t("instance.loading")}</div>}
         >
           {(i) => (
             <div class="flex items-center gap-[14px]">
-              <div class="relative shrink-0 w-[52px] h-[52px] rounded-ctl overflow-hidden select-none">
+              <div class="relative shrink-0 w-[56px] h-[56px] rounded-none overflow-hidden select-none shadow-sunken">
                 <InstanceIcon name={i().name || i().id} icon={i().icon || project()?.icon_url || undefined} />
                 <Show when={isRunning(i().id)}>
-                  <span class="absolute right-[3px] bottom-[3px] w-[12px] h-[12px] rounded-full bg-a-5 shadow-[0_0_0_2px_var(--bg-card)]" title={t("instance.running")} />
+                  <span class="absolute right-[3px] bottom-[3px] w-[12px] h-[12px] rounded-none bg-accent shadow-[0_0_0_2px_var(--bg-window)]" title={t("instance.running")} />
                 </Show>
               </div>
               <div class="flex-1 min-w-0">
-                <div class="text-[20px] font-bold text-fg whitespace-nowrap overflow-hidden text-ellipsis" title={i().name || i().id}>
+                <Heading size="section" class="whitespace-nowrap overflow-hidden text-ellipsis" title={i().name || i().id}>
                   {i().name || i().id}
-                </div>
-                <div class="text-[12px] text-dim whitespace-nowrap overflow-hidden text-ellipsis">
-                  {loaderLabel()} · {playedLabel()}
+                </Heading>
+                <div class="mt-[2px] flex items-center gap-[6px] text-[12px] text-sub whitespace-nowrap overflow-hidden text-ellipsis">
+                  <span>{loaderLabel()}</span>
+                  <span class="text-faint">·</span>
+                  <span>{playedLabel()}</span>
                   <Show when={project()}>
                     {(p) => (
                       <>
-                        <span> · ⬇ {p().downloads.toLocaleString()}</span>
+                        <span class="text-faint">·</span>
+                        <span class="inline-flex items-center gap-[4px]">
+                          <svg class="w-[12px] h-[12px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14" />
+                          </svg>
+                          <PixelLabel>{p().downloads.toLocaleString()}</PixelLabel>
+                        </span>
                         <Show when={p().followers}>
-                          <span> · ♥ {p().followers.toLocaleString()}</span>
+                          <span class="text-faint">·</span>
+                          <span class="inline-flex items-center gap-[4px]">
+                            <svg class="w-[12px] h-[12px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                              <path d="M19 14c1.5-1.5 3-3.3 3-5.5A4.5 4.5 0 0 0 12 5 4.5 4.5 0 0 0 2 8.5c0 2.2 1.5 4 3 5.5l7 7Z" />
+                            </svg>
+                            <PixelLabel>{p().followers.toLocaleString()}</PixelLabel>
+                          </span>
                         </Show>
                       </>
                     )}
@@ -230,25 +252,23 @@ const InstanceDetail: Component = () => {
                 </div>
                 {/* 整合包分类标签:头部点亮品牌信息,概览不再重复。 */}
                 <Show when={(project()?.categories?.length ?? 0) > 0}>
-                  <div class="mt-[5px] flex flex-wrap gap-[5px]">
+                  <div class="mt-[6px] flex flex-wrap gap-[5px]">
                     <For each={project()!.categories}>
-                      {(c) => (
-                        <span class="text-[11px] leading-[16px] py-[1px] px-[8px] rounded-full bg-a-1 text-a-6 capitalize">
-                          {c}
-                        </span>
-                      )}
+                      {(c) => <Tag class="capitalize">{c}</Tag>}
                     </For>
                   </div>
                 </Show>
-                {/* 整合包更新提示:有更新时给个可点击的小药丸,点开确认弹窗就地更新。 */}
+                {/* 整合包更新提示:有更新时给个可点击的熔岩橙凸起芯片,点开确认弹窗就地更新。 */}
                 <Show when={latestUpdate()}>
                   <button
                     type="button"
-                    class="inline-flex items-center gap-[5px] mt-[5px] h-[22px] pl-[8px] pr-[9px] rounded-full bg-a-1 border border-a-4/40 text-a-7 text-[11px] font-semibold no-underline cursor-pointer transition-colors duration-150 hover:bg-a-2"
+                    class="inline-flex items-center gap-[6px] mt-[7px] h-[24px] pl-[9px] pr-[10px] rounded-none bg-accent text-accent-text text-[11px] font-semibold shadow-raised cursor-pointer transition-[filter] duration-150 hover:brightness-110 active:shadow-pressed"
                     title={t("instance.updateAvailableHint")}
                     onClick={() => setUpdateOpen(true)}
                   >
-                    <span class="w-[6px] h-[6px] rounded-full bg-a-5 shrink-0" aria-hidden="true" />
+                    <svg class="w-[12px] h-[12px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M12 20v-9m0 0 4 4m-4-4-4 4M4 8a8 8 0 0 1 16 0" />
+                    </svg>
                     {t("instance.updateAvailable", { version: latestUpdate()!.version_number })}
                   </button>
                 </Show>
@@ -256,7 +276,7 @@ const InstanceDetail: Component = () => {
               <PlayButton running={isRunning(i().id)} disabled={isLaunching(i().id)} onClick={() => void playInstance(i().id)} />
               <Menu.Root positioning={{ placement: "bottom-end" }} onSelect={(d: { value: string }) => void onMenuAction(d.value)}>
                 <Menu.Trigger
-                  class="inline-flex items-center justify-center w-[34px] h-[34px] border-none bg-transparent text-dim rounded-ctl cursor-pointer transition-[background-color,color] duration-[var(--dur)] ease-app hover:bg-glass-hover hover:text-fg data-[state=open]:bg-glass-hover data-[state=open]:text-fg"
+                  class="inline-flex items-center justify-center w-[38px] h-[38px] border-none bg-panel-3 text-sub rounded-none shadow-raised cursor-pointer transition-[filter,color] duration-[var(--dur)] ease-app hover:brightness-110 hover:text-fg active:shadow-pressed data-[state=open]:shadow-pressed data-[state=open]:text-fg"
                   aria-label={t("instance.moreActions")}
                 >
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
@@ -301,28 +321,22 @@ const InstanceDetail: Component = () => {
         open={confirmDel()}
         onClose={() => setConfirmDel(false)}
         label={t("instance.deleteInstance")}
-        contentClass="w-[360px] max-w-[calc(100vw-48px)] glass-pop rounded-card overflow-hidden"
+        contentClass="w-[360px] max-w-[calc(100vw-48px)] bg-panel shadow-raised rounded-none overflow-hidden"
       >
         <div class="p-[20px] flex flex-col gap-[14px]">
-          <div class="text-[15px] font-semibold text-fg break-words">
+          <Heading size="sub" class="text-strong break-words">
             {t("instance.deleteInstanceConfirm", { name: inst()?.name || inst()?.id || "" })}
-          </div>
-          <div class="text-[13px] text-dim leading-[1.6]">
+          </Heading>
+          <div class="text-[13px] text-sub leading-[1.6]">
             {t("instance.deleteInstanceBodyDetail")}
           </div>
           <div class="flex justify-end gap-[10px]">
-            <button
-              class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-glass-card text-fg text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-glass-hover"
-              onClick={() => setConfirmDel(false)}
-            >
+            <Button variant="ghost" onClick={() => setConfirmDel(false)}>
               {t("instance.cancel")}
-            </button>
-            <button
-              class="h-[34px] px-[16px] border-none rounded-ctl bg-danger text-white text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-danger-hover"
-              onClick={() => void doDelete()}
-            >
+            </Button>
+            <Button variant="danger" onClick={() => void doDelete()}>
               {t("instance.delete")}
-            </button>
+            </Button>
           </div>
         </div>
       </Dialog>
@@ -338,18 +352,18 @@ const InstanceDetail: Component = () => {
         open={updateOpen()}
         onClose={() => !updating() && setUpdateOpen(false)}
         label={t("instance.updateTitle")}
-        contentClass="w-[400px] max-w-[calc(100vw-48px)] glass-pop rounded-card overflow-hidden"
+        contentClass="w-[400px] max-w-[calc(100vw-48px)] bg-panel shadow-raised rounded-none overflow-hidden"
       >
         <div class="p-[20px] flex flex-col gap-[14px]">
-          <div class="text-[15px] font-semibold text-fg break-words">{t("instance.updateTitle")}</div>
-          <div class="text-[13px] text-dim leading-[1.6]">
+          <Heading size="sub" class="text-strong break-words">{t("instance.updateTitle")}</Heading>
+          <div class="text-[13px] text-sub leading-[1.6]">
             {t("instance.updateBody", { version: latestUpdate()?.version_number ?? "" })}
           </div>
           <Show when={latestUpdate()?.changelog?.trim()}>
             <div class="flex flex-col gap-[6px]">
-              <div class="text-[12px] font-semibold text-dim">{t("instance.updateChangelog")}</div>
+              <div class="text-[12px] font-semibold text-muted">{t("instance.updateChangelog")}</div>
               <div
-                class="md max-h-[200px] overflow-y-auto rounded-ctl bg-glass-card px-[12px] py-[10px] text-[12px] leading-[1.6] text-dim"
+                class="md max-h-[200px] overflow-y-auto rounded-none bg-panel-2 shadow-input px-[12px] py-[10px] text-[12px] leading-[1.6] text-sub"
                 innerHTML={renderMarkdown(latestUpdate()!.changelog)}
               />
             </div>
@@ -357,31 +371,23 @@ const InstanceDetail: Component = () => {
           <Show when={modrinthUrl()}>
             <a
               href={modrinthUrl()!}
-              class="self-start text-[12px] text-a-7 no-underline hover:underline"
+              class="self-start text-[12px] text-accent no-underline hover:underline"
             >
               {t("instance.viewOnModrinth")} →
             </a>
           </Show>
           <Show when={updating() && updateProgress()}>
-            <div class="text-[12px] text-dim font-mono truncate">{updateProgress()}</div>
+            <div class="text-[12px] text-muted font-mono truncate">{updateProgress()}</div>
           </Show>
           <div class="flex justify-end gap-[10px]">
-            <button
-              disabled={updating()}
-              class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-glass-card text-fg text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-glass-hover disabled:opacity-50 disabled:cursor-not-allowed"
-              onClick={() => setUpdateOpen(false)}
-            >
+            <Button variant="ghost" disabled={updating()} onClick={() => setUpdateOpen(false)}>
               {t("instance.cancel")}
-            </button>
-            <button
-              disabled={updating()}
-              class="h-[34px] px-[16px] border-none rounded-ctl bg-a-5 text-white text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-a-6 disabled:opacity-60 disabled:cursor-not-allowed"
-              onClick={() => void applyUpdate()}
-            >
+            </Button>
+            <Button variant="primary" disabled={updating()} onClick={() => void applyUpdate()}>
               {updating()
                 ? t("instance.updating")
                 : t("instance.updateNow", { version: latestUpdate()?.version_number ?? "" })}
-            </button>
+            </Button>
           </div>
         </div>
       </Dialog>

@@ -2,6 +2,9 @@
 const dict = {
   zh: {
     title: "库",
+    sortRecent: "最近游玩",
+    sortName: "按名称",
+    sortVersion: "按版本",
     importModpack: "导入整合包",
     importing: "导入中…",
     close: "关闭",
@@ -39,6 +42,9 @@ const dict = {
   } as Record<string, string>,
   en: {
     title: "Library",
+    sortRecent: "Recently played",
+    sortName: "By name",
+    sortVersion: "By version",
     importModpack: "Import Modpack",
     importing: "Importing…",
     close: "Close",

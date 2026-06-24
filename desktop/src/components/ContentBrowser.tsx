@@ -6,14 +6,20 @@ import { SearchBox } from "./SearchBox";
 import { Select } from "./Select";
 import { Spinner } from "./Spinner";
 import { toast } from "./Toast";
+import { Segmented } from "./Segmented";
+import { Button } from "./Button";
 import { searchContent, SEARCH_PAGE } from "../util/contentSearch";
 import { t } from "../i18n";
 import type { ProjectKind, SearchHit } from "../ipc/types";
 
 /**
- * ContentBrowser —— 复用 Discover 的搜索体验(SearchBox + 防抖 + 分页 +
+ * ContentBrowser —— 复用 Discover 的搜索体验(源切换 + SearchBox + 防抖 + 分页 +
  * <ModpackListItem> 列表 + 「加载更多」),供 Discover 页与实例管理弹窗(Mods /
  * 资源包 / 光影 / 数据包)共用。
+ *
+ * Blocky Craft 改造:源切换改 <Segmented>(pixel),工具条改为
+ * SearchBox(满宽) + 排序 <Select>;facet 不再是整列侧栏,而是工具条下一行的
+ * **可移除筛选 Chips** + 一个「更多筛选」入口弹层(内嵌 <FacetSidebar> 面板)。
  *
  * 与 Discover 不同处:把 mcVersion + loader 透传给搜索命令,使结果按该实例
  * 过滤;每行带一个尾部「添加/下载」按钮,点击回调 onAdd(由调用方决定打开详情还是
@@ -89,26 +95,26 @@ export interface ContentBrowserProps {
   addedIds?: Set<string>;
   /** 行内下载进度查询:返回 undefined=无进度条;null=不确定;0..1=定量。供安装中的行显示进度条。 */
   progressOf?: (id: string) => number | null | undefined;
-  /** Discover 侧栏的多选内容分类(每个各成一 AND 组);仅 Modrinth 消费。缺省=无过滤。 */
+  /** Discover 的多选内容分类(每个各成一 AND 组);仅 Modrinth 消费。缺省=无过滤。 */
   categories?: () => string[];
-  /** Discover 侧栏的多选 loader(合成一 OR 组);仅 Modrinth 消费。缺省=无过滤。 */
+  /** Discover 的多选 loader(合成一 OR 组);仅 Modrinth 消费。缺省=无过滤。 */
   loaders?: () => string[];
-  /** Discover 侧栏的多选游戏版本(合成一 OR 组);仅 Modrinth 消费。缺省=无过滤。 */
+  /** Discover 的多选游戏版本(合成一 OR 组);仅 Modrinth 消费。缺省=无过滤。 */
   gameVersions?: () => string[];
-  /** Discover 侧栏的运行环境("client"/"server");仅 Modrinth 消费。缺省=不过滤。 */
+  /** Discover 的运行环境("client"/"server");仅 Modrinth 消费。缺省=不过滤。 */
   environment?: () => string | null;
-  /** Discover 侧栏 License:仅开源;仅 Modrinth 消费。缺省=不过滤。 */
+  /** Discover License:仅开源;仅 Modrinth 消费。缺省=不过滤。 */
   openSource?: () => boolean;
-  /** 内部内容平台切换时上报(Discover 据此决定 facet 侧栏显示哪些组)。 */
+  /** 内部内容平台切换时上报(Discover 据此决定 facet 弹层显示哪些组)。 */
   onProviderChange?: (provider: ContentProvider) => void;
-  /** 首屏搜索 loading 变化回调(Discover 据此判断「整体就绪」,统一渲染两栏)。 */
+  /** 首屏搜索 loading 变化回调(Discover 据此判断「整体就绪」,统一渲染。 */
   onLoadingChange?: (loading: boolean) => void;
 }
 
 const ADD_BTN = ACCENT_BTN_COMPACT;
-// 已添加:幽灵态(描边 + accent 文字),明确「装过了」且不可再点。
+// 已添加:幽灵态(panel-3 凸起 + accent 文字),明确「装过了」且不可再点。
 const ADDED_BTN =
-  "shrink-0 h-[28px] px-[12px] rounded-ctl border border-glass-border bg-transparent text-a-6 text-[12px] font-semibold cursor-default";
+  "shrink-0 h-[28px] px-[12px] rounded-none bg-panel-3 text-accent text-[12px] font-semibold cursor-default shadow-raised";
 
 export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
   const [query, setQuery] = createSignal("");
@@ -136,18 +142,20 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
   const [cfUnavailable, setCfUnavailable] = createSignal(false);
   const [sort, setSort] = createSignal<SortKey>("relevance");
 
+  // 「更多筛选」弹层开合(锚定按钮的就地下拉面板)。
+
   function switchProvider(p: ContentProvider) {
     if (p === provider()) return;
     if (p === "curseforge" && cfUnavailable()) return;
     setProvider(p);
   }
 
-  // 平台变化(用户切换或 CF 未配置回退)即上报,供 Discover 调整 facet 侧栏。
+  // 平台变化(用户切换或 CF 未配置回退)即上报,供 Discover 调整 facet 弹层。
   createEffect(() => props.onProviderChange?.(provider()));
   // 首屏搜索 loading 变化上报,Discover 据此与 facet 一起判定「整体就绪」。
   createEffect(() => props.onLoadingChange?.(loading()));
 
-  // Discover 侧栏的多选 facet → 后端 SearchFacetsArg(仅 Modrinth 消费;CF 忽略)。
+  // Discover 的多选 facet → 后端 SearchFacetsArg(仅 Modrinth 消费;CF 忽略)。
   // 任一维度非空才下发,否则传 null 保持原行为(实例弹窗等不传 facet props 的场景)。
   function buildFacets() {
     const categories = props.categories?.() ?? [];
@@ -235,10 +243,6 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
   }
 
   // 取值时求值 t(),避免 module-const 冻结语言。
-  const SOURCES = (): { key: ContentProvider; label: string }[] => [
-    { key: "modrinth", label: t("discover.sourceModrinth") },
-    { key: "curseforge", label: t("discover.sourceCurseforge") },
-  ];
   const SORTS = (): { key: SortKey; label: string }[] => [
     { key: "relevance", label: t("discover.sortRelevance") },
     { key: "downloads", label: t("discover.sortDownloads") },
@@ -248,51 +252,43 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
 
   return (
     <div class="flex flex-col gap-[12px]">
-      <SearchBox
-        value={query()}
-        onInput={onInput}
-        autofocus={props.autofocus}
-        onEscape={() => {
-          // 有搜索词先清空;已空则上抛(退出浏览)。
-          if (query()) {
-            setQuery("");
-            setDebounced("");
-          } else {
-            props.onEscape?.();
-          }
-        }}
-        placeholder={props.placeholder ?? t("discover.searchPlaceholder")}
-      />
-
-      {/* 内容平台切换(分段控件)+ 排序下拉。切换平台/排序均从 offset 0 重搜。 */}
-      <div class="flex items-center justify-between gap-[12px] flex-wrap">
-        <div class="inline-flex items-center gap-[2px] p-[2px] rounded-ctl bg-glass-card">
-          <For each={SOURCES()}>
-            {(s) => {
-              const active = () => provider() === s.key;
-              const cfDisabled = () => s.key === "curseforge" && cfUnavailable();
-              return (
-                <button
-                  class="h-[26px] px-[12px] rounded-[6px] border-none text-[12px] font-medium cursor-pointer transition-[background-color,color] duration-[var(--dur)] ease-app disabled:cursor-default disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5"
-                  classList={{
-                    "bg-a-4 text-white": active(),
-                    "bg-transparent text-dim hover:text-fg": !active() && !cfDisabled(),
-                  }}
-                  disabled={cfDisabled()}
-                  title={cfDisabled() ? t("discover.cfUnconfiguredHint") : ""}
-                  onClick={() => switchProvider(s.key)}
-                >
-                  {s.label}
-                </button>
-              );
+      {/* 工具条第一行:源切换(分段,pixel)+ 满宽搜索 + 排序下拉。切换平台/排序均从 offset 0 重搜。 */}
+      <div class="flex items-center gap-[10px] flex-wrap">
+        <Segmented
+          ariaLabel={t("discover.sourceLabel")}
+          pixel
+          value={provider()}
+          onChange={(v) => switchProvider(v as ContentProvider)}
+          options={[
+            { value: "modrinth", label: t("discover.sourceModrinth") },
+            {
+              value: "curseforge",
+              label: t("discover.sourceCurseforge"),
+              title: cfUnavailable() ? t("discover.cfUnconfiguredHint") : undefined,
+            },
+          ]}
+        />
+        <div class="flex-1 min-w-[200px]">
+          <SearchBox
+            value={query()}
+            onInput={onInput}
+            autofocus={props.autofocus}
+            onEscape={() => {
+              // 有搜索词先清空;已空则上抛(退出浏览)。
+              if (query()) {
+                setQuery("");
+                setDebounced("");
+              } else {
+                props.onEscape?.();
+              }
             }}
-          </For>
+            placeholder={props.placeholder ?? t("discover.searchPlaceholder")}
+          />
         </div>
-
-        <div class="inline-flex items-center gap-[6px] text-dim text-[12px]">
+        <div class="inline-flex items-center gap-[6px] text-muted text-[12px]">
           {t("discover.sortLabel")}
           <Select
-            class="!min-w-[150px]"
+            class="!min-w-[140px]"
             value={sort()}
             onChange={(v) => setSort(v as SortKey)}
             options={SORTS().map((o) => ({ value: o.key, label: o.label }))}
@@ -301,7 +297,7 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
       </div>
 
       <Show when={cfUnavailable()}>
-        <div class="text-[12px] text-dim bg-glass-card rounded-ctl px-[12px] py-[8px]">
+        <div class="text-[12px] text-muted bg-panel-2 shadow-input rounded-none px-[12px] py-[8px]">
           {t("discover.cfUnconfiguredHint")}
         </div>
       </Show>
@@ -314,17 +310,14 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
               when={!searchError()}
               fallback={
                 <div class="flex flex-col items-center justify-center gap-[12px] py-[36px] text-center">
-                  <div class="text-dim text-[13px]">{t("discover.searchFailedRetry")}</div>
-                  <button
-                    class="h-[34px] px-[16px] rounded-ctl border border-glass-border bg-glass-card text-fg text-[13px] cursor-pointer transition-[background-color] duration-[var(--dur)] ease-app hover:bg-glass-hover"
-                    onClick={retry}
-                  >
+                  <div class="text-muted text-[13px]">{t("discover.searchFailedRetry")}</div>
+                  <Button variant="ghost" onClick={retry}>
                     {t("discover.retry")}
-                  </button>
+                  </Button>
                 </div>
               }
             >
-            <div class="p-[24px] text-dim text-center text-[13px]">
+            <div class="p-[24px] text-muted text-center text-[13px]">
               <Show
                 when={!backendUnavailable()}
                 fallback={t("discover.backendUnavailable")}
@@ -388,13 +381,9 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
 
           <Show when={!reachedEnd()}>
             <div class="flex justify-center mt-[8px]">
-              <button
-                class="px-[20px] py-[8px] rounded-ctl border border-glass-border bg-glass-card text-fg text-[13px] cursor-pointer transition-[background-color] duration-[var(--dur)] ease-app hover:bg-glass-hover disabled:opacity-50 disabled:cursor-default"
-                disabled={loadingMore()}
-                onClick={loadMore}
-              >
+              <Button variant="ghost" disabled={loadingMore()} onClick={loadMore}>
                 {loadingMore() ? t("discover.loadingMore") : t("discover.loadMore")}
-              </button>
+              </Button>
             </div>
           </Show>
         </Show>

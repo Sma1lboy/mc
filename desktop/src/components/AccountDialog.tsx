@@ -5,6 +5,8 @@ import { ErrorState } from "./ErrorState";
 import { Dialog } from "./Dialog";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
+import { Button } from "./Button";
+import { Heading } from "./Typography";
 import { toast } from "./Toast";
 import { api } from "../ipc/api";
 import { accountKindLabel } from "../util/accounts";
@@ -12,18 +14,11 @@ import { t } from "../i18n";
 import type { AccountSummary, DeviceCode } from "../ipc/types";
 
 
-// 登录表单按钮:抽公共件,确保离线/外置两套表单的取消/提交按钮完全一致(过渡也不漏)。
-const ACCOUNT_CANCEL_BTN =
-  "h-[36px] px-[18px] border border-glass-border rounded-xs bg-glass-card text-fg text-[13px] " +
-  "cursor-pointer transition-[background-color,border-color] duration-[var(--dur)] ease-app hover:bg-glass-hover hover:border-a-4";
-const ACCOUNT_SUBMIT_BTN =
-  "h-[36px] px-[18px] rounded-xs bg-a-5 text-white border border-a-5 text-[13px] cursor-pointer " +
-  "transition-opacity duration-[var(--dur)] ease-app hover:not-disabled:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed";
-// 账号表单输入框(离线用户名 + 外置登录三项)统一样式,避免逐个内联漂移。
+// 账号表单输入框(离线用户名 + 外置登录三项)统一样式,避免逐个内联漂移。Blocky:石质暗底深凹倒角。
 const ACCOUNT_INPUT =
-  "h-[38px] px-[14px] border border-glass-border rounded-xs text-[13px] text-fg glass-input " +
-  "transition-[border-color,background-color,box-shadow] duration-150 ease-app " +
-  "focus-visible:outline-none focus-visible:border-a-4 focus-visible:bg-glass-card focus-visible:ring-2 focus-visible:ring-a-4/25";
+  "h-[38px] px-[14px] rounded-none text-[13px] text-fg bg-sidebar shadow-input " +
+  "placeholder:text-faint transition-[box-shadow] duration-150 ease-app " +
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
 /** 登录弹窗状态机:选择方式 → 微软设备码 / 离线用户名 / 外置登录。 */
 type Step = "menu" | "msa" | "offline" | "yggdrasil";
@@ -176,12 +171,12 @@ export const AccountDialog: Component<{
       open
       onClose={props.onClose}
       label={title()}
-      contentClass="w-[380px] max-w-[calc(100vw-48px)] glass-pop rounded-card overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-4"
+      contentClass="w-[380px] max-w-[calc(100vw-48px)] focus-visible:outline-none"
     >
-      <div class="flex items-center justify-between px-[18px] py-[14px] text-[15px] font-bold text-white bg-[linear-gradient(90deg,var(--a-6),var(--a-5))]">
-        <span>{title()}</span>
+      <div class="flex items-center justify-between px-[18px] py-[14px] bg-titlebar border-b border-titlebar">
+        <Heading size="sub">{title()}</Heading>
         <button
-          class="border-none bg-transparent text-white cursor-pointer opacity-85 p-[5px] rounded-xs flex items-center hover:bg-white/20 hover:opacity-100"
+          class="border-none bg-transparent text-muted cursor-pointer p-[5px] rounded-none flex items-center transition-colors duration-150 hover:bg-panel-2 hover:text-fg"
           onClick={props.onClose}
           aria-label={t("account.close")}
         >
@@ -205,8 +200,8 @@ export const AccountDialog: Component<{
                     role="button"
                     tabindex={0}
                     aria-busy={pendingAcc() === acc.uuid}
-                    class="group flex items-center gap-[10px] px-[10px] py-[8px] rounded-ctl glass-card cursor-pointer transition-[background-color,border-color] duration-150 hover:bg-a-1 hover:border-a-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5 aria-[busy=true]:opacity-60 aria-[busy=true]:pointer-events-none"
-                    classList={{ "!border-a-4 !bg-a-1": acc.selected }}
+                    class="group flex items-center gap-[10px] px-[10px] py-[8px] rounded-none bg-panel cursor-pointer transition-[box-shadow,background-color] duration-150 hover:bg-panel-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent aria-[busy=true]:opacity-60 aria-[busy=true]:pointer-events-none"
+                    classList={{ "shadow-raised bg-panel-2": acc.selected, "shadow-sunken": !acc.selected }}
                     onClick={() => selectExisting(acc)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
@@ -215,20 +210,20 @@ export const AccountDialog: Component<{
                       }
                     }}
                   >
-                    <span class="w-[30px] h-[30px] flex-[0_0_30px] rounded-xs grid place-items-center text-white text-[13px] font-semibold bg-[linear-gradient(135deg,var(--a-3),var(--a-5))]">
+                    <span class="w-[30px] h-[30px] flex-[0_0_30px] rounded-none shadow-input overflow-hidden grid place-items-center text-fg text-[13px] font-semibold bg-sidebar">
                       <Avatar kind={acc.kind} uuid={acc.uuid} />
                     </span>
                     <span class="min-w-0 flex-1">
                       <span class="block text-[13px] font-semibold text-fg whitespace-nowrap overflow-hidden text-ellipsis">
                         {acc.username}
                       </span>
-                      <span class="block text-[11px] text-dim">{accountKindLabel(acc.kind)}</span>
+                      <span class="block text-[11px] text-muted">{accountKindLabel(acc.kind)}</span>
                     </span>
                     <Show when={acc.selected}>
-                      <Icon name="check" size={15} class="text-a-6" />
+                      <Icon name="check" size={15} class="text-accent" />
                     </Show>
                     <button
-                      class="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150 text-[12px] text-danger-text px-[6px] py-[3px] rounded-xs hover:bg-danger-soft"
+                      class="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150 text-[12px] text-danger-text px-[6px] py-[3px] rounded-none hover:bg-danger-soft"
                       title={t("account.removeAccount")}
                       onClick={(e) => removeExisting(acc, e)}
                     >
@@ -237,45 +232,45 @@ export const AccountDialog: Component<{
                   </div>
                 )}
               </For>
-              <div class="text-[11px] text-dim mt-[2px]">{t("account.orAddNew")}</div>
+              <div class="text-[11px] text-muted mt-[2px]">{t("account.orAddNew")}</div>
             </div>
           </Show>
 
           <button
-            class="flex items-center gap-[14px] px-[16px] py-[14px] rounded-ctl glass-card cursor-pointer text-left transition-[background-color,border-color,transform] duration-150 ease-app hover:bg-a-1 hover:border-a-4 hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5 disabled:opacity-50 disabled:pointer-events-none"
+            class="flex items-center gap-[14px] px-[16px] py-[14px] rounded-none bg-panel-3 shadow-raised cursor-pointer text-left transition-[box-shadow,filter] duration-150 ease-app hover:enabled:brightness-110 active:enabled:shadow-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:pointer-events-none"
             onClick={startMsa}
             disabled={busy()}
           >
-            <Icon name="microsoft" size={24} class="text-a-6" />
+            <Icon name="microsoft" size={24} class="text-accent" />
             <span class="flex flex-col gap-[2px]">
               <b class="text-[14px] text-fg">{t("account.msaTitle")}</b>
-              <small class="text-[12px] text-dim">{t("account.msaDesc")}</small>
+              <small class="text-[12px] text-muted">{t("account.msaDesc")}</small>
             </span>
           </button>
           <button
-            class="flex items-center gap-[14px] px-[16px] py-[14px] rounded-ctl glass-card cursor-pointer text-left transition-[background-color,border-color,transform] duration-150 ease-app hover:bg-a-1 hover:border-a-4 hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5"
+            class="flex items-center gap-[14px] px-[16px] py-[14px] rounded-none bg-panel-3 shadow-raised cursor-pointer text-left transition-[box-shadow,filter] duration-150 ease-app hover:brightness-110 active:shadow-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             onClick={() => {
               setStep("offline");
               setError(null);
             }}
           >
-            <Icon name="user" size={24} class="text-dim" />
+            <Icon name="user" size={24} class="text-muted" />
             <span class="flex flex-col gap-[2px]">
               <b class="text-[14px] text-fg">{t("account.offlineTitle")}</b>
-              <small class="text-[12px] text-dim">{t("account.offlineDesc")}</small>
+              <small class="text-[12px] text-muted">{t("account.offlineDesc")}</small>
             </span>
           </button>
           <button
-            class="flex items-center gap-[14px] px-[16px] py-[14px] rounded-ctl glass-card cursor-pointer text-left transition-[background-color,border-color,transform] duration-150 ease-app hover:bg-a-1 hover:border-a-4 hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5"
+            class="flex items-center gap-[14px] px-[16px] py-[14px] rounded-none bg-panel-3 shadow-raised cursor-pointer text-left transition-[box-shadow,filter] duration-150 ease-app hover:brightness-110 active:shadow-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             onClick={() => {
               setStep("yggdrasil");
               setError(null);
             }}
           >
-            <Icon name="link" size={24} class="text-dim" />
+            <Icon name="link" size={24} class="text-muted" />
             <span class="flex flex-col gap-[2px]">
               <b class="text-[14px] text-fg">{t("account.yggdrasilTitle")}</b>
-              <small class="text-[12px] text-dim">{t("account.yggdrasilDesc")}</small>
+              <small class="text-[12px] text-muted">{t("account.yggdrasilDesc")}</small>
             </span>
           </button>
         </div>
@@ -287,7 +282,7 @@ export const AccountDialog: Component<{
           <Show
             when={device()}
             fallback={
-              <div class="flex flex-col items-center gap-[10px] p-[16px] text-dim text-[13px]">
+              <div class="flex flex-col items-center gap-[10px] p-[16px] text-muted text-[13px]">
                 <Spinner />
                 <span>{t("account.fetchingCode")}</span>
               </div>
@@ -296,13 +291,13 @@ export const AccountDialog: Component<{
             <p class="m-0 text-[13px] text-fg leading-[1.6]">
               {t("account.msaInstruction")}
             </p>
-            <div class="self-center px-[28px] py-[12px] rounded-ctl bg-a-1 text-a-7 font-bold text-[28px] leading-none [font-family:ui-monospace,SFMono-Regular,Menlo,monospace] tracking-[4px] select-all">
+            <div class="self-center px-[28px] py-[12px] rounded-none bg-sidebar shadow-input text-accent font-pixel text-[24px] leading-none tracking-[4px] select-all">
               {device()!.user_code}
             </div>
-            <p class="m-0 text-[12px] text-dim text-center">
+            <p class="m-0 text-[12px] text-muted text-center">
               {t("account.verificationUri")}
               <a
-                class="text-a-6 cursor-pointer"
+                class="text-accent cursor-pointer"
                 href={device()!.verification_uri}
                 onClick={(e) => {
                   e.preventDefault();
@@ -313,7 +308,7 @@ export const AccountDialog: Component<{
               </a>
             </p>
             <Show when={busy() && !error()}>
-              <div class="flex flex-col items-center gap-[10px] px-[16px] pb-[16px] pt-[6px] text-dim text-[13px]">
+              <div class="flex flex-col items-center gap-[10px] px-[16px] pb-[16px] pt-[6px] text-muted text-[13px]">
                 <Spinner />
                 <span>{t("account.waitingAuth")}</span>
               </div>
@@ -340,20 +335,12 @@ export const AccountDialog: Component<{
             maxLength={16}
           />
           <div class="flex justify-end gap-[10px]">
-            <button
-              type="button"
-              class={ACCOUNT_CANCEL_BTN}
-              onClick={() => setStep("menu")}
-            >
+            <Button type="button" variant="ghost" onClick={() => setStep("menu")}>
               {t("account.back")}
-            </button>
-            <button
-              type="submit"
-              class={ACCOUNT_SUBMIT_BTN}
-              disabled={busy() || !offlineName().trim()}
-            >
+            </Button>
+            <Button type="submit" variant="primary" disabled={busy() || !offlineName().trim()}>
               {busy() ? t("account.adding") : t("account.confirm")}
-            </button>
+            </Button>
           </div>
         </form>
       </Show>
@@ -385,40 +372,32 @@ export const AccountDialog: Component<{
             onInput={(e) => setYgPass(e.currentTarget.value)}
           />
           <div class="flex justify-end gap-[10px] pt-[2px]">
-            <button
-              type="button"
-              class={ACCOUNT_CANCEL_BTN}
-              onClick={() => setStep("menu")}
-            >
+            <Button type="button" variant="ghost" onClick={() => setStep("menu")}>
               {t("account.back")}
-            </button>
-            <button
-              type="submit"
-              class={ACCOUNT_SUBMIT_BTN}
-              disabled={busy() || !ygBase().trim() || !ygUser().trim()}
-            >
+            </Button>
+            <Button type="submit" variant="primary" disabled={busy() || !ygBase().trim() || !ygUser().trim()}>
               {busy() ? t("account.loggingIn") : t("account.login")}
-            </button>
+            </Button>
           </div>
         </form>
       </Show>
 
       <Show when={error()}>
-        <div class="mx-[18px] mt-0 mb-[16px] px-[12px] py-[10px] rounded-xs bg-danger-soft text-danger-text text-[12px] leading-[1.6] break-words">
+        <div class="mx-[18px] mt-0 mb-[16px] px-[12px] py-[10px] rounded-none bg-danger-soft shadow-input text-danger-text text-[12px] leading-[1.6] break-words">
           <Show
             when={/AADSTS700016|client_id|MC_MSA_CLIENT_ID|was not found/i.test(error()!)}
             fallback={error()}
           >
             {t("account.msaClientIdError")}
-            <code class="[font-family:ui-monospace,SFMono-Regular,Menlo,monospace] bg-[rgba(192,57,43,0.12)] px-[4px] rounded-[3px]">
+            <code class="[font-family:ui-monospace,SFMono-Regular,Menlo,monospace] bg-window/40 px-[4px] rounded-none">
               desktop/src-tauri/.env
             </code>
             {t("account.msaClientIdErrorMid")}
-            <code class="[font-family:ui-monospace,SFMono-Regular,Menlo,monospace] bg-[rgba(192,57,43,0.12)] px-[4px] rounded-[3px]">
+            <code class="[font-family:ui-monospace,SFMono-Regular,Menlo,monospace] bg-window/40 px-[4px] rounded-none">
               MC_MSA_CLIENT_ID
             </code>
             {t("account.msaClientIdErrorEnd")}
-            <div class="mt-[8px] pt-[8px] border-t border-[rgba(192,57,43,0.25)] text-[11px] opacity-75">
+            <div class="mt-[8px] pt-[8px] border-t border-titlebar text-[11px] opacity-75">
               {error()}
             </div>
           </Show>

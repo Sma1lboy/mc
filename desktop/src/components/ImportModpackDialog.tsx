@@ -4,8 +4,11 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { Dialog } from "./Dialog";
 import { Icon } from "./Icon";
 import { Spinner } from "./Spinner";
+import { Button } from "./Button";
+import { Panel } from "./Panel";
+import { Tag } from "./Tag";
+import { Heading } from "./Typography";
 import { toast } from "./Toast";
-import { ACCENT_BTN } from "./styles";
 import { api, onInstallProgress } from "../ipc/api";
 import { t } from "../i18n";
 import type { ImportOutcome } from "../ipc/types";
@@ -117,29 +120,29 @@ export const ImportModpackDialog: Component<{
       open={props.open}
       onClose={() => !importing() && props.onClose()}
       label={t("components.import.title")}
-      contentClass="w-[460px] max-w-[calc(100vw-48px)] glass-pop rounded-card overflow-hidden"
+      contentClass="w-[460px] max-w-[calc(100vw-48px)]"
     >
       <div class="flex flex-col gap-[16px] p-[20px]">
-        <div class="text-[15px] font-bold text-fg">{t("components.import.title")}</div>
+        <Heading size="sub">{t("components.import.title")}</Heading>
 
         {/* 拖入区(点击选择 / 拖入文件)。拖到窗口时高亮。 */}
         <button
           type="button"
           disabled={importing()}
           onClick={() => void pick()}
-          class="flex flex-col items-center justify-center gap-[10px] rounded-card border-2 border-dashed px-[20px] py-[28px] text-center cursor-pointer transition-colors duration-150 disabled:cursor-default"
+          class="flex flex-col items-center justify-center gap-[10px] rounded-none border-2 border-dashed px-[20px] py-[28px] text-center cursor-pointer transition-colors duration-150 disabled:cursor-default"
           classList={{
-            "border-a-4 bg-a-1": dragOver(),
-            "border-glass-border bg-glass-card hover:bg-glass-hover": !dragOver(),
+            "border-accent bg-panel-2": dragOver(),
+            "border-titlebar bg-sidebar hover:bg-panel-2": !dragOver(),
           }}
         >
           <Show when={!importing()} fallback={<Spinner />}>
-            <Icon name="download" size={26} class="text-a-5" />
+            <Icon name="download" size={26} class="text-accent" />
           </Show>
           <div class="text-[13px] font-semibold text-fg">
             {importing() ? t("components.import.importing") : t("components.import.dropHint")}
           </div>
-          <div class="text-[11px] text-dim truncate max-w-full">
+          <div class="text-[11px] text-muted truncate max-w-full">
             {importing()
               ? progress() || t("components.import.importing")
               : t("components.import.clickHint")}
@@ -148,16 +151,14 @@ export const ImportModpackDialog: Component<{
 
         {/* 支持的格式 */}
         <div>
-          <div class="text-[12px] font-semibold text-dim mb-[6px]">
+          <div class="text-[12px] font-semibold text-sub mb-[6px]">
             {t("components.import.formatsTitle")}
           </div>
           <div class="flex flex-col gap-[5px]">
             <For each={formats()}>
               {(f) => (
                 <div class="flex items-center gap-[8px] text-[12px]">
-                  <span class="inline-flex items-center h-[18px] px-[6px] rounded-[5px] bg-a-1 text-a-7 font-mono text-[11px]">
-                    {f.ext}
-                  </span>
+                  <Tag class="font-pixel">{f.ext}</Tag>
                   <span class="text-fg">{f.label}</span>
                 </div>
               )}
@@ -166,26 +167,22 @@ export const ImportModpackDialog: Component<{
         </div>
 
         {/* 导入须知 */}
-        <div class="rounded-ctl bg-glass-card px-[12px] py-[10px]">
-          <div class="flex items-center gap-[6px] text-[12px] font-semibold text-dim mb-[5px]">
+        <Panel variant="input" class="px-[12px] py-[10px]">
+          <div class="flex items-center gap-[6px] text-[12px] font-semibold text-sub mb-[5px]">
             <Icon name="info" size={14} /> {t("components.import.tipsTitle")}
           </div>
-          <ul class="m-0 pl-[16px] flex flex-col gap-[3px] text-[11px] leading-[1.6] text-n-6">
+          <ul class="m-0 pl-[16px] flex flex-col gap-[3px] text-[11px] leading-[1.6] text-muted">
             <For each={tips()}>{(tip) => <li>{tip}</li>}</For>
           </ul>
-        </div>
+        </Panel>
 
         <div class="flex justify-end gap-[10px]">
-          <button
-            disabled={importing()}
-            class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-glass-card text-fg text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-glass-hover disabled:opacity-50 disabled:cursor-not-allowed"
-            onClick={() => props.onClose()}
-          >
+          <Button variant="ghost" disabled={importing()} onClick={() => props.onClose()}>
             {t("components.import.close")}
-          </button>
-          <button class={ACCENT_BTN} disabled={importing()} onClick={() => void pick()}>
+          </Button>
+          <Button variant="primary" disabled={importing()} onClick={() => void pick()}>
             {t("components.import.choose")}
-          </button>
+          </Button>
         </div>
       </div>
     </Dialog>

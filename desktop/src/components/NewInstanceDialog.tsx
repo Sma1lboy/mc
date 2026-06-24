@@ -8,7 +8,10 @@ import {
 } from "solid-js";
 import { Dialog } from "./Dialog";
 import { Select } from "./Select";
+import { Segmented } from "./Segmented";
 import { Spinner } from "./Spinner";
+import { Button } from "./Button";
+import { Heading } from "./Typography";
 import { toast } from "./Toast";
 import { api, onInstallProgress } from "../ipc/api";
 import { activeRoot } from "../store";
@@ -28,9 +31,9 @@ const LOADERS = () => [
 ];
 
 const FIELD =
-  "h-[36px] px-[12px] rounded-ctl border border-glass-border glass-input text-fg text-[13px] " +
-  "transition-[border-color,box-shadow] duration-150 focus-visible:outline-none " +
-  "focus-visible:border-a-4 focus-visible:ring-2 focus-visible:ring-a-5/25 disabled:opacity-50";
+  "h-[36px] px-[12px] rounded-none bg-sidebar shadow-input text-fg text-[13px] " +
+  "placeholder:text-faint transition-[box-shadow] duration-150 focus-visible:outline-none " +
+  "focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50";
 
 export const NewInstanceDialog: Component<{
   open: boolean;
@@ -120,13 +123,13 @@ export const NewInstanceDialog: Component<{
       open={props.open}
       onClose={() => !creating() && props.onClose()}
       label={t("components.newInstance.title")}
-      contentClass="w-[440px] max-w-[calc(100vw-48px)] glass-pop rounded-card overflow-hidden"
+      contentClass="w-[440px] max-w-[calc(100vw-48px)]"
     >
       <div class="p-[20px] flex flex-col gap-[14px]">
-        <div class="text-[16px] font-bold text-fg">{t("components.newInstance.title")}</div>
+        <Heading size="sub">{t("components.newInstance.title")}</Heading>
 
         <label class="flex flex-col gap-[5px]">
-          <span class="text-[12px] text-dim">{t("components.newInstance.name")}</span>
+          <span class="text-[12px] text-sub">{t("components.newInstance.name")}</span>
           <input
             class={FIELD}
             name="instanceName"
@@ -140,8 +143,9 @@ export const NewInstanceDialog: Component<{
         </label>
 
         <label class="flex flex-col gap-[5px]">
-          <span class="text-[12px] text-dim">{t("components.newInstance.mcVersion")}</span>
+          <span class="text-[12px] text-sub">{t("components.newInstance.mcVersion")}</span>
           <Select
+            class="w-full"
             value={mcVersion()}
             onChange={setMcVersion}
             options={versionOptions()}
@@ -150,21 +154,23 @@ export const NewInstanceDialog: Component<{
         </label>
 
         <label class="flex flex-col gap-[5px]">
-          <span class="text-[12px] text-dim">{t("components.newInstance.loader")}</span>
+          <span class="text-[12px] text-sub">{t("components.newInstance.loader")}</span>
           {/* 切换 loader 时清掉上一个 loader 的版本选择,避免把 forge build 号带进 fabric。 */}
-          <Select
+          <Segmented
+            class="self-start"
+            ariaLabel={t("components.newInstance.loader")}
             value={loader()}
             onChange={(v) => {
               setLoader(v);
               setLoaderVersion("");
             }}
-            options={LOADERS()}
+            options={LOADERS().map((l) => ({ value: l.value, label: l.label }))}
           />
         </label>
 
         <Show when={supportsLoaderVersion()}>
           <label class="flex flex-col gap-[5px]">
-            <span class="text-[12px] text-dim">
+            <span class="text-[12px] text-sub">
               {loader() === "forge"
                 ? t("components.newInstance.forgeVersion")
                 : loader() === "neoforge"
@@ -179,7 +185,7 @@ export const NewInstanceDialog: Component<{
                 <Show
                   when={!loaderVersions.loading}
                   fallback={
-                    <div class="flex items-center gap-[8px] h-[36px] px-[12px] text-[12px] text-dim">
+                    <div class="flex items-center gap-[8px] h-[36px] px-[12px] text-[12px] text-muted">
                       <Spinner size={14} />
                       <span>{t("components.newInstance.loadingAvailable")}</span>
                     </div>
@@ -200,6 +206,7 @@ export const NewInstanceDialog: Component<{
               }
             >
               <Select
+                class="w-full"
                 value={loaderVersion()}
                 onChange={setLoaderVersion}
                 options={loaderVersionOptions()}
@@ -210,27 +217,19 @@ export const NewInstanceDialog: Component<{
         </Show>
 
         <Show when={creating()}>
-          <div class="flex items-center gap-[10px] text-[12px] text-dim">
+          <div class="flex items-center gap-[10px] text-[12px] text-muted">
             <Spinner size={16} />
             <span>{stage() || t("components.newInstance.creating")}</span>
           </div>
         </Show>
 
         <div class="flex justify-end gap-[10px] mt-[4px]">
-          <button
-            class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-glass-card text-fg text-[13px] cursor-pointer transition-colors duration-150 hover:bg-glass-hover disabled:opacity-50"
-            onClick={props.onClose}
-            disabled={creating()}
-          >
+          <Button variant="ghost" onClick={props.onClose} disabled={creating()}>
             {t("components.newInstance.cancel")}
-          </button>
-          <button
-            class="h-[34px] px-[16px] border-none rounded-ctl bg-a-4 text-white text-[13px] font-semibold cursor-pointer transition-colors duration-150 hover:bg-a-5 disabled:opacity-50 disabled:cursor-not-allowed"
-            onClick={create}
-            disabled={!canCreate()}
-          >
+          </Button>
+          <Button variant="primary" onClick={create} disabled={!canCreate()}>
             {creating() ? t("components.newInstance.creating") : t("components.newInstance.create")}
-          </button>
+          </Button>
         </div>
       </div>
     </Dialog>

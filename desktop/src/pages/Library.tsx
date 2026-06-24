@@ -2,6 +2,9 @@ import { Component, createResource, createSignal, For, Show, onCleanup } from "s
 import {
   InstanceRow,
   Button,
+  Panel,
+  Heading,
+  Select,
   BlockedFilesDialog,
   ImportModpackDialog,
   ExportModpackDialog,
@@ -48,6 +51,8 @@ const Library: Component = () => {
   const [filter, setFilter] = createSignal("");
   // 实例列表过滤(名称/版本/加载器),与版本安装抽屉的搜索相互独立。
   const [instQuery, setInstQuery] = createSignal("");
+  // 实例列表排序键:recent(默认,上次游玩降序)/ name / version。
+  const [sortKey, setSortKey] = createSignal<"recent" | "name" | "version">("recent");
   const [installing, setInstalling] = createSignal<string | null>(null);
   const [progress, setProgress] = createSignal("");
   // 导入整合包:统一弹窗(展示支持格式 / 拖入提示 / 须知);产物里有需手动下载或跳过的文件再摊开。
@@ -90,7 +95,20 @@ const Library: Component = () => {
   };
 
   // 默认按上次游玩降序(最近玩的在前,与首页「继续游玩」同序);未玩过的(0)沉底。
-  const sortedInstances = () => sortByRecent(instances() ?? []);
+  // 也可切到名称 / 版本升序。
+  const sortedInstances = () => {
+    const all = instances() ?? [];
+    switch (sortKey()) {
+      case "name":
+        return [...all].sort((a, b) =>
+          (a.name || a.id).localeCompare(b.name || b.id),
+        );
+      case "version":
+        return [...all].sort((a, b) => (a.mc_version || "").localeCompare(b.mc_version || ""));
+      default:
+        return sortByRecent(all);
+    }
+  };
 
   // 在排序基础上按名称 / 版本 / 加载器过滤(空查询返回全部)。
   const filteredInstances = () => {
@@ -173,15 +191,18 @@ const Library: Component = () => {
   return (
     <div class="relative p-[24px_28px] overflow-y-auto h-full">
       <Show when={dragOver()}>
-        <div class="absolute inset-0 z-30 flex items-center justify-center bg-black/40 backdrop-blur-sm pointer-events-none">
-          <div class="flex flex-col items-center gap-[10px] rounded-card border-2 border-dashed border-a-4 bg-glass-card px-[40px] py-[32px]">
-            <Icon name="download" size={30} class="text-a-5" />
-            <div class="text-[14px] font-semibold text-fg">{t("components.import.dropOverlay")}</div>
-          </div>
+        <div class="absolute inset-0 z-30 flex items-center justify-center bg-[rgba(8,7,5,0.55)] pointer-events-none">
+          <Panel
+            variant="raised"
+            class="flex flex-col items-center gap-[10px] border-2 border-dashed border-accent px-[40px] py-[32px]"
+          >
+            <Icon name="download" size={30} class="text-accent" />
+            <div class="text-[14px] font-medium text-fg">{t("components.import.dropOverlay")}</div>
+          </Panel>
         </div>
       </Show>
       <div class="flex items-center justify-between mb-[18px]">
-        <h1 class="text-[24px] font-bold text-fg m-0">{t("library.title")}</h1>
+        <Heading size="page">{t("library.title")}</Heading>
         <div class="flex items-center gap-[10px]">
           <Show when={(instances() ?? []).length > 0}>
             <Button variant="ghost" onClick={() => (selectMode() ? exitSelect() : setSelectMode(true))}>
@@ -201,38 +222,33 @@ const Library: Component = () => {
 
       {/* 批量操作条:仅多选模式可见。展示已选数 + 全选/清空 + 删除所选。 */}
       <Show when={selectMode()}>
-        <div class="flex items-center gap-[12px] mb-[16px] px-[14px] py-[10px] rounded-card glass-card">
+        <Panel variant="raised" class="flex items-center gap-[12px] mb-[16px] px-[14px] py-[10px]">
           <span class="text-[13px] font-medium text-fg">
             {t("library.selectedCount", { count: selectedIds().size })}
           </span>
-          <button
-            type="button"
-            class="h-[30px] px-[12px] rounded-ctl border border-glass-border bg-glass-card text-fg text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-glass-hover"
-            onClick={toggleSelectAll}
-          >
+          <Button variant="ghost" onClick={toggleSelectAll}>
             {allSelected() ? t("library.clearSelection") : t("library.selectAll")}
-          </button>
+          </Button>
           <div class="flex-1" />
-          <button
-            type="button"
-            class="h-[34px] px-[16px] rounded-ctl border-none bg-danger text-white text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-danger-hover disabled:opacity-50 disabled:cursor-not-allowed"
+          <Button
+            variant="danger"
             disabled={selectedIds().size === 0 || bulkDeleting()}
             onClick={() => setBulkConfirm(true)}
           >
             {t("library.deleteSelected")}
-          </button>
-        </div>
+          </Button>
+        </Panel>
       </Show>
 
       <Show when={showInstall()}>
-        <div class="bg-glass-card rounded-card p-[18px] mb-[20px]">
+        <Panel variant="sunken" class="p-[18px] mb-[20px]">
           <SearchBox
             value={filter()}
             onInput={setFilter}
             placeholder={t("library.searchVersionPlaceholder")}
           />
           <Show when={installing()}>
-            <div class="flex items-center gap-[8px] text-a-5 mt-[12px] text-[13px]">
+            <div class="flex items-center gap-[8px] text-accent mt-[12px] text-[13px]">
               <Spinner /> {t("library.installingStatus")} {installing()} · {progress()}
             </div>
           </Show>
@@ -248,9 +264,9 @@ const Library: Component = () => {
               <div class="max-h-[320px] overflow-y-auto mt-[14px] flex flex-col gap-[6px]">
                 <For each={filtered()}>
                   {(v) => (
-                    <div class="flex items-center gap-[12px] px-[10px] py-[6px] rounded-ctl hover:bg-glass-hover">
-                      <span class="font-semibold text-fg min-w-[120px]">{v.id}</span>
-                      <span class="text-dim text-[12px] flex-1">{v.kind}</span>
+                    <div class="flex items-center gap-[12px] px-[10px] py-[6px] hover:bg-panel-2 transition-[background-color] duration-[var(--dur)] ease-app">
+                      <span class="font-pixel text-[11px] text-fg min-w-[120px]">{v.id}</span>
+                      <span class="text-muted text-[12px] flex-1">{v.kind}</span>
                       <Button
                         variant="ghost"
                         disabled={!!installing()}
@@ -264,7 +280,7 @@ const Library: Component = () => {
               </div>
             </Show>
           </Show>
-        </div>
+        </Panel>
       </Show>
 
       <Show when={!instances.loading} fallback={<div class="flex justify-center p-[32px]"><Spinner /></div>}>
@@ -276,13 +292,25 @@ const Library: Component = () => {
           when={(instances() ?? []).length > 0}
           fallback={<EmptyState title={t("library.emptyRoot")} />}
         >
-          {/* 实例较多时给个搜索框(≥6 个才显示,避免少量实例时多余 chrome)。 */}
+          {/* 实例较多时给搜索框 + 排序(≥6 个才显示,避免少量实例时多余 chrome)。 */}
           <Show when={(instances() ?? []).length >= 6}>
-            <div class="mb-[12px]">
-              <SearchBox
-                value={instQuery()}
-                onInput={setInstQuery}
-                placeholder={t("library.searchInstancePlaceholder")}
+            <div class="flex items-center gap-[10px] mb-[12px]">
+              <div class="flex-1 min-w-0">
+                <SearchBox
+                  value={instQuery()}
+                  onInput={setInstQuery}
+                  placeholder={t("library.searchInstancePlaceholder")}
+                />
+              </div>
+              <Select
+                value={sortKey()}
+                onChange={(v) => setSortKey(v as "recent" | "name" | "version")}
+                class="min-w-[150px] shrink-0"
+                options={[
+                  { value: "recent", label: t("library.sortRecent") },
+                  { value: "name", label: t("library.sortName") },
+                  { value: "version", label: t("library.sortVersion") },
+                ]}
               />
             </div>
           </Show>
@@ -339,26 +367,20 @@ const Library: Component = () => {
         open={bulkConfirm()}
         onClose={() => setBulkConfirm(false)}
         label={t("library.bulkDeleteTitle")}
-        contentClass="w-[380px] max-w-[calc(100vw-48px)] glass-pop rounded-card overflow-hidden"
+        contentClass="w-[380px] max-w-[calc(100vw-48px)] bg-panel text-fg border border-titlebar shadow-raised rounded-none overflow-hidden"
       >
         <div class="p-[20px] flex flex-col gap-[14px]">
-          <div class="text-[15px] font-semibold text-fg">{t("library.bulkDeleteTitle")}</div>
-          <div class="text-[13px] text-dim leading-[1.6]">
+          <Heading size="sub">{t("library.bulkDeleteTitle")}</Heading>
+          <div class="text-[13px] text-sub leading-[1.6]">
             {t("library.bulkDeleteBody", { count: selectedIds().size })}
           </div>
           <div class="flex justify-end gap-[10px]">
-            <button
-              class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-glass-card text-fg text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-glass-hover"
-              onClick={() => setBulkConfirm(false)}
-            >
+            <Button variant="ghost" onClick={() => setBulkConfirm(false)}>
               {t("instance.cancel")}
-            </button>
-            <button
-              class="h-[34px] px-[16px] border-none rounded-ctl bg-danger text-white text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-danger-hover"
-              onClick={bulkDelete}
-            >
+            </Button>
+            <Button variant="danger" onClick={bulkDelete}>
               {t("library.deleteSelected")}
-            </button>
+            </Button>
           </div>
         </div>
       </Dialog>

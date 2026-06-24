@@ -45,7 +45,7 @@ export const Avatar: Component<{
 
   return (
     <img
-      class={`mc-avatar-img${props.class ? ` ${props.class}` : ""}`}
+      class={`mc-avatar-img shadow-raised rounded-none${props.class ? ` ${props.class}` : ""}`}
       src={src()}
       alt=""
       width="64"

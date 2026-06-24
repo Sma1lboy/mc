@@ -1,0 +1,41 @@
+// "projectDetail" 命名空间词条。zh 为真相源;en 缺项自动回退中文。
+const dict = {
+  zh: {
+    back: "← 返回",
+    loadingAbout: "加载简介…",
+    noAbout: "该项目没有简介。",
+    versions: "版本",
+    showAllVersions: "显示全部版本",
+    loadingVersions: "加载版本…",
+    noVersions: "没有可用版本。",
+    install: "安装",
+    installing: "安装中…",
+    incompatibleTooltip: "当前实例的加载器/版本不兼容这个文件",
+    incompatibleVersion: "这个版本不兼容当前实例的加载器/游戏版本",
+    installedVersion: "已安装 {{version}}",
+    depsAdded: "+{{count}} 个依赖",
+    depsUnresolved: "{{count}} 个依赖未解决",
+    declaredConflicts: "声明与 {{count}} 个 mod 冲突",
+    installFailed: "安装失败:{{error}}",
+  } as Record<string, string>,
+  en: {
+    back: "← Back",
+    loadingAbout: "Loading description…",
+    noAbout: "This project has no description.",
+    versions: "Versions",
+    showAllVersions: "Show all versions",
+    loadingVersions: "Loading versions…",
+    noVersions: "No versions available.",
+    install: "Install",
+    installing: "Installing…",
+    incompatibleTooltip: "This file is incompatible with the instance's loader/version",
+    incompatibleVersion: "This version is incompatible with the instance's loader/game version",
+    installedVersion: "Installed {{version}}",
+    depsAdded: "+{{count}} dependencies",
+    depsUnresolved: "{{count}} dependencies unresolved",
+    declaredConflicts: "declares conflicts with {{count}} mod(s)",
+    installFailed: "Install failed: {{error}}",
+  } as Record<string, string>,
+};
+
+export default dict;

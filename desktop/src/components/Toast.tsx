@@ -7,10 +7,10 @@ import { t } from "../i18n";
 void motion;
 
 // Toast 类型与配色:
-//   info    —— 中性提示 (accent 蓝/绿)
-//   success —— 成功 (accent)
-//   warn    —— 警告 (黄)
-//   error   —— 错误 (#ff5c5c)
+//   info    —— 中性提示 (熔岩橙 accent)
+//   success —— 成功 (熔岩橙 accent)
+//   warn    —— 警告 (沙金 tag)
+//   error   —— 错误 (danger)
 export type ToastType = "info" | "success" | "warn" | "error";
 
 export interface ToastOptions {
@@ -96,15 +96,15 @@ toast.warn = (message: string, duration?: number) => toast({ type: "warn", messa
 toast.error = (message: string, duration?: number) =>
   toast({ type: "error", message, duration });
 
-// 类型 → 左色条颜色 (border-left-color) 的工具类。info/success 用 accent。
+// 类型 → 左色条颜色 (border-left-color) 的工具类。info/success 用熔岩橙 accent。
 function toastBorderClass(type: ToastType): string {
   switch (type) {
     case "warn":
-      return "border-l-[#f5b53d]";
+      return "border-l-tag";
     case "error":
-      return "border-l-[#ff5c5c]";
+      return "border-l-danger";
     default: // info / success
-      return "border-l-[var(--a-5)]";
+      return "border-l-accent";
   }
 }
 
@@ -112,11 +112,11 @@ function toastBorderClass(type: ToastType): string {
 function toastIconColorClass(type: ToastType): string {
   switch (type) {
     case "warn":
-      return "text-[#f5b53d]";
+      return "text-tag";
     case "error":
-      return "text-[#ff5c5c]";
+      return "text-danger-text";
     default: // info / success
-      return "text-[var(--a-5)]";
+      return "text-accent";
   }
 }
 
@@ -198,7 +198,7 @@ export function ToastContainer(): JSX.Element {
                 use:motion={{ preset: "toast" }}
                 class={
                   "pointer-events-auto flex items-center gap-[10px] min-w-[240px] max-w-[380px] " +
-                  "px-[14px] py-[11px] rounded-card glass-card text-fg " +
+                  "px-[14px] py-[11px] rounded-none bg-panel text-fg border border-titlebar shadow-raised " +
                   "border-l-4 text-[13px] leading-[1.4] origin-center " +
                   toastBorderClass(item.type)
                 }
@@ -210,9 +210,9 @@ export function ToastContainer(): JSX.Element {
                   type="button"
                   class={
                     "shrink-0 inline-flex items-center justify-center w-[18px] h-[18px] " +
-                    "border-none bg-transparent text-dim cursor-pointer rounded-xs " +
+                    "border-none bg-transparent text-muted cursor-pointer rounded-none " +
                     "transition-[color,background-color] duration-[var(--dur)] ease-app " +
-                    "hover:text-fg hover:bg-glass-hover"
+                    "hover:text-fg hover:bg-panel-3"
                   }
                   aria-label={t("components.toast.close")}
                   onClick={() => dismissToast(item.id)}
