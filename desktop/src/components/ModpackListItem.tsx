@@ -29,7 +29,7 @@ export function ModpackListItem(props: ModpackListItemProps): JSX.Element {
 
   return (
     <div
-      class="glass-card glass-card--hover flex items-center gap-[14px] px-[14px] py-[10px] rounded-card cursor-pointer transition-[background-color,border-color,transform,box-shadow] duration-[var(--dur)] ease-app hover:translate-x-[2px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5"
+      class="group glass-card glass-card--hover flex items-center gap-[14px] px-[14px] py-[10px] rounded-card cursor-pointer transition-[background-color,border-color,transform,box-shadow] duration-[var(--dur)] ease-app hover:translate-x-[2px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5"
       role={props.onClick ? "button" : undefined}
       tabindex={props.onClick ? 0 : undefined}
       onClick={() => props.onClick?.(hit())}
