@@ -78,6 +78,9 @@ mirror to stderr.
   `AuthSession` (`mc-core/src/auth/`). Microsoft uses the device-code flow.
 - **Commits** follow Conventional Commits: `type(scope): subject` (lowercase subject),
   e.g. `feat(logging): …`, `fix(auth): …`, `docs: …`, `refactor: …`, `chore: …`.
+- **Releases default to a PATCH bump** (`scripts/release.sh`): next version = `patch+1` of the
+  latest `v*` tag (e.g. `0.1.0` → `0.1.1`), regardless of how many features landed. Only do a
+  minor/major bump when the user **explicitly** says so. State the version before tagging.
 
 ## Secrets / env (never commit real values)
 
