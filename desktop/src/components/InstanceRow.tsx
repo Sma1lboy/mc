@@ -1,5 +1,6 @@
 import { JSX, Show, createSignal } from "solid-js";
 import { PlayButton } from "./PlayButton";
+import { InstanceIcon } from "./InstanceIcon";
 import { Dialog } from "./Dialog";
 import { Menu } from "./Menu";
 import { formatRelativeTime } from "./format";
@@ -43,12 +44,6 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
   // 运行态以进程注册表为准(后端 game://started/exit 实时同步),而非静态的 instance.running。
   const running = () => isRunning(inst().id);
 
-  // 名称首字母 (图标占位)。
-  const initial = () => {
-    const n = inst().name?.trim();
-    return n && n.length > 0 ? n[0] : "?";
-  };
-
   // 元信息行: "Fabric 1.20.1 · Played 5 minutes ago"。
   const loaderLabel = () => {
     const name = fmtLoader(inst().loader);
@@ -78,11 +73,9 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
           class="flex items-center gap-[14px] flex-1 min-w-0 bg-transparent border-none p-0 text-left cursor-pointer"
           onClick={() => props.onOpen?.(inst().id)}
         >
-          {/* 左: 图标 (有 icon 显示图片, 否则渐变 + 首字母)。 */}
-          <div class="relative shrink-0 w-[48px] h-[48px] rounded-ctl overflow-hidden flex items-center justify-center bg-gradient-to-br from-a-3 to-a-5 text-white font-bold text-[20px] uppercase select-none">
-            <Show when={inst().icon} fallback={<span>{initial()}</span>}>
-              <img src={inst().icon} alt="" width="48" height="48" loading="lazy" class="w-full h-full object-cover block" />
-            </Show>
+          {/* 左: 图标 (有 icon 显示图片, 否则 MC 像素占位)。 */}
+          <div class="relative shrink-0 w-[48px] h-[48px] rounded-ctl overflow-hidden select-none">
+            <InstanceIcon name={inst().name} icon={inst().icon} />
             {/* 运行中绿点。 */}
             <Show when={running()}>
               <span

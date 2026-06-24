@@ -1,5 +1,5 @@
 import { Component, createResource, createSignal, onCleanup, onMount, Show } from "solid-js";
-import { InstanceManageDialog, Dialog, ExportModpackDialog, toast, type InstanceRowData } from "../components";
+import { InstanceManageDialog, InstanceIcon, Dialog, ExportModpackDialog, toast, type InstanceRowData } from "../components";
 import { PlayButton } from "../components/PlayButton";
 import { Menu } from "../components/Menu";
 import { formatRelativeTime } from "../components/format";
@@ -178,10 +178,8 @@ const InstanceDetail: Component = () => {
         >
           {(i) => (
             <div class="flex items-center gap-[14px]">
-              <div class="relative shrink-0 w-[52px] h-[52px] rounded-ctl overflow-hidden grid place-items-center bg-gradient-to-br from-a-3 to-a-5 text-white font-bold text-[22px] uppercase select-none">
-                <Show when={i().icon} fallback={<span>{(i().name || i().id).charAt(0)}</span>}>
-                  <img src={i().icon!} alt="" width="52" height="52" class="w-full h-full object-cover" />
-                </Show>
+              <div class="relative shrink-0 w-[52px] h-[52px] rounded-ctl overflow-hidden select-none">
+                <InstanceIcon name={i().name || i().id} icon={i().icon ?? undefined} />
                 <Show when={isRunning(i().id)}>
                   <span class="absolute right-[3px] bottom-[3px] w-[12px] h-[12px] rounded-full bg-a-5 shadow-[0_0_0_2px_var(--bg-card)]" title={t("instance.running")} />
                 </Show>
