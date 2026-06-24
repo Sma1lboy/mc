@@ -195,14 +195,10 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
   }
 
   // 取值时求值 t(),避免 module-const 冻结语言。
-  const SOURCES = (): { key: ContentProvider; label: string }[] => {
-    const all: { key: ContentProvider; label: string }[] = [
-      { key: "modrinth", label: t("discover.sourceModrinth") },
-      { key: "curseforge", label: t("discover.sourceCurseforge") },
-    ];
-    // 整合包暂不支持从 CurseForge 安装(整合包安装路径仍是 Modrinth 专用),故该类目只暴露 Modrinth。
-    return props.kind === "modpack" ? all.filter((s) => s.key === "modrinth") : all;
-  };
+  const SOURCES = (): { key: ContentProvider; label: string }[] => [
+    { key: "modrinth", label: t("discover.sourceModrinth") },
+    { key: "curseforge", label: t("discover.sourceCurseforge") },
+  ];
   const SORTS = (): { key: SortKey; label: string }[] => [
     { key: "relevance", label: t("discover.sortRelevance") },
     { key: "downloads", label: t("discover.sortDownloads") },

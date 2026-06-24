@@ -9,6 +9,7 @@
 // ------------------------------------------------------------------
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { invoke as rawInvoke } from "@tauri-apps/api/core";
 import { commands } from "./bindings";
 import type {
   InstallProgress,
@@ -17,6 +18,7 @@ import type {
   GameStarted,
   GameExit,
   ThemeConfig,
+  ImportOutcome,
 } from "./types";
 
 // tauri-specta 生成的命令返回 { status:"ok",data } | { status:"error",error }(不抛错)。
@@ -63,6 +65,30 @@ const overrides = {
         o.loaderVersion,
       ),
     ),
+  // install_modpack:provider 感知的整合包安装(Modrinth / CurseForge,按 version_id 取档安装)。
+  // bindings 重新生成前 commands.installModpack 可能尚不存在,故缺省回退到原始 invoke;
+  // 生成后两条路径同名同参,行为一致,可安全保留本 override。
+  installModpack: (
+    root: string,
+    provider: string | null,
+    project: string,
+    versionId: string,
+    name: string | null,
+  ): Promise<ImportOutcome> => {
+    const gen = (commands as Record<string, unknown>).installModpack;
+    if (typeof gen === "function") {
+      return unwrap(
+        (gen as (...a: unknown[]) => Promise<SpectaResult<ImportOutcome, unknown>>)(
+          root,
+          provider,
+          project,
+          versionId,
+          name,
+        ),
+      );
+    }
+    return rawInvoke<ImportOutcome>("install_modpack", { root, provider, project, versionId, name });
+  },
   // 主题:对前端暴露 theme.ts 的严格 ThemeConfig(后端 wire 形状更宽松,边界处转换)。
   getTheme: (): Promise<ThemeConfig> => unwrap(commands.getTheme()) as Promise<ThemeConfig>,
   setTheme: (cfg: ThemeConfig): Promise<null> =>
