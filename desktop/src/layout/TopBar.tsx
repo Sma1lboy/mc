@@ -1,6 +1,6 @@
-import { Component, Show } from "solid-js";
+import { Component, For, Show } from "solid-js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { runningIds } from "../store";
+import { runningIds, currentPage, discoverKind, setDiscoverKind, DISCOVER_KINDS } from "../store";
 import { t } from "../i18n";
 
 /**
@@ -46,9 +46,28 @@ const TopBar: Component = () => {
   return (
     // data-tauri-drag-region:让顶栏空白处可拖动窗口
     <header
-      class="[grid-area:topbar] h-[48px] flex items-center justify-end glass-panel border-b border-glass-divider pl-[14px] pr-[8px] box-border select-none"
+      class="[grid-area:topbar] h-[48px] flex items-center justify-between glass-panel border-b border-glass-divider pl-[14px] pr-[8px] box-border select-none"
       data-tauri-drag-region
     >
+      {/* 左侧:Discover 内容类型标签(仅发现页显示)。标签上提到顶栏,页面下方就纯粹是筛选 + 内容。 */}
+      <div class="flex items-center gap-[4px] [-webkit-app-region:no-drag]">
+        <Show when={currentPage() === "discover"}>
+          <For each={DISCOVER_KINDS}>
+            {(k) => (
+              <button
+                class="h-[28px] px-[12px] rounded-ctl border-none text-[12px] font-medium cursor-pointer transition-[background-color,color] duration-[var(--dur)] ease-app focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5"
+                classList={{
+                  "bg-a-4 text-white": discoverKind() === k,
+                  "bg-transparent text-dim hover:text-fg hover:bg-glass-hover": discoverKind() !== k,
+                }}
+                onClick={() => setDiscoverKind(k)}
+              >
+                {t(`discover.kind${k[0].toUpperCase()}${k.slice(1)}`)}
+              </button>
+            )}
+          </For>
+        </Show>
+      </div>
 
       {/* 右侧:运行状态(玻璃药丸,看起来是个组件而非漂浮文字)+ 品牌名 + 窗口控制 */}
       <div class="flex items-center gap-[10px]">

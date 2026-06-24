@@ -2,6 +2,7 @@ import { createSignal } from "solid-js";
 import { api, onGameExit, onGameStarted } from "./ipc/api";
 import { toast } from "./components/Toast";
 import { t } from "./i18n";
+import type { ProjectKind } from "./ipc/types";
 
 // 页面标识。home/library/discover/settings + 实例详情。
 export type Page = "home" | "library" | "discover" | "settings" | "instance";
@@ -12,6 +13,12 @@ export type Page = "home" | "library" | "discover" | "settings" | "instance";
 
 // 当前页面,默认 home。
 export const [currentPage, setCurrentPage] = createSignal<Page>("home");
+
+// Discover 内容类型:提到 store,让顶栏 TopBar 的类型标签与 Discover 页共享同一状态
+//(标签上提到顶栏后,Discover 下方就纯粹是筛选 + 内容)。默认整合包。
+export const [discoverKind, setDiscoverKind] = createSignal<ProjectKind>("modpack");
+/** Discover 顶栏类型标签的顺序。 */
+export const DISCOVER_KINDS: ProjectKind[] = ["modpack", "mod", "shader", "resourcepack", "datapack"];
 
 /** 当前选中的游戏根目录(GameRoot.path);null = 未选/未加载。 */
 const ROOT_STORAGE_KEY = "mc-launcher.current-root";

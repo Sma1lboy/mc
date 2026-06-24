@@ -1,11 +1,11 @@
-import { Component, createSignal, createEffect, createResource, onMount, For, Show } from "solid-js";
+import { Component, createSignal, createEffect, createResource, onMount, on, Show } from "solid-js";
 import { ContentBrowser, Spinner, type ModpackHit } from "../components";
 import { FacetSidebar, type FacetSelection } from "../components/FacetSidebar";
 import type { ContentProvider } from "../components/ContentBrowser";
 import type { ProjectKind } from "../ipc/types";
 import { api } from "../ipc/api";
 import { prefetchKinds } from "../util/contentSearch";
-import { discoverTarget, setDiscoverTarget } from "../store";
+import { discoverKind, setDiscoverKind, DISCOVER_KINDS, discoverTarget, setDiscoverTarget } from "../store";
 import { t } from "../i18n";
 import ModpackDetail from "./ModpackDetail";
 import ProjectInstallDetail from "./ProjectInstallDetail";
@@ -18,20 +18,13 @@ import ProjectInstallDetail from "./ProjectInstallDetail";
  * 详情态(ProjectInstallDetail / ModpackDetail)整页全宽,不带侧栏。
  */
 
-const KINDS = (): { key: ProjectKind; label: string }[] => [
-  { key: "modpack", label: t("discover.kindModpack") },
-  { key: "mod", label: t("discover.kindMod") },
-  { key: "shader", label: t("discover.kindShader") },
-  { key: "resourcepack", label: t("discover.kindResourcepack") },
-  { key: "datapack", label: t("discover.kindDatapack") },
-];
-
 type SelectedProject = { hit: ModpackHit; kind: ProjectKind; provider: ContentProvider };
 
 const EMPTY_FACETS: FacetSelection = { categories: [], loaders: [], gameVersions: [], environment: null, openSource: false };
 
 const Discover: Component = () => {
-  const [kind, setKind] = createSignal<ProjectKind>("modpack");
+  // 类型状态在 store(顶栏 TopBar 的类型标签与本页共享同一信号)。
+  const kind = discoverKind;
 
   // 当前打开详情的项目(null = 显示搜索网格)。点击卡片/按钮进入详情页,而非直接下载。
   const [selected, setSelected] = createSignal<SelectedProject | null>(null);
@@ -49,27 +42,36 @@ const Discover: Component = () => {
   const viewReady = () => !facetTags.loading && seeded();
 
   // 进入发现页即后台预取所有类型的默认首屏(空搜索 / Modrinth),切换类型时直接命中缓存、即时显示。
-  onMount(() => prefetchKinds(KINDS().map((k) => k.key)));
-
-  function switchKind(k: ProjectKind) {
-    if (k === kind()) return;
-    setSeeded(false);
-    setKind(k);
-    setFacets(EMPTY_FACETS);
-  }
+  onMount(() => prefetchKinds(DISCOVER_KINDS));
 
   function openHit(h: ModpackHit, prov: ContentProvider) {
     setSelected({ hit: h, kind: kind(), provider: prov });
   }
 
-  // 从首页「发现」卡片跳进来时,自动打开目标项目详情(消费一次即清空)。
+  // 顶栏切换类型 → 重置筛选 / 首屏就绪态,并关掉可能打开的详情(回到该类型的浏览)。
+  // openingDetail:从首页卡片跳转时既改类型又开详情,这里别把刚开的详情清掉。
+  let openingDetail = false;
+  createEffect(
+    on(
+      discoverKind,
+      () => {
+        setFacets(EMPTY_FACETS);
+        setSeeded(false);
+        if (!openingDetail) setSelected(null);
+        openingDetail = false;
+      },
+      { defer: true },
+    ),
+  );
+
+  // 从首页「发现」卡片跳进来时,切到目标类型并直接打开其详情(消费一次即清空)。
   createEffect(() => {
     const tgt = discoverTarget();
     if (!tgt) return;
-    setKind(tgt.kind);
-    setFacets(EMPTY_FACETS);
-    setSelected({ hit: tgt.hit, kind: tgt.kind, provider: "modrinth" });
     setDiscoverTarget(null);
+    if (tgt.kind !== discoverKind()) openingDetail = true;
+    setDiscoverKind(tgt.kind);
+    setSelected({ hit: tgt.hit, kind: tgt.kind, provider: "modrinth" });
   });
 
   return (
@@ -93,29 +95,8 @@ const Discover: Component = () => {
       </Show>
 
       <Show when={!selected()}>
-        <div class="flex items-center justify-between gap-[16px] mb-[16px]">
-          <h1 class="text-[24px] font-bold text-fg m-0">{t("discover.heading")}</h1>
-        </div>
-
-        <div class="flex gap-[8px] mb-[16px]">
-          <For each={KINDS()}>
-            {(k) => (
-              <button
-                class="px-[14px] py-[6px] border-none rounded-ctl text-[13px] cursor-pointer transition-[background-color,color,box-shadow] duration-[var(--dur)] ease-app focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5 focus-visible:ring-offset-2 focus-visible:ring-offset-n-1"
-                classList={{
-                  "bg-a-4 text-white": kind() === k.key,
-                  "bg-glass-card text-dim hover:bg-glass-hover hover:text-fg": kind() !== k.key,
-                }}
-                onClick={() => switchKind(k.key)}
-              >
-                {k.label}
-              </button>
-            )}
-          </For>
-        </div>
-
-        {/* 两栏:左 facet 侧栏 + 右内容浏览器。切类型时整体重挂(清空搜索词/分页 + facet 已在 switchKind 重置)。
-            Discover 不绑定实例:mcVersion="" + loader=null;点击行或「添加」均打开详情页。 */}
+        {/* 类型标签已上提到顶栏 TopBar;此处只剩筛选 + 内容。切类型时整栏重挂(清空搜索词/分页,
+            facet 在 kind 变化的副作用里重置)。Discover 不绑定实例:mcVersion="" + loader=null。 */}
         <Show when={kind()} keyed>
           {(k) => (
             <div class="relative">
