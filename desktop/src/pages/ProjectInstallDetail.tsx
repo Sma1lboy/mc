@@ -66,9 +66,17 @@ const ProjectInstallDetail: Component<{
   lockedInstance?: InstanceSummary;
   /** 安装成功回调:实例模式下用来刷新「已安装」列表。 */
   onInstalled?: () => void;
+  /** 内容来源平台(modrinth / curseforge);决定走哪个 provider 取版本/安装。缺省 modrinth。 */
+  provider?: "modrinth" | "curseforge";
 }> = (props) => {
   const meta = () => KIND_META()[props.kind];
   const lockMode = () => !!props.lockedInstance;
+  const provider = () => props.provider ?? "modrinth";
+  // CurseForge 作者禁第三方分发时,后端把文件计入 report.blocked;此时不算成功,提示去网页手动下载。
+  const warnIfBlocked = (n: number) => {
+    if (n > 0) toast({ type: "warn", message: t("discover.blockedManual", { count: n }) });
+    return n > 0;
+  };
 
   // Esc 返回上一层(与列表/灯箱一致的导航直觉)。
   onMount(() => {
@@ -102,7 +110,7 @@ const ProjectInstallDetail: Component<{
   const [versions] = createResource(
     () => props.hit.id,
     (id) =>
-      api.modrinthVersions(id).catch((e) => {
+      api.modrinthVersions(id, provider()).catch((e) => {
         toast({ type: "error", message: t("discover.versionsLoadFailed", { error: String(e) }) });
         return [] as ModrinthVersion[];
       }),
@@ -178,7 +186,10 @@ const ProjectInstallDetail: Component<{
         isMod ? inst.mc_version : null,
         isMod ? inst.loader : null,
         worldArg(),
+        provider(),
+        props.hit.id,
       );
+      if (warnIfBlocked(report.blocked?.length ?? 0)) return;
       const parts = [t("discover.installedVersionTo", { version: version.version_number, instance: inst.name || inst.id })];
       if (report.installed_deps > 0) parts.push(t("discover.depsAdded", { count: report.installed_deps }));
       if (report.unresolved.length > 0) parts.push(t("discover.depsUnresolved", { count: report.unresolved.length }));
@@ -210,7 +221,8 @@ const ProjectInstallDetail: Component<{
     setInstalling(true);
     try {
       if (props.kind === "mod") {
-        const report = await api.installMod(activeRoot(), inst.id, props.hit.id, inst.mc_version, inst.loader);
+        const report = await api.installMod(activeRoot(), inst.id, props.hit.id, inst.mc_version, inst.loader, provider());
+        if (warnIfBlocked(report.blocked?.length ?? 0)) return;
         const parts = [t("discover.installedFiles", { count: report.installed.length })];
         if (report.unresolved.length > 0) parts.push(t("discover.depsUnresolved", { count: report.unresolved.length }));
         const conflicts = report.incompatible?.length ?? 0;
@@ -220,8 +232,9 @@ const ProjectInstallDetail: Component<{
           message: `${props.hit.title}:${parts.join(",")}`,
         });
       } else {
-        const file = await api.installPack(activeRoot(), inst.id, meta().packKind!, props.hit.id, inst.mc_version, worldArg());
-        toast({ type: "success", message: t("discover.installedToFile", { instance: inst.name || inst.id, file }) });
+        const report = await api.installPack(activeRoot(), inst.id, meta().packKind!, props.hit.id, inst.mc_version, worldArg(), provider());
+        if (warnIfBlocked(report.blocked?.length ?? 0)) return;
+        toast({ type: "success", message: t("discover.installedToFile", { instance: inst.name || inst.id, file: report.file }) });
       }
       props.onInstalled?.();
     } catch (e) {

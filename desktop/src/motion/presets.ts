@@ -36,8 +36,7 @@ export type PresetName =
   | "listStagger"
   | "hoverLift"
   | "expandCollapse"
-  | "errorPop"
-  | "layoutSwap";
+  | "errorPop";
 
 /**
  * 预设表。值用函数式 EASE/DUR 令牌(与 tokens.css 同源)。WAAPI 的 easing 接受
@@ -194,25 +193,6 @@ export const PRESETS: Record<PresetName, MotionPreset> = {
         { opacity: 0, transform: "scale(.6)" },
       ],
       options: { duration: DUR.fast, easing: EASE.accel, fill: "both" },
-    },
-    transformOrigin: "center",
-  },
-
-  // layout-swap:整壳 workspace↔classic 交叉淡(慢一点,沉稳)。
-  layoutSwap: {
-    enter: {
-      keyframes: [
-        { opacity: 0, transform: "scale(1.01)" },
-        { opacity: 1, transform: "scale(1)" },
-      ],
-      options: { duration: DUR.page, easing: EASE.emphasized, fill: "both" },
-    },
-    exit: {
-      keyframes: [
-        { opacity: 1, transform: "scale(1)" },
-        { opacity: 0, transform: "scale(.995)" },
-      ],
-      options: { duration: DUR.base, easing: EASE.accel, fill: "both" },
     },
     transformOrigin: "center",
   },

@@ -40,6 +40,7 @@ const dict = {
     // 资源包 / 光影 / 数据包面板
     installedTitle: "已安装",
     installed: "已安装 {{ title }}({{ file }})",
+    blockedManual: "{{ count }} 个文件被作者限制第三方下载,请到 CurseForge 网页手动获取",
     installFailed: "安装失败:{{ err }}",
     opFailed: "操作失败:{{ err }}",
     deletedFile: "已删除 {{ file }}",
@@ -244,6 +245,7 @@ const dict = {
 
     installedTitle: "Installed",
     installed: "Installed {{ title }} ({{ file }})",
+    blockedManual: "{{ count }} file(s) blocked from third-party download — get them manually on CurseForge",
     installFailed: "Install failed: {{ err }}",
     opFailed: "Operation failed: {{ err }}",
     deletedFile: "Deleted {{ file }}",

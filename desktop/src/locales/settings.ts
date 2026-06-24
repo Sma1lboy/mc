@@ -4,18 +4,15 @@ const dict = {
     language: "语言",
     title: "设置",
     // sections
-    sectionLayout: "界面布局",
+    sectionLanguage: "语言",
     sectionAppearance: "外观",
     sectionDownloadGame: "下载与游戏",
+    sectionContentSource: "内容源",
     sectionJava: "Java",
     sectionGameDir: "游戏目录",
     sectionDiagnostics: "诊断",
-    // layout
-    style: "风格",
-    layoutWorkspace: "工作台视图",
-    layoutClassic: "经典视图",
+    // language
     langAriaLabel: "语言 / Language",
-    layoutAriaLabel: "界面布局",
     // appearance
     themeMode: "主题模式",
     themeModeLight: "浅色",
@@ -43,6 +40,10 @@ const dict = {
     defaultMemory: "默认内存",
     java: "Java",
     autoDetect: "自动检测",
+    // content source
+    cfApiKey: "CurseForge API Key",
+    cfApiKeyPlaceholder: "留空即用内置 Key",
+    cfApiKeyHint: "自定义 Key 可提升下载限速;若内置 Key 不可用,则需填入自己的 Key。",
     // java section
     javaDetectFailed: "Java 检测失败",
     noJava: "未检测到 Java。",
@@ -70,17 +71,14 @@ const dict = {
   en: {
     language: "Language",
     title: "Settings",
-    sectionLayout: "Layout",
+    sectionLanguage: "Language",
     sectionAppearance: "Appearance",
     sectionDownloadGame: "Download & Game",
+    sectionContentSource: "Content Source",
     sectionJava: "Java",
     sectionGameDir: "Game Directory",
     sectionDiagnostics: "Diagnostics",
-    style: "Style",
-    layoutWorkspace: "Workspace view",
-    layoutClassic: "Classic view",
     langAriaLabel: "Language",
-    layoutAriaLabel: "Layout",
     themeMode: "Theme mode",
     themeModeLight: "Light",
     themeModeDark: "Dark",
@@ -106,6 +104,10 @@ const dict = {
     defaultMemory: "Default memory",
     java: "Java",
     autoDetect: "Auto-detect",
+    cfApiKey: "CurseForge API Key",
+    cfApiKeyPlaceholder: "Leave empty to use the built-in key",
+    cfApiKeyHint:
+      "A custom key lifts download rate limits; required if the built-in key is unavailable.",
     javaDetectFailed: "Java detection failed",
     noJava: "No Java detected.",
     bit64: "64-bit",

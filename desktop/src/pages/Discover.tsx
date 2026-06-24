@@ -1,5 +1,6 @@
 import { Component, createSignal, createEffect, For, Show } from "solid-js";
 import { ContentBrowser, type ModpackHit } from "../components";
+import type { ContentProvider } from "../components/ContentBrowser";
 import type { ProjectKind } from "../ipc/types";
 import { discoverTarget, setDiscoverTarget } from "../store";
 import { t } from "../i18n";
@@ -20,7 +21,7 @@ const KINDS = (): { key: ProjectKind; label: string }[] => [
   { key: "datapack", label: t("discover.kindDatapack") },
 ];
 
-type SelectedProject = { hit: ModpackHit; kind: ProjectKind };
+type SelectedProject = { hit: ModpackHit; kind: ProjectKind; provider: ContentProvider };
 
 const Discover: Component = () => {
   const [kind, setKind] = createSignal<ProjectKind>("modpack");
@@ -28,8 +29,8 @@ const Discover: Component = () => {
   // 当前打开详情的项目(null = 显示搜索网格)。点击卡片/按钮进入详情页,而非直接下载。
   const [selected, setSelected] = createSignal<SelectedProject | null>(null);
 
-  function openHit(h: ModpackHit) {
-    setSelected({ hit: h, kind: kind() });
+  function openHit(h: ModpackHit, provider: ContentProvider) {
+    setSelected({ hit: h, kind: kind(), provider });
   }
 
   // 从首页「发现」卡片跳进来时,自动打开目标项目详情(消费一次即清空)。
@@ -37,7 +38,7 @@ const Discover: Component = () => {
     const t = discoverTarget();
     if (!t) return;
     setKind(t.kind);
-    setSelected({ hit: t.hit, kind: t.kind });
+    setSelected({ hit: t.hit, kind: t.kind, provider: "modrinth" });
     setDiscoverTarget(null);
   });
 
@@ -51,6 +52,7 @@ const Discover: Component = () => {
               <ProjectInstallDetail
                 hit={project().hit}
                 kind={project().kind as Exclude<ProjectKind, "modpack">}
+                provider={project().provider}
                 onBack={() => setSelected(null)}
               />
             }

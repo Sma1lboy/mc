@@ -59,19 +59,23 @@ export const commands = {
 	/**  删除一个 mod 文件。 */
 	deleteMod: (root: string, id: string, fileName: string) => typedError<null, string>(__TAURI_INVOKE("delete_mod", { root, id, fileName })),
 	/**
-	 *  从 Modrinth 把一个 mod(及其必需依赖)装进实例。loader/mc_version 用于挑兼容版本。
-	 *  返回安装报告(已装 / 已满足 / 未解决依赖)。
+	 *  把一个 mod 的最新兼容版本装进实例。`provider` 缺省 `modrinth`:
+	 *  - Modrinth 走核心的「装最新版 + 解析 required 依赖」路径。
+	 *  - CurseForge 经 provider 取最新兼容版本直接落盘(CF 文件级不带依赖,故不解析);
+	 *    遇作者禁分发的文件经 `blocked` 回传,前端走手动下载流而非假装成功。
 	 */
-	installMod: (root: string, id: string, project: string, mcVersion: string, loader: string) => typedError<InstallReport, string>(__TAURI_INVOKE("install_mod", { root, id, project, mcVersion, loader })),
+	installMod: (root: string, id: string, project: string, mcVersion: string, loader: string, provider: string | null) => typedError<ModInstallReport, string>(__TAURI_INVOKE("install_mod", { root, id, project, mcVersion, loader, provider })),
 	/**
-	 *  安装一个**指定版本**(by Modrinth version id)到实例对应位置。
+	 *  安装一个**指定版本**(by version id)到实例对应位置。`provider` 缺省 `modrinth`,
+	 *  `project` 是该版本所属项目 id(CurseForge 经 `get_files_bulk` 反查需要,Modrinth 可空)。
 	 *  target = "mod" / "resourcepack" / "shader" / "datapack"。
 	 * 
-	 *  mod:在装入所选版本的同时解析它声明的 required 依赖(取各依赖最新兼容版本),与「装最新版」
-	 *  行为一致 —— 避免选版安装出一个缺前置、进不去游戏的孤立 jar。需要 `mc_version` + `loader`
-	 *  才能给依赖挑兼容版本;缺省时退回只装主文件。packs 不涉及依赖。
+	 *  mod(仅 Modrinth):在装入所选版本的同时解析它声明的 required 依赖(取各依赖最新兼容版本),
+	 *  与「装最新版」一致 —— 避免选版安装出一个缺前置、进不去游戏的孤立 jar。需要 `mc_version` +
+	 *  `loader` 才能给依赖挑兼容版本;缺省时退回只装主文件。packs 与 CurseForge 不涉及依赖。
+	 *  CurseForge 作者禁分发的文件经 `blocked` 回传,前端走手动下载流而非假装成功。
 	 */
-	installVersionFile: (root: string, id: string, target: string, versionId: string, mcVersion: string | null, loader: string | null, world: string | null) => typedError<VersionInstallReport, string>(__TAURI_INVOKE("install_version_file", { root, id, target, versionId, mcVersion, loader, world })),
+	installVersionFile: (root: string, id: string, target: string, versionId: string, mcVersion: string | null, loader: string | null, world: string | null, provider: string | null, project: string | null) => typedError<VersionInstallReport, string>(__TAURI_INVOKE("install_version_file", { root, id, target, versionId, mcVersion, loader, world, provider, project })),
 	/**  检查实例里已启用 mod 的更新(对每个 jar 的 sha1 问 Modrinth 当前 loader/版本下的最新版)。 */
 	checkModUpdates: (root: string, id: string, mcVersion: string, loader: string) => typedError<ModUpdate[], string>(__TAURI_INVOKE("check_mod_updates", { root, id, mcVersion, loader })),
 	/**  应用一个 mod 更新:下载新版本进 mods/ 并删掉旧文件。update 为 check_mod_updates 返回的条目。 */
@@ -87,8 +91,12 @@ export const commands = {
 	setPackEnabled: (root: string, id: string, kind: PackKind, fileName: string, enabled: boolean, world: string | null) => typedError<null, string>(__TAURI_INVOKE("set_pack_enabled", { root, id, kind, fileName, enabled, world })),
 	/**  删除一个包(移入系统回收站,可找回)。 */
 	deletePack: (root: string, id: string, kind: PackKind, fileName: string, world: string | null) => typedError<null, string>(__TAURI_INVOKE("delete_pack", { root, id, kind, fileName, world })),
-	/**  从 Modrinth 安装一个包到实例对应目录,返回落盘文件名。 */
-	installPack: (root: string, id: string, kind: PackKind, project: string, mcVersion: string, world: string | null) => typedError<string, string>(__TAURI_INVOKE("install_pack", { root, id, kind, project, mcVersion, world })),
+	/**
+	 *  安装一个包(资源包 / 光影 / 数据包)的最新兼容版本到实例对应目录。`provider` 缺省
+	 *  `modrinth`。返回落盘文件名;CurseForge 作者禁分发的文件经 `blocked` 回传(file 为空),
+	 *  前端走手动下载流而非假装成功。
+	 */
+	installPack: (root: string, id: string, kind: PackKind, project: string, mcVersion: string, world: string | null, provider: string | null) => typedError<VersionInstallReport, string>(__TAURI_INVOKE("install_pack", { root, id, kind, project, mcVersion, world, provider })),
 	/**  列出某实例的截图(仅元数据,按修改时间倒序)。 */
 	instanceScreenshots: (root: string, id: string) => typedError<ScreenshotInfo[], string>(__TAURI_INVOKE("instance_screenshots", { root, id })),
 	/**  按需读取一张截图为 data URL(UI 滚动到哪张才取哪张)。 */
@@ -140,7 +148,12 @@ export const commands = {
 	 */
 	refreshAccount: () => typedError<boolean, string>(__TAURI_INVOKE("refresh_account")),
 	detectJava: () => typedError<JavaDto[], string>(__TAURI_INVOKE("detect_java")),
-	modrinthSearch: (query: string, kind: string, gameVersion: string | null, loader: string | null, limit: number | null, offset: number | null) => typedError<SearchHit[], string>(__TAURI_INVOKE("modrinth_search", { query, kind, gameVersion, loader, limit, offset })),
+	/**
+	 *  跨平台内容搜索:`provider` 缺省 `modrinth`(也可 `curseforge`,需配 CF key),`sort`
+	 *  缺省按相关度。经 Provider 注册表路由,统一返回 [`SearchHit`]。命令名保持 `modrinth_search`
+	 *  以稳定绑定,但实际是泛平台搜索。
+	 */
+	modrinthSearch: (query: string, kind: string, gameVersion: string | null, loader: string | null, limit: number | null, offset: number | null, provider: string | null, sort: string | null) => typedError<SearchHit[], string>(__TAURI_INVOKE("modrinth_search", { query, kind, gameVersion, loader, limit, offset, provider, sort })),
 	getTheme: () => typedError<ThemeConfig, string>(__TAURI_INVOKE("get_theme")),
 	setTheme: (cfg: ThemeConfig) => typedError<null, string>(__TAURI_INVOKE("set_theme", { cfg })),
 	installVersion: (root: string, id: string) => typedError<null, string>(__TAURI_INVOKE("install_version", { root, id })),
@@ -179,10 +192,11 @@ export const commands = {
 	/**  从一个 `.mrpack` 直链安装整合包(详情页「安装此版本」用)。 */
 	installModpackUrl: (root: string, url: string, instanceId: string | null) => typedError<ImportOutcomeDto, string>(__TAURI_INVOKE("install_modpack_url", { root, url, instanceId })),
 	/**
-	 *  列出一个 Modrinth 整合包项目的所有版本详情(详情页用:版本号/类型/MC/loader/
-	 *  发布时间/下载数/changelog + 该版本 .mrpack 地址)。
+	 *  列出一个项目的所有版本详情(详情页用:版本号/类型/MC/loader/发布时间/下载数/changelog
+	 *  + 该版本下载地址)。`provider` 缺省 `modrinth`。CurseForge 经 provider 的统一版本模型
+	 *  映射成同一 [`VersionDetail`] 形状(无 changelog/发布时间等富信息时留空),保持绑定稳定。
 	 */
-	modrinthVersions: (projectId: string) => typedError<VersionDetail[], string>(__TAURI_INVOKE("modrinth_versions", { projectId })),
+	modrinthVersions: (projectId: string, provider: string | null) => typedError<VersionDetail[], string>(__TAURI_INVOKE("modrinth_versions", { projectId, provider })),
 	/**
 	 *  取一个 Modrinth 项目的完整详情(简介标签页用:长描述正文 markdown + 画廊 +
 	 *  关注数 + 源码/issue/wiki/discord 等外部链接)。
@@ -317,6 +331,12 @@ export type GlobalSettings = {
 	server_url?: string | null,
 	/**  额外的自定义数据根目录列表(多游戏根/外部实例库)。 */
 	custom_roots?: string[],
+	/**
+	 *  用户提供的 CurseForge API key(Prism 风格:用户自带 key 才能用 CurseForge)。
+	 *  `None` 或空 = 回退到内建/环境 key(见 [`crate::modplatform::resolve_cf_api_key`]),
+	 *  仍无则不注册 CurseForge provider。**secret**,勿打日志。
+	 */
+	cf_api_key?: string | null,
 };
 
 /**  `import_modpack` 的返回:建好的实例 id + 需手动处理的 blocked 文件 + 跳过的可选文件。 */
@@ -324,24 +344,6 @@ export type ImportOutcomeDto = {
 	instance_id: string,
 	blocked: BlockedFileDto[],
 	skipped_optional: string[],
-};
-
-/**
- *  一次 [`install_mod`] 调用的结果汇总。
- * 
- *  三个列表互斥地反映依赖处理的三种归宿:
- *  - `installed`:本次新下载落盘的(含主 mod 与其 required 依赖)。
- *  - `satisfied`:依赖的 project_id 在本次安装过程中已被处理(去重/防环命中),
- *    无需重复下载。
- *  - `unresolved`:声明为 required 的依赖,但在该 mc_version+loader 下找不到任何
- *    兼容版本,需上层提示用户手动处理。
- */
-export type InstallReport = {
-	installed: InstalledMod[],
-	satisfied: string[],
-	unresolved: string[],
-	/**  所装版本声明为 `incompatible` 的项目 id(冲突)。不阻断安装,交上层提示用户检查。 */
-	incompatible?: string[],
 };
 
 /**  一个已成功安装的 mod 记录。 */
@@ -490,6 +492,18 @@ export type ModInfo = {
 	description: string | null,
 	/**  文件字节大小。 */
 	size: number,
+};
+
+/**
+ *  「装最新版」mod 的结果:沿用核心的依赖解析报告,再带上需手动下载的 blocked 文件
+ *  (CurseForge 作者禁第三方分发时)。`blocked` 非空时前端弹 BlockedFilesDialog 引导手动下。
+ */
+export type ModInstallReport = {
+	installed: InstalledMod[],
+	satisfied: string[],
+	unresolved: string[],
+	incompatible?: string[],
+	blocked?: BlockedFileDto[],
 };
 
 /**
@@ -701,9 +715,9 @@ export type VersionDetail = {
 	file_size: number | null,
 };
 
-/**  显式选版安装的结果:落盘主文件 + (仅 mod)依赖解析摘要。 */
+/**  显式选版安装的结果:落盘主文件 + (仅 mod)依赖解析摘要 + 需手动下载的 blocked 文件。 */
 export type VersionInstallReport = {
-	/**  主文件落盘名。 */
+	/**  主文件落盘名(被 blocked 时为空)。 */
 	file: string,
 	/**  新装入的 required 依赖数量(仅 mod;packs 恒为 0)。 */
 	installed_deps: number,
@@ -711,6 +725,8 @@ export type VersionInstallReport = {
 	unresolved: string[],
 	/**  所装版本声明为不兼容的项目 project_id(冲突;仅 mod)。 */
 	incompatible?: string[],
+	/**  CurseForge 作者禁第三方分发时需用户手动下载的文件;非空时前端弹 BlockedFilesDialog。 */
+	blocked?: BlockedFileDto[],
 };
 
 /**

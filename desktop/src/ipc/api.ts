@@ -74,7 +74,7 @@ type Api = Omit<{ [K in keyof typeof commands]: Unwrap<(typeof commands)[K]> }, 
 
 /**
  * 命令调用层。签名/类型由 Rust(bindings.ts)生成;本代理负责解包 Result + 应用上面的 overrides。
- * 例:`await api.modrinthSearch(q, "mod", mc, loader, null, null)` —— 成功得数组,失败抛错。
+ * 例:`await api.modrinthSearch(q, "mod", mc, loader, null, null, "modrinth", "relevance")` —— 成功得数组,失败抛错。
  */
 export const api: Api = new Proxy({} as Api, {
   get(_t, key: string) {

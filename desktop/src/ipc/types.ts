@@ -18,7 +18,7 @@ export type {
   ScreenshotInfo,
   SearchHit,
   WorldInfo,
-  InstallReport,
+  ModInstallReport,
   InstalledMod,
   VersionInstallReport,
   GalleryImage,

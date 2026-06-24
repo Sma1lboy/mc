@@ -6,21 +6,18 @@ import {
   setMode,
   saveTheme,
   PRESETS,
-  themeForLayout,
+  DEFAULT_THEME,
   normalizeThemeConfig,
 } from "../theme/theme";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { api } from "../ipc/api";
 import { ACCENT_BTN } from "../components/styles";
 import {
-  layoutMode,
-  switchLayout,
   veilStrength,
   setVeilStrength,
   currentRoot,
   setCurrentRoot,
 } from "../store";
-import type { LayoutMode } from "../store";
 import { t, locale, setLocale, type Locale } from "../i18n";
 import type { ThemeConfig, ThemeMode, GlobalSettings } from "../ipc/types";
 import "./Settings.css";
@@ -105,11 +102,6 @@ const Settings: Component = () => {
     { value: "en", label: "English" },
   ];
 
-  const layoutOptions = (): SegmentOption<LayoutMode>[] => [
-    { value: "workspace", label: t("settings.layoutWorkspace") },
-    { value: "classic", label: t("settings.layoutClassic") },
-  ];
-
   const themeModeOptions = (): SegmentOption<ThemeMode>[] => [
     { value: "light", label: t("settings.themeModeLight"), icon: Sun },
     { value: "dark", label: t("settings.themeModeDark"), icon: Moon },
@@ -119,11 +111,11 @@ const Settings: Component = () => {
   // 初始化:从后端取当前主题 + 全局设置。
   onMount(async () => {
     try {
-      const { config: cfg, changed } = normalizeThemeConfig(await api.getTheme(), layoutMode());
+      const { config: cfg, changed } = normalizeThemeConfig(await api.getTheme());
       setLocalTheme(cfg);
       if (changed) void saveTheme(cfg).catch(() => {});
     } catch {
-      setLocalTheme(themeForLayout(layoutMode()));
+      setLocalTheme(DEFAULT_THEME);
     }
     void loadSettings();
   });
@@ -255,12 +247,10 @@ const Settings: Component = () => {
     );
   }
 
-  // 恢复当前布局相称的默认主题(经典→浅色蓝 / 工作台→深色绿),立即应用并持久化。
-  // 关键:按布局取默认,避免在经典布局里重置成深色、出现顶栏浅正文深的诡异组合。
+  // 恢复默认主题(深色 + 陶土橙),立即应用并持久化。
   function resetTheme() {
-    const def = themeForLayout(layoutMode());
-    setLocalTheme(def);
-    void saveTheme(def).catch(() => {});
+    setLocalTheme(DEFAULT_THEME);
+    void saveTheme(DEFAULT_THEME).catch(() => {});
     toast({ type: "success", message: t("settings.resetThemeDone") });
   }
 
@@ -272,7 +262,7 @@ const Settings: Component = () => {
         <div class="settings-page__grid">
           <div class="settings-page__main">
             <section class={SECTION_CLASS}>
-              <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">{t("settings.sectionLayout")}</h2>
+              <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">{t("settings.sectionLanguage")}</h2>
               <div class="flex items-center justify-between mb-[14px] text-fg text-[14px]">
                 <span>{t("settings.language")}</span>
                 <SegmentedControl
@@ -280,15 +270,6 @@ const Settings: Component = () => {
                   value={locale()}
                   options={languageOptions}
                   onChange={setLocale}
-                />
-              </div>
-              <div class="flex items-center justify-between mb-[14px] text-fg text-[14px]">
-                <span>{t("settings.style")}</span>
-                <SegmentedControl
-                  ariaLabel={t("settings.layoutAriaLabel")}
-                  value={layoutMode()}
-                  options={layoutOptions()}
-                  onChange={switchLayout}
                 />
               </div>
             </section>
@@ -519,6 +500,34 @@ const Settings: Component = () => {
                     options={javaOptions()}
                     placeholder={t("settings.autoDetect")}
                   />
+                </div>
+              </Show>
+            </section>
+
+            <section class={SECTION_CLASS}>
+              <h2 class="text-[15px] font-semibold text-fg mt-0 mb-[14px] mx-0">{t("settings.sectionContentSource")}</h2>
+              <Show
+                when={settings()}
+                fallback={
+                  settingsError()
+                    ? <ErrorState message={t("settings.downloadSettingsFailed")} onRetry={() => void loadSettings()} />
+                    : <div class="text-dim">{t("settings.loadingSettings")}</div>
+                }
+              >
+                <div class="flex flex-col gap-[6px]">
+                  <label for="cf-api-key" class="text-[14px] text-fg">{t("settings.cfApiKey")}</label>
+                  <input
+                    id="cf-api-key"
+                    name="cf-api-key"
+                    type="password"
+                    autocomplete="off"
+                    class="w-full rounded-ctl border border-glass-border bg-glass-card px-[10px] py-[7px] text-[13px] text-fg placeholder:text-dim outline-none focus-visible:ring-2 focus-visible:ring-a-4"
+                    placeholder={t("settings.cfApiKeyPlaceholder")}
+                    value={settings()!.cf_api_key ?? ""}
+                    onInput={(e) => setSettings({ ...settings()!, cf_api_key: e.currentTarget.value || null })}
+                    onChange={(e) => patchSettings({ cf_api_key: e.currentTarget.value.trim() || null })}
+                  />
+                  <span class="text-[12px] text-dim">{t("settings.cfApiKeyHint")}</span>
                 </div>
               </Show>
             </section>

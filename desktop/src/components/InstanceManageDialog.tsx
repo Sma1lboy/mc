@@ -15,7 +15,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Dialog } from "./Dialog";
 import Lightbox from "./Lightbox";
 import ServersPanel from "./ServersPanel";
-import { ContentBrowser } from "./ContentBrowser";
+import { ContentBrowser, type ContentProvider } from "./ContentBrowser";
 import { ErrorState } from "./ErrorState";
 import { ACCENT_BTN_COMPACT, ACCENT_BTN } from "./styles";
 import { Toggle } from "./Toggle";
@@ -331,6 +331,8 @@ const PacksPanel: Component<{
   );
 
   const [detail, setDetail] = createSignal<ModpackHit | null>(null);
+  // 详情页对应的来源平台(随 onOpenDetail 一起带过来),决定详情里取版本/安装走哪个 provider。
+  const [detailProvider, setDetailProvider] = createSignal<ContentProvider>("modrinth");
   // 后台并行安装:正在安装的 project_id 集合(不阻塞其它行)。
   const [installing, setInstalling] = createSignal<Set<string>>(new Set());
   // 本次浏览已添加的 project_id:行按钮即时变「已添加」。
@@ -343,21 +345,26 @@ const PacksPanel: Component<{
   };
 
   // 行内「下载」:直接装最新兼容版(资源包/光影/数据包不分加载器),后台并行不阻塞其它行。
-  async function install(projectId: string, title: string) {
+  async function install(projectId: string, title: string, provider: ContentProvider = "modrinth") {
     if (installing().has(projectId)) return;
     setInstalling((s) => new Set(s).add(projectId));
     try {
-      const file = await api.installPack(
+      const report = await api.installPack(
         activeRoot(),
         props.instance.id,
         props.kind,
         projectId,
         props.instance.mc_version,
         worldArg(),
+        provider,
       );
-      toast({ type: "success", message: t("instance.installed", { title, file }) });
-      setAdded((s) => new Set(s).add(projectId));
-      refetch();
+      if ((report.blocked?.length ?? 0) > 0) {
+        toast({ type: "warn", message: t("instance.blockedManual", { count: report.blocked!.length }) });
+      } else {
+        toast({ type: "success", message: t("instance.installed", { title, file: report.file }) });
+        setAdded((s) => new Set(s).add(projectId));
+        refetch();
+      }
     } catch (e) {
       toast({ type: "error", message: t("instance.installFailed", { err: String(e) }) });
     } finally {
@@ -525,8 +532,8 @@ const PacksPanel: Component<{
                 kind={props.searchKind}
                 mcVersion={props.instance.mc_version}
                 loader={null}
-                onOpenDetail={setDetail}
-                onAdd={(hit) => install(hit.id, hit.title)}
+                onOpenDetail={(hit, provider) => { setDetail(hit); setDetailProvider(provider); }}
+                onAdd={(hit, provider) => install(hit.id, hit.title, provider)}
                 addingIds={installing()}
                 addedIds={added()}
                 disabledReason={
@@ -543,6 +550,7 @@ const PacksPanel: Component<{
             <ProjectInstallDetail
               hit={d()}
               kind={props.searchKind as Exclude<ProjectKind, "modpack">}
+              provider={detailProvider()}
               lockedInstance={props.instance}
               onBack={() => setDetail(null)}
               onInstalled={() => {
@@ -912,9 +920,9 @@ export const InstanceManageDialog: Component<{
   /** 关闭(仅非内嵌的 Dialog 模式使用;内嵌详情页无「完成」按钮)。 */
   onClose?: () => void;
   onChanged?: () => void;
-  /** 复制完成回调,带新实例 id;ClassicLaunch 据此重拉列表并选中新实例。 */
+  /** 复制完成回调,带新实例 id;调用方据此重拉列表并选中新实例。 */
   onCopied?: (newId: string) => void;
-  /** 内嵌模式:不套 Dialog,直接铺在父容器里(Classic 右栏的「设置」标签用),
+  /** 内嵌模式:不套 Dialog,直接铺在父容器里(实例详情页的设置标签用),
    *  隐藏实例名头部与「完成」按钮,父组件只在需要时挂载本组件即等于「打开」。 */
   embedded?: boolean;
   /** 受控 tab:启动页把实例管理页签提升到实例头部时使用。 */
@@ -1007,6 +1015,7 @@ export const InstanceManageDialog: Component<{
     return l && l !== "vanilla" ? l : null;
   };
   const [modDetail, setModDetail] = createSignal<ModpackHit | null>(null);
+  const [modDetailProvider, setModDetailProvider] = createSignal<ContentProvider>("modrinth");
   // 后台并行安装:正在安装的 project_id 集合(不阻塞其它行)。
   const [installing, setInstalling] = createSignal<Set<string>>(new Set());
   // 本次浏览已添加的 mod project_id:行按钮即时变「已添加」,无需返回已安装确认。
@@ -1024,21 +1033,25 @@ export const InstanceManageDialog: Component<{
   }, { defer: true }));
 
   // 行内「下载」:直接装最新兼容版(解析依赖),不进详情;后台并行,不阻塞其它行。
-  async function installHit(projectId: string, title: string) {
+  async function installHit(projectId: string, title: string, provider: ContentProvider = "modrinth") {
     const inst = props.instance;
     if (!inst || installing().has(projectId)) return;
     setInstalling((s) => new Set(s).add(projectId));
     try {
-      const report = await api.installMod(activeRoot(), inst.id, projectId, inst.mc_version, searchLoader() ?? "");
-      if (report.installed.length === 0 && report.unresolved.length === 0) {
-        toast({ type: "info", message: t("instance.modExists", { title }) });
+      const report = await api.installMod(activeRoot(), inst.id, projectId, inst.mc_version, searchLoader() ?? "", provider);
+      if ((report.blocked?.length ?? 0) > 0) {
+        toast({ type: "warn", message: t("instance.blockedManual", { count: report.blocked!.length }) });
       } else {
-        const parts = [t("instance.modInstalledCount", { n: report.installed.length })];
-        if (report.unresolved.length > 0) parts.push(t("instance.modUnresolvedCount", { n: report.unresolved.length }));
-        toast({ type: report.unresolved.length > 0 ? "warn" : "success", message: t("instance.modInstallResult", { title, parts: parts.join(",") }) });
+        if (report.installed.length === 0 && report.unresolved.length === 0) {
+          toast({ type: "info", message: t("instance.modExists", { title }) });
+        } else {
+          const parts = [t("instance.modInstalledCount", { n: report.installed.length })];
+          if (report.unresolved.length > 0) parts.push(t("instance.modUnresolvedCount", { n: report.unresolved.length }));
+          toast({ type: report.unresolved.length > 0 ? "warn" : "success", message: t("instance.modInstallResult", { title, parts: parts.join(",") }) });
+        }
+        setAddedMods((s) => new Set(s).add(projectId));
+        refetchMods();
       }
-      setAddedMods((s) => new Set(s).add(projectId));
-      refetchMods();
     } catch (e) {
       toast({ type: "error", message: t("instance.installFailed", { err: String(e) }) });
     } finally {
@@ -1562,8 +1575,8 @@ export const InstanceManageDialog: Component<{
                           kind="mod"
                           mcVersion={props.instance?.mc_version ?? ""}
                           loader={searchLoader()}
-                          onOpenDetail={setModDetail}
-                          onAdd={(hit) => installHit(hit.id, hit.title)}
+                          onOpenDetail={(hit, provider) => { setModDetail(hit); setModDetailProvider(provider); }}
+                          onAdd={(hit, provider) => installHit(hit.id, hit.title, provider)}
                           addingIds={installing()}
                           addedIds={addedMods()}
                           autofocus
@@ -1577,6 +1590,7 @@ export const InstanceManageDialog: Component<{
                       <ProjectInstallDetail
                         hit={d()}
                         kind="mod"
+                        provider={modDetailProvider()}
                         lockedInstance={props.instance!}
                         onBack={() => setModDetail(null)}
                         onInstalled={() => {

@@ -6,9 +6,9 @@
 
 /*
  * 令牌桥接:tokens.css 仍是单一真相(运行时由 theme.ts 注入 a/n 阶、按
- * data-theme 切深浅、ClassicShell.css 提供 classic 皮)。这里用 @theme inline 把那些
- * CSS 变量桥接成 Tailwind 主题令牌,于是工具类编译后直接引用原变量,既得到
- * utility 写法又完整保留运行时换肤。约定见 docs 或本文件下方令牌名。
+ * data-theme 切深浅)。这里用 @theme inline 把那些 CSS 变量桥接成 Tailwind
+ * 主题令牌,于是工具类编译后直接引用原变量,既得到 utility 写法又完整保留
+ * 运行时换肤。约定见 docs 或本文件下方令牌名。
  */
 @theme inline {
   /* 中性/背景阶 n-1..8 */
@@ -50,30 +50,13 @@
   --color-glass-card: var(--glass-card);
   --color-glass-pop: var(--glass-pop);
 
-  /* Classic 浅色皮肤 */
-  --color-classic-blue: var(--classic-blue);
-  --color-classic-blue-hover: var(--classic-blue-hover);
-  --color-classic-blue-dark: var(--classic-blue-dark);
-  --color-classic-blue-soft: var(--classic-blue-soft);
-  --color-classic-blue-bg: var(--classic-blue-bg);
-  --color-classic-blue-bg2: var(--classic-blue-bg2);
-  --color-classic-blue-lightest: var(--classic-blue-lightest);
-  --color-classic-card: var(--classic-card);
-  --color-classic-line: var(--classic-line);
-  --color-classic-text: var(--classic-text);
-  --color-classic-text2: var(--classic-text2);
-  --color-classic-text3: var(--classic-text3);
-  --color-classic-gray-bg: var(--classic-gray-bg);
-
   /* 圆角:rounded-xs / rounded-ctl / rounded-card */
   --radius-xs: var(--radius-sm);
   --radius-ctl: var(--radius);
   --radius-card: var(--radius-card);
 
-  /* 阴影:shadow-card / shadow-classic / shadow-classic-strong */
+  /* 阴影:shadow-card */
   --shadow-card: var(--shadow);
-  --shadow-classic: var(--classic-shadow);
-  --shadow-classic-strong: var(--classic-shadow-strong);
 
   /* 缓动:ease-app / ease-emph */
   --ease-app: var(--ease);

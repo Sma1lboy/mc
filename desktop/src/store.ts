@@ -1,57 +1,17 @@
 import { createSignal } from "solid-js";
-import { isThemeUntouchedFor, saveTheme, themeForLayout } from "./theme/theme";
 import { api, onGameExit, onGameStarted } from "./ipc/api";
 import { toast } from "./components/Toast";
 import { t } from "./i18n";
 
-// 页面标识。工作台布局用 home/library/discover/settings;
-// 经典布局用 launch/discover/settings/more(顶部 Tab,带图标)。
-export type Page = "home" | "library" | "discover" | "settings" | "instance" | "launch" | "more";
-
-/** 界面布局风格:工作台视图或经典视图。 */
-export type LayoutMode = "workspace" | "classic";
-
-const LAYOUT_MODE_STORAGE_KEY = "mc-launcher.layout-mode";
+// 页面标识。home/library/discover/settings + 实例详情。
+export type Page = "home" | "library" | "discover" | "settings" | "instance";
 
 /**
  * 全局轻量状态:模块级 createSignal,任何组件 import 即读写,无需 Context。
  */
 
-function normalizeLayoutMode(value: unknown): LayoutMode {
-  if (value === "workspace" || value === "modrinth") return "workspace";
-  if (value === "classic") return "classic";
-  return "classic";
-}
-
-function readInitialLayoutMode(): LayoutMode {
-  if (typeof window === "undefined") return "classic";
-  try {
-    const raw = window.localStorage.getItem(LAYOUT_MODE_STORAGE_KEY);
-    const mode = normalizeLayoutMode(raw);
-    if (raw && raw !== mode) {
-      window.localStorage.setItem(LAYOUT_MODE_STORAGE_KEY, mode);
-    }
-    return mode;
-  } catch {
-    return "classic";
-  }
-}
-
-function persistLayoutMode(mode: LayoutMode): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(LAYOUT_MODE_STORAGE_KEY, mode);
-  } catch {
-    /* localStorage can be unavailable in hardened WebView contexts. */
-  }
-}
-
-const initialLayoutMode = readInitialLayoutMode();
-
-// 当前页面(工作台默认 home;切到经典视图时改成 launch)。
-export const [currentPage, setCurrentPage] = createSignal<Page>(
-  initialLayoutMode === "classic" ? "launch" : "home",
-);
+// 当前页面,默认 home。
+export const [currentPage, setCurrentPage] = createSignal<Page>("home");
 
 /** 当前选中的游戏根目录(GameRoot.path);null = 未选/未加载。 */
 const ROOT_STORAGE_KEY = "mc-launcher.current-root";
@@ -85,27 +45,6 @@ export function setCurrentRoot(path: string | null): void {
  * createResource 的 root 源都经此取根,把这个「空根 → 默认根」的约定收敛到一处。
  */
 export const activeRoot = (): string => currentRoot() ?? "";
-
-/** 界面布局,默认经典视图。 */
-export const [layoutMode, setLayoutMode] = createSignal<LayoutMode>(initialLayoutMode);
-
-/**
- * 切换布局,并套用与该布局相称的主题预设,让两种风格各自"对味":
- *   - classic:浅色 + 蓝
- *   - workspace:深色 + 绿
- * 用户之后仍可在设置里单独微调主题色。
- */
-export function switchLayout(mode: LayoutMode) {
-  const prev = layoutMode();
-  setLayoutMode(mode);
-  persistLayoutMode(mode);
-  // 仅当用户没自定义过主题(当前主题仍是旧布局默认)时,才套用新布局默认皮肤;
-  // 自定义过则保留 —— 别让「切换布局」把用户调好的配色悄悄重置。
-  if (isThemeUntouchedFor(prev)) {
-    void saveTheme(themeForLayout(mode)).catch(() => {});
-  }
-  setCurrentPage(mode === "classic" ? "launch" : "home");
-}
 
 // ===== 实例详情页 =====
 // 点击实例进入详情页(currentPage="instance"),记住来源页用于返回。
