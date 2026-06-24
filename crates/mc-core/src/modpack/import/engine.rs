@@ -216,10 +216,12 @@ impl ImportEngine {
         }
 
         // ---- 7) 装核心:loader(或原版)→ 得到实例应继承的版本 id ----
-        if let Some(tx) = &progress {
-            let _ = tx.send(Progress::new("安装核心 / 加载器"));
-        }
-        let core_id = self.install_core(paths, plan, progress.clone()).await?;
+        // 装核心与下文件是整包安装的两段大头(各自一次 download_all)。把它们分别映射进总进度
+        // 的一段(段内单调,子阶段重置不回退),让 UI 看到「一条连续进度」而不是每段从 0 重来。
+        let core_id = run_phase(&progress, 0.0, 0.55, "安装核心 / 加载器", |tx| {
+            self.install_core(paths, plan, tx)
+        })
+        .await?;
         // 让整合包实例本身成为**可启动版本**:写一个 inheritsFrom 核心版本的最小 version json,
         // 使 versions/<instance_id>/ 既是版本定义(继承 loader → 原版)又是游戏目录(mods 在此)。
         // 仅当实例 id 与核心 id 不同时才写(原版包且 id==mc_version 时核心 json 已就位)。
@@ -228,10 +230,10 @@ impl ImportEngine {
         }
 
         // ---- 8) 下文件:PlannedFile → DownloadItem → 多源下载(并发 + 校验)----
-        if let Some(tx) = &progress {
-            let _ = tx.send(Progress::new("下载整合包文件"));
-        }
-        let skipped_optional = self.download_files(game_dir, plan, progress).await?;
+        let skipped_optional = run_phase(&progress, 0.55, 1.0, "下载整合包文件", |tx| {
+            self.download_files(game_dir, plan, tx)
+        })
+        .await?;
 
         // ---- 9) 铺 overrides:逐个 override_root 从 staging 经 safe_join 拷进 game_dir ----
         for root in &plan.override_roots {
@@ -414,4 +416,51 @@ impl ImportEngine {
         }
         Ok(skipped)
     }
+}
+
+/// 把一个子阶段的进度映射进总进度的 `[start, end]` 段,统一以千分比(current/1000)发到 `out`,
+/// 使多段安装(装核心 → 下文件)显示为**一条连续进度条**,而不是每段从 0 重来。
+///
+/// - 段内**单调**:子阶段内部若有多次 download_all(如 vanilla + loader 库)各自从 0 爬,
+///   这里取已发千分比的上确界,重置只会让进度「停住」而非回退。
+/// - `out` 为 `None`(无 UI 监听)时零开销:直接以 `None` 跑 `f`,不建通道/任务。
+///
+/// 实现:给 `f` 一个独立 watch 子通道,后台泵把子通道的 `fraction()` 重映射后发到真 sender;
+/// `f` 结束即丢弃子 sender,泵随之退出。
+async fn run_phase<T, Fut, F>(
+    out: &Option<watch::Sender<Progress>>,
+    start: f64,
+    end: f64,
+    label: &str,
+    f: F,
+) -> T
+where
+    F: FnOnce(Option<watch::Sender<Progress>>) -> Fut,
+    Fut: std::future::Future<Output = T>,
+{
+    let Some(out) = out.as_ref().cloned() else {
+        return f(None).await;
+    };
+    let (child_tx, mut child_rx) = watch::channel(Progress::new(label));
+    let pump = tokio::spawn(async move {
+        let mut seg_max = (start * 1000.0).round() as u64;
+        loop {
+            let child = child_rx.borrow_and_update().clone();
+            let mapped = ((start + (end - start) * child.fraction()) * 1000.0).round() as u64;
+            let permille = mapped.max(seg_max);
+            seg_max = permille;
+            let _ = out.send(Progress {
+                stage: child.stage,
+                current: permille,
+                total: 1000,
+                speed_bps: child.speed_bps,
+            });
+            if child_rx.changed().await.is_err() {
+                break;
+            }
+        }
+    });
+    let result = f(Some(child_tx)).await;
+    let _ = pump.await;
+    result
 }
