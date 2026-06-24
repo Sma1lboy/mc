@@ -11,6 +11,8 @@ export interface ModpackListItemProps {
   onClick?: (hit: ModpackHit) => void;
   /** 右侧尾部操作槽:渲染在下载数之后(如「安装」按钮)。点击不应冒泡到行 onClick。 */
   action?: JSX.Element;
+  /** 行底部下载进度:undefined=无进度条;null=不确定(流动条);0..1=定量。 */
+  progress?: number | null;
 }
 
 export function ModpackListItem(props: ModpackListItemProps): JSX.Element {
@@ -29,7 +31,7 @@ export function ModpackListItem(props: ModpackListItemProps): JSX.Element {
 
   return (
     <div
-      class="group glass-card glass-card--hover flex items-center gap-[14px] px-[14px] py-[10px] rounded-card cursor-pointer transition-[background-color,border-color,transform,box-shadow] duration-[var(--dur)] ease-app hover:translate-x-[2px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5"
+      class="group relative overflow-hidden glass-card glass-card--hover flex items-center gap-[14px] px-[14px] py-[10px] rounded-card cursor-pointer transition-[background-color,border-color,transform,box-shadow] duration-[var(--dur)] ease-app hover:translate-x-[2px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5"
       role={props.onClick ? "button" : undefined}
       tabindex={props.onClick ? 0 : undefined}
       onClick={() => props.onClick?.(hit())}
@@ -109,6 +111,21 @@ export function ModpackListItem(props: ModpackListItemProps): JSX.Element {
           <div onClick={(e) => e.stopPropagation()}>{props.action}</div>
         </Show>
       </div>
+
+      {/* 行底部下载进度条:安装中实时反馈;不确定时显示流动条。 */}
+      <Show when={props.progress !== undefined}>
+        <div class="absolute left-0 right-0 bottom-0 h-[3px] bg-glass-card overflow-hidden">
+          <Show
+            when={props.progress !== null}
+            fallback={<div class="h-full w-1/3 bg-a-5 [animation:dl-indeterminate_1.1s_ease-in-out_infinite]" />}
+          >
+            <div
+              class="h-full bg-a-5 transition-[width] duration-200 ease-app"
+              style={{ width: `${Math.round((props.progress ?? 0) * 100)}%` }}
+            />
+          </Show>
+        </div>
+      </Show>
     </div>
   );
 }

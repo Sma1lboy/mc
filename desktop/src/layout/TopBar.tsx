@@ -1,6 +1,7 @@
 import { Component, For, Show } from "solid-js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { runningIds, currentPage, discoverKind, setDiscoverKind, DISCOVER_KINDS } from "../store";
+import { DownloadQueue } from "../components/DownloadQueue";
 import { t } from "../i18n";
 
 /**
@@ -69,8 +70,9 @@ const TopBar: Component = () => {
         </Show>
       </div>
 
-      {/* 右侧:运行状态(玻璃药丸,看起来是个组件而非漂浮文字)+ 品牌名 + 窗口控制 */}
+      {/* 右侧:下载队列 + 运行状态(玻璃药丸)+ 品牌名 + 窗口控制 */}
       <div class="flex items-center gap-[10px]">
+        <DownloadQueue />
         <div
           class="inline-flex items-center gap-[6px] h-[26px] pl-[9px] pr-[11px] rounded-full bg-glass-card border border-glass-border"
           data-tauri-drag-region

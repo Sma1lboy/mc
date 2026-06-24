@@ -243,6 +243,16 @@ body {
   scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
+/* 下载进度条的「不确定」流动动画(total 未知时)。 */
+@keyframes dl-indeterminate {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(330%);
+  }
+}
+
 /* ===== 工具类 ===== */
 /* 标记可拖拽窗口的区域(无边框窗口拖拽)。顶栏等处加 class="drag"。 */
 .drag {

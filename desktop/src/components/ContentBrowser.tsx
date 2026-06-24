@@ -87,6 +87,8 @@ export interface ContentBrowserProps {
   onEscape?: () => void;
   /** 本次浏览已添加的 project_id 集合:这些行按钮显示「已添加」并禁用,给即时反馈。 */
   addedIds?: Set<string>;
+  /** 行内下载进度查询:返回 undefined=无进度条;null=不确定;0..1=定量。供安装中的行显示进度条。 */
+  progressOf?: (id: string) => number | null | undefined;
   /** Discover 侧栏的多选内容分类(每个各成一 AND 组);仅 Modrinth 消费。缺省=无过滤。 */
   categories?: () => string[];
   /** Discover 侧栏的多选 loader(合成一 OR 组);仅 Modrinth 消费。缺省=无过滤。 */
@@ -358,6 +360,7 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
                   <ModpackListItem
                     hit={hit}
                     onClick={open}
+                    progress={props.progressOf?.(hit.id)}
                     action={
                       onAdd ? (
                         <button

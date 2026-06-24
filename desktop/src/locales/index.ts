@@ -8,6 +8,7 @@ import facets from "./facets";
 import layout from "./layout";
 import store from "./store";
 import components from "./components";
+import downloads from "./downloads";
 
 export const dictionaries = {
   zh: {
@@ -20,6 +21,7 @@ export const dictionaries = {
     layout: layout.zh,
     store: store.zh,
     components: components.zh,
+    downloads: downloads.zh,
   },
   en: {
     settings: settings.en,
@@ -31,5 +33,6 @@ export const dictionaries = {
     layout: layout.en,
     store: store.en,
     components: components.en,
+    downloads: downloads.en,
   },
 };

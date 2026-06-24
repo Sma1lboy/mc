@@ -1,4 +1,4 @@
-import { createSignal, createResource } from "solid-js";
+import { createSignal, createResource, createRoot } from "solid-js";
 import { api, onGameExit, onGameStarted } from "./ipc/api";
 import { toast } from "./components/Toast";
 import { t } from "./i18n";
@@ -57,9 +57,13 @@ export const activeRoot = (): string => currentRoot() ?? "";
 // 整个应用只有这一份实例列表:库页、首页、侧栏 rail、安装目标选择器都读 instances(),
 // 任何增 / 删 / 装 / 改之后调用 refreshInstances() 统一刷新,避免「一处删了、另一处还显示」
 // 的状态分叉。源随 activeRoot() 变化,切换根目录自动重拉。
-const [instances, { refetch: refreshInstances }] = createResource(
-  () => activeRoot(),
-  (root) => api.listInstances(root),
+// 在 createRoot 里建,使这条 app 级 resource 有稳定 owner(模块级 createResource 否则会
+// 报「computation created outside a root」)。owner 不释放 = 与应用同生命周期。
+const [instances, { refetch: refreshInstances }] = createRoot(() =>
+  createResource(
+    () => activeRoot(),
+    (root) => api.listInstances(root),
+  ),
 );
 export { instances, refreshInstances };
 
