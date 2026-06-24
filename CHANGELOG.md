@@ -9,6 +9,8 @@ To cut a release, move the `[Unreleased]` notes into a stamped version section w
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-06-23
+
 ### Added
 
 - **Saved servers** — each instance gains a "服务器 / Servers" tab listing the multiplayer servers
