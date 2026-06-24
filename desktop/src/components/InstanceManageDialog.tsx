@@ -13,6 +13,7 @@ import { createStore } from "solid-js/store";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Dialog } from "./Dialog";
+import { InstanceIcon } from "./InstanceIcon";
 import Lightbox from "./Lightbox";
 import ServersPanel from "./ServersPanel";
 import { ContentBrowser, type ContentProvider } from "./ContentBrowser";
@@ -409,15 +410,12 @@ const PacksPanel: Component<{
         >
           <label class="flex items-center gap-[8px] text-[12px] text-dim">
             <span class="shrink-0">{t("instance.targetWorld")}</span>
-            <select
-              class={`${FIELD} flex-1`}
+            <Select
+              class="flex-1 !min-w-0"
               value={world() ?? ""}
-              onChange={(e) => setWorld(e.currentTarget.value)}
-            >
-              <For each={worlds()}>
-                {(w) => <option value={w.folder}>{w.name || w.folder}</option>}
-              </For>
-            </select>
+              onChange={(v) => setWorld(v)}
+              options={(worlds() ?? []).map((w) => ({ value: w.folder, label: w.name || w.folder }))}
+            />
           </label>
         </Show>
       </Show>
@@ -1298,17 +1296,8 @@ export const InstanceManageDialog: Component<{
               {(c) => (
                 <>
                   <div class="flex items-center gap-[12px]">
-                    <div class="w-[56px] h-[56px] rounded-ctl overflow-hidden bg-glass-card shrink-0 grid place-items-center">
-                      <Show
-                        when={props.instance?.icon}
-                        fallback={
-                          <span class="text-[22px] font-bold text-dim">
-                            {(props.instance?.name || props.instance?.id || "?").charAt(0).toUpperCase()}
-                          </span>
-                        }
-                      >
-                        <img src={props.instance!.icon!} alt="" width="56" height="56" class="w-full h-full object-cover" />
-                      </Show>
+                    <div class="w-[56px] h-[56px] rounded-ctl overflow-hidden bg-glass-card shrink-0 select-none">
+                      <InstanceIcon name={props.instance?.name || props.instance?.id} icon={props.instance?.icon ?? undefined} />
                     </div>
                     <div class="flex flex-col gap-[5px]">
                       <span class={LABEL}>{t("instance.instanceIcon")}</span>

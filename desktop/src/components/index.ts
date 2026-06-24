@@ -53,6 +53,9 @@ export type { ExportInstanceRef } from "./ExportModpackDialog";
 export { InstanceRow } from "./InstanceRow";
 export type { InstanceRowProps, InstanceRowData } from "./InstanceRow";
 
+export { InstanceIcon } from "./InstanceIcon";
+export type { InstanceIconProps } from "./InstanceIcon";
+
 export { ModpackCard } from "./ModpackCard";
 export type { ModpackCardProps, ModpackHit } from "./ModpackCard";
 
@@ -61,6 +64,9 @@ export type { ModpackListItemProps } from "./ModpackListItem";
 
 export { ContentBrowser } from "./ContentBrowser";
 export type { ContentBrowserProps } from "./ContentBrowser";
+
+export { FacetSidebar } from "./FacetSidebar";
+export type { FacetSidebarProps, FacetSelection } from "./FacetSidebar";
 
 // Toast 通道
 export { toast, ToastContainer } from "./Toast";
