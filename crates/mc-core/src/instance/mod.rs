@@ -15,6 +15,7 @@ pub mod lifecycle;
 pub mod mods;
 pub mod packs;
 pub mod screenshots;
+pub mod servers;
 pub mod update;
 pub mod world;
 
@@ -25,6 +26,7 @@ pub use install_mod::{
 pub use mods::{list_mods, ModInfo};
 pub use packs::{install_pack, list_packs, PackInfo, PackKind};
 pub use screenshots::{list_screenshots, read_screenshot, ScreenshotInfo};
+pub use servers::{read_servers, SavedServer};
 pub use update::{apply_mod_update, check_mod_updates, ModUpdate};
 pub use world::{import_world_zip, list_worlds, WorldInfo};
 

@@ -18,7 +18,12 @@ const dict = {
     tabShader: "光影",
     tabDatapack: "数据包",
     tabWorlds: "存档",
+    tabServers: "服务器",
     tabScreenshots: "截图",
+    serversEmpty: "还没有保存的服务器(进游戏添加后会出现在这里)",
+    serversError: "读取服务器列表失败",
+    serverJoin: "进入游戏",
+    serverJoinHint: "启动并直接连接 {{ address }}",
 
     // 截图面板
     screenshots: "截图",
@@ -219,7 +224,12 @@ const dict = {
     tabShader: "Shaders",
     tabDatapack: "Datapacks",
     tabWorlds: "Worlds",
+    tabServers: "Servers",
     tabScreenshots: "Screenshots",
+    serversEmpty: "No saved servers yet (they show up here after you add one in-game)",
+    serversError: "Failed to read the server list",
+    serverJoin: "Join",
+    serverJoinHint: "Launch and connect directly to {{ address }}",
 
     screenshots: "Screenshots",
     reload: "Reload",

@@ -712,6 +712,7 @@ async fn cmd_launch(
             .filter(|p| !p.is_empty())
             .map(std::path::PathBuf::from),
         extra_jvm_args: Vec::new(),
+        server_override: None,
     };
 
     let (tx, mut rx) = tokio::sync::watch::channel(mc_core::types::Progress::new("准备"));

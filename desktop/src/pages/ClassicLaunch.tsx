@@ -25,6 +25,7 @@ const INSTANCE_TABS = (): { key: InstanceTab; label: string }[] => [
   { key: "shader", label: t("classic.tab.shader") },
   { key: "datapack", label: t("classic.tab.datapack") },
   { key: "worlds", label: t("classic.tab.worlds") },
+  { key: "servers", label: t("classic.tab.servers") },
   { key: "screenshots", label: t("classic.tab.screenshots") },
 ];
 

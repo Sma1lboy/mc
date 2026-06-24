@@ -55,6 +55,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::read_screenshot,
             commands::delete_screenshot,
             commands::instance_worlds,
+            commands::instance_servers,
             commands::delete_world,
             commands::backup_world,
             commands::rename_world,

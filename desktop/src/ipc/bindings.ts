@@ -97,6 +97,8 @@ export const commands = {
 	deleteScreenshot: (root: string, id: string, fileName: string) => typedError<null, string>(__TAURI_INVOKE("delete_screenshot", { root, id, fileName })),
 	/**  列出某实例的存档世界(名字/模式/大小/上次游玩…)。 */
 	instanceWorlds: (root: string, id: string) => typedError<WorldInfo[], string>(__TAURI_INVOKE("instance_worlds", { root, id })),
+	/**  列出某实例已保存的多人服务器(读 game_dir/servers.dat;文件不存在 → 空表)。 */
+	instanceServers: (root: string, id: string) => typedError<SavedServer[], string>(__TAURI_INVOKE("instance_servers", { root, id })),
 	/**  删除一个存档世界(移入系统回收站,可找回)。 */
 	deleteWorld: (root: string, id: string, folder: string) => typedError<null, string>(__TAURI_INVOKE("delete_world", { root, id, folder })),
 	/**
@@ -150,7 +152,7 @@ export const commands = {
 	 * 
 	 *  同一实例已在运行时直接拒绝,避免重复开多个 JVM。
 	 */
-	launchInstance: (root: string, id: string, name: string, online: boolean) => typedError<null, string>(__TAURI_INVOKE("launch_instance", { root, id, name, online })),
+	launchInstance: (root: string, id: string, name: string, online: boolean, server: string | null) => typedError<null, string>(__TAURI_INVOKE("launch_instance", { root, id, name, online, server })),
 	/**
 	 *  停止一个正在运行的实例(向其 reaper 发停止信号;reaper 杀进程并广播 `game://exit`)。
 	 *  实例不在运行时为 no-op。
@@ -625,6 +627,16 @@ export type RootKind =
 "custom" | 
 /**  Auto-created fallback under the launcher data directory. */
 "default";
+
+/**  一条已保存的多人服务器记录(展示 + 快速进入用)。 */
+export type SavedServer = {
+	/**  显示名(可空 —— UI 用地址兜底)。 */
+	name: string,
+	/**  服务器地址(`host` 或 `host:port`)。 */
+	address: string,
+	/**  服务器图标:64×64 PNG 的 base64(不含 `data:` 前缀);无则 `None`。 */
+	icon: string | null,
+};
 
 /**  单张截图的列表视图(不含图片字节)。 */
 export type ScreenshotInfo = {

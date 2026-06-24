@@ -11,6 +11,10 @@ To cut a release, move the `[Unreleased]` notes into a stamped version section w
 
 ### Added
 
+- **Saved servers** — each instance gains a "服务器 / Servers" tab listing the multiplayer servers
+  from its `servers.dat` (name, address, icon). "Join" launches straight into a server via a
+  one-shot `--quickPlayMultiplayer` override, without rewriting the instance config.
+
 - **In-app log viewer** — Settings → 诊断 shows the tail of the unified log (bounded read), with refresh.
 - **Skin preview** — full-body player skin render in the workspace account panel.
 - **News feed** — the 动态 / classic news sections now show the launcher feed from mc-server (degrades to empty when the server is unavailable).

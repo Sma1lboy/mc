@@ -568,6 +568,14 @@ pub fn instance_worlds(root: String, id: String) -> CmdResult<Vec<mc_core::insta
     Ok(mc_core::instance::list_worlds(&inst))
 }
 
+/// 列出某实例已保存的多人服务器(读 game_dir/servers.dat;文件不存在 → 空表)。
+#[tauri::command]
+#[specta::specta]
+pub fn instance_servers(root: String, id: String) -> CmdResult<Vec<mc_core::instance::SavedServer>> {
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    mc_core::instance::read_servers(&inst.game_dir()).map_err(err)
+}
+
 /// 删除一个存档世界(移入系统回收站,可找回)。
 #[tauri::command]
 #[specta::specta]
@@ -946,6 +954,7 @@ pub async fn launch_instance(
     id: String,
     name: String,
     online: bool,
+    server: Option<String>,
 ) -> CmdResult<()> {
     if state.is_running(&id) {
         return Err(format!("实例「{id}」已经在运行了"));
@@ -997,6 +1006,7 @@ pub async fn launch_instance(
         runtimes_dir: Some(data_dir().join("java")),
         global_java_path: settings_global().java_path.filter(|p| !p.is_empty()).map(PathBuf::from),
         extra_jvm_args,
+        server_override: server,
     };
 
     let (tx, rx) = watch::channel(Progress::new("准备"));

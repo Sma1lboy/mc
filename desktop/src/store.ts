@@ -222,8 +222,9 @@ function markLaunching(id: string, on: boolean) {
  * 统一的「启动 / 停止」入口:运行中→停止;否则启动并守卫重复点击。
  * Home / Library / 实例详情共用,避免各页各写一份(且各自缺少防抖)。
  * 成功 toast 用「正在启动…」(launchInstance 返回 ≠ 游戏就绪);就绪/退出由事件维护。
+ * `server` 为可选的一次性进入服务器(`host` 或 `host:port`),仅本次启动生效,不改实例配置。
  */
-export async function playInstance(id: string): Promise<void> {
+export async function playInstance(id: string, server?: string): Promise<void> {
   if (isRunning(id)) {
     try {
       await api.stopInstance(id);
@@ -240,7 +241,7 @@ export async function playInstance(id: string): Promise<void> {
     const acc = accounts.find((a) => a.selected) ?? accounts[0];
     const name = acc?.username ?? "Player";
     const online = !!acc && acc.kind !== "offline";
-    await api.launchInstance(activeRoot(), id, name, online);
+    await api.launchInstance(activeRoot(), id, name, online, server ?? null);
     toast({ type: "info", message: t("store.launch.starting") });
   } catch (e) {
     markLaunching(id, false);

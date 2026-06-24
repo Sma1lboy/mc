@@ -41,6 +41,11 @@ pub struct LaunchSpec {
     /// Extra JVM arguments injected just before the main class (e.g. the
     /// authlib-injector `-javaagent` for Yggdrasil accounts). Empty for most launches.
     pub extra_jvm_args: Vec<String>,
+    /// One-shot server to auto-join for this launch only (`host` or `host:port`),
+    /// overriding the instance config's `server`. `None` keeps the configured value.
+    /// Used by the saved-servers "quick join" so joining doesn't permanently rewrite
+    /// the instance config.
+    pub server_override: Option<String>,
 }
 
 /// A loader closure that reads `versions/<id>/<id>.json` from disk for the
@@ -265,7 +270,11 @@ pub async fn launch(
     // 1. resolve merged profile
     let profile = resolve_disk_profile(&paths, &version_id)?;
     let mc_version = profile.assets_id.clone().unwrap_or_else(|| version_id.clone());
-    let config = spec.instance.load_config()?;
+    let mut config = spec.instance.load_config()?;
+    // 一次性服务器覆盖(快速进入某存档服务器):只影响本次启动,不改写实例配置。
+    if let Some(server) = spec.server_override.as_ref().filter(|s| !s.trim().is_empty()) {
+        config.server = Some(server.clone());
+    }
 
     // 2. ensure files (skipped offline)
     if spec.online {

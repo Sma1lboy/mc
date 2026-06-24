@@ -8,6 +8,7 @@ const dict = {
     "tab.shader": "光影",
     "tab.datapack": "数据包",
     "tab.worlds": "存档",
+    "tab.servers": "服务器",
     "tab.screenshots": "截图",
     // 顶栏导航
     "nav.launch": "启动",
@@ -78,6 +79,7 @@ const dict = {
     "tab.shader": "Shaders",
     "tab.datapack": "Datapacks",
     "tab.worlds": "Worlds",
+    "tab.servers": "Servers",
     "tab.screenshots": "Screenshots",
     "nav.launch": "Play",
     "nav.download": "Download",

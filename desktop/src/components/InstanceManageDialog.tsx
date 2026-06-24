@@ -14,6 +14,7 @@ import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialo
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Dialog } from "./Dialog";
 import Lightbox from "./Lightbox";
+import ServersPanel from "./ServersPanel";
 import { ContentBrowser } from "./ContentBrowser";
 import { ErrorState } from "./ErrorState";
 import { ACCENT_BTN_COMPACT, ACCENT_BTN } from "./styles";
@@ -63,6 +64,7 @@ export type InstanceManageTab =
   | "shader"
   | "datapack"
   | "worlds"
+  | "servers"
   | "screenshots";
 
 const TABS = (): { key: InstanceManageTab; label: string }[] => [
@@ -72,6 +74,7 @@ const TABS = (): { key: InstanceManageTab; label: string }[] => [
   { key: "shader", label: t("instance.tabShader") },
   { key: "datapack", label: t("instance.tabDatapack") },
   { key: "worlds", label: t("instance.tabWorlds") },
+  { key: "servers", label: t("instance.tabServers") },
   { key: "screenshots", label: t("instance.tabScreenshots") },
 ];
 
@@ -1632,6 +1635,11 @@ export const InstanceManageDialog: Component<{
           {/* ---- 存档 ---- */}
           <Show when={tab() === "worlds" && props.instance}>
             {(inst) => <WorldsPanel instance={inst()} tick={worldTick()} />}
+          </Show>
+
+          {/* ---- 多人服务器(servers.dat) ---- */}
+          <Show when={tab() === "servers" && props.instance}>
+            {(inst) => <ServersPanel instance={inst()} />}
           </Show>
 
           {/* ---- 截图 ---- */}
