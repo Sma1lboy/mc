@@ -1,5 +1,5 @@
 import { Component, JSX, For, Show, createResource, createSignal } from "solid-js";
-import { AccountDialog, Avatar, NewInstanceDialog } from "../components";
+import { AccountDialog, Avatar, InstanceIcon, NewInstanceDialog } from "../components";
 import { currentPage, setCurrentPage, activeRoot, openInstance, currentInstanceId } from "../store";
 import { api } from "../ipc/api";
 import { sortByRecent } from "../util/instances";
@@ -203,10 +203,8 @@ const Rail: Component = () => {
                 onClick={() => openInstance(inst.id)}
               >
                 <span class={`${RAIL_BAR}${selected() ? " " + RAIL_BAR_SELECTED : ""}`} aria-hidden="true" />
-                <span class="w-[34px] h-[34px] rounded-ctl overflow-hidden grid place-items-center bg-gradient-to-br from-a-3 to-a-5 text-white font-bold text-[15px] uppercase select-none">
-                  <Show when={inst.icon} fallback={(inst.name || inst.id).charAt(0)}>
-                    <img src={inst.icon!} alt="" width="34" height="34" class="w-full h-full object-cover" />
-                  </Show>
+                <span class="w-[34px] h-[34px] rounded-ctl overflow-hidden select-none">
+                  <InstanceIcon name={inst.name || inst.id} icon={inst.icon ?? undefined} />
                 </span>
               </button>
             );
