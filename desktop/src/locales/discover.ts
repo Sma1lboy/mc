@@ -82,6 +82,8 @@ const dict = {
     installedFiles: "已装入 {{ count }} 个文件",
     installedToFile: "已安装到「{{ instance }}」:{{ file }}",
     blockedManual: "{{ count }} 个文件被作者限制第三方下载,请到 CurseForge 网页手动获取",
+    installLatestVersion: "安装最新版",
+    chooseVersion: "选择版本",
     noCompatibleInstance: "当前实例没有兼容版本,请换一个实例",
 
     selectInstanceFirst: "先在右侧选择一个实例",
@@ -183,6 +185,8 @@ const dict = {
     installedFiles: "Installed {{ count }} files",
     installedToFile: "Installed to “{{ instance }}”: {{ file }}",
     blockedManual: "{{ count }} file(s) blocked from third-party download — get them manually on CurseForge",
+    installLatestVersion: "Install latest",
+    chooseVersion: "Choose a version",
     noCompatibleInstance: "This instance has no compatible version — try another",
 
     selectInstanceFirst: "Select an instance on the right first",

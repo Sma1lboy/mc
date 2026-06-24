@@ -1,6 +1,7 @@
 import { Component, createEffect, createResource, createSignal, onCleanup, onMount, For, Show } from "solid-js";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { Spinner } from "../components/Spinner";
+import { Select } from "../components/Select";
 import { LOADER_BADGE_TINT } from "../components/styles";
 import { toast } from "../components/Toast";
 import type { ModpackHit } from "../components/ModpackCard";
@@ -475,15 +476,12 @@ const ProjectInstallDetail: Component<{
                     >
                       <label class="flex items-center gap-[8px] text-[12px] text-n-6">
                         <span class="shrink-0">{t("discover.targetWorld")}</span>
-                        <select
-                          class="glass-input flex-1 rounded-ctl border border-glass-border px-[8px] py-[6px] text-[12px] text-n-8"
+                        <Select
+                          class="flex-1 !min-w-0"
                           value={world() ?? ""}
-                          onChange={(e) => setWorld(e.currentTarget.value)}
-                        >
-                          <For each={worlds()}>
-                            {(w) => <option value={w.folder}>{w.name || w.folder}</option>}
-                          </For>
-                        </select>
+                          onChange={(v) => setWorld(v)}
+                          options={(worlds() ?? []).map((w) => ({ value: w.folder, label: w.name || w.folder }))}
+                        />
                       </label>
                     </Show>
                   </Show>

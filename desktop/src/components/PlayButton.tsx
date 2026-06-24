@@ -14,8 +14,8 @@ const PLAY_BASE =
   "transition-[background-color,transform,opacity] duration-[var(--dur)] ease-app " +
   "hover:not-disabled:bg-a-5 active:not-disabled:bg-a-3 active:not-disabled:translate-y-px " +
   "disabled:opacity-50 disabled:cursor-not-allowed";
-// running 态:更深 accent 区分"正在运行";hover 偏红(danger 令牌)警示可点击停止。
-const PLAY_RUNNING = "bg-a-2 hover:not-disabled:bg-danger";
+// running 态:直接红色(danger 令牌)= 运行中且点击即结束实例;hover 加深红。
+const PLAY_RUNNING = "bg-danger hover:not-disabled:bg-danger-hover";
 
 // PlayButton —— 启动游戏的主操作按钮 (accent 色)。
 // props 契约:
