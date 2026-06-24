@@ -4,6 +4,7 @@ import { Spinner } from "./Spinner";
 import { ErrorState } from "./ErrorState";
 import { Dialog } from "./Dialog";
 import { Avatar } from "./Avatar";
+import { Icon } from "./Icon";
 import { toast } from "./Toast";
 import { api } from "../ipc/api";
 import { accountKindLabel } from "../util/accounts";
@@ -180,11 +181,11 @@ export const AccountDialog: Component<{
       <div class="flex items-center justify-between px-[18px] py-[14px] text-[15px] font-bold text-white bg-[linear-gradient(90deg,var(--a-6),var(--a-5))]">
         <span>{title()}</span>
         <button
-          class="border-none bg-transparent text-white text-[15px] cursor-pointer opacity-85 px-[6px] py-[2px] rounded-xs hover:bg-white/20 hover:opacity-100"
+          class="border-none bg-transparent text-white cursor-pointer opacity-85 p-[5px] rounded-xs flex items-center hover:bg-white/20 hover:opacity-100"
           onClick={props.onClose}
           aria-label={t("account.close")}
         >
-          ✕
+          <Icon name="close" size={16} />
         </button>
       </div>
 
@@ -224,7 +225,7 @@ export const AccountDialog: Component<{
                       <span class="block text-[11px] text-dim">{accountKindLabel(acc.kind)}</span>
                     </span>
                     <Show when={acc.selected}>
-                      <span class="text-a-6 text-[14px]" aria-hidden="true">✓</span>
+                      <Icon name="check" size={15} class="text-a-6" />
                     </Show>
                     <button
                       class="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150 text-[12px] text-danger-text px-[6px] py-[3px] rounded-xs hover:bg-danger-soft"
@@ -245,7 +246,7 @@ export const AccountDialog: Component<{
             onClick={startMsa}
             disabled={busy()}
           >
-            <span class="text-[26px]">🪟</span>
+            <Icon name="microsoft" size={24} class="text-a-6" />
             <span class="flex flex-col gap-[2px]">
               <b class="text-[14px] text-fg">{t("account.msaTitle")}</b>
               <small class="text-[12px] text-dim">{t("account.msaDesc")}</small>
@@ -258,7 +259,7 @@ export const AccountDialog: Component<{
               setError(null);
             }}
           >
-            <span class="text-[26px]">👤</span>
+            <Icon name="user" size={24} class="text-dim" />
             <span class="flex flex-col gap-[2px]">
               <b class="text-[14px] text-fg">{t("account.offlineTitle")}</b>
               <small class="text-[12px] text-dim">{t("account.offlineDesc")}</small>
@@ -271,7 +272,7 @@ export const AccountDialog: Component<{
               setError(null);
             }}
           >
-            <span class="text-[26px]">🎭</span>
+            <Icon name="link" size={24} class="text-dim" />
             <span class="flex flex-col gap-[2px]">
               <b class="text-[14px] text-fg">{t("account.yggdrasilTitle")}</b>
               <small class="text-[12px] text-dim">{t("account.yggdrasilDesc")}</small>
