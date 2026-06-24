@@ -325,6 +325,24 @@ pub fn set_instance_icon(root: String, id: String, source: String) -> CmdResult<
     inst.set_icon(std::path::Path::new(&source)).map_err(err)
 }
 
+/// 给整合包来源的实例补齐图标:实例还没有本地 `icon.png` 时,下载 `icon_url` 写入。
+/// 早于「安装即存图标」特性安装的实例本地没图标,详情页发现缺失时调用一次,让侧栏/首页/详情
+/// 统一显示整合包真实 logo,而不再退回默认像素占位。返回 `true` 表示这次补上了。
+/// 已有图标或下载失败都安静返回 `false`(图标纯展示性,失败不打断任何流程)。
+#[tauri::command]
+#[specta::specta]
+pub async fn backfill_instance_icon(root: String, id: String, icon_url: String) -> CmdResult<bool> {
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    if inst.has_icon() || icon_url.trim().is_empty() {
+        return Ok(false);
+    }
+    let Ok(dl) = make_downloader() else { return Ok(false) };
+    match dl.get_bytes(&icon_url).await {
+        Ok(bytes) => Ok(inst.set_icon_bytes(&bytes).is_ok()),
+        Err(_) => Ok(false),
+    }
+}
+
 /// 列出某实例 mods 目录里的 mod(含启停态)。
 #[tauri::command]
 #[specta::specta]

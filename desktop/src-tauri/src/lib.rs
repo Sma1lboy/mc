@@ -40,6 +40,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::get_instance_config,
             commands::set_instance_config,
             commands::set_instance_icon,
+            commands::backfill_instance_icon,
             commands::instance_mods,
             commands::set_mod_enabled,
             commands::delete_mod,
