@@ -5,6 +5,7 @@ import {
   BlockedFilesDialog,
   ImportModpackDialog,
   ExportModpackDialog,
+  Dialog,
   EmptyState,
   ErrorState,
   Icon,
@@ -15,7 +16,7 @@ import {
 } from "../components";
 import { useModpackDrop } from "../util/useModpackDrop";
 import { api, onInstallProgress } from "../ipc/api";
-import { activeRoot, openInstance, playInstance } from "../store";
+import { activeRoot, openInstance, playInstance, isRunning } from "../store";
 import { openInstanceDir, deleteInstance } from "../util/instanceActions";
 import { sortByRecent } from "../util/instances";
 import { t } from "../i18n";
@@ -58,6 +59,11 @@ const Library: Component = () => {
   const [importOutcome, setImportOutcome] = createSignal<ImportOutcome | null>(null);
   // 导出整合包:选格式弹窗(非空 = 打开)。
   const [exportRow, setExportRow] = createSignal<InstanceRowData | null>(null);
+  // 多选模式 + 已选 id 集合(批量操作,目前为批量删除)。退出选择模式即清空。
+  const [selectMode, setSelectMode] = createSignal(false);
+  const [selectedIds, setSelectedIds] = createSignal<Set<string>>(new Set());
+  const [bulkConfirm, setBulkConfirm] = createSignal(false);
+  const [bulkDeleting, setBulkDeleting] = createSignal(false);
 
   function handleImported(out: ImportOutcome) {
     refetch();
@@ -115,6 +121,58 @@ const Library: Component = () => {
     }
   }
 
+  // ===== 多选 / 批量操作 =====
+  function toggleSelect(id: string) {
+    setSelectedIds((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  }
+  function exitSelect() {
+    setSelectMode(false);
+    setSelectedIds(new Set<string>());
+  }
+  // 当前过滤结果是否已全选(空列表视为未全选)。
+  const allSelected = () => {
+    const all = filteredInstances();
+    return all.length > 0 && all.every((i) => selectedIds().has(i.id));
+  };
+  function toggleSelectAll() {
+    if (allSelected()) setSelectedIds(new Set<string>());
+    else setSelectedIds(new Set(filteredInstances().map((i) => i.id)));
+  }
+
+  async function bulkDelete() {
+    setBulkConfirm(false);
+    setBulkDeleting(true);
+    const ids = [...selectedIds()];
+    const root = activeRoot();
+    let ok = 0;
+    let skipped = 0;
+    let failed = 0;
+    for (const id of ids) {
+      // 运行中的实例不能删(游戏占着目录文件),整批里直接跳过并计数。
+      if (isRunning(id)) {
+        skipped++;
+        continue;
+      }
+      try {
+        await api.deleteInstance(root, id);
+        ok++;
+      } catch {
+        failed++;
+      }
+    }
+    if (ok > 0) toast({ type: "success", message: t("library.bulkDeleted", { count: ok }) });
+    if (skipped > 0) toast({ type: "info", message: t("library.bulkDeleteRunningSkipped", { count: skipped }) });
+    if (failed > 0) toast({ type: "error", message: t("library.bulkDeleteFailed", { count: failed }) });
+    setBulkDeleting(false);
+    exitSelect();
+    refetch();
+  }
+
   return (
     <div class="relative p-[24px_28px] overflow-y-auto h-full">
       <Show when={dragOver()}>
@@ -128,14 +186,46 @@ const Library: Component = () => {
       <div class="flex items-center justify-between mb-[18px]">
         <h1 class="text-[24px] font-bold text-fg m-0">{t("library.title")}</h1>
         <div class="flex items-center gap-[10px]">
-          <Button variant="ghost" onClick={() => setImportOpen(true)}>
-            {t("library.importModpack")}
-          </Button>
-          <Button variant="primary" onClick={() => setShowInstall((s) => !s)}>
-            {showInstall() ? t("library.close") : t("library.installNewVersion")}
-          </Button>
+          <Show when={(instances() ?? []).length > 0}>
+            <Button variant="ghost" onClick={() => (selectMode() ? exitSelect() : setSelectMode(true))}>
+              {selectMode() ? t("library.selectDone") : t("library.select")}
+            </Button>
+          </Show>
+          <Show when={!selectMode()}>
+            <Button variant="ghost" onClick={() => setImportOpen(true)}>
+              {t("library.importModpack")}
+            </Button>
+            <Button variant="primary" onClick={() => setShowInstall((s) => !s)}>
+              {showInstall() ? t("library.close") : t("library.installNewVersion")}
+            </Button>
+          </Show>
         </div>
       </div>
+
+      {/* 批量操作条:仅多选模式可见。展示已选数 + 全选/清空 + 删除所选。 */}
+      <Show when={selectMode()}>
+        <div class="flex items-center gap-[12px] mb-[16px] px-[14px] py-[10px] rounded-card glass-card">
+          <span class="text-[13px] font-medium text-fg">
+            {t("library.selectedCount", { count: selectedIds().size })}
+          </span>
+          <button
+            type="button"
+            class="h-[30px] px-[12px] rounded-ctl border border-glass-border bg-glass-card text-fg text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-glass-hover"
+            onClick={toggleSelectAll}
+          >
+            {allSelected() ? t("library.clearSelection") : t("library.selectAll")}
+          </button>
+          <div class="flex-1" />
+          <button
+            type="button"
+            class="h-[34px] px-[16px] rounded-ctl border-none bg-danger text-white text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-danger-hover disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={selectedIds().size === 0 || bulkDeleting()}
+            onClick={() => setBulkConfirm(true)}
+          >
+            {t("library.deleteSelected")}
+          </button>
+        </div>
+      </Show>
 
       <Show when={showInstall()}>
         <div class="bg-glass-card rounded-card p-[18px] mb-[20px]">
@@ -208,6 +298,9 @@ const Library: Component = () => {
               {(inst) => (
                 <InstanceRow
                   instance={toRowData(inst)}
+                  selectable={selectMode()}
+                  selected={selectedIds().has(inst.id)}
+                  onToggleSelect={toggleSelect}
                   onPlay={playInstance}
                   onOpen={openInstance}
                   onManage={openInstance}
@@ -243,6 +336,35 @@ const Library: Component = () => {
         instance={exportRow()}
         onClose={() => setExportRow(null)}
       />
+
+      {/* 批量删除确认。 */}
+      <Dialog
+        open={bulkConfirm()}
+        onClose={() => setBulkConfirm(false)}
+        label={t("library.bulkDeleteTitle")}
+        contentClass="w-[380px] max-w-[calc(100vw-48px)] glass-pop rounded-card overflow-hidden"
+      >
+        <div class="p-[20px] flex flex-col gap-[14px]">
+          <div class="text-[15px] font-semibold text-fg">{t("library.bulkDeleteTitle")}</div>
+          <div class="text-[13px] text-dim leading-[1.6]">
+            {t("library.bulkDeleteBody", { count: selectedIds().size })}
+          </div>
+          <div class="flex justify-end gap-[10px]">
+            <button
+              class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-glass-card text-fg text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-glass-hover"
+              onClick={() => setBulkConfirm(false)}
+            >
+              {t("instance.cancel")}
+            </button>
+            <button
+              class="h-[34px] px-[16px] border-none rounded-ctl bg-danger text-white text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-danger-hover"
+              onClick={bulkDelete}
+            >
+              {t("library.deleteSelected")}
+            </button>
+          </div>
+        </div>
+      </Dialog>
 
       <Show when={importOutcome()}>
         {(o) => (
