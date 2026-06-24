@@ -6,7 +6,7 @@ import { formatRelativeTime } from "../components/format";
 import { api, onInstallProgress } from "../ipc/api";
 import { openInstanceDir, deleteInstance } from "../util/instanceActions";
 import { loaderLabel as fmtLoader } from "../util/loaders";
-import { activeRoot, isRunning, isLaunching, playInstance, currentInstanceId, closeInstance, openInstance } from "../store";
+import { activeRoot, isRunning, isLaunching, playInstance, currentInstanceId, closeInstance, openInstance, refreshInstances } from "../store";
 import { renderMarkdown } from "../util/markdown";
 import { t } from "../i18n";
 import "./ModpackDetail.css"; // .md 样式(整合包更新日志渲染)
@@ -152,7 +152,10 @@ const InstanceDetail: Component = () => {
     const i = inst();
     if (!i) return;
     setConfirmDel(false);
-    if (await deleteInstance(activeRoot(), { id: i.id, name: i.name || i.id })) closeInstance();
+    if (await deleteInstance(activeRoot(), { id: i.id, name: i.name || i.id })) {
+      refreshInstances();
+      closeInstance();
+    }
   }
 
   return (

@@ -14,7 +14,7 @@ import {
   type ModpackHit,
 } from "../components";
 import { api, onLaunchProgress } from "../ipc/api";
-import { activeRoot, openInstance, setCurrentPage, openDiscover, playInstance } from "../store";
+import { activeRoot, openInstance, setCurrentPage, openDiscover, playInstance, instances, refreshInstances } from "../store";
 import { openInstanceDir, deleteInstance } from "../util/instanceActions";
 import { useModpackDrop } from "../util/useModpackDrop";
 import { sortByRecent } from "../util/instances";
@@ -56,11 +56,7 @@ function toHit(h: SearchHit): ModpackHit {
 }
 
 const Home: Component = () => {
-  // 实例列表:依赖 currentRoot,空根目录用 "" 让后端落到默认根。
-  const [instances, { refetch: refetchInstances }] = createResource(
-    () => activeRoot(),
-    (root) => api.listInstances(root),
-  );
+  // 实例列表来自全局 store(单一真相,见 store.ts);依赖 currentRoot,切根自动重拉。
 
   // 整合包推荐:一次性拉取热门 modpack。
   const [packs] = createResource(() =>
@@ -75,7 +71,7 @@ const Home: Component = () => {
   const [importPath, setImportPath] = createSignal<string | null>(null);
   const [importOutcome, setImportOutcome] = createSignal<ImportOutcome | null>(null);
   function handleImported(out: ImportOutcome) {
-    refetchInstances();
+    refreshInstances();
     if (out.blocked.length > 0 || out.skipped_optional.length > 0) setImportOutcome(out);
     else toast({ type: "success", message: t("library.imported", { id: out.instance_id }) });
   }
@@ -140,7 +136,7 @@ const Home: Component = () => {
           <Show
             when={!instances.error}
             fallback={
-              <ErrorState message={t("library.instanceListError")} onRetry={() => void refetchInstances()} />
+              <ErrorState message={t("library.instanceListError")} onRetry={() => void refreshInstances()} />
             }
           >
           <Show
@@ -161,7 +157,7 @@ const Home: Component = () => {
                     onExport={() => setExportRow(toRowData(inst))}
                     onDelete={async (id) => {
                       if (await deleteInstance(activeRoot(), { id, name: toRowData(inst).name }))
-                        refetchInstances();
+                        refreshInstances();
                     }}
                   />
                 )}

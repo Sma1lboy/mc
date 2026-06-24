@@ -7,7 +7,7 @@ import { toast } from "../components/Toast";
 import type { ModpackHit } from "../components/ModpackCard";
 import { api } from "../ipc/api";
 import { cached } from "../ipc/cache";
-import { activeRoot } from "../store";
+import { activeRoot, instances } from "../store";
 import { t } from "../i18n";
 import type { InstanceSummary, ModrinthProject, ModrinthVersion, PackKind, ProjectKind } from "../ipc/types";
 import { renderMarkdown } from "../util/markdown";
@@ -96,11 +96,7 @@ const ProjectInstallDetail: Component<{
   const [installingVersion, setInstallingVersion] = createSignal<string | null>(null);
   const [openAbout, setOpenAbout] = createSignal(true);
 
-  // 锁定模式不拉全部实例列表(目标已定);全局模式才拉,供右侧选择器。
-  const [instances] = createResource(
-    () => (props.lockedInstance ? false : activeRoot()),
-    (root) => api.listInstances(root as string),
-  );
+  // 实例列表来自全局 store(单一真相);锁定模式直接用 props.lockedInstance,不读它。
   const [project] = createResource(
     () => props.hit.id,
     (id) =>

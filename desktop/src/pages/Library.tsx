@@ -16,7 +16,7 @@ import {
 } from "../components";
 import { useModpackDrop } from "../util/useModpackDrop";
 import { api, onInstallProgress } from "../ipc/api";
-import { activeRoot, openInstance, playInstance, isRunning } from "../store";
+import { activeRoot, openInstance, playInstance, isRunning, instances, refreshInstances } from "../store";
 import { openInstanceDir, deleteInstance } from "../util/instanceActions";
 import { sortByRecent } from "../util/instances";
 import { t } from "../i18n";
@@ -41,10 +41,7 @@ function toRowData(i: InstanceSummary): InstanceRowData {
 }
 
 const Library: Component = () => {
-  const [instances, { refetch }] = createResource(
-    () => activeRoot(),
-    (root) => api.listInstances(root),
-  );
+  // instances / refreshInstances 来自全局 store(单一真相,见 store.ts)。
   const [versions, { refetch: refetchVersions }] = createResource(() => api.listVersions(false));
 
   const [showInstall, setShowInstall] = createSignal(false);
@@ -66,7 +63,7 @@ const Library: Component = () => {
   const [bulkDeleting, setBulkDeleting] = createSignal(false);
 
   function handleImported(out: ImportOutcome) {
-    refetch();
+    refreshInstances();
     if (out.blocked.length > 0 || out.skipped_optional.length > 0) setImportOutcome(out);
     else toast({ type: "success", message: t("library.imported", { id: out.instance_id }) });
   }
@@ -112,7 +109,7 @@ const Library: Component = () => {
       await api.installVersion(activeRoot(), v.id);
       toast({ type: "success", message: t("library.installed", { id: v.id }) });
       setShowInstall(false);
-      refetch();
+      refreshInstances();
     } catch (e) {
       toast({ type: "error", message: t("library.installFailed", { err: String(e) }) });
     } finally {
@@ -170,7 +167,7 @@ const Library: Component = () => {
     if (failed > 0) toast({ type: "error", message: t("library.bulkDeleteFailed", { count: failed }) });
     setBulkDeleting(false);
     exitSelect();
-    refetch();
+    refreshInstances();
   }
 
   return (
@@ -273,7 +270,7 @@ const Library: Component = () => {
       <Show when={!instances.loading} fallback={<div class="flex justify-center p-[32px]"><Spinner /></div>}>
         <Show
           when={!instances.error}
-          fallback={<ErrorState message={t("library.instanceListError")} onRetry={() => void refetch()} />}
+          fallback={<ErrorState message={t("library.instanceListError")} onRetry={() => void refreshInstances()} />}
         >
         <Show
           when={(instances() ?? []).length > 0}
@@ -308,7 +305,7 @@ const Library: Component = () => {
                   onExport={() => setExportRow(toRowData(inst))}
                   onDelete={async (id) => {
                     if (await deleteInstance(activeRoot(), { id, name: toRowData(inst).name }))
-                      refetch();
+                      refreshInstances();
                   }}
                 />
               )}
