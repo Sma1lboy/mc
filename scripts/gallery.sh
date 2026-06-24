@@ -64,9 +64,9 @@ MC_GALLERY=1 nohup "$BIN" > "$APP_LOG" 2>&1 &
 PID=$!
 echo "  pid $PID · log: $APP_LOG"
 
-# 4) 等截图流程跑完(逐页等待累加约 10s,留足余量) ---------------------------------
-echo "→ capturing pages… (约 15s,期间请勿遮挡窗口)"
-for _ in $(seq 1 30); do
+# 4) 等截图流程跑完(逐镜头等待累加;镜头多了要给足余量) ---------------------------------
+echo "→ capturing shots… (约 60–90s,期间请勿遮挡窗口)"
+for _ in $(seq 1 200); do
   sleep 1
   if grep -q "画廊已生成" "$APP_LOG" 2>/dev/null; then
     GAL=$(grep "画廊已生成" "$APP_LOG" | tail -1 | sed 's/.*画廊已生成: //')
