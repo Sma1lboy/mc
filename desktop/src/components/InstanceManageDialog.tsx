@@ -496,9 +496,8 @@ const PacksPanel: Component<{
                             {[p.description, fmtSize(p.size)].filter(Boolean).join(" · ")}
                           </div>
                         </div>
-                        <div class="flex items-center gap-[6px] text-[11px] text-dim shrink-0">
+                        <div class="flex items-center shrink-0">
                           <Toggle checked={p.enabled} onChange={(v) => toggle(p, v)} title={t("instance.enable")} />
-                          {t("instance.enable")}
                         </div>
                         <button class={DEL_BTN} onClick={() => setConfirmDel(p)}>
                           {t("instance.delete")}
@@ -1533,9 +1532,8 @@ export const InstanceManageDialog: Component<{
                                       {[m.version, m.loader, m.file_name].filter(Boolean).join(" · ")}
                                     </div>
                                   </div>
-                                  <div class="flex items-center gap-[6px] text-[11px] text-dim shrink-0">
+                                  <div class="flex items-center shrink-0">
                                     <Toggle checked={m.enabled} onChange={(v) => toggleMod(m, v)} title={t("instance.enable")} />
-                                    {t("instance.enable")}
                                   </div>
                                   <button class={DEL_BTN} onClick={() => setConfirmDelMod(m)}>
                                     {t("instance.delete")}
