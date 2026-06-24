@@ -48,32 +48,7 @@ export const ModpackOverview: Component<{ projectId: string }> = (props) => {
       <Show when={project()} fallback={<ErrorState message={t("discover.modpackDetailUnavailable")} onRetry={() => void refetch()} />}>
         {(p) => (
           <div class="flex flex-col gap-[16px]">
-            {/* 头部 */}
-            <div class="flex gap-[14px] items-center">
-              <Show
-                when={p().icon_url}
-                fallback={
-                  <div class="w-[64px] h-[64px] rounded-[14px] grid place-items-center text-[28px] font-bold text-white bg-[linear-gradient(135deg,var(--a-3),var(--a-5))] shrink-0">
-                    {(p().title[0] ?? "?").toUpperCase()}
-                  </div>
-                }
-              >
-                <img class="w-[64px] h-[64px] rounded-[14px] object-cover shrink-0" src={p().icon_url!} width="64" height="64" alt="" />
-              </Show>
-              <div class="min-w-0">
-                <h2 class="m-0 text-[20px] font-extrabold text-fg whitespace-nowrap overflow-hidden text-ellipsis">{p().title}</h2>
-                <div class="mt-[3px] text-[12px] text-dim">
-                  ⬇ {p().downloads.toLocaleString()}
-                  <Show when={p().followers}>{" · ♥ "}{p().followers.toLocaleString()}</Show>
-                </div>
-                <div class="mt-[6px] flex flex-wrap gap-[6px]">
-                  <For each={p().categories}>
-                    {(c) => <span class="text-[11px] py-[2px] px-[8px] rounded-full bg-a-1 text-a-6 capitalize">{c}</span>}
-                  </For>
-                </div>
-              </div>
-            </div>
-
+            {/* 品牌信息(图标/名称/下载量/分类)已上移到实例头部,此处不再重复;概览只留简介/链接/画廊/正文。 */}
             <Show when={p().description}>
               <p class="m-0 text-[13px] leading-[1.7] text-dim">{p().description}</p>
             </Show>
