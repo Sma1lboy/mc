@@ -1852,6 +1852,91 @@ pub async fn install_modpack_url(
     Ok(outcome.into())
 }
 
+/// 浏览安装整合包(provider 感知,详情页「安装此版本」用):给定 `(provider, project, version_id)`,
+/// 经对应平台解析出整合包归档(Modrinth `.mrpack` / CurseForge `.zip`)的下载直链,再走与
+/// [`install_modpack_url`] 完全相同的导入引擎(下载 → 识别格式 → 安装原版+loader+mods+overrides)。
+///
+/// `provider` 缺省 `modrinth`。`name` 作为目标实例 id(`None` 时由整合包名派生唯一 id)。
+/// 安装的版本会写进实例 `instance.json` 的 source,供后续「检查更新」溯源。
+///
+/// CurseForge 作者禁第三方分发时平台不给整合包直链(`file.url` 为空),此处把该包文件经
+/// [`ImportOutcomeDto::blocked`] 的既有机制回传,让前端引导手动下载,而非抛不透明错误。
+#[tauri::command]
+#[specta::specta]
+pub async fn install_modpack(
+    app: AppHandle,
+    root: String,
+    provider: Option<String>,
+    project: String,
+    version_id: String,
+    name: Option<String>,
+) -> CmdResult<ImportOutcomeDto> {
+    use mc_core::modpack::import::{ImportEngine, ImportOptions, ImportSource, ManagedPack};
+
+    let id = parse_provider(provider.as_deref())?;
+
+    // 解析整合包归档的下载直链 + 记录溯源平台名。
+    let (url, platform) = match id {
+        mc_core::modplatform::ProviderId::Modrinth => {
+            // Modrinth:逐版本拉 .mrpack(主文件即整合包)。
+            let api = ModrinthApi::new();
+            let versions = api.get_versions(&project, None, None).await.map_err(err)?;
+            let version = versions
+                .into_iter()
+                .find(|v| v.id == version_id)
+                .ok_or_else(|| format!("整合包版本 {version_id} 不存在"))?;
+            let url = version
+                .files
+                .iter()
+                .find(|f| f.filename.ends_with(".mrpack"))
+                .or_else(|| version.primary_file())
+                .ok_or_else(|| "该整合包版本没有可下载的 .mrpack 文件".to_string())?
+                .url
+                .clone();
+            (url, "modrinth")
+        }
+        id @ mc_core::modplatform::ProviderId::CurseForge => {
+            // CurseForge:provider 把 (project, fileId) 批量解析成文件;整合包 .zip 即该文件。
+            let p = provider_or_err(&make_registry(), id)?;
+            let resolved = p
+                .get_files_bulk(&[(project.clone(), version_id.clone())])
+                .await
+                .map_err(err)?
+                .into_iter()
+                .next()
+                .ok_or_else(|| format!("整合包版本 {version_id} 不存在"))?;
+            // 作者禁分发 → url 为空:不报错,经 blocked 机制把该整合包文件回传给前端引导手动下载。
+            if resolved.file.url.trim().is_empty() {
+                return Ok(ImportOutcomeDto {
+                    instance_id: String::new(),
+                    blocked: vec![cf_blocked_dto(&project, &version_id, &resolved.file.filename, ".")],
+                    skipped_optional: Vec::new(),
+                });
+            }
+            (resolved.file.url, "curseforge")
+        }
+    };
+
+    // 与 install_modpack_url 同路径:引擎先下到临时文件,再识别格式 + 安装。
+    let paths = root_paths(&root);
+    let dl = make_downloader()?;
+    let engine = ImportEngine::with_defaults(dl, make_registry());
+    let mut opts = ImportOptions::new(paths.root().to_path_buf());
+    opts.instance_id = name;
+    opts.managed = Some(ManagedPack {
+        platform: platform.to_string(),
+        project_id: project,
+        version_id: Some(version_id),
+    });
+    let (tx, rx) = watch::channel(Progress::new("准备"));
+    forward_progress(app, "install://progress", rx);
+    let outcome = engine
+        .import_with_progress(ImportSource::Url(url), opts, Some(tx))
+        .await
+        .map_err(err)?;
+    Ok(outcome.into())
+}
+
 /// 读取全局设置(下载源/并发/默认内存/Java 路径/语言…)。缺失/损坏回退默认。
 #[tauri::command]
 #[specta::specta]

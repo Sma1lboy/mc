@@ -81,6 +81,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::export_modpack,
             commands::install_modrinth_modpack,
             commands::install_modpack_url,
+            commands::install_modpack,
             commands::modrinth_versions,
             commands::modrinth_project,
             commands::get_settings,
