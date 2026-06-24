@@ -8,7 +8,7 @@
 
 use std::path::{Component, Path, PathBuf};
 
-use crate::error::{IoResultExt, Result};
+use crate::error::{CoreError, IoResultExt, Result};
 
 /// Characters that are illegal in a filename on at least one supported OS.
 const INVALID_FILENAME_CHARS: &[char] = &['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
@@ -320,6 +320,37 @@ pub fn override_folder(override_dir: &Path, target: &Path) -> Result<()> {
     copy_dir(override_dir, target)
 }
 
+/// True if `segment` is a single, inert path component — not empty, not `.` or
+/// `..`, and containing no `/` or `\` separator. The one check that keeps a
+/// caller- or platform-supplied name (a mod/world/pack filename, a Modrinth
+/// `filename`) from escaping the directory it's meant to live in.
+///
+/// Unlike [`safe_join`] (which lexically resolves a multi-segment archive path
+/// against a base), this rejects *any* path structure outright: the inputs here
+/// are meant to be a bare file/folder name, so `a/b` is just as illegal as
+/// `../x`. This is the centralised guard behind [`resolve_segment`].
+pub fn is_safe_segment(segment: &str) -> bool {
+    !(segment.is_empty()
+        || segment == "."
+        || segment == ".."
+        || segment.contains('/')
+        || segment.contains('\\'))
+}
+
+/// Validate that `segment` is a single inert path component (see
+/// [`is_safe_segment`]) and, if so, return `dir.join(segment)`. Rejects a bad
+/// segment (`../x`, `a/b`, `..`, `.`, empty) with a [`CoreError`] so a frontend-
+/// or platform-supplied name can never reach outside `dir`.
+///
+/// This is the one shared single-segment validator; modules that locate a file
+/// by an externally-supplied name route through it instead of joining raw.
+pub fn resolve_segment(dir: &Path, segment: &str) -> Result<PathBuf> {
+    if !is_safe_segment(segment) {
+        return Err(CoreError::other(format!("非法路径段: {segment}")));
+    }
+    Ok(dir.join(segment))
+}
+
 /// Safely join an archive-internal relative path under `base`, refusing any
 /// result that escapes `base` (zip-slip / path-traversal guard). Returns `None`
 /// for a malicious entry like `../../etc/passwd`.
@@ -432,6 +463,32 @@ mod tests {
         let base = Path::new("/games/mc");
         assert_eq!(safe_join(base, "config/options.txt"), Some(PathBuf::from("/games/mc/config/options.txt")));
         assert_eq!(safe_join(base, "../../etc/passwd"), None);
+    }
+
+    #[test]
+    fn resolve_segment_rejects_traversal_and_separators() {
+        let dir = Path::new("/games/mc/mods");
+        // A plain single-segment name resolves to dir/<name>.
+        assert_eq!(resolve_segment(dir, "sodium.jar").unwrap(), PathBuf::from("/games/mc/mods/sodium.jar"));
+        // Every escape shape is rejected.
+        assert!(resolve_segment(dir, "../x").is_err(), "parent-escape must be rejected");
+        assert!(resolve_segment(dir, "a/b").is_err(), "embedded separator must be rejected");
+        assert!(resolve_segment(dir, "a\\b").is_err(), "backslash separator must be rejected");
+        assert!(resolve_segment(dir, "..").is_err(), "'..' must be rejected");
+        assert!(resolve_segment(dir, ".").is_err(), "'.' must be rejected");
+        assert!(resolve_segment(dir, "").is_err(), "empty segment must be rejected");
+    }
+
+    #[test]
+    fn is_safe_segment_classifies_names() {
+        assert!(is_safe_segment("world1"));
+        assert!(is_safe_segment("My Cool Mod.jar"));
+        assert!(!is_safe_segment("../x"));
+        assert!(!is_safe_segment("a/b"));
+        assert!(!is_safe_segment("a\\b"));
+        assert!(!is_safe_segment(".."));
+        assert!(!is_safe_segment("."));
+        assert!(!is_safe_segment(""));
     }
 
     #[test]

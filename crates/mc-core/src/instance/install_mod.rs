@@ -116,7 +116,8 @@ pub async fn install_mod_version(
         ))
     })?;
 
-    let dest = inst.mods_dir().join(&file.filename);
+    // filename 直接来自平台 API(不可信):按单一路径段校验,防止 `../` 写到 mods/ 之外。
+    let dest = crate::fs::resolve_segment(&inst.mods_dir(), &file.filename)?;
 
     // download_one 内部会建父目录(mods/)、流式下载并按 sha1 校验。
     dl.download_one(&DownloadItem {

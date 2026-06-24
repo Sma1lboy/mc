@@ -50,12 +50,13 @@ impl PackKind {
     /// 安装目录(按存档定位数据包)。**数据包是逐存档生效的** —— 放在实例根的
     /// `datapacks/` 里游戏根本不会加载;必须落到 `saves/<world>/datapacks/`。给定
     /// `world` 时数据包用该存档目录;`world` 为空 / 其它类型回退到 [`dir`](Self::dir)。
-    pub fn dir_for(&self, inst: &Instance, world: Option<&str>) -> PathBuf {
+    pub fn dir_for(&self, inst: &Instance, world: Option<&str>) -> Result<PathBuf> {
         match (self, world) {
             (PackKind::Datapack, Some(w)) if !w.is_empty() => {
-                inst.saves_dir().join(w).join("datapacks")
+                // world 来自前端:校验为单一路径段,防止逃出 saves/(影响 delete/enable)。
+                Ok(crate::fs::resolve_segment(&inst.saves_dir(), w)?.join("datapacks"))
             }
-            _ => self.dir(inst),
+            _ => Ok(self.dir(inst)),
         }
     }
 
@@ -112,15 +113,8 @@ fn is_enabled(name: &str) -> bool {
 /// 校验 `file_name` 是单一路径段(不含分隔符、不是 `.`/`..`),防止路径穿越。
 /// 通过后返回 `dir.join(file_name)` 的安全绝对路径。
 fn resolve_in_dir(dir: &std::path::Path, file_name: &str) -> Result<PathBuf> {
-    if file_name.is_empty()
-        || file_name == "."
-        || file_name == ".."
-        || file_name.contains('/')
-        || file_name.contains('\\')
-    {
-        return Err(CoreError::other(format!("非法包文件名: {file_name}")));
-    }
-    Ok(dir.join(file_name))
+    // 复用集中的单一路径段校验(见 [`crate::fs::resolve_segment`]),不再本地重复实现。
+    crate::fs::resolve_segment(dir, file_name)
 }
 
 /// 尝试从一个资源包 zip 里读取 `pack.mcmeta` 的 `pack.description` 字段。
@@ -157,7 +151,11 @@ fn read_resourcepack_description(path: &std::path::Path) -> Option<String> {
 /// 仅资源包会尝试读取 `pack.mcmeta` 描述(其它类型无此约定),失败静默忽略。
 /// 结果按 `file_name` 字典序稳定排序,保证展示顺序确定。
 pub fn list_packs(inst: &Instance, kind: PackKind, world: Option<&str>) -> Vec<PackInfo> {
-    let dir = kind.dir_for(inst, world);
+    // 非法 world 段(穿越)→ 视作无内容,绝不去扫 saves/ 之外的目录。
+    let dir = match kind.dir_for(inst, world) {
+        Ok(d) => d,
+        Err(_) => return Vec::new(),
+    };
     let entries = match std::fs::read_dir(&dir) {
         Ok(e) => e,
         Err(_) => return Vec::new(),
@@ -221,7 +219,7 @@ pub fn set_pack_enabled(
     enabled: bool,
     world: Option<&str>,
 ) -> Result<()> {
-    let dir = kind.dir_for(inst, world);
+    let dir = kind.dir_for(inst, world)?;
     let src = resolve_in_dir(&dir, file_name)?;
 
     // 计算目标文件名:启用即去后缀,禁用即加后缀。
@@ -249,7 +247,7 @@ pub fn set_pack_enabled(
 /// `trash::delete` 在无 GUI / 不支持回收站的环境会失败,此时回退到不可逆删除
 /// (文件用 `remove_file`,目录用 `remove_dir_all`)以保证操作最终生效。
 pub fn delete_pack(inst: &Instance, kind: PackKind, file_name: &str, world: Option<&str>) -> Result<()> {
-    let dir = kind.dir_for(inst, world);
+    let dir = kind.dir_for(inst, world)?;
     let path = resolve_in_dir(&dir, file_name)?;
 
     // 不存在视为已删除(幂等),不报错。
@@ -286,7 +284,7 @@ pub async fn install_pack_version(
         .primary_file()
         .ok_or_else(|| CoreError::other(format!("版本 {} 没有可下载文件", v.id)))?;
 
-    let dir = kind.dir_for(inst, world);
+    let dir = kind.dir_for(inst, world)?;
     // primary file 的 filename 由平台给出,理论可信;仍按单一路径段校验防御。
     let path = resolve_in_dir(&dir, &file.filename)?;
 
@@ -321,7 +319,7 @@ pub fn import_local_pack(
     if !is_pack_archive(&name) {
         return Err(CoreError::other("只支持 .zip / .jar 包文件"));
     }
-    let dir = kind.dir_for(inst, world);
+    let dir = kind.dir_for(inst, world)?;
     std::fs::create_dir_all(&dir).with_path(&dir)?;
     let dest = resolve_in_dir(&dir, &name)?;
     std::fs::copy(source, &dest).with_path(source)?;

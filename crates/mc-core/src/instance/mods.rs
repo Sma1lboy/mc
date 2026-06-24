@@ -114,6 +114,10 @@ pub fn list_mods(inst: &Instance) -> Vec<ModInfo> {
 /// `file_name` 为 [`list_mods`] 返回的当前文件名(可带或不带 `.disabled`)。
 /// 若目标态已满足(已是想要的后缀),则为 no-op,直接返回 `Ok`。
 pub fn set_mod_enabled(inst: &Instance, file_name: &str, enabled: bool) -> Result<()> {
+    // file_name 来自前端,校验为单一路径段防穿越(rename 出 mods/ 会破坏其它目录)。
+    if !crate::fs::is_safe_segment(file_name) {
+        return Err(crate::error::CoreError::other(format!("非法 mod 文件名: {file_name}")));
+    }
     let mods_dir = inst.mods_dir();
 
     // 以"去掉 .disabled 的基名"为锚,推导当前路径与目标路径,避免依赖传入后缀是否正确。
@@ -140,6 +144,10 @@ pub fn set_mod_enabled(inst: &Instance, file_name: &str, enabled: bool) -> Resul
 ///
 /// `file_name` 可带或不带 `.disabled`;实际删除磁盘上存在的那一个。
 pub fn delete_mod(inst: &Instance, file_name: &str) -> Result<()> {
+    // file_name 来自前端,校验为单一路径段防穿越(删除可逃出 mods/ 误删其它文件)。
+    if !crate::fs::is_safe_segment(file_name) {
+        return Err(crate::error::CoreError::other(format!("非法 mod 文件名: {file_name}")));
+    }
     let mods_dir = inst.mods_dir();
 
     // 定位真实存在的文件:传入名 → 基名(.jar) → 停用名(.jar.disabled)。
@@ -838,6 +846,16 @@ displayName = "Neo Mod"
 
         // 再删一次:文件已不存在,应幂等成功。
         delete_mod(&t.inst, "doomed.jar").unwrap();
+    }
+
+    #[test]
+    fn rejects_path_traversal_file_name() {
+        let t = TempInst::new("traversal");
+        // 含 .. 或分隔符的文件名必须被拒绝,绝不逃出 mods/ 误删/改名其它文件。
+        assert!(delete_mod(&t.inst, "../evil.jar").is_err());
+        assert!(delete_mod(&t.inst, "sub/evil.jar").is_err());
+        assert!(set_mod_enabled(&t.inst, "../evil.jar", false).is_err());
+        assert!(set_mod_enabled(&t.inst, "a\\b.jar", true).is_err());
     }
 
     #[test]

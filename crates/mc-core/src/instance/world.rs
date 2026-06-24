@@ -214,7 +214,8 @@ pub fn list_worlds(inst: &Instance) -> Vec<WorldInfo> {
 
 /// 定位某个世界目录,校验其确实存在(否则报 [`CoreError::InstanceNotFound`])。
 fn world_dir(inst: &Instance, folder: &str) -> Result<PathBuf> {
-    let dir = inst.saves_dir().join(folder);
+    // folder 来自前端,经单一路径段校验防穿越(否则 delete/backup/rename 可能逃出 saves/)。
+    let dir = crate::fs::resolve_segment(&inst.saves_dir(), folder)?;
     if !dir.is_dir() {
         return Err(CoreError::InstanceNotFound(format!("world `{folder}`")));
     }
@@ -672,6 +673,16 @@ mod tests {
 
         delete_world(&inst, "w").unwrap();
         assert!(!dir.exists(), "world dir should be gone after delete");
+    }
+
+    #[test]
+    fn rejects_path_traversal_folder() {
+        let root = TempRoot::new("traversal");
+        let inst = root.instance();
+        // folder 含 .. / 分隔符必须被拒,delete/backup/rename 都不能逃出 saves/。
+        assert!(delete_world(&inst, "../../etc").is_err());
+        assert!(rename_world(&inst, "sub/world", "x").is_err());
+        assert!(backup_world(&inst, "..", &root.path.join("b.zip")).is_err());
     }
 
     #[test]
