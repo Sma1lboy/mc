@@ -91,7 +91,15 @@ export function InstanceIcon(props: InstanceIconProps): JSX.Element {
         </svg>
       }
     >
-      <img src={merged.icon} alt={merged.alt} loading="lazy" class="w-full h-full object-cover block" />
+      {/* 整合包平台图标五花八门:有的满幅方图、有的是透明底的圆形 logo、有的留白。
+          统一塞进我们的圆角方块容器:中性玻璃底兜住透明像素,object-cover 充满裁掉异形边,
+          让任何来源的图标都对味、不假设是圆的。 */}
+      <img
+        src={merged.icon}
+        alt={merged.alt}
+        loading="lazy"
+        class="w-full h-full object-cover block bg-glass-card"
+      />
     </Show>
   );
 }
