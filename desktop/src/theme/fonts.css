@@ -1,0 +1,37 @@
+/* ============================================================================
+ * fonts.css —— Blocky Craft 字体(本地 woff2,离线可用,不依赖 Google CDN)
+ *
+ * 三种角色(见 docs / UI 规范 §1):
+ *   Pixelify Sans —— 标题 / 实例名 / 欢迎语(现代像素,可读)。变量字重 400–700。
+ *   Press Start 2P —— 短拉丁词 / 数字 / 按钮文案(PLAY、下载量、Modrinth)。仅 400。
+ *                     不用于中文或长句。
+ *   Noto Sans SC  —— 正文 / 界面(中英混排)。此处仅打包**拉丁**字形;中文字形回退到
+ *                     系统 PingFang SC / 微软雅黑(见 tokens.css 的 --font 字体栈),
+ *                     避免把数 MB 的 CJK 字库塞进安装包。
+ *
+ * Vite 会对下面的相对 url() 做指纹化打包,产物自带字体,运行时零网络。
+ * ========================================================================== */
+
+@font-face {
+  font-family: "Pixelify Sans";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("./fonts/pixelify-sans-latin.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Press Start 2P";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/press-start-2p-latin.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Noto Sans SC";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("./fonts/noto-sans-sc-latin.woff2") format("woff2");
+}

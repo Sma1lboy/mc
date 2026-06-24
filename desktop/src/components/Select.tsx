@@ -37,30 +37,30 @@ export const Select: Component<SelectProps> = (props) => {
       <Ark.Control>
         <Ark.Trigger
           class={
-            "inline-flex items-center justify-between gap-[8px] min-w-[200px] px-[10px] py-[6px] " +
-            "rounded-ctl glass-panel border border-glass-border text-fg text-[13px] cursor-pointer " +
-            "transition-[border-color,box-shadow] duration-150 ease-app hover:border-a-4 data-[state=open]:border-a-4 " +
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5/25 " +
+            "inline-flex items-center justify-between gap-[8px] min-w-[200px] px-[12px] py-[8px] " +
+            "rounded-none bg-sidebar shadow-input border-none text-fg text-[13px] cursor-pointer " +
+            "transition-[box-shadow] duration-150 ease-app data-[state=open]:ring-2 data-[state=open]:ring-accent " +
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent " +
             (props.class ?? "")
           }
         >
           <Ark.ValueText placeholder={props.placeholder ?? t("components.select.placeholder")} class="truncate text-left" />
-          <Ark.Indicator class="shrink-0 text-dim transition-transform duration-150 data-[state=open]:rotate-180">
+          <Ark.Indicator class="shrink-0 text-muted transition-transform duration-150 data-[state=open]:rotate-180">
             <ChevronDown size={16} />
           </Ark.Indicator>
         </Ark.Trigger>
       </Ark.Control>
       <Portal>
         <Ark.Positioner>
-          <Ark.Content class="z-[300] max-h-[320px] overflow-y-auto rounded-ctl glass-pop p-[4px] text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5">
+          <Ark.Content class="z-[300] max-h-[320px] overflow-y-auto rounded-none bg-panel-2 shadow-raised border border-titlebar p-[4px] text-[13px] focus-visible:outline-none">
             <For each={props.options}>
               {(opt) => (
                 <Ark.Item
                   item={opt}
-                  class="flex items-center justify-between gap-[8px] px-[10px] py-[7px] rounded-xs text-fg cursor-pointer select-none data-[highlighted]:bg-glass-hover data-[state=checked]:text-a-6"
+                  class="flex items-center justify-between gap-[8px] px-[10px] py-[7px] rounded-none text-fg cursor-pointer select-none data-[highlighted]:bg-panel-3 data-[state=checked]:text-accent"
                 >
                   <Ark.ItemText class="truncate">{opt.label}</Ark.ItemText>
-                  <Ark.ItemIndicator class="shrink-0 text-a-6">
+                  <Ark.ItemIndicator class="shrink-0 text-accent">
                     <Check size={15} />
                   </Ark.ItemIndicator>
                 </Ark.Item>

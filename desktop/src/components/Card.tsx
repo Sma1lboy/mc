@@ -1,10 +1,10 @@
 import { JSX, splitProps } from "solid-js";
 
-// 基础卡片样式(Tailwind 内联):背景/圆角/阴影/内距 + 颜色过渡。
+// 基础卡片样式(Blocky Craft):panel 底 + 凹陷倒角 + 直角 + 内距 + 过渡。
 const CARD_BASE =
-  "glass-card rounded-card p-4 " +
-  "transition-[transform,box-shadow,background-color,border-color] duration-200 ease-app";
-const CARD_HOVER = "glass-card--hover cursor-pointer hover:-translate-y-[3px] active:-translate-y-px";
+  "bg-panel shadow-sunken rounded-none p-4 " +
+  "transition-[transform,box-shadow,background-color] duration-200 ease-app";
+const CARD_HOVER = "cursor-pointer hover:bg-panel-2 hover:-translate-y-px active:translate-y-0";
 
 // Card —— 通用卡片容器。
 // props 契约:

@@ -19,12 +19,15 @@ export const Toggle: Component<{
       title={props.title}
       disabled={props.disabled}
       onClick={() => !props.disabled && props.onChange(!props.checked)}
-      class="relative inline-flex h-[18px] w-[32px] shrink-0 items-center rounded-full cursor-pointer transition-colors duration-[var(--dur)] ease-app disabled:opacity-50 disabled:cursor-default"
-      classList={{ "bg-a-4": props.checked, "bg-n-6": !props.checked }}
+      class="relative inline-flex h-[24px] w-[44px] shrink-0 items-center p-[3px] rounded-none cursor-pointer shadow-input transition-colors duration-[var(--dur)] ease-app disabled:opacity-50 disabled:cursor-default"
+      classList={{ "bg-accent": props.checked, "bg-window": !props.checked }}
     >
       <span
-        class="inline-block h-[14px] w-[14px] rounded-full bg-white transition-transform duration-[var(--dur)] ease-app"
-        classList={{ "translate-x-[16px]": props.checked, "translate-x-[2px]": !props.checked }}
+        class="inline-block h-[18px] w-[18px] rounded-none shadow-raised transition-[transform,background-color] duration-[var(--dur)] ease-app"
+        classList={{
+          "translate-x-[20px] bg-white": props.checked,
+          "translate-x-0 bg-[#6a6a5a]": !props.checked,
+        }}
       />
     </button>
   );

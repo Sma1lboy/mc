@@ -45,9 +45,45 @@ img {
   --danger-text: #e5848a; /* 深色面上的危险文字/图标(较亮,保证可读) */
   --danger-soft: rgba(229, 132, 138, 0.14); /* 幽灵危险项 hover 底 */
 
-  --bg-card: var(--n-4);
-  --text: var(--n-8);
-  --text-dim: var(--n-7);
+  /* ===== Blocky Craft 表面 / 材质(深色为主视觉)=====
+   * 暖黑底 + 石质侧栏 + 倒角面板。强调色仍由引擎(theme.ts/palette.ts)驱动可换肤,
+   * 这里只兜底熔岩橙。中性 --n-* 与强调 --a-* 由引擎注入,这套面色是 Blocky 专属、固定。 */
+  --bg-window: #16170f; /* 窗口主体(暖黑) */
+  --bg-titlebar: #0c0d0a; /* 标题栏 / 分隔线 / 边框 */
+  --bg-sidebar: #22241b; /* 侧栏(叠石质纹理) */
+  --panel: #1d1f15; /* 卡片 / 面板 */
+  --panel-2: #2a2c20; /* 次级填充 / 标签底 / 搜索框轨 */
+  --panel-3: #3a3d2c; /* 次按钮底 */
+  --text-strong: #f3ecda; /* 标题强白 */
+  --text-sub: #a39f8e; /* 次要文字 */
+  --text-muted: #8f8f7e; /* 弱化文字 */
+  --text-faint: #7c7c66; /* 占位 / 路径 */
+  --tag-text: #c9a06a; /* 标签文字(沙金) */
+  --grass-top: #6cae3e; /* 草方块绿(图标占位上半) */
+  --grass-side: #7a5a37; /* 泥土棕(图标占位下半) */
+
+  /* 强调:= 引擎基色 --a-4(可换肤),熔岩橙兜底;hover/press 取相邻档。 */
+  --accent: var(--a-4, #e8590c);
+  --accent-hover: var(--a-5, #f06a1f);
+  --accent-press: var(--a-3, #c64a08);
+  --accent-text: #16170f; /* 橙底上的深色文字(chip / 分段控件) */
+
+  /* 方块倒角(B 方向灵魂):用 inset 双向阴影模拟 MC GUI 立体边,不用圆角。
+   *   sunken  面板/卡片(凹陷)   raised 按钮/高亮块(凸起)
+   *   pressed 按下态(上下翻转)   input  输入/分段轨(深凹) */
+  --bevel-sunken: inset 2px 2px 0 rgba(255, 255, 255, 0.05), inset -2px -2px 0 rgba(0, 0, 0, 0.45);
+  --bevel-raised: inset 2px 2px 0 rgba(255, 255, 255, 0.3), inset -2px -2px 0 rgba(0, 0, 0, 0.35);
+  --bevel-pressed: inset -2px -2px 0 rgba(255, 255, 255, 0.2), inset 2px 2px 0 rgba(0, 0, 0, 0.4);
+  --bevel-input: inset 2px 2px 0 rgba(0, 0, 0, 0.45);
+
+  /* 石质纹理(侧栏 / 大面板),由 .stone 工具类叠在 --bg-sidebar 上。 */
+  --stone-tex: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.22) 0 2px, transparent 2px 5px),
+    repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.14) 0 2px, transparent 2px 6px);
+
+  /* 语义令牌重指到 Blocky 面色(让未单独重皮的旧组件也跟着暖黑)。 */
+  --bg-card: var(--panel);
+  --text: #f1ead8; /* 主文字(暖白) */
+  --text-dim: var(--text-sub);
 
   /* 滚动条配色(随主题切换),供下方自定义滚动条引用 */
   --scrollbar-thumb: rgba(255, 255, 255, 0.12);
@@ -100,9 +136,37 @@ img {
   --danger-text: #d23b30;
   --danger-soft: rgba(217, 83, 79, 0.12);
 
-  --bg-card: var(--n-4);
-  --text: var(--n-8);
-  --text-dim: var(--n-7);
+  /* ===== Blocky Craft 表面 / 材质(浅色 = 羊皮纸暖白档)===== */
+  --bg-window: #e9e4d4;
+  --bg-titlebar: #d6cfba;
+  --bg-sidebar: #d2cbb4;
+  --panel: #efe9d8;
+  --panel-2: #ded7c2;
+  --panel-3: #c9bf9f;
+  --text-strong: #2c2a20;
+  --text-sub: #6b6552;
+  --text-muted: #837c66;
+  --text-faint: #9a917a;
+  --tag-text: #8a6a38;
+  --grass-top: #6cae3e;
+  --grass-side: #7a5a37;
+
+  --accent: var(--a-4, #e8590c);
+  --accent-hover: var(--a-5, #f06a1f);
+  --accent-press: var(--a-3, #c64a08);
+  --accent-text: #ffffff; /* 浅底 + 橙块上用白字保证对比 */
+
+  --bevel-sunken: inset 2px 2px 0 rgba(255, 255, 255, 0.5), inset -2px -2px 0 rgba(0, 0, 0, 0.18);
+  --bevel-raised: inset 2px 2px 0 rgba(255, 255, 255, 0.75), inset -2px -2px 0 rgba(0, 0, 0, 0.2);
+  --bevel-pressed: inset -2px -2px 0 rgba(255, 255, 255, 0.5), inset 2px 2px 0 rgba(0, 0, 0, 0.22);
+  --bevel-input: inset 2px 2px 0 rgba(0, 0, 0, 0.18);
+
+  --stone-tex: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.08) 0 2px, transparent 2px 5px),
+    repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.05) 0 2px, transparent 2px 6px);
+
+  --bg-card: var(--panel);
+  --text: #2c2a20;
+  --text-dim: var(--text-sub);
 
   --scrollbar-thumb: rgba(0, 0, 0, 0.18);
   --scrollbar-thumb-hover: rgba(0, 0, 0, 0.32);
@@ -133,11 +197,17 @@ img {
 
 /* ===== 共用形状/字体/动效(深浅通用)===== */
 :root {
-  --radius-card: 8px; /* 工作台卡片 */
-  --radius: 6px; /* 控件 */
-  --radius-sm: 4px; /* 小元素 */
-  --fs-base: 14px; /* 比 Classic 略大,Modrinth 偏舒展 */
-  --font: "Inter", "Microsoft YaHei UI", system-ui, -apple-system, sans-serif;
+  /* Blocky Craft:方块感 = 近乎直角(0–2px),倒角立体感交给 inset 阴影(见下方 --bevel-*)。 */
+  --radius-card: 2px; /* 卡片/面板 */
+  --radius: 2px; /* 控件 */
+  --radius-sm: 0px; /* 小元素(chip/tag) */
+  --fs-base: 14px;
+  /* 正文/界面:Noto Sans SC(拉丁本地打包,中文回退系统 CJK)。 */
+  --font: "Noto Sans SC", "PingFang SC", "Microsoft YaHei UI", system-ui, -apple-system, sans-serif;
+  /* 标题/实例名/欢迎语:现代像素体。 */
+  --font-display: "Pixelify Sans", "Noto Sans SC", system-ui, sans-serif;
+  /* 短拉丁词/数字/按钮文案(PLAY、下载量):点阵像素体,勿用于中文长句。 */
+  --font-pixel: "Press Start 2P", "Noto Sans SC", ui-monospace, monospace;
   --shadow: 0 2px 12px rgba(0, 0, 0, 0.35); /* 深色阴影更重 */
 
   /* ===== 动机令牌(--mo-*):CSS 与 JS(motion/tokens.ts)同名同值的单一真相源。
@@ -427,4 +497,24 @@ body {
   object-fit: cover;
   border-radius: inherit;
   image-rendering: auto;
+}
+
+/* ===== Blocky Craft 复用类 =====
+ * 倒角阴影同时经 tailwind.css 桥成 shadow-sunken/raised/pressed 工具类;这里另给裸
+ * class,供 rail / 标题栏等非组件区直接用。.stone 叠石质纹理(背景图无法用工具类表达)。 */
+.stone {
+  background-color: var(--bg-sidebar);
+  background-image: var(--stone-tex);
+}
+.bevel-sunken {
+  box-shadow: var(--bevel-sunken);
+}
+.bevel-raised {
+  box-shadow: var(--bevel-raised);
+}
+.bevel-pressed {
+  box-shadow: var(--bevel-pressed);
+}
+.bevel-input {
+  box-shadow: var(--bevel-input);
 }
