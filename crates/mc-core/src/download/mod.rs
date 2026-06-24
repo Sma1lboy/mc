@@ -124,6 +124,10 @@ pub struct Downloader {
     /// 避免与他人共享同一 Downloader 时被错误地降速(见 download_batch)。
     concurrency: usize,
     mirror: MirrorResolver,
+    /// 可选的 CurseForge API key。仅在下载 CurseForge 自家 host(api.curseforge.com /
+    /// *.forgecdn.net)时随 `x-api-key` 头发送(2026-07-16 起 CDN 要求鉴权);其它 host
+    /// 一律不带。**secret,勿打日志。**
+    cf_api_key: Option<String>,
 }
 
 impl Downloader {
@@ -148,6 +152,7 @@ impl Downloader {
             sem: Arc::new(Semaphore::new(concurrency)),
             concurrency,
             mirror: MirrorResolver::none(),
+            cf_api_key: None,
         })
     }
 
@@ -161,6 +166,25 @@ impl Downloader {
     pub fn with_mirror(mut self, mirror: MirrorResolver) -> Self {
         self.mirror = mirror;
         self
+    }
+
+    /// 设置 CurseForge API key(链式)。去空白后非空才生效;仅在下载 CurseForge 自家
+    /// host 时随 `x-api-key` 头发送(见 [`is_curseforge_host`])。`None`/空 = 不带 key。
+    pub fn with_cf_api_key(mut self, key: Option<String>) -> Self {
+        self.cf_api_key = key.and_then(|k| {
+            let t = k.trim();
+            if t.is_empty() { None } else { Some(t.to_string()) }
+        });
+        self
+    }
+
+    /// 给一个 GET 请求按 host 决定是否附加 CurseForge `x-api-key` 头。命中 CurseForge
+    /// host 且持有 key 才加;其它 host 一律原样返回(绝不把 key 泄露给非 CF host)。
+    fn apply_cf_auth(&self, req: reqwest::RequestBuilder, url: &str) -> reqwest::RequestBuilder {
+        match self.cf_api_key.as_deref() {
+            Some(key) if url_is_curseforge(url) => req.header("x-api-key", key),
+            _ => req,
+        }
     }
 
     /// 暴露底层 client,供其它模块(如 auth)复用同一连接池。
@@ -263,7 +287,8 @@ impl Downloader {
     /// 把 `url` 流式写入 `part_path`(不校验、不 rename)。一次成功的字节搬运;
     /// 重试 / 校验 / 落盘由 [`Self::download_one`] 编排。
     async fn fetch_to_part(&self, url: &str, part_path: &PathBuf) -> Result<()> {
-        let resp = self.client.get(url).send().await?.error_for_status()?;
+        let req = self.apply_cf_auth(self.client.get(url), url);
+        let resp = req.send().await?.error_for_status()?;
 
         let mut file = fs::File::create(part_path)
             .await
@@ -382,8 +407,7 @@ impl Downloader {
         let mut last_err: Option<CoreError> = None;
         for attempt in 0..MAX_ATTEMPTS {
             match self
-                .client
-                .get(&url)
+                .apply_cf_auth(self.client.get(&url), &url)
                 .send()
                 .await
                 .and_then(|r| r.error_for_status())
@@ -427,6 +451,42 @@ fn part_path(path: &Path) -> PathBuf {
     let mut s = path.to_path_buf().into_os_string();
     s.push(".part");
     PathBuf::from(s)
+}
+
+/// 判断一个 host 是否属于 CurseForge(其 CDN 自 2026-07-16 起要求 `x-api-key`)。
+/// 命中:`api.curseforge.com`、任何 `*.forgecdn.net`(含 `edge.` / `mediafilez.`)、
+/// 任何 `*.curseforge.com`。大小写无关。纯函数,可单测。
+fn is_curseforge_host(host: &str) -> bool {
+    let h = host.trim().trim_end_matches('.').to_ascii_lowercase();
+    h == "forgecdn.net"
+        || h == "curseforge.com"
+        || h.ends_with(".forgecdn.net")
+        || h.ends_with(".curseforge.com")
+}
+
+/// 从一个 URL 抽出 host 并判断是否为 CurseForge host。无法解析出 host 的 URL 视作非 CF
+/// (绝不在不确定时附加 key)。不引 url crate:手解析 `scheme://host[:port]/...` 的 authority。
+fn url_is_curseforge(url: &str) -> bool {
+    host_of(url).map(is_curseforge_host).unwrap_or(false)
+}
+
+/// 从 URL 取出 host(去掉 scheme、userinfo、端口、路径)。失败返回 `None`。
+fn host_of(url: &str) -> Option<&str> {
+    let after_scheme = url.split_once("://").map(|(_, rest)| rest)?;
+    // authority 到第一个 '/'、'?'、'#' 为止。
+    let authority = after_scheme
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or(after_scheme);
+    // 去掉可能的 userinfo(`user:pass@host`)。
+    let host_port = authority.rsplit_once('@').map(|(_, h)| h).unwrap_or(authority);
+    // 去掉端口(IPv6 字面量不在我们的下载源里,无需处理 `[::1]`)。
+    let host = host_port.split(':').next().unwrap_or(host_port);
+    if host.is_empty() {
+        None
+    } else {
+        Some(host)
+    }
 }
 
 /// 判断错误是否值得重试。网络层错误(超时、连接重置、DNS、5xx 等)可重试;
@@ -486,6 +546,79 @@ mod tests {
         // Semaphore(0) 会永久阻塞;new 必须把 0 提升到 1。
         let d = Downloader::new(0).unwrap();
         assert!(d.sem.available_permits() >= 1);
+    }
+
+    #[test]
+    fn host_of_extracts_host() {
+        assert_eq!(host_of("https://edge.forgecdn.net/files/1/2/sodium.jar"), Some("edge.forgecdn.net"));
+        assert_eq!(host_of("https://api.curseforge.com/v1/mods/files"), Some("api.curseforge.com"));
+        assert_eq!(host_of("http://user:pass@mediafilez.forgecdn.net:8080/x"), Some("mediafilez.forgecdn.net"));
+        assert_eq!(host_of("https://cdn.modrinth.com/data/x/y.jar?foo=bar"), Some("cdn.modrinth.com"));
+        // 无 scheme / 无 host → None。
+        assert_eq!(host_of("not-a-url"), None);
+        assert_eq!(host_of("https:///path-only"), None);
+    }
+
+    #[test]
+    fn curseforge_host_matching() {
+        assert!(is_curseforge_host("api.curseforge.com"));
+        assert!(is_curseforge_host("edge.forgecdn.net"));
+        assert!(is_curseforge_host("mediafilez.forgecdn.net"));
+        assert!(is_curseforge_host("FORGECDN.NET")); // 大小写无关
+        assert!(is_curseforge_host("www.curseforge.com"));
+        // 非 CF host 不命中。
+        assert!(!is_curseforge_host("cdn.modrinth.com"));
+        assert!(!is_curseforge_host("libraries.minecraft.net"));
+        // 防 host 后缀伪造:`evilforgecdn.net` 不应命中(无点分隔)。
+        assert!(!is_curseforge_host("evilforgecdn.net"));
+        assert!(!is_curseforge_host("forgecdn.net.evil.com"));
+    }
+
+    #[test]
+    fn cf_auth_header_only_for_cf_hosts() {
+        // 决策矩阵:仅"持有 key 且 URL 是 CF host"时附加 x-api-key。
+        let with_key = Downloader::new(2).unwrap().with_cf_api_key(Some("secret".into()));
+        // 持有 key + CF host → 应注入(用 RequestBuilder 的可克隆性间接验证:
+        // 我们无法直接读头,但能验证 url_is_curseforge 的决策面)。
+        assert!(url_is_curseforge("https://edge.forgecdn.net/files/1/sodium.jar"));
+        assert!(url_is_curseforge("https://api.curseforge.com/v1/mods/files"));
+        assert!(!url_is_curseforge("https://cdn.modrinth.com/data/x/y.jar"));
+        assert!(!url_is_curseforge("https://libraries.minecraft.net/a/b.jar"));
+        // key 存在与否不影响 host 决策;空 key 被 with_cf_api_key 归一为 None。
+        assert!(with_key.cf_api_key.is_some());
+        let blank = Downloader::new(2).unwrap().with_cf_api_key(Some("   ".into()));
+        assert!(blank.cf_api_key.is_none());
+        let none = Downloader::new(2).unwrap().with_cf_api_key(None);
+        assert!(none.cf_api_key.is_none());
+    }
+
+    #[test]
+    fn apply_cf_auth_injects_header_only_when_keyed_and_cf_host() {
+        // 用 try_clone + build 把请求物化成 reqwest::Request,直接检查头。
+        let keyed = Downloader::new(2).unwrap().with_cf_api_key(Some("k123".into()));
+
+        let cf_url = "https://edge.forgecdn.net/files/1/sodium.jar";
+        let req = keyed
+            .apply_cf_auth(keyed.client.get(cf_url), cf_url)
+            .build()
+            .unwrap();
+        assert_eq!(req.headers().get("x-api-key").map(|v| v.to_str().unwrap()), Some("k123"));
+
+        // 非 CF host:不带头。
+        let mr_url = "https://cdn.modrinth.com/data/x/y.jar";
+        let req2 = keyed
+            .apply_cf_auth(keyed.client.get(mr_url), mr_url)
+            .build()
+            .unwrap();
+        assert!(req2.headers().get("x-api-key").is_none());
+
+        // 无 key 的 downloader:即便 CF host 也不带头。
+        let unkeyed = Downloader::new(2).unwrap();
+        let req3 = unkeyed
+            .apply_cf_auth(unkeyed.client.get(cf_url), cf_url)
+            .build()
+            .unwrap();
+        assert!(req3.headers().get("x-api-key").is_none());
     }
 
     #[test]

@@ -19,7 +19,7 @@ use serde::Deserialize;
 
 use crate::error::{CoreError, Result};
 
-use super::{Dependency, ProjectVersion, ResourceKind, SearchHit, VersionFile};
+use super::{Dependency, ProjectVersion, ResourceKind, SearchHit, SortMethod, VersionFile};
 
 /// Modrinth API v2 根地址。
 const API_BASE: &str = "https://api.modrinth.com/v2";
@@ -69,6 +69,8 @@ impl ModrinthApi {
     /// - `limit`:返回条数上限(Modrinth 默认 10,最大 100,这里夹到 [1,100])。
     ///
     /// facets 是一个"AND of OR"结构的二维数组,详见 Modrinth 文档。
+    ///
+    /// 排序固定为相关度;需要其它排序走 [`Self::search_sorted`]。
     pub async fn search(
         &self,
         query: &str,
@@ -77,6 +79,23 @@ impl ModrinthApi {
         loader: Option<&str>,
         limit: u32,
         offset: u32,
+    ) -> Result<Vec<SearchHit>> {
+        self.search_sorted(query, kind, game_version, loader, limit, offset, SortMethod::Relevance)
+            .await
+    }
+
+    /// 同 [`Self::search`],但显式指定排序方式。`sort` 映射到 Modrinth `index`
+    /// (见 [`modrinth_index`])。
+    #[allow(clippy::too_many_arguments)]
+    pub async fn search_sorted(
+        &self,
+        query: &str,
+        kind: ResourceKind,
+        game_version: Option<&str>,
+        loader: Option<&str>,
+        limit: u32,
+        offset: u32,
+        sort: SortMethod,
     ) -> Result<Vec<SearchHit>> {
         let facets = build_facets(kind, game_version, loader);
         let limit = limit.clamp(1, 100);
@@ -90,7 +109,7 @@ impl ModrinthApi {
                 ("facets", facets.as_str()),
                 ("limit", &limit.to_string()),
                 ("offset", &offset.to_string()),
-                ("index", "relevance"),
+                ("index", modrinth_index(sort)),
             ])
             .send()
             .await?
@@ -315,6 +334,18 @@ impl ModrinthApi {
 }
 
 // ============================ facets / query 构造 ============================
+
+/// 把统一 [`SortMethod`] 映射到 Modrinth `/search` 的 `index` 参数。
+/// Modrinth 支持:`relevance` / `downloads` / `follows` / `newest` / `updated`。
+/// `Newest` → `newest`(按创建时间),`Updated` → `updated`(按最近更新),默认 `relevance`。
+fn modrinth_index(sort: SortMethod) -> &'static str {
+    match sort {
+        SortMethod::Relevance => "relevance",
+        SortMethod::Downloads => "downloads",
+        SortMethod::Newest => "newest",
+        SortMethod::Updated => "updated",
+    }
+}
 
 /// 构造 Modrinth `facets` 参数(一个 json 字符串)。
 ///
@@ -809,13 +840,14 @@ impl ResourceProvider for ModrinthProvider {
     fn search<'a>(&'a self, q: &'a SearchQuery) -> BoxFuture<'a, Result<Vec<SearchHit>>> {
         Box::pin(async move {
             self.api
-                .search(
+                .search_sorted(
                     &q.text,
                     q.kind,
                     q.game_version.as_deref(),
                     q.loader.as_deref(),
                     q.limit,
                     q.offset,
+                    q.sort,
                 )
                 .await
         })
@@ -943,6 +975,16 @@ mod tests {
     fn json_string_array_encodes() {
         assert_eq!(json_string_array(&["fabric"]), r#"["fabric"]"#);
         assert_eq!(json_string_array(&["a", "b"]), r#"["a","b"]"#);
+    }
+
+    #[test]
+    fn sort_method_maps_to_modrinth_index() {
+        assert_eq!(modrinth_index(SortMethod::Relevance), "relevance");
+        assert_eq!(modrinth_index(SortMethod::Downloads), "downloads");
+        assert_eq!(modrinth_index(SortMethod::Newest), "newest");
+        assert_eq!(modrinth_index(SortMethod::Updated), "updated");
+        // 默认即相关度。
+        assert_eq!(modrinth_index(SortMethod::default()), "relevance");
     }
 
     #[test]

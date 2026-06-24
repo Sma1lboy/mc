@@ -138,6 +138,18 @@ impl FlameApi {
             .map(Self::new)
     }
 
+    /// 从显式 key 构造:去空白后非空才返回 `Some`,否则 `None`。用户在设置里填的
+    /// CurseForge key 走这条路(与 [`Self::from_env`] 同样的空白/空串守卫)。
+    pub fn from_key(key: impl Into<String>) -> Option<Self> {
+        let key = key.into();
+        let key = key.trim();
+        if key.is_empty() {
+            None
+        } else {
+            Some(Self::new(key))
+        }
+    }
+
     /// 用自定义 base url 构造(主要给测试/镜像用)。链式消费 self。
     pub fn with_base(mut self, base: impl Into<String>) -> Self {
         self.base = base.into();
@@ -534,6 +546,11 @@ impl CurseForgeProvider {
     /// 便捷:从 env 构造(无 key 则 `None`,上层据此决定是否注册)。
     pub fn from_env() -> Option<Self> {
         FlameApi::from_env().map(Self::new)
+    }
+
+    /// 便捷:从显式 key 构造(空/全空白则 `None`)。用户设置里填的 CurseForge key 走这条路。
+    pub fn from_key(key: impl Into<String>) -> Option<Self> {
+        FlameApi::from_key(key).map(Self::new)
     }
 
     /// 取底层 [`FlameApi`](诊断/复用用)。
@@ -1001,5 +1018,19 @@ mod tests {
         let api = FlameApi::new("k").with_base("https://example.test/v1");
         assert_eq!(api.api_key(), "k");
         assert!(api.base.ends_with("/v1"));
+    }
+
+    #[test]
+    fn from_key_trims_and_guards_empty() {
+        // 显式 key:去空白后非空才构造。
+        assert!(FlameApi::from_key("").is_none());
+        assert!(FlameApi::from_key("   ").is_none());
+        let api = FlameApi::from_key("  real-key  ").expect("non-empty key constructs");
+        assert_eq!(api.api_key(), "real-key");
+
+        // provider 层同样守卫。
+        assert!(CurseForgeProvider::from_key("").is_none());
+        let p = CurseForgeProvider::from_key("k").expect("non-empty key constructs provider");
+        assert_eq!(p.id(), ProviderId::CurseForge);
     }
 }

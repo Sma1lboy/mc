@@ -80,10 +80,21 @@ impl ProviderRegistry {
     ///
     /// 整合包导入据此让 curseforge / mcbbs 的 `resolve()` 把 manifest 里的 id 变成下载 URL:
     /// 没配 key 时 CurseForge provider 缺席,resolve 会明确报「需配置 API key」而非静默失败。
+    ///
+    /// 等价于 `with_defaults_keyed(None)`:CurseForge key 仅从环境解析(保持旧行为)。
     pub fn with_defaults() -> Self {
+        Self::with_defaults_keyed(None)
+    }
+
+    /// 同 [`Self::with_defaults`],但允许传入一个显式 CurseForge key(通常来自用户设置)。
+    /// key 经 [`resolve_cf_api_key`] 解析(settings → 编译期 baked → 环境);解析出 key 才
+    /// 注册 CurseForge,否则只注册 Modrinth。
+    pub fn with_defaults_keyed(cf_key: Option<String>) -> Self {
         let mut reg = Self::new().with(Arc::new(super::modrinth::ModrinthProvider::new()));
-        if let Some(cf) = super::curseforge::CurseForgeProvider::from_env() {
-            reg = reg.with(Arc::new(cf));
+        if let Some(key) = resolve_cf_api_key(cf_key.as_deref()) {
+            if let Some(cf) = super::curseforge::CurseForgeProvider::from_key(key) {
+                reg = reg.with(Arc::new(cf));
+            }
         }
         reg
     }
@@ -108,6 +119,29 @@ impl ProviderRegistry {
     pub fn all(&self) -> impl Iterator<Item = &Arc<dyn ResourceProvider>> {
         self.by_id.values()
     }
+}
+
+/// 解析最终生效的 CurseForge API key,按优先级:
+/// 1. `settings_key`(用户在设置里填的,去空白后非空)——最高优先,Prism 风格自带 key。
+/// 2. `option_env!("MC_CF_API_KEY")`——编译期 baked 进二进制的发行 key(若构建时配了)。
+/// 3. `std::env::var("MC_CF_API_KEY")`——运行期环境变量(本地开发 / CI)。
+/// 4. 都没有 → `None`(上层据此不注册 CurseForge)。
+///
+/// 每一层都做 trim + 空串守卫;返回的 key 已去空白。**secret,勿打日志。**
+pub fn resolve_cf_api_key(settings_key: Option<&str>) -> Option<String> {
+    fn non_empty(s: &str) -> Option<String> {
+        let t = s.trim();
+        if t.is_empty() {
+            None
+        } else {
+            Some(t.to_string())
+        }
+    }
+
+    settings_key
+        .and_then(non_empty)
+        .or_else(|| option_env!("MC_CF_API_KEY").and_then(non_empty))
+        .or_else(|| std::env::var("MC_CF_API_KEY").ok().as_deref().and_then(non_empty))
 }
 
 /// 把一个 host 映射到所属平台(纯函数,可单测):
@@ -135,5 +169,31 @@ mod tests {
         assert_eq!(host_provider("mediafilez.forgecdn.net"), Some(ProviderId::CurseForge));
         assert_eq!(host_provider("api.curseforge.com"), Some(ProviderId::CurseForge));
         assert_eq!(host_provider("example.com"), None);
+    }
+
+    #[test]
+    fn resolve_cf_api_key_prefers_settings_and_guards_empty() {
+        // 非空设置 key 永远最高优先(链首),与环境无关,且去空白。
+        assert_eq!(resolve_cf_api_key(Some("  my-key  ")).as_deref(), Some("my-key"));
+        // 空 / 全空白的设置 key 绝不被当成有效 key 原样返回(它要么回退到 env 链,
+        // 要么 None,但永不等于那串空白)。
+        assert_ne!(resolve_cf_api_key(Some("")).as_deref(), Some(""));
+        assert_ne!(resolve_cf_api_key(Some("   ")).as_deref(), Some("   "));
+    }
+
+    #[test]
+    fn keyed_registry_registers_curseforge_with_explicit_key() {
+        // 给了显式 key → Modrinth + CurseForge 都在。
+        let reg = ProviderRegistry::with_defaults_keyed(Some("explicit-key".to_string()));
+        assert!(reg.get(ProviderId::Modrinth).is_some());
+        assert!(reg.get(ProviderId::CurseForge).is_some());
+    }
+
+    #[test]
+    fn keyed_registry_always_has_modrinth() {
+        // 即便没有任何 CurseForge key,Modrinth 也必定在。
+        // (CurseForge 是否在取决于环境里有没有 MC_CF_API_KEY / baked key,故只断言 Modrinth。)
+        let reg = ProviderRegistry::with_defaults_keyed(None);
+        assert!(reg.get(ProviderId::Modrinth).is_some());
     }
 }
