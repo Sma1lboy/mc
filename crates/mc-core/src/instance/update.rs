@@ -114,7 +114,8 @@ pub async fn check_mod_updates(
 /// 应用一个更新:把新版本文件下载进 `mods/`,再删掉旧文件(文件名不同才需删,
 /// 同名则下载已覆盖)。删除走回收站(可恢复),与 mod 删除一致。
 pub async fn apply_mod_update(inst: &Instance, dl: &Downloader, update: &ModUpdate) -> Result<()> {
-    let dest = inst.mods_dir().join(&update.new_file_name);
+    // new_file_name 源自平台 API(不可信):单一路径段校验,防止写出 mods/ 之外。
+    let dest = crate::fs::resolve_segment(&inst.mods_dir(), &update.new_file_name)?;
     dl.download_one(&DownloadItem {
         url: update.url.clone(),
         path: dest,
