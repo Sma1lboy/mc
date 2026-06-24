@@ -43,6 +43,15 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
+      # The Tauri crate (mc-launcher-desktop) links GTK/webkit on Linux, so the
+      # bindings build needs the same system deps as release.yml — without them
+      # `cargo test export_bindings` fails at link time (glib-2.0 not found).
+      - name: Install Linux build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev
+
       # Regenerate desktop/src/ipc/bindings.ts from the registered tauri commands
       # (mc-launcher-desktop is NOT in the workspace, so run it from its own dir),
       # then fail if the committed file differs — the #1 recurring bug class is
