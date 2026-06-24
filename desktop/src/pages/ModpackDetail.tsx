@@ -2,6 +2,7 @@ import { Component, createResource, createSignal, For, Show, onMount, onCleanup 
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { BlockedFilesDialog, Spinner, toast, Lightbox, type ModpackHit, type LightboxImage } from "../components";
 import { api, onInstallProgress } from "../ipc/api";
+import { cached } from "../ipc/cache";
 import { activeRoot } from "../store";
 import { t } from "../i18n";
 import type { ImportOutcome, ModrinthVersion, ModrinthProject } from "../ipc/types";
@@ -51,7 +52,7 @@ const ModpackDetail: Component<{
   const [project] = createResource(
     () => props.hit.id,
     (id) =>
-      api.modrinthProject(id).catch((e) => {
+      cached(`project|${provider()}|${id}`, () => api.modrinthProject(id)).catch((e) => {
         toast({ type: "error", message: t("discover.aboutLoadFailed", { error: String(e) }) });
         return null as ModrinthProject | null;
       }),
@@ -60,7 +61,7 @@ const ModpackDetail: Component<{
   const [versions] = createResource(
     () => [props.hit.id, provider()] as const,
     ([id, prov]) =>
-      api.modrinthVersions(id, prov).catch((e) => {
+      cached(`versions|${prov}|${id}`, () => api.modrinthVersions(id, prov)).catch((e) => {
         toast({ type: "error", message: t("discover.versionsLoadFailed", { error: String(e) }) });
         return [] as ModrinthVersion[];
       }),

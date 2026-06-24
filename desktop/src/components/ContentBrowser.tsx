@@ -6,7 +6,7 @@ import { SearchBox } from "./SearchBox";
 import { Select } from "./Select";
 import { Spinner } from "./Spinner";
 import { toast } from "./Toast";
-import { api } from "../ipc/api";
+import { searchContent, SEARCH_PAGE } from "../util/contentSearch";
 import { t } from "../i18n";
 import type { ProjectKind, SearchHit } from "../ipc/types";
 
@@ -24,7 +24,7 @@ import type { ProjectKind, SearchHit } from "../ipc/types";
  * 调用方据此把安装路由到正确平台。CurseForge 未配置 API Key 时禁用该选项并就地提示。
  */
 
-const PAGE = 30;
+const PAGE = SEARCH_PAGE;
 
 /** 内容平台标识(透传给搜索/安装命令的 provider 字符串)。 */
 export type ContentProvider = "modrinth" | "curseforge";
@@ -99,6 +99,8 @@ export interface ContentBrowserProps {
   openSource?: () => boolean;
   /** 内部内容平台切换时上报(Discover 据此决定 facet 侧栏显示哪些组)。 */
   onProviderChange?: (provider: ContentProvider) => void;
+  /** 首屏搜索 loading 变化回调(Discover 据此判断「整体就绪」,统一渲染两栏)。 */
+  onLoadingChange?: (loading: boolean) => void;
 }
 
 const ADD_BTN = ACCENT_BTN_COMPACT;
@@ -140,6 +142,8 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
 
   // 平台变化(用户切换或 CF 未配置回退)即上报,供 Discover 调整 facet 侧栏。
   createEffect(() => props.onProviderChange?.(provider()));
+  // 首屏搜索 loading 变化上报,Discover 据此与 facet 一起判定「整体就绪」。
+  createEffect(() => props.onLoadingChange?.(loading()));
 
   // Discover 侧栏的多选 facet → 后端 SearchFacetsArg(仅 Modrinth 消费;CF 忽略)。
   // 任一维度非空才下发,否则传 null 保持原行为(实例弹窗等不传 facet props 的场景)。
@@ -155,18 +159,18 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
 
   async function fetchPage(q: string, offset: number): Promise<SearchHit[] | null> {
     const p = provider();
+    const facets = buildFacets();
     try {
-      const hits = await api.modrinthSearch(
-        q,
-        props.kind,
-        props.mcVersion || null,
-        props.loader,
-        PAGE,
+      const hits = await searchContent({
+        provider: p,
+        kind: props.kind,
+        mcVersion: props.mcVersion,
+        loader: props.loader,
+        query: q,
+        sort: sort(),
+        facets,
         offset,
-        p,
-        sort(),
-        buildFacets(),
-      );
+      });
       setReachedEnd(hits.length < PAGE);
       return hits;
     } catch (e) {

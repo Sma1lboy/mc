@@ -1,17 +1,14 @@
 import {
   Component,
   createMemo,
-  createResource,
   createSignal,
   For,
   Show,
 } from "solid-js";
-import { api } from "../ipc/api";
 import { t } from "../i18n";
-import type { ProjectKind, CategoryTag, LoaderTag, GameVersionTag } from "../ipc/types";
+import type { ProjectKind, CategoryTag, LoaderTag, GameVersionTag, FacetTagsDto } from "../ipc/types";
 import type { ContentProvider } from "./ContentBrowser";
 import { SearchBox } from "./SearchBox";
-import { Spinner } from "./Spinner";
 
 /**
  * FacetSidebar —— Discover 浏览态的 Modrinth 多选 facet 过滤侧栏。
@@ -44,6 +41,8 @@ export interface FacetSidebarProps {
   provider: ContentProvider;
   selected: () => FacetSelection;
   onChange: (next: FacetSelection) => void;
+  /** 分类法:由 Discover 统一拉取并下传(整体就绪后再渲染,侧栏不单独等待)。 */
+  tags: () => FacetTagsDto | undefined;
 }
 
 /** 把前端 ProjectKind 映射到 Modrinth 的 project_type(datapack 归入 mod)。 */
@@ -69,6 +68,14 @@ function headerTitleKey(header: string): string {
 
 // 内容分类分组的渲染顺序(与 Modrinth header 一致)。
 const CONTENT_HEADERS = ["categories", "features", "resolutions", "performance impact"];
+
+/** API 返回小写 slug(如 "kitchen-sink");展示时首字母大写、`-`/`_` 转空格。 */
+function titleCase(slug: string): string {
+  return slug
+    .split(/[-_]/)
+    .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
+    .join(" ");
+}
 
 /** 一行多选项:复选框 + 标签。house glass 风格。 */
 const FacetCheckbox: Component<{
@@ -143,8 +150,8 @@ const FacetSection: Component<{
 };
 
 export const FacetSidebar: Component<FacetSidebarProps> = (props) => {
-  // 分类法缓存:进程内 OnceCell(后端),前端 createResource 只在首挂时取一次。
-  const [facets] = createResource(() => api.contentFacets());
+  // 分类法由 Discover 统一拉取下传(整体就绪后再渲染),侧栏不单独 fetch/等待。
+  const facets = () => props.tags();
 
   // 仅 Modrinth 支持 facet 过滤;CF 选中时只给说明。
   const isModrinth = () => props.provider === "modrinth";
@@ -254,14 +261,7 @@ export const FacetSidebar: Component<FacetSidebarProps> = (props) => {
       >
         <Show
           when={facets()}
-          fallback={
-            <Show
-              when={!facets.error}
-              fallback={<div class="text-[12px] text-dim px-[4px] py-[8px]">{t("facets.loadFailed")}</div>}
-            >
-              <div class="flex justify-center py-[20px]"><Spinner /></div>
-            </Show>
-          }
+          fallback={<div class="text-[12px] text-dim px-[4px] py-[8px]">{t("facets.loadFailed")}</div>}
         >
           {/* 内容分类(按 header 分组)。 */}
           <For each={contentGroups()}>
@@ -273,7 +273,7 @@ export const FacetSidebar: Component<FacetSidebarProps> = (props) => {
                   <For each={group.items}>
                     {(c) => (
                       <FacetCheckbox
-                        label={c.name}
+                        label={titleCase(c.name)}
                         checked={sel().categories.includes(c.name)}
                         onToggle={() => toggleCategory(c.name)}
                       />
@@ -309,7 +309,7 @@ export const FacetSidebar: Component<FacetSidebarProps> = (props) => {
               <For each={loaderList()}>
                 {(l) => (
                   <FacetCheckbox
-                    label={l.name}
+                    label={titleCase(l.name)}
                     checked={sel().loaders.includes(l.name)}
                     onToggle={() => toggleLoader(l.name)}
                   />
