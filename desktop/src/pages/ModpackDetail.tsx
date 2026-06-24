@@ -1,5 +1,4 @@
 import { Component, createResource, createSignal, For, Show, onMount, onCleanup } from "solid-js";
-import { createVirtualizer } from "@tanstack/solid-virtual";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { BlockedFilesDialog, Spinner, toast, Lightbox, type ModpackHit, type LightboxImage } from "../components";
 import { api, onInstallProgress } from "../ipc/api";
@@ -78,11 +77,14 @@ const ModpackDetail: Component<{
   onCleanup(offProgress);
   // 装完后若有需手动下载 / 被跳过的文件,弹窗摊开给用户(而不是只在 toast 里报个数字)。
   const [outcome, setOutcome] = createSignal<ImportOutcome | null>(null);
+  // 头部「安装最新版 ▾」的版本下拉是否展开。
+  const [menuOpen, setMenuOpen] = createSignal(false);
 
   // Esc 返回(与列表/灯箱一致);灯箱/结果弹窗打开或安装进行中时不抢 Esc。
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      if (menuOpen()) { setMenuOpen(false); e.preventDefault(); return; }
       if (lbIndex() !== null || outcome() !== null || installing()) return;
       e.preventDefault();
       props.onBack();
@@ -91,19 +93,7 @@ const ModpackDetail: Component<{
     onCleanup(() => document.removeEventListener("keydown", onKey));
   });
 
-  // 版本列表虚拟化(热门整合包可达数百版本,只渲染可视区 + overscan)。
-  // 行高可变(更新日志可展开),靠 measureElement(ResizeObserver)动态测量。
   const vList = (): ModrinthVersion[] => versions() ?? [];
-  const [versionsScrollEl, setVersionsScrollEl] = createSignal<HTMLDivElement | null>(null);
-  const versionVirtualizer = createVirtualizer({
-    get count() {
-      return vList().length;
-    },
-    getScrollElement: () => versionsScrollEl(),
-    estimateSize: () => 92,
-    overscan: 6,
-    getItemKey: (i) => vList()[i]?.id ?? i,
-  });
 
   // 外部链接:源码/问题/Wiki/Discord(用系统浏览器打开)。
   const links = () => {
@@ -200,6 +190,51 @@ const ModpackDetail: Component<{
                 )}
               </For>
             </div>
+          </div>
+
+          {/* 头部主操作:安装最新版 + 下拉选具体版本(整合包安装即新建实例)。 */}
+          <div class="relative ml-auto shrink-0 self-start flex items-stretch">
+            <button
+              class="h-[36px] rounded-l-ctl border-none bg-a-5 px-[16px] text-white text-[13px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90 disabled:opacity-50 disabled:cursor-default"
+              disabled={installing() !== null || vList().length === 0}
+              onClick={() => {
+                const v = vList()[0];
+                if (v) install(v);
+              }}
+            >
+              {installing() ? progress() || t("discover.installing") : t("discover.installLatestVersion")}
+            </button>
+            <button
+              class="h-[36px] w-[30px] rounded-r-ctl border-none bg-a-5 text-white text-[14px] cursor-pointer transition-opacity duration-150 hover:opacity-90 disabled:opacity-50 disabled:cursor-default"
+              style={{ "border-left": "1px solid rgba(255,255,255,0.22)" }}
+              disabled={installing() !== null || vList().length === 0}
+              title={t("discover.chooseVersion")}
+              aria-label={t("discover.chooseVersion")}
+              onClick={() => setMenuOpen((o) => !o)}
+            >
+              ▾
+            </button>
+            <Show when={menuOpen()}>
+              <div class="fixed inset-0 z-20" onClick={() => setMenuOpen(false)} />
+              <div class="absolute right-0 top-[42px] z-30 w-[340px] max-h-[380px] overflow-y-auto glass-panel rounded-card border border-glass-border p-[6px]">
+                <div class="px-[8px] py-[6px] text-[12px] text-n-6">{t("discover.chooseVersion")}</div>
+                <For each={vList()}>
+                  {(v) => (
+                    <button
+                      class="w-full flex items-center justify-between gap-[10px] px-[10px] py-[8px] rounded-ctl bg-transparent border-none text-left cursor-pointer transition-colors duration-150 hover:bg-glass-hover disabled:opacity-50 disabled:cursor-default"
+                      disabled={installing() !== null}
+                      onClick={() => {
+                        setMenuOpen(false);
+                        install(v);
+                      }}
+                    >
+                      <span class="min-w-0 flex-1 text-[13px] text-n-8 whitespace-nowrap overflow-hidden text-ellipsis">{v.version_number}</span>
+                      <span class="shrink-0 text-[11px] text-n-6">{typeLabel(v.version_type)} · {fmtDate(v.date_published)}</span>
+                    </button>
+                  )}
+                </For>
+              </div>
+            </Show>
           </div>
         </div>
         <Show when={props.hit.description}>
@@ -341,25 +376,10 @@ const ModpackDetail: Component<{
               when={vList().length > 0}
               fallback={<div class="p-[28px] text-center text-n-6">{t("discover.noVersions")}</div>}
             >
-              <div
-                ref={setVersionsScrollEl}
-                class="overflow-y-auto max-h-[calc(100vh-300px)] px-[2px] -mx-[2px]"
-              >
-                <div
-                  class="relative w-full"
-                  style={{ height: `${versionVirtualizer.getTotalSize()}px` }}
-                >
-                  <For each={versionVirtualizer.getVirtualItems()}>
-                    {(vi) => {
-                      const v = vList()[vi.index];
-                      return (
-                        <div
-                          data-index={vi.index}
-                          ref={(el) => versionVirtualizer.measureElement(el)}
-                          class="absolute top-0 left-0 w-full"
-                          style={{ transform: `translateY(${vi.start}px)` }}
-                        >
-                          <div class="flex items-start gap-[12px] py-[12px] px-[2px] border-b border-b-glass-divider">
+              <div class="overflow-y-auto max-h-[calc(100vh-300px)] px-[2px] -mx-[2px]">
+                <For each={vList()}>
+                  {(v) => (
+                    <div class="flex items-start gap-[12px] py-[12px] px-[2px] border-b border-b-glass-divider">
                     <div class="flex-1 min-w-0">
                       <div class="flex items-center gap-[8px]">
                         <span class="text-[14px] font-bold text-n-8">{v.version_number}</span>
@@ -402,12 +422,9 @@ const ModpackDetail: Component<{
                             >
                               {installing() === v.id ? (progress() || t("discover.installing")) : t("discover.installThisVersion")}
                             </button>
-                          </div>
-                        </div>
-                      );
-                    }}
-                  </For>
-                </div>
+                    </div>
+                  )}
+                </For>
               </div>
             </Show>
           </Show>
