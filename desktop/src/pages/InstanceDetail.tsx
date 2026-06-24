@@ -1,4 +1,4 @@
-import { Component, createResource, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { Component, createResource, createSignal, onCleanup, onMount, For, Show } from "solid-js";
 import { InstanceManageDialog, InstanceIcon, Dialog, ExportModpackDialog, toast, type InstanceRowData } from "../components";
 import { PlayButton } from "../components/PlayButton";
 import { Menu } from "../components/Menu";
@@ -35,6 +35,15 @@ const InstanceDetail: Component = () => {
   const [cfg] = createResource(
     () => currentInstanceId(),
     (id) => (id ? api.getInstanceConfig(activeRoot(), id).catch(() => null) : null),
+  );
+  // 整合包来源(Modrinth)→ 拉项目详情,用真实 logo + 下载量/收藏数 + 分类点亮实例头部
+  // (避免和「概览」标签重复展示同一套品牌信息)。
+  const [project] = createResource(
+    () => {
+      const s = cfg()?.source;
+      return s && s.provider === "modrinth" ? s.project_id : null;
+    },
+    (id) => api.modrinthProject(id).catch(() => null),
   );
   const latestUpdate = () => (updates() ?? [])[0];
   const modrinthUrl = () => {
@@ -182,7 +191,7 @@ const InstanceDetail: Component = () => {
           {(i) => (
             <div class="flex items-center gap-[14px]">
               <div class="relative shrink-0 w-[52px] h-[52px] rounded-ctl overflow-hidden select-none">
-                <InstanceIcon name={i().name || i().id} icon={i().icon ?? undefined} />
+                <InstanceIcon name={i().name || i().id} icon={i().icon || project()?.icon_url || undefined} />
                 <Show when={isRunning(i().id)}>
                   <span class="absolute right-[3px] bottom-[3px] w-[12px] h-[12px] rounded-full bg-a-5 shadow-[0_0_0_2px_var(--bg-card)]" title={t("instance.running")} />
                 </Show>
@@ -193,7 +202,29 @@ const InstanceDetail: Component = () => {
                 </div>
                 <div class="text-[12px] text-dim whitespace-nowrap overflow-hidden text-ellipsis">
                   {loaderLabel()} · {playedLabel()}
+                  <Show when={project()}>
+                    {(p) => (
+                      <>
+                        <span> · ⬇ {p().downloads.toLocaleString()}</span>
+                        <Show when={p().followers}>
+                          <span> · ♥ {p().followers.toLocaleString()}</span>
+                        </Show>
+                      </>
+                    )}
+                  </Show>
                 </div>
+                {/* 整合包分类标签:头部点亮品牌信息,概览不再重复。 */}
+                <Show when={(project()?.categories?.length ?? 0) > 0}>
+                  <div class="mt-[5px] flex flex-wrap gap-[5px]">
+                    <For each={project()!.categories}>
+                      {(c) => (
+                        <span class="text-[11px] leading-[16px] py-[1px] px-[8px] rounded-full bg-a-1 text-a-6 capitalize">
+                          {c}
+                        </span>
+                      )}
+                    </For>
+                  </div>
+                </Show>
                 {/* 整合包更新提示:有更新时给个可点击的小药丸,点开确认弹窗就地更新。 */}
                 <Show when={latestUpdate()}>
                   <button
