@@ -9,6 +9,9 @@ const dict = {
     "searchBox.placeholder": "搜索…",
     "searchBox.clear": "清空搜索",
 
+    // Chip(可移除筛选)
+    "chip.remove": "移除",
+
     // ErrorState
     "errorState.failed": "加载失败",
     "errorState.retry": "重试",
@@ -118,6 +121,9 @@ const dict = {
     "searchBox.label": "Search",
     "searchBox.placeholder": "Search…",
     "searchBox.clear": "Clear search",
+
+    // Chip(removable filter)
+    "chip.remove": "Remove",
 
     // ErrorState
     "errorState.failed": "Failed to load",

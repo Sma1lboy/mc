@@ -1,6 +1,8 @@
 /* @refresh reload */
 import { render } from "solid-js/web";
 
+// 本地字体(Blocky Craft:像素标题 + 像素徽标 + Noto 正文),最先加载避免 FOUT。
+import "./theme/fonts.css";
 // 全局设计令牌(CSS 变量)必须最先加载,后续主题脚本只覆盖 --a-*/--n-*。
 import "./theme/tokens.css";
 // Tailwind 入口 + 令牌桥接(放 tokens 之后:preflight/utilities 引用上面的变量)。

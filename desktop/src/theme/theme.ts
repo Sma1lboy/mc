@@ -47,8 +47,8 @@ export function accentFromHex(hex: string): {
   };
 }
 
-/** 默认主题:深色 + 陶土橙(kobe/Claude 暖色,以 hex 表达)。invoke 失败时的兜底。logo 固定绿,不随此色变。 */
-export const DEFAULT_THEME: ThemeConfig = { mode: "dark", ...accentFromHex("#cc785c") };
+/** 默认主题:深色 + 熔岩橙(Blocky Craft 招牌强调)。invoke 失败时的兜底。logo 固定草绿,不随此色变。 */
+export const DEFAULT_THEME: ThemeConfig = { mode: "dark", ...accentFromHex("#e8590c") };
 
 function numberOrDefault(value: unknown, fallback: number): number {
   const num = Number(value);
@@ -201,11 +201,11 @@ export const PRESETS: {
   saturation: number;
   lightness: number;
 }[] = [
-  { name: "陶土", hex: "#cc785c" },
-  { name: "绿", hex: "#28a062" },
-  { name: "蓝", hex: "#3b82f6" },
-  { name: "紫", hex: "#8b5cf6" },
-  { name: "粉", hex: "#ec4899" },
+  { name: "熔岩橙", hex: "#e8590c" },
+  { name: "草绿", hex: "#5b8f3a" },
+  { name: "下界红", hex: "#c0392b" },
+  { name: "紫晶", hex: "#7d4fd1" },
+  { name: "钻石青", hex: "#3aa6a0" },
 ].map((p) => ({ ...p, ...accentFromHex(p.hex) }));
 
 /**

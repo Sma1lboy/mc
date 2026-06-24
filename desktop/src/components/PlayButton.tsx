@@ -2,17 +2,16 @@ import { JSX, Show } from "solid-js";
 import { t } from "../i18n";
 import "./PlayButton.css"; // 残留 @keyframes(旋转环动画 ui-play-spin)
 
-// 按钮基础样式(Tailwind 内联):accent 主操作按钮。
-//   - 数值严格对齐原 CSS: gap 7px / padding 9px 18px / font 600 / line-height 1。
-//   - 颜色/圆角/缓动走令牌桥接;--fs-base / --dur 不在桥接表 -> 引用原变量。
-//   - 白字 #ffffff 直接字面量。
+// 按钮基础样式(Blocky Craft):熔岩橙凸起倒角 + Press Start 2P 点阵文案 + 按下翻转倒角。
+//   - 文案走点阵体(PLAY / Running 等短拉丁词);中文标签经字体栈回退 Noto。
+//   - 颜色/缓动走令牌桥接;--dur 不在桥接表 -> 引用原变量。白字 #ffffff 直接字面量。
 const PLAY_BASE =
   "inline-flex items-center justify-center gap-[7px] " +
-  "text-[var(--fs-base)] font-sans font-semibold leading-none " +
-  "py-[9px] px-[18px] border-none rounded-ctl text-[#ffffff] " +
-  "cursor-pointer select-none whitespace-nowrap bg-a-4 " +
-  "transition-[background-color,transform,opacity] duration-[var(--dur)] ease-app " +
-  "hover:not-disabled:bg-a-5 active:not-disabled:bg-a-3 active:not-disabled:translate-y-px " +
+  "font-pixel text-[11px] leading-none " +
+  "py-[10px] px-[18px] border-none rounded-none text-[#ffffff] " +
+  "cursor-pointer select-none whitespace-nowrap bg-accent shadow-raised " +
+  "transition-[background-color,box-shadow,opacity] duration-[var(--dur)] ease-app " +
+  "hover:not-disabled:bg-accent-hover active:not-disabled:shadow-pressed " +
   "disabled:opacity-50 disabled:cursor-not-allowed";
 // running 态:直接红色(danger 令牌)= 运行中且点击即结束实例;hover 加深红。
 const PLAY_RUNNING = "bg-danger hover:not-disabled:bg-danger-hover";

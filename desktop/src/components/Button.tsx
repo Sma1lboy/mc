@@ -1,22 +1,20 @@
 import { JSX, splitProps } from "solid-js";
 
-// 基础样式(Tailwind 内联):行内 flex 居中、14px 基准字号、控件圆角、~240ms 过渡。
+// 基础样式(Blocky Craft):行内 flex 居中、方块直角、倒角立体边、按下翻转倒角。
 const BTN_BASE =
   "inline-flex items-center justify-center gap-[6px] " +
   "text-[length:var(--fs-base)] font-[inherit] font-medium leading-none " +
-  "px-[14px] py-[8px] border border-transparent rounded-ctl " +
+  "px-[14px] py-[9px] border-none rounded-none " +
   "cursor-pointer select-none whitespace-nowrap " +
-  "transition-[background-color,border-color,color,opacity,transform] duration-[var(--dur)] ease-app " +
-  // 轻微下压反馈 + 禁用态。
-  "active:enabled:translate-y-px disabled:opacity-50 disabled:cursor-not-allowed";
+  "transition-[background-color,color,box-shadow,opacity] duration-[var(--dur)] ease-app " +
+  // 按下态:倒角上下翻转(MC GUI 的「按下感」)+ 禁用态。
+  "active:enabled:shadow-pressed disabled:opacity-50 disabled:cursor-not-allowed";
 
-// 三种变体:primary(accent 实心白字) / ghost(透明底 hover 中性灰) / danger(红色破坏性)。
+// 三种变体:primary(熔岩橙凸起) / ghost(panel-2 次按钮凸起) / danger(红色破坏性凸起)。
 const BTN_VARIANT: Record<string, string> = {
-  primary: "bg-a-4 text-white hover:enabled:bg-a-5 active:enabled:bg-a-3",
-  ghost:
-    "bg-transparent text-fg hover:enabled:bg-glass-hover active:enabled:bg-n-6",
-  danger:
-    "bg-danger text-white hover:enabled:bg-danger-hover active:enabled:bg-danger-hover",
+  primary: "bg-accent text-white shadow-raised hover:enabled:bg-accent-hover",
+  ghost: "bg-panel-3 text-fg shadow-raised hover:enabled:brightness-110",
+  danger: "bg-danger text-white shadow-raised hover:enabled:bg-danger-hover",
 };
 
 // Button —— 通用按钮组件。

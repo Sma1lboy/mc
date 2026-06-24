@@ -36,6 +36,27 @@
   --color-fg: var(--text);
   --color-dim: var(--text-dim);
 
+  /* ===== Blocky Craft 表面 / 文字 / 强调 =====
+   * bg-window/sidebar/titlebar/panel/panel-2/panel-3、text-sub/muted/faint/tag、
+   * bg-accent / text-accent / text-accent-text、grass-top/side。 */
+  --color-window: var(--bg-window);
+  --color-titlebar: var(--bg-titlebar);
+  --color-sidebar: var(--bg-sidebar);
+  --color-panel: var(--panel);
+  --color-panel-2: var(--panel-2);
+  --color-panel-3: var(--panel-3);
+  --color-strong: var(--text-strong);
+  --color-sub: var(--text-sub);
+  --color-muted: var(--text-muted);
+  --color-faint: var(--text-faint);
+  --color-tag: var(--tag-text);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-press: var(--accent-press);
+  --color-accent-text: var(--accent-text);
+  --color-grass-top: var(--grass-top);
+  --color-grass-side: var(--grass-side);
+
   /* 危险/破坏性:bg-danger / bg-danger-hover / text-danger-text / bg-danger-soft */
   --color-danger: var(--danger);
   --color-danger-hover: var(--danger-hover);
@@ -58,10 +79,19 @@
   /* 阴影:shadow-card */
   --shadow-card: var(--shadow);
 
+  /* Blocky 方块倒角:shadow-sunken(面板凹陷)/ shadow-raised(按钮凸起)/
+   * shadow-pressed(按下翻转)/ shadow-input(输入深凹)。 */
+  --shadow-sunken: var(--bevel-sunken);
+  --shadow-raised: var(--bevel-raised);
+  --shadow-pressed: var(--bevel-pressed);
+  --shadow-input: var(--bevel-input);
+
   /* 缓动:ease-app / ease-emph */
   --ease-app: var(--ease);
   --ease-emph: var(--mo-ease-out);
 
-  /* 字体 */
+  /* 字体:font-sans(正文)/ font-display(像素标题)/ font-pixel(点阵短词) */
   --font-sans: var(--font);
+  --font-display: var(--font-display);
+  --font-pixel: var(--font-pixel);
 }
