@@ -3,6 +3,7 @@ import { PlayButton } from "./PlayButton";
 import { InstanceIcon } from "./InstanceIcon";
 import { Dialog } from "./Dialog";
 import { Menu } from "./Menu";
+import { Icon } from "./Icon";
 import { formatRelativeTime } from "./format";
 import { loaderLabel as fmtLoader } from "../util/loaders";
 import { isRunning, isLaunching } from "../store";
@@ -36,6 +37,12 @@ export interface InstanceRowProps {
   onOpenDir?: (id: string) => void;
   onExport?: (id: string) => void;
   onDelete?: (id: string) => void;
+  /** 多选模式:为真时行左侧出现勾选框,点击行主体改为切换选中(而非进入详情)。 */
+  selectable?: boolean;
+  /** 当前是否被选中(仅 selectable 时有意义)。 */
+  selected?: boolean;
+  /** 切换选中回调(传入实例 id)。 */
+  onToggleSelect?: (id: string) => void;
 }
 
 export function InstanceRow(props: InstanceRowProps): JSX.Element {
@@ -66,12 +73,32 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
 
   return (
     <>
-      <div class="flex items-center gap-[14px] glass-card glass-card--hover rounded-card px-[14px] py-[12px] transition-[transform,box-shadow,border-color,background-color] duration-[var(--dur)] ease-app hover:-translate-y-[2px]">
-        {/* 行主体:点击进入实例详情。 */}
+      <div
+        class="flex items-center gap-[14px] glass-card glass-card--hover rounded-card px-[14px] py-[12px] transition-[transform,box-shadow,border-color,background-color] duration-[var(--dur)] ease-app hover:-translate-y-[2px]"
+        classList={{ "ring-2 ring-a-5 ring-offset-0": !!props.selectable && !!props.selected }}
+      >
+        {/* 多选模式下的勾选框(纯追加,默认不渲染)。 */}
+        <Show when={props.selectable}>
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={!!props.selected}
+            aria-label={t("instance.selectRow", { name: inst().name })}
+            onClick={() => props.onToggleSelect?.(inst().id)}
+            class="shrink-0 w-[20px] h-[20px] rounded-[6px] border flex items-center justify-center cursor-pointer transition-colors duration-[var(--dur)] ease-app"
+            classList={{
+              "bg-a-5 border-a-5 text-white": !!props.selected,
+              "bg-glass-card border-glass-border text-transparent hover:border-a-4": !props.selected,
+            }}
+          >
+            <Icon name="check" size={14} />
+          </button>
+        </Show>
+        {/* 行主体:多选模式下点击切换选中,否则进入实例详情。 */}
         <button
           type="button"
           class="flex items-center gap-[14px] flex-1 min-w-0 bg-transparent border-none p-0 text-left cursor-pointer"
-          onClick={() => props.onOpen?.(inst().id)}
+          onClick={() => (props.selectable ? props.onToggleSelect?.(inst().id) : props.onOpen?.(inst().id))}
         >
           {/* 左: 图标 (有 icon 显示图片, 否则 MC 像素占位)。 */}
           <div class="relative shrink-0 w-[48px] h-[48px] rounded-ctl overflow-hidden select-none">
