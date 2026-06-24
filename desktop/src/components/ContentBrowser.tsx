@@ -361,7 +361,14 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
                     action={
                       onAdd ? (
                         <button
-                          class={added() ? ADDED_BTN : ADD_BTN}
+                          class={
+                            (added() ? ADDED_BTN : ADD_BTN) +
+                            // 默认「添加」态仅悬停整行(或键盘聚焦)时显示,避免一列橙按钮太抢眼;
+                            // 「已添加」「安装中」常显以保留反馈。
+                            (!added() && !busy()
+                              ? " opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+                              : "")
+                          }
                           disabled={disabled()}
                           title={reason() ?? ""}
                           onClick={() => onAdd(hit, provider())}

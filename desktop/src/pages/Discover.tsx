@@ -1,11 +1,12 @@
 import { Component, createSignal, createEffect, createResource, onMount, on, Show } from "solid-js";
-import { ContentBrowser, Spinner, type ModpackHit } from "../components";
+import { ContentBrowser, BlockedFilesDialog, Spinner, toast, type ModpackHit } from "../components";
 import { FacetSidebar, type FacetSelection } from "../components/FacetSidebar";
 import type { ContentProvider } from "../components/ContentBrowser";
-import type { ProjectKind } from "../ipc/types";
+import type { ProjectKind, ImportOutcome } from "../ipc/types";
 import { api } from "../ipc/api";
+import { cached } from "../ipc/cache";
 import { prefetchKinds } from "../util/contentSearch";
-import { discoverKind, setDiscoverKind, DISCOVER_KINDS, discoverTarget, setDiscoverTarget } from "../store";
+import { activeRoot, discoverKind, setDiscoverKind, DISCOVER_KINDS, discoverTarget, setDiscoverTarget } from "../store";
 import { t } from "../i18n";
 import ModpackDetail from "./ModpackDetail";
 import ProjectInstallDetail from "./ProjectInstallDetail";
@@ -46,6 +47,41 @@ const Discover: Component = () => {
 
   function openHit(h: ModpackHit, prov: ContentProvider) {
     setSelected({ hit: h, kind: kind(), provider: prov });
+  }
+
+  // 列表「添加」:整合包直接装最新版(新建实例,行内「安装中」反馈);其它类型没有目标实例,进详情选实例装。
+  const [installing, setInstalling] = createSignal<Set<string>>(new Set());
+  const [added, setAdded] = createSignal<Set<string>>(new Set());
+  const [outcome, setOutcome] = createSignal<ImportOutcome | null>(null);
+
+  async function quickAdd(hit: ModpackHit, prov: ContentProvider) {
+    if (kind() !== "modpack") {
+      openHit(hit, prov); // 非整合包:没有目标实例,进详情选实例安装
+      return;
+    }
+    if (installing().has(hit.id) || added().has(hit.id)) return;
+    setInstalling((s) => new Set(s).add(hit.id));
+    try {
+      const versions = await cached(`versions|${prov}|${hit.id}`, () => api.modrinthVersions(hit.id, prov));
+      const latest = versions[0];
+      if (!latest) throw new Error(t("discover.noVersions"));
+      toast({ type: "info", message: t("discover.installStart", { title: hit.title, version: latest.version_number }) });
+      const out = await api.installModpack(activeRoot(), prov, hit.id, latest.id, null);
+      if (out.blocked.length > 0 || out.skipped_optional.length > 0) {
+        setOutcome(out);
+      } else {
+        toast({ type: "success", message: t("discover.installedModpack", { id: out.instance_id }) });
+        setAdded((s) => new Set(s).add(hit.id));
+      }
+    } catch (e) {
+      toast({ type: "error", message: t("discover.installFailed", { error: String(e) }) });
+    } finally {
+      setInstalling((s) => {
+        const n = new Set(s);
+        n.delete(hit.id);
+        return n;
+      });
+    }
   }
 
   // 顶栏切换类型 → 重置筛选 / 首屏就绪态,并关掉可能打开的详情(回到该类型的浏览)。
@@ -119,8 +155,10 @@ const Discover: Component = () => {
                     kind={k}
                     mcVersion=""
                     loader={null}
-                    onAdd={openHit}
+                    onAdd={quickAdd}
                     onOpenDetail={openHit}
+                    addingIds={installing()}
+                    addedIds={added()}
                     placeholder={t("discover.searchPlaceholder")}
                     onProviderChange={setProvider}
                     onLoadingChange={(l) => {
@@ -137,6 +175,18 @@ const Discover: Component = () => {
             </div>
           )}
         </Show>
+      </Show>
+
+      {/* 整合包从列表直接安装时,若有需手动下载 / 被跳过的文件,弹窗摊开。 */}
+      <Show when={outcome()}>
+        {(o) => (
+          <BlockedFilesDialog
+            instanceId={o().instance_id}
+            blocked={o().blocked}
+            skipped={o().skipped_optional}
+            onClose={() => setOutcome(null)}
+          />
+        )}
       </Show>
     </div>
   );
