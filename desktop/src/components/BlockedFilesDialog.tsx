@@ -1,7 +1,10 @@
 import { Component, For, Show } from "solid-js";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { Dialog } from "./Dialog";
-import { ACCENT_BTN } from "./styles";
+import { Button } from "./Button";
+import { Panel } from "./Panel";
+import { Tag } from "./Tag";
+import { Heading } from "./Typography";
 import type { BlockedFile } from "../ipc/types";
 import { t } from "../i18n";
 
@@ -22,12 +25,12 @@ export const BlockedFilesDialog: Component<{
       open
       onClose={props.onClose}
       label={t("components.blocked.title")}
-      contentClass="w-[480px] max-w-[calc(100vw-48px)] glass-pop rounded-card overflow-hidden"
+      contentClass="w-[480px] max-w-[calc(100vw-48px)]"
     >
       <div class="flex flex-col gap-[14px] p-[20px]">
         <div>
-          <div class="text-[15px] font-bold text-fg">{t("components.blocked.heading", { id: props.instanceId })}</div>
-          <div class="mt-[4px] text-[12px] leading-[1.7] text-dim">
+          <Heading size="sub">{t("components.blocked.heading", { id: props.instanceId })}</Heading>
+          <div class="mt-[4px] text-[12px] leading-[1.7] text-sub">
             {t("components.blocked.body")}
           </div>
         </div>
@@ -36,41 +39,38 @@ export const BlockedFilesDialog: Component<{
           <div class="flex flex-col gap-[8px] max-h-[300px] overflow-y-auto">
             <For each={props.blocked}>
               {(b) => (
-                <div class="flex items-center gap-[10px] rounded-ctl glass-card px-[12px] py-[9px]">
+                <Panel variant="sunken" class="flex items-center gap-[10px] px-[12px] py-[9px]">
                   <div class="min-w-0 flex-1">
-                    <div class="text-[13px] font-semibold text-fg whitespace-nowrap overflow-hidden text-ellipsis">
-                      {b.name}
+                    <div class="flex items-center gap-[6px] text-[13px] font-semibold text-fg whitespace-nowrap overflow-hidden text-ellipsis">
+                      <span class="truncate">{b.name}</span>
                       <Show when={b.required}>
-                        <span class="ml-[6px] text-[11px] text-danger-text">{t("components.blocked.required")}</span>
+                        <Tag class="!text-danger-text">{t("components.blocked.required")}</Tag>
                       </Show>
                     </div>
-                    <div class="mt-[2px] text-[11px] text-dim whitespace-nowrap overflow-hidden text-ellipsis">
+                    <div class="mt-[2px] text-[11px] text-muted whitespace-nowrap overflow-hidden text-ellipsis">
                       {t("components.blocked.placeInto", { dir: b.target_dir || "mods/" })}
                     </div>
                   </div>
-                  <button
-                    class="shrink-0 h-[30px] rounded-ctl border border-glass-border bg-glass-card px-[12px] text-[12px] font-semibold text-a-6 cursor-pointer hover:bg-a-1"
-                    onClick={() => void shellOpen(b.website_url)}
-                  >
+                  <Button variant="ghost" class="shrink-0 !h-[30px] !px-[12px] !text-[12px]" onClick={() => void shellOpen(b.website_url)}>
                     {t("components.blocked.openPage")}
-                  </button>
-                </div>
+                  </Button>
+                </Panel>
               )}
             </For>
           </div>
         </Show>
 
         <Show when={props.skipped.length > 0}>
-          <div class="rounded-ctl bg-glass-card px-[12px] py-[10px]">
-            <div class="text-[12px] font-semibold text-dim mb-[4px]">{t("components.blocked.skipped", { count: props.skipped.length })}</div>
-            <div class="text-[11px] leading-[1.7] text-n-6 break-words">{props.skipped.join("、")}</div>
-          </div>
+          <Panel variant="input" class="px-[12px] py-[10px]">
+            <div class="text-[12px] font-semibold text-sub mb-[4px]">{t("components.blocked.skipped", { count: props.skipped.length })}</div>
+            <div class="text-[11px] leading-[1.7] text-muted break-words">{props.skipped.join("、")}</div>
+          </Panel>
         </Show>
 
         <div class="flex justify-end">
-          <button class={ACCENT_BTN} onClick={props.onClose}>
+          <Button variant="primary" onClick={props.onClose}>
             {t("components.blocked.gotIt")}
-          </button>
+          </Button>
         </div>
       </div>
     </Dialog>

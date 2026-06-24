@@ -40,7 +40,7 @@ export const ModpackOverview: Component<{ projectId: string }> = (props) => {
     <Show
       when={!project.loading}
       fallback={
-        <div class="flex items-center gap-[10px] text-dim text-[13px] py-[12px]">
+        <div class="flex items-center gap-[10px] text-muted text-[13px] py-[12px]">
           <Spinner size={16} /> {t("discover.loadingModpackDetail")}
         </div>
       }
@@ -50,7 +50,7 @@ export const ModpackOverview: Component<{ projectId: string }> = (props) => {
           <div class="flex flex-col gap-[16px]">
             {/* 品牌信息(图标/名称/下载量/分类)已上移到实例头部,此处不再重复;概览只留简介/链接/画廊/正文。 */}
             <Show when={p().description}>
-              <p class="m-0 text-[13px] leading-[1.7] text-dim">{p().description}</p>
+              <p class="m-0 text-[13px] leading-[1.7] text-sub">{p().description}</p>
             </Show>
 
             <Show when={links().length}>
@@ -58,7 +58,7 @@ export const ModpackOverview: Component<{ projectId: string }> = (props) => {
                 <For each={links()}>
                   {(l) => (
                     <button
-                      class="h-[28px] px-[12px] rounded-ctl border border-glass-border bg-glass-card text-a-6 text-[12px] cursor-pointer transition-colors duration-150 hover:bg-glass-hover"
+                      class="h-[28px] px-[12px] rounded-none bg-panel-3 text-tag text-[12px] cursor-pointer shadow-raised active:shadow-pressed transition-[box-shadow] duration-[var(--dur)] ease-app"
                       onClick={() => shellOpen(l.url)}
                     >
                       {l.label} ↗
@@ -73,7 +73,7 @@ export const ModpackOverview: Component<{ projectId: string }> = (props) => {
                 <For each={gallery()}>
                   {(g, i) => (
                     <img
-                      class="w-full aspect-video object-cover rounded-ctl cursor-zoom-in bg-glass-card"
+                      class="w-full aspect-video object-cover rounded-none cursor-zoom-in bg-panel-2 shadow-sunken"
                       src={g.url}
                       alt={g.title ?? ""}
                       width="320"
@@ -87,7 +87,7 @@ export const ModpackOverview: Component<{ projectId: string }> = (props) => {
             </Show>
 
             <Show when={p().body?.trim()}>
-              <div class="md text-[13px] leading-[1.7] text-dim" innerHTML={renderMarkdown(p().body)} />
+              <div class="md text-[13px] leading-[1.7] text-sub" innerHTML={renderMarkdown(p().body)} />
             </Show>
 
             <Show when={lb() !== null}>

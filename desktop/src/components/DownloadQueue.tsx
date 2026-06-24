@@ -36,8 +36,8 @@ const DownloadRow: Component<{ task: DownloadTask }> = (props) => {
   };
 
   return (
-    <div class="flex items-center gap-[10px] px-[6px] py-[6px] rounded-ctl hover:bg-glass-hover">
-      <div class="shrink-0 w-[34px] h-[34px] rounded-[8px] overflow-hidden bg-glass-card flex items-center justify-center">
+    <div class="flex items-center gap-[10px] px-[6px] py-[6px] rounded-none hover:bg-panel-2">
+      <div class="shrink-0 w-[34px] h-[34px] rounded-none overflow-hidden bg-panel-2 shadow-input flex items-center justify-center">
         <Show when={props.task.icon} fallback={<Icon name="download" size={16} class="text-dim" />}>
           <img src={props.task.icon!} alt="" class="w-full h-full object-cover" />
         </Show>
@@ -50,7 +50,7 @@ const DownloadRow: Component<{ task: DownloadTask }> = (props) => {
           class="text-[11px] whitespace-nowrap overflow-hidden text-ellipsis"
           classList={{
             "text-danger-text": props.task.status === "error",
-            "text-a-6": props.task.status === "done",
+            "text-accent": props.task.status === "done",
             "text-dim": active(),
           }}
           title={statusLabel()}
@@ -58,23 +58,24 @@ const DownloadRow: Component<{ task: DownloadTask }> = (props) => {
           {statusLabel()}
         </div>
         <Show when={active()}>
-          <div class="mt-[5px] h-[3px] rounded-full bg-glass-card overflow-hidden">
-            <Show
-              when={frac() !== null}
-              fallback={<div class="h-full w-1/3 bg-a-5 [animation:dl-indeterminate_1.1s_ease-in-out_infinite]" />}
-            >
-              <div
-                class="h-full bg-a-5 transition-[width] duration-200 ease-app"
-                style={{ width: `${Math.round((frac() ?? 0) * 100)}%` }}
-              />
-            </Show>
+          {/* 单条稳定进度条:用 classList 在「流动(total 未知)」与「定量」间切换,不换 DOM
+              元素——避免 total 在阶段切换间瞬时归 0 时反复重建元素导致的闪烁/消失。 */}
+          <div class="mt-[5px] h-[5px] rounded-none bg-panel-2 shadow-input overflow-hidden">
+            <div
+              class="h-full bg-accent"
+              classList={{
+                "w-1/3 [animation:dl-indeterminate_1.1s_ease-in-out_infinite]": frac() === null,
+                "transition-[width] duration-200 ease-app": frac() !== null,
+              }}
+              style={frac() !== null ? { width: `${Math.round((frac() ?? 0) * 100)}%` } : undefined}
+            />
           </div>
         </Show>
       </div>
       <Show when={!active()}>
         <button
           type="button"
-          class="shrink-0 w-[22px] h-[22px] grid place-items-center rounded-ctl border-none bg-transparent text-dim cursor-pointer hover:text-fg hover:bg-glass-hover"
+          class="shrink-0 w-[22px] h-[22px] grid place-items-center rounded-none border-none bg-transparent text-dim cursor-pointer hover:text-fg hover:bg-panel-2"
           aria-label={t("downloads.dismiss")}
           onClick={() => dismissDownload(props.task.id)}
         >
@@ -93,19 +94,19 @@ export const DownloadQueue: Component = () => {
   return (
     <Popover.Root positioning={{ placement: "bottom-end", gutter: 8 }}>
       <Popover.Trigger
-        class="relative inline-flex items-center justify-center w-[30px] h-[30px] rounded-ctl border-none bg-transparent text-dim cursor-pointer transition-[background-color,color] duration-[var(--dur)] ease-app hover:bg-glass-hover hover:text-fg data-[state=open]:bg-glass-hover data-[state=open]:text-fg [-webkit-app-region:no-drag]"
+        class="relative inline-flex items-center justify-center w-[30px] h-[30px] rounded-none border-none bg-transparent text-dim cursor-pointer transition-[background-color,color] duration-[var(--dur)] ease-app hover:bg-panel-2 hover:text-fg data-[state=open]:bg-panel-2 data-[state=open]:text-fg [-webkit-app-region:no-drag]"
         aria-label={t("downloads.title")}
       >
         <Icon name="download" size={16} />
         <Show when={count() > 0}>
-          <span class="absolute -top-[3px] -right-[3px] min-w-[15px] h-[15px] px-[3px] rounded-full bg-a-5 text-white text-[10px] leading-[15px] font-semibold text-center">
+          <span class="absolute -top-[3px] -right-[3px] min-w-[15px] h-[15px] px-[3px] rounded-none bg-accent shadow-raised text-white text-[10px] leading-[15px] font-semibold text-center">
             {count()}
           </span>
         </Show>
       </Popover.Trigger>
       <Portal>
         <Popover.Positioner>
-          <Popover.Content class="z-[200] w-[320px] max-h-[440px] overflow-y-auto glass-pop rounded-card p-[10px] [-webkit-app-region:no-drag] focus:outline-none">
+          <Popover.Content class="z-[200] w-[320px] max-h-[440px] overflow-y-auto bg-panel-2 shadow-raised border border-titlebar rounded-none p-[10px] [-webkit-app-region:no-drag] focus:outline-none">
             <div class="flex items-center justify-between px-[6px] pt-[2px] pb-[6px]">
               <span class="text-[13px] font-semibold text-fg">{t("downloads.title")}</span>
               <Show when={hasFinished()}>

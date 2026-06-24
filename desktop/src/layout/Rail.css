@@ -1,6 +1,5 @@
-/* Rail.css —— 残留样式:只保留 @keyframes(脉冲)与 ::-webkit-scrollbar
- * (Tailwind preflight/utility 不覆盖自定义关键帧与伪元素滚动条)。视觉其余
- * 部分已迁到 Rail.tsx 的 Tailwind 工具类。 */
+/* Rail.css —— 仅保留 Tailwind 工具类无法表达的部分:窄栏滚动条隐藏 +
+ * 头像加载脉冲 @keyframes。其余视觉(石质底、倒角、配色)走 Rail.tsx 工具类。 */
 
 /* 中部固定实例区:隐藏 Rail 内滚动条,保持窄栏整洁 */
 .rail-pinned::-webkit-scrollbar {

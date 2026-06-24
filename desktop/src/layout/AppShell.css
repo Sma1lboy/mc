@@ -11,16 +11,6 @@
   grid-template-areas:
     "rail topbar"
     "rail body";
-  /* 全局统一面纱:整窗一层半透,透出系统 vibrancy 磨砂的桌面。 */
-  background: var(--app-bg);
-}
-
-/* 关模糊 / 系统要求减少透明 时,整窗回退为实色(避免窗口直接透到桌面)。 */
-[data-blur="off"] .app-shell {
-  background: var(--n-1);
-}
-@media (prefers-reduced-transparency: reduce) {
-  .app-shell {
-    background: var(--n-1);
-  }
+  /* Blocky 皮肤为实色窗口:整窗底用窗口暖黑(bg-window)。 */
+  background: var(--bg-window);
 }

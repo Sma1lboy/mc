@@ -2,8 +2,9 @@ import { Component, createSignal, Show } from "solid-js";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { Dialog } from "./Dialog";
 import { Select } from "./Select";
+import { Button } from "./Button";
+import { Heading } from "./Typography";
 import { toast } from "./Toast";
-import { ACCENT_BTN } from "./styles";
 import { api } from "../ipc/api";
 import { t } from "../i18n";
 
@@ -95,31 +96,27 @@ export const ExportModpackDialog: Component<{
       open={props.open}
       onClose={() => !busy() && props.onClose()}
       label={t("components.export.title")}
-      contentClass="w-[420px] max-w-[calc(100vw-48px)] glass-pop rounded-card overflow-hidden"
+      contentClass="w-[420px] max-w-[calc(100vw-48px)]"
     >
       <div class="flex flex-col gap-[16px] p-[20px]">
-        <div class="text-[15px] font-bold text-fg">{t("components.export.title")}</div>
+        <Heading size="sub">{t("components.export.title")}</Heading>
 
         <div class="flex flex-col gap-[8px]">
-          <label class="text-[12px] font-semibold text-dim">{t("components.export.formatLabel")}</label>
-          <Select value={fmt()} onChange={(v) => setFmt(v as Fmt)} options={formatOptions()} />
+          <label class="text-[12px] font-semibold text-sub">{t("components.export.formatLabel")}</label>
+          <Select class="w-full" value={fmt()} onChange={(v) => setFmt(v as Fmt)} options={formatOptions()} />
           <Show when={fmt() === "modlist"}>
-            <Select value={sub()} onChange={setSub} options={subOptions()} />
+            <Select class="w-full" value={sub()} onChange={setSub} options={subOptions()} />
           </Show>
-          <div class="text-[11px] leading-[1.6] text-n-6">{hint()}</div>
+          <div class="text-[11px] leading-[1.6] text-muted">{hint()}</div>
         </div>
 
         <div class="flex justify-end gap-[10px]">
-          <button
-            disabled={busy()}
-            class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-glass-card text-fg text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-glass-hover disabled:opacity-50 disabled:cursor-not-allowed"
-            onClick={() => props.onClose()}
-          >
+          <Button variant="ghost" disabled={busy()} onClick={() => props.onClose()}>
             {t("components.export.close")}
-          </button>
-          <button class={ACCENT_BTN} disabled={busy()} onClick={() => void doExport()}>
+          </Button>
+          <Button variant="primary" disabled={busy()} onClick={() => void doExport()}>
             {busy() ? t("components.export.exporting") : t("components.export.confirm")}
-          </button>
+          </Button>
         </div>
       </div>
     </Dialog>

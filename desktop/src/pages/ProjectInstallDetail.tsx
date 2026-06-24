@@ -2,7 +2,10 @@ import { Component, createEffect, createResource, createSignal, onCleanup, onMou
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { Spinner } from "../components/Spinner";
 import { Select } from "../components/Select";
-import { LOADER_BADGE_TINT } from "../components/styles";
+import { Panel } from "../components/Panel";
+import { Tag } from "../components/Tag";
+import { Heading } from "../components/Typography";
+import { LOADER_BADGE_TINT, ACCENT_BTN, ACCENT_BTN_COMPACT } from "../components/styles";
 import { toast } from "../components/Toast";
 import type { ModpackHit } from "../components/ModpackCard";
 import { api } from "../ipc/api";
@@ -245,7 +248,7 @@ const ProjectInstallDetail: Component<{
   return (
     <div class="flex flex-col gap-[16px] px-[2px] pt-[4px] pb-[24px] overflow-y-auto">
       <button
-        class="self-start bg-transparent border-none text-a-6 text-[14px] cursor-pointer py-[4px] px-0 transition-opacity duration-[var(--mo-dur-fast)] ease-emph hover:opacity-70"
+        class="self-start bg-transparent border-none text-accent text-[14px] cursor-pointer py-[4px] px-0 transition-opacity duration-[var(--dur)] ease-app hover:opacity-70"
         onClick={props.onBack}
       >
         {t("discover.back")}
@@ -256,7 +259,7 @@ const ProjectInstallDetail: Component<{
           <section class="flex flex-col gap-[12px]">
             <Show when={props.hit.gallery_url}>
               <img
-                class="w-full max-h-[220px] object-cover rounded-card"
+                class="w-full max-h-[220px] object-cover rounded-none shadow-sunken"
                 src={props.hit.gallery_url}
                 alt=""
                 width="960"
@@ -267,81 +270,82 @@ const ProjectInstallDetail: Component<{
               <Show
                 when={props.hit.icon_url}
                 fallback={
-                  <div class="w-[70px] h-[70px] rounded-[14px] flex items-center justify-center text-[30px] font-bold text-white bg-[linear-gradient(135deg,var(--a-5),var(--a-7))]">
+                  <Panel variant="raised" class="w-[70px] h-[70px] flex items-center justify-center font-display text-[30px] text-strong bg-panel-2">
                     {(props.hit.title[0] ?? "?").toUpperCase()}
-                  </div>
+                  </Panel>
                 }
               >
                 <img
-                  class="w-[70px] h-[70px] rounded-[14px] object-cover flex-[0_0_auto]"
+                  class="w-[70px] h-[70px] rounded-none object-cover flex-[0_0_auto] shadow-sunken"
                   src={props.hit.icon_url}
                   alt=""
                   width="70"
                   height="70"
+                  style="image-rendering:pixelated"
                 />
               </Show>
               <div class="min-w-0">
-                <div class="text-[12px] font-semibold text-a-6">{meta().title}</div>
-                <h1 class="m-0 text-[24px] font-extrabold text-n-8 whitespace-nowrap overflow-hidden text-ellipsis">{props.hit.title}</h1>
-                <div class="mt-[4px] text-[13px] text-n-6">
+                <div class="text-[12px] font-semibold text-tag">{meta().title}</div>
+                <Heading as="h1" size="page" class="whitespace-nowrap overflow-hidden text-ellipsis">{props.hit.title}</Heading>
+                <div class="mt-[4px] text-[13px] text-sub">
                   by {props.hit.author} · ⬇ {props.hit.downloads.toLocaleString()}
                   <Show when={project()?.followers}>{" · ♥ " + project()!.followers.toLocaleString()}</Show>
                 </div>
               </div>
             </div>
-            <p class="m-0 text-[14px] leading-[1.7] text-n-7">{props.hit.description}</p>
+            <p class="m-0 text-[14px] leading-[1.7] text-sub">{props.hit.description}</p>
             <div class="flex flex-wrap gap-[6px]">
               <For each={props.hit.categories}>
-                {(category) => (
-                  <span class="text-[11px] py-[2px] px-[8px] rounded-full bg-a-1 text-a-6">{category}</span>
-                )}
+                {(category) => <Tag>{category}</Tag>}
               </For>
             </div>
           </section>
 
           <section class="flex flex-col gap-[10px]">
-            <button
-              class="glass-panel flex items-center justify-between border-none rounded-card px-[14px] py-[11px] text-left cursor-pointer"
+            <Panel
+              as="button"
+              variant="raised"
+              class="flex items-center justify-between border-none bg-panel-3 px-[14px] py-[11px] text-left cursor-pointer active:shadow-pressed transition-[box-shadow] duration-[var(--dur)] ease-app"
               onClick={() => setOpenAbout((v) => !v)}
             >
-              <span class="text-[15px] font-bold text-n-8">{t("discover.projectAbout")}</span>
-              <span class="text-n-6">{openAbout() ? "⌃" : "⌄"}</span>
-            </button>
+              <Heading size="sub">{t("discover.projectAbout")}</Heading>
+              <span class="text-muted">{openAbout() ? "⌃" : "⌄"}</span>
+            </Panel>
             <Show when={openAbout()}>
-              <div class="glass-panel rounded-card px-[14px] py-[12px]">
+              <Panel variant="sunken" class="bg-panel px-[14px] py-[12px]">
                 <Show
                   when={!project.loading}
                   fallback={
-                    <div class="flex items-center gap-[10px] text-n-6 text-[13px]">
+                    <div class="flex items-center gap-[10px] text-muted text-[13px]">
                       <Spinner size={16} /> {t("discover.loadingAbout")}
                     </div>
                   }
                 >
                   <Show
                     when={project()?.body?.trim()}
-                    fallback={<div class="text-n-6 text-[13px]">{t("discover.noAboutBody")}</div>}
+                    fallback={<div class="text-muted text-[13px]">{t("discover.noAboutBody")}</div>}
                   >
-                    <div class="md text-[14px] leading-[1.75] text-n-7" innerHTML={renderMarkdown(project()!.body)} />
+                    <div class="md text-[14px] leading-[1.75] text-sub" innerHTML={renderMarkdown(project()!.body)} />
                   </Show>
                 </Show>
-              </div>
+              </Panel>
             </Show>
           </section>
 
           <section class="flex flex-col gap-[8px]">
             <div class="flex items-center justify-between">
-              <h2 class="m-0 text-[15px] font-bold text-n-8">{t("discover.tabVersions")}</h2>
-              <span class="text-[12px] text-n-6">{t("discover.versionsCount", { count: versionList().length })}</span>
+              <Heading size="sub">{t("discover.tabVersions")}</Heading>
+              <span class="text-[12px] text-muted">{t("discover.versionsCount", { count: versionList().length })}</span>
             </div>
             <Show
               when={!versions.loading}
               fallback={
-                <div class="flex items-center gap-[10px] text-n-6 text-[13px] py-[8px]">
+                <div class="flex items-center gap-[10px] text-muted text-[13px] py-[8px]">
                   <Spinner size={16} /> {t("discover.loadingVersions")}
                 </div>
               }
             >
-              <Show when={versionList().length > 0} fallback={<div class="text-n-6 text-[13px] py-[10px]">{t("discover.noVersionsDot")}</div>}>
+              <Show when={versionList().length > 0} fallback={<div class="text-muted text-[13px] py-[10px]">{t("discover.noVersionsDot")}</div>}>
                 <div class="flex flex-col gap-[6px] max-h-[360px] overflow-y-auto">
                   <For each={versionList()}>
                     {(version) => {
@@ -355,16 +359,17 @@ const ProjectInstallDetail: Component<{
                       // 只是软提示(游戏内可带警告加载),不拦。
                       const blocked = () => props.kind === "mod" && !!inst() && !compatible();
                       return (
-                        <div
-                          class="glass-panel flex items-center gap-[10px] rounded-ctl border border-glass-border px-[10px] py-[8px]"
+                        <Panel
+                          variant="sunken"
+                          class="flex items-center gap-[10px] bg-panel-2 px-[10px] py-[8px]"
                           classList={{ "opacity-55": !!inst() && !compatible() }}
                         >
                           <div class="min-w-0 flex-1">
-                            <div class="text-[13px] font-semibold text-n-8 whitespace-nowrap overflow-hidden text-ellipsis">
+                            <div class="text-[13px] font-semibold text-fg whitespace-nowrap overflow-hidden text-ellipsis">
                               {version.version_number}
-                              <span class="ml-[6px] text-[11px] font-medium text-n-6">{typeLabel(version.version_type)}</span>
+                              <span class="ml-[6px] text-[11px] font-medium text-muted">{typeLabel(version.version_type)}</span>
                             </div>
-                            <div class="mt-[2px] text-[11px] text-n-6 whitespace-nowrap overflow-hidden text-ellipsis">
+                            <div class="mt-[2px] text-[11px] text-muted whitespace-nowrap overflow-hidden text-ellipsis">
                               {version.game_versions.slice(0, 5).join(", ")}
                               <Show when={version.loaders.length}>{" · " + version.loaders.join(" / ")}</Show>
                               {" · "}
@@ -372,16 +377,16 @@ const ProjectInstallDetail: Component<{
                               <Show when={version.file_size}>{" · " + fmtSize(version.file_size)}</Show>
                             </div>
                           </div>
-                          <span class="text-[11px] text-n-6 whitespace-nowrap">⬇ {version.downloads.toLocaleString()}</span>
+                          <span class="text-[11px] text-muted whitespace-nowrap">⬇ {version.downloads.toLocaleString()}</span>
                           <button
-                            class="shrink-0 h-[28px] rounded-ctl border border-glass-border bg-glass-card px-[12px] text-[12px] font-semibold text-a-6 cursor-pointer transition-[background-color] duration-150 hover:bg-a-1 disabled:opacity-50 disabled:cursor-default"
+                            class={ACCENT_BTN_COMPACT}
                             disabled={busy() || !inst() || blocked()}
                             title={!inst() ? t("discover.selectInstanceFirst") : blocked() ? t("discover.blockedTooltip") : ""}
                             onClick={() => installVersion(version)}
                           >
                             {installingVersion() === version.id ? t("discover.installing") : t("discover.install")}
                           </button>
-                        </div>
+                        </Panel>
                       );
                     }}
                   </For>
@@ -394,19 +399,19 @@ const ProjectInstallDetail: Component<{
         <aside class="flex flex-col gap-[12px]">
           {/* 全局模式才显示实例选择器;实例详情进入时目标已锁定。 */}
           <Show when={!lockMode()}>
-            <section class="glass-panel rounded-card px-[14px] py-[14px]">
-              <h2 class="m-0 mb-[10px] text-[15px] font-bold text-n-8">{t("discover.installToInstance")}</h2>
+            <Panel as="section" variant="sunken" class="bg-panel px-[14px] py-[14px]">
+              <Heading size="sub" class="mb-[10px]">{t("discover.installToInstance")}</Heading>
               <Show
                 when={!instances.loading}
                 fallback={
-                  <div class="flex items-center gap-[10px] text-n-6 text-[13px]">
+                  <div class="flex items-center gap-[10px] text-muted text-[13px]">
                     <Spinner size={16} /> {t("discover.loadingInstances")}
                   </div>
                 }
               >
                 <Show
                   when={list().length > 0}
-                  fallback={<div class="text-[13px] leading-[1.7] text-n-6">{t("discover.noInstances")}</div>}
+                  fallback={<div class="text-[13px] leading-[1.7] text-muted">{t("discover.noInstances")}</div>}
                 >
                   <div class="flex flex-col gap-[6px] max-h-[310px] overflow-y-auto">
                     <For each={list()}>
@@ -415,24 +420,30 @@ const ProjectInstallDetail: Component<{
                         const compatCount = () => compatibleFor(inst).length;
                         return (
                           <button
-                            class="glass-card flex w-full items-center gap-[9px] rounded-ctl border border-glass-border px-[9px] py-[8px] text-left cursor-pointer transition-[border-color,background-color] duration-150 hover:border-a-4 disabled:cursor-not-allowed disabled:opacity-50"
+                            class="flex w-full items-center gap-[9px] rounded-none bg-panel-2 px-[9px] py-[8px] text-left cursor-pointer shadow-sunken transition-[box-shadow] duration-[var(--dur)] ease-app disabled:cursor-not-allowed disabled:opacity-50"
                             classList={{
-                              "!border-a-4 !bg-a-1": selectedId() === inst.id,
+                              "!bg-accent !shadow-raised": selectedId() === inst.id,
                             }}
                             disabled={disabled}
                             onClick={() => setSelectedId(inst.id)}
                           >
                             <span
-                              class={`w-[30px] h-[30px] flex-[0_0_30px] rounded-ctl grid place-items-center bg-a-4 text-white text-[13px] font-bold ${LOADER_BADGE_TINT}`}
+                              class={`w-[30px] h-[30px] flex-[0_0_30px] rounded-none grid place-items-center bg-accent text-accent-text text-[13px] font-bold shadow-raised ${LOADER_BADGE_TINT}`}
                               data-loader={inst.loader}
                             >
                               {(inst.name || inst.id)[0]?.toUpperCase()}
                             </span>
                             <span class="min-w-0 flex-1">
-                              <span class="block text-[13px] font-semibold text-n-8 whitespace-nowrap overflow-hidden text-ellipsis">
+                              <span
+                                class="block text-[13px] font-semibold whitespace-nowrap overflow-hidden text-ellipsis"
+                                classList={{ "text-accent-text": selectedId() === inst.id, "text-fg": selectedId() !== inst.id }}
+                              >
                                 {inst.name || inst.id}
                               </span>
-                              <span class="block text-[11px] text-n-6 whitespace-nowrap overflow-hidden text-ellipsis">
+                              <span
+                                class="block text-[11px] whitespace-nowrap overflow-hidden text-ellipsis"
+                                classList={{ "text-accent-text": selectedId() === inst.id, "text-muted": selectedId() !== inst.id }}
+                              >
                                 {inst.mc_version} · {loaderLabel(inst.loader)}
                                 <Show when={props.kind === "mod" && inst.loader !== "vanilla"}>
                                   {" · " + t("discover.matchingVersions", { count: compatCount() })}
@@ -446,17 +457,17 @@ const ProjectInstallDetail: Component<{
                   </div>
                 </Show>
               </Show>
-            </section>
+            </Panel>
           </Show>
 
-          <section class="glass-panel rounded-card px-[14px] py-[14px]">
-            <Show when={selectedInstance()} fallback={<div class="text-[13px] text-n-6">{t("discover.selectInstanceToInstall")}</div>}>
+          <Panel as="section" variant="sunken" class="bg-panel px-[14px] py-[14px]">
+            <Show when={selectedInstance()} fallback={<div class="text-[13px] text-muted">{t("discover.selectInstanceToInstall")}</div>}>
               {(inst) => (
                 <div class="flex flex-col gap-[10px]">
                   <div>
-                    <div class="text-[12px] text-n-6">{t("discover.target")}</div>
-                    <div class="mt-[2px] text-[14px] font-bold text-n-8">{inst().name || inst().id}</div>
-                    <div class="mt-[2px] text-[12px] text-n-6">
+                    <div class="text-[12px] text-muted">{t("discover.target")}</div>
+                    <Heading size="sub" class="mt-[2px]">{inst().name || inst().id}</Heading>
+                    <div class="mt-[2px] text-[12px] text-muted">
                       Minecraft {inst().mc_version} · {loaderLabel(inst().loader)}
                     </div>
                   </div>
@@ -466,12 +477,12 @@ const ProjectInstallDetail: Component<{
                     <Show
                       when={(worlds() ?? []).length > 0}
                       fallback={
-                        <div class="text-[12px] leading-[1.7] text-n-6">
+                        <div class="text-[12px] leading-[1.7] text-muted">
                           {t("discover.datapackNoWorlds")}
                         </div>
                       }
                     >
-                      <label class="flex items-center gap-[8px] text-[12px] text-n-6">
+                      <label class="flex items-center gap-[8px] text-[12px] text-muted">
                         <span class="shrink-0">{t("discover.targetWorld")}</span>
                         <Select
                           class="flex-1 !min-w-0"
@@ -484,24 +495,24 @@ const ProjectInstallDetail: Component<{
                   </Show>
 
                   <button
-                    class="h-[36px] rounded-ctl border-none bg-a-5 px-[14px] text-white text-[13px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90 disabled:opacity-50 disabled:cursor-default"
+                    class={ACCENT_BTN}
                     disabled={installing() || installingVersion() !== null || !canInstallTo(inst()) || (isDatapack() && !world())}
                     onClick={installLatest}
                   >
                     {installing() ? t("discover.installing") : t("discover.installLatest", { kind: meta().title })}
                   </button>
                   <Show when={props.kind === "mod" && inst().loader === "vanilla"}>
-                    <div class="text-[12px] leading-[1.6] text-n-6">{t("discover.vanillaNoModLoader")}</div>
+                    <div class="text-[12px] leading-[1.6] text-muted">{t("discover.vanillaNoModLoader")}</div>
                   </Show>
                   <Show when={props.kind === "mod" && inst().loader !== "vanilla" && !versions.loading && compatibleFor(inst()).length === 0}>
-                    <div class="text-[12px] leading-[1.6] text-n-6">{t("discover.noMatchingFile")}</div>
+                    <div class="text-[12px] leading-[1.6] text-muted">{t("discover.noMatchingFile")}</div>
                   </Show>
                   <Show when={links().length}>
                     <div class="flex flex-wrap gap-[6px] pt-[4px]">
                       <For each={links()}>
                         {(link) => (
                           <button
-                            class="h-[28px] rounded-ctl border border-glass-border bg-glass-card px-[10px] text-[12px] text-a-6 cursor-pointer hover:bg-a-1"
+                            class="h-[28px] rounded-none bg-panel-3 px-[10px] text-[12px] text-tag cursor-pointer shadow-raised active:shadow-pressed transition-[box-shadow] duration-[var(--dur)] ease-app"
                             onClick={() => shellOpen(link.url)}
                           >
                             {link.label} ↗
@@ -513,7 +524,7 @@ const ProjectInstallDetail: Component<{
                 </div>
               )}
             </Show>
-          </section>
+          </Panel>
         </aside>
       </div>
     </div>

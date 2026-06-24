@@ -16,11 +16,11 @@ import "./AppShell.css";
  *   areas:  "rail topbar"
  *           "rail body"
  *
- * body 内再分 1fr 340px(主内容 + ContextBar)。Rail 跨两行,
- * 所以 TopBar / body 都从 64px 之后开始,视觉上 Rail 是一整条竖栏。
+ * Rail 跨两行,所以 TopBar / body 都从 64px 之后开始,视觉上 Rail 是一整条竖栏。
  *
- * ContextBar 是「上下文相关」的:只有 Home 这类需要右栏的页面才渲染它,
- * library / discover / settings 让主内容铺满(此时 body 变成单列 1fr)。
+ * 新 IA 下账号收成右上芯片、好友/动态移出主区,各页主内容均铺满(单列 1fr)。
+ * ContextBar 仍按路由的 showContext 显隐(现全为 false 故不渲染),组件暂留备用:
+ * 某页若日后重新需要右栏,把它的 showContext 置 true 即可恢复两列。
  */
 
 const AppShell: Component = () => {
@@ -40,7 +40,7 @@ const AppShell: Component = () => {
           "grid-cols-[1fr_340px]": showContext(),
         }}
       >
-        <main class="[grid-row:1] [grid-column:1] w-full h-full min-w-0 min-h-0 overflow-y-auto overflow-x-hidden bg-transparent">
+        <main class="[grid-row:1] [grid-column:1] w-full h-full min-w-0 min-h-0 overflow-y-auto overflow-x-hidden bg-window">
           {/* 根据 currentPage 从路由表取组件渲染(同一时刻只挂一个页面)。 */}
           <Dynamic component={route().component} />
         </main>

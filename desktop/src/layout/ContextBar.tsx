@@ -5,7 +5,7 @@ import {
   createResource,
   createSignal,
 } from "solid-js";
-import { AccountDialog, Avatar, EmptyState, ErrorState, Menu, Spinner } from "../components";
+import { AccountDialog, Avatar, EmptyState, ErrorState, Heading, Menu, Panel, Spinner } from "../components";
 import { skinBodyUrl } from "../components/Avatar";
 import { ACCENT_BTN } from "../components/styles";
 import { api } from "../ipc/api";
@@ -15,7 +15,8 @@ import type { AccountSummary } from "../ipc/types";
 import "./ContextBar.css"; // 残留:@keyframes ctx-pulse(骨架脉冲)
 
 /**
- * ContextBar —— 340px 右侧上下文栏(Home 页内容)。
+ * ContextBar —— 340px 右侧上下文栏。新 IA 下已从外壳移除(showContext 全 false),
+ * 组件暂留备用:某页日后需要右栏时把 route 的 showContext 置 true 即可恢复。
  *
  * 三块:
  *   1. Playing as —— 账号选择器(头像 + 用户名 + 下拉箭头),展开切换账号。
@@ -23,19 +24,16 @@ import "./ContextBar.css"; // 残留:@keyframes ctx-pulse(骨架脉冲)
  *   3. News       —— 新闻/动态占位。
  *
  * 数据:createResource(() => api.listAccounts())。loading / 空 / 错误三态都处理。
- * 背景 --n-2,左侧分隔(border-left)。
+ * Blocky:石质底(stone)+ 凹陷倒角,左侧分隔(border-titlebar)。
  */
 
-// 通用栏目标题(灰色小标题)。
-const HEADING =
-  "m-0 text-[13px] font-semibold text-dim tracking-[0.2px]";
 // 元信息列(用户名 + 类型),可截断。
 const META = "flex flex-col gap-px min-w-0 flex-[1_1_auto]";
 // 用户名(单行截断)。
 const NAME =
   "text-[var(--fs-base)] font-medium text-fg whitespace-nowrap overflow-hidden text-ellipsis";
 // 账号类型小字。
-const KIND = "text-[11px] text-dim";
+const KIND = "text-[11px] text-muted";
 
 const ChevronDown = () => (
   <svg class="w-[16px] h-[16px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -84,18 +82,18 @@ const ContextBar: Component = () => {
 
   return (
     <aside
-      class="[grid-row:1] [grid-column:2] w-[340px] h-full box-border glass-panel border-l border-glass-divider p-[16px] flex flex-col gap-[20px] overflow-y-auto"
+      class="[grid-row:1] [grid-column:2] w-[340px] h-full box-border stone shadow-sunken border-l border-titlebar p-[16px] flex flex-col gap-[20px] overflow-y-auto"
       aria-label={t("account.contextAria")}
     >
       {/* ===== Playing as ===== */}
       <section class="flex flex-col gap-[8px]">
-        <h3 class={HEADING}>{t("account.sectionCurrent")}</h3>
+        <Heading size="mini" as="h3" class="text-sub">{t("account.sectionCurrent")}</Heading>
 
         <Show
           when={!accounts.loading}
           fallback={
             <div
-              class="account-card-skeleton h-[56px] rounded-ctl bg-n-5"
+              class="account-card-skeleton h-[56px] bg-panel-2 shadow-sunken"
               aria-busy="true"
             />
           }
@@ -109,15 +107,15 @@ const ContextBar: Component = () => {
             <Show
               when={(accounts()?.length ?? 0) > 0}
               fallback={
-                <div class="flex flex-col gap-[10px] p-[14px] border border-dashed border-glass-border rounded-ctl bg-glass-card">
+                <Panel variant="sunken" class="flex flex-col gap-[10px] p-[14px]">
                   <div class="flex flex-col gap-[2px]">
                     <span class="text-[var(--fs-base)] text-fg">{t("account.noAccount")}</span>
-                    <span class="text-[12px] text-dim">{t("account.noAccountHint")}</span>
+                    <span class="text-[12px] text-muted">{t("account.noAccountHint")}</span>
                   </div>
                   <button class={`${ACCENT_BTN} motion-reduce:transition-none`} onClick={() => setLoginOpen(true)}>
                     {t("account.loginOrAdd")}
                   </button>
-                </div>
+                </Panel>
               }
             >
               {/* 当前账号的全身皮肤预览(像素硬边);mc-heads 取不到时 onError 隐藏,不留空洞。 */}
@@ -145,10 +143,10 @@ const ContextBar: Component = () => {
                 }}
               >
                 <Menu.Trigger
-                  class="group flex items-center gap-[10px] w-full p-[10px] border border-glass-border rounded-ctl bg-glass-card cursor-pointer text-left transition-[background-color,border-color] duration-[var(--dur)] ease-app hover:bg-glass-hover hover:border-a-4 data-[state=open]:border-a-4 motion-reduce:transition-none"
+                  class="group flex items-center gap-[10px] w-full p-[10px] bg-panel shadow-sunken cursor-pointer text-left transition-[box-shadow,background-color] duration-[var(--dur)] ease-app hover:bg-panel-2 data-[state=open]:shadow-input motion-reduce:transition-none"
                   aria-label={t("account.switchAccount")}
                 >
-                  <span class="w-[36px] h-[36px] flex-shrink-0 rounded-xs grid place-items-center text-[15px] font-semibold text-white bg-[linear-gradient(135deg,var(--a-3),var(--a-5))]">
+                  <span class="w-[36px] h-[36px] flex-shrink-0 shadow-raised grid place-items-center text-[15px] font-semibold text-accent-text bg-accent">
                     <Avatar kind={current()?.kind} uuid={current()?.uuid} />
                   </span>
                   <span class={META}>
@@ -156,7 +154,7 @@ const ContextBar: Component = () => {
                     <span class={KIND}>{accountKindLabel(current()?.kind)}</span>
                   </span>
                   <span
-                    class="flex-shrink-0 text-dim grid place-items-center transition-transform duration-[var(--dur)] ease-app group-data-[state=open]:rotate-180 motion-reduce:transition-none"
+                    class="flex-shrink-0 text-muted grid place-items-center transition-transform duration-[var(--dur)] ease-app group-data-[state=open]:rotate-180 motion-reduce:transition-none"
                     aria-hidden="true"
                   >
                     <ChevronDown />
@@ -168,12 +166,12 @@ const ContextBar: Component = () => {
                     {(acc) => (
                       <Menu.ItemRaw
                         value={acc.uuid}
-                        class="flex items-center gap-[10px] p-[8px] rounded-xs cursor-pointer select-none transition-[background] duration-[var(--dur)] ease-app data-[highlighted]:bg-glass-hover motion-reduce:transition-none"
+                        class="flex items-center gap-[10px] p-[8px] rounded-none cursor-pointer select-none transition-[background] duration-[var(--dur)] ease-app data-[highlighted]:bg-panel-2 motion-reduce:transition-none"
                         classList={{
-                          "bg-[color-mix(in_srgb,var(--a-4)_14%,transparent)]": acc.selected,
+                          "bg-panel-3": acc.selected,
                         }}
                       >
-                        <span class="w-[30px] h-[30px] flex-shrink-0 rounded-xs grid place-items-center text-[13px] font-semibold text-white bg-[linear-gradient(135deg,var(--a-3),var(--a-5))]">
+                        <span class="w-[30px] h-[30px] flex-shrink-0 shadow-raised grid place-items-center text-[13px] font-semibold text-accent-text bg-accent">
                           <Avatar kind={acc.kind} uuid={acc.uuid} />
                         </span>
                         <span class={META}>
@@ -181,16 +179,16 @@ const ContextBar: Component = () => {
                           <span class={KIND}>{accountKindLabel(acc.kind)}</span>
                         </span>
                         <Show when={acc.selected}>
-                          <span class="text-a-5 text-[14px] flex-shrink-0" aria-hidden="true">✓</span>
+                          <span class="text-accent text-[14px] flex-shrink-0" aria-hidden="true">✓</span>
                         </Show>
                       </Menu.ItemRaw>
                     )}
                   </For>
                   <Menu.ItemRaw
                     value="__add__"
-                    class="flex items-center gap-[10px] p-[8px] mt-[2px] rounded-xs cursor-pointer select-none border-t border-glass-border text-a-6 transition-[background] duration-[var(--dur)] ease-app data-[highlighted]:bg-glass-hover motion-reduce:transition-none"
+                    class="flex items-center gap-[10px] p-[8px] mt-[2px] rounded-none cursor-pointer select-none border-t border-titlebar text-accent transition-[background] duration-[var(--dur)] ease-app data-[highlighted]:bg-panel-2 motion-reduce:transition-none"
                   >
-                    <span class="w-[30px] h-[30px] flex-shrink-0 rounded-xs grid place-items-center text-[18px] font-semibold bg-glass-card" aria-hidden="true">
+                    <span class="w-[30px] h-[30px] flex-shrink-0 shadow-raised grid place-items-center text-[18px] font-semibold bg-panel-3" aria-hidden="true">
                       +
                     </span>
                     <span class="text-[13px] font-medium">{t("account.loginOrAdd")}</span>
@@ -209,14 +207,14 @@ const ContextBar: Component = () => {
 
       {/* ===== Friends ===== */}
       <section class="flex flex-col gap-[8px]">
-        <h3 class={HEADING}>{t("account.sectionFriends")}</h3>
+        <Heading size="mini" as="h3" class="text-sub">{t("account.sectionFriends")}</Heading>
         {/* 社交功能未接入:空态占位。接入后此处渲染好友 + 在线状态点。 */}
         <EmptyState compact title={t("account.friendsEmpty")} hint={t("account.friendsHint")} />
       </section>
 
       {/* ===== News ===== */}
       <section class="flex flex-col gap-[8px]">
-        <h3 class={HEADING}>{t("account.sectionNews")}</h3>
+        <Heading size="mini" as="h3" class="text-sub">{t("account.sectionNews")}</Heading>
         <Show
           when={!news.loading}
           fallback={<div class="flex justify-center py-[14px]"><Spinner size={16} /></div>}
@@ -234,19 +232,19 @@ const ContextBar: Component = () => {
                         <span class="text-[13px] font-semibold text-fg whitespace-nowrap overflow-hidden text-ellipsis">
                           {item.title}
                         </span>
-                        <span class="text-[11px] text-dim shrink-0 [font-variant-numeric:tabular-nums]">{item.date}</span>
+                        <span class="text-[11px] text-muted shrink-0 [font-variant-numeric:tabular-nums]">{item.date}</span>
                       </div>
-                      <div class="text-[12px] text-dim leading-[1.5] line-clamp-3">{item.body}</div>
+                      <div class="text-[12px] text-sub leading-[1.5] line-clamp-3">{item.body}</div>
                     </>
                   );
                   const cls =
-                    "flex flex-col gap-[3px] p-[10px] rounded-ctl bg-glass-card border border-glass-border transition-colors duration-[var(--dur)] ease-app";
+                    "flex flex-col gap-[3px] p-[10px] bg-panel shadow-sunken transition-[box-shadow] duration-[var(--dur)] ease-app";
                   return (
                     <Show
                       when={item.url}
                       fallback={<div class={cls}>{inner}</div>}
                     >
-                      <a href={item.url!} class={`${cls} no-underline cursor-pointer hover:border-a-4`}>
+                      <a href={item.url!} class={`${cls} no-underline cursor-pointer hover:shadow-raised`}>
                         {inner}
                       </a>
                     </Show>

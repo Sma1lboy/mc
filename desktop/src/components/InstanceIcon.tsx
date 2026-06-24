@@ -98,7 +98,9 @@ export function InstanceIcon(props: InstanceIconProps): JSX.Element {
         src={merged.icon}
         alt={merged.alt}
         loading="lazy"
-        class="w-full h-full object-cover block bg-glass-card"
+        // 透明图标的兜底底色用草方块渐变,与 ModpackListItem 的缩略图底一致(rail/库/发现统一)。
+        class="w-full h-full object-cover block"
+        style={{ background: "linear-gradient(var(--grass-top) 0 42%, var(--grass-side) 42% 100%)" }}
       />
     </Show>
   );

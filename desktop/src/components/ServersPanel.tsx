@@ -2,6 +2,7 @@ import { Component, createResource, For, Show } from "solid-js";
 import { Spinner } from "./Spinner";
 import { EmptyState } from "./EmptyState";
 import { ErrorState } from "./ErrorState";
+import { Panel } from "./Panel";
 import { ACCENT_BTN_COMPACT } from "./styles";
 import { api } from "../ipc/api";
 import { activeRoot, isLaunching, isRunning, playInstance } from "../store";
@@ -33,12 +34,12 @@ const ServersPanel: Component<{ instance: InstanceSummary }> = (props) => {
             <div class="flex flex-col gap-[8px]">
               <For each={servers()!}>
                 {(s) => (
-                  <div class="flex items-center gap-[12px] rounded-ctl glass-card px-[12px] py-[9px]">
-                    <div class="w-[36px] h-[36px] rounded-[6px] overflow-hidden bg-glass-hover grid place-items-center shrink-0">
+                  <Panel variant="sunken" class="flex items-center gap-[12px] bg-panel px-[12px] py-[9px]">
+                    <Panel variant="input" class="w-[36px] h-[36px] overflow-hidden bg-panel-2 grid place-items-center shrink-0">
                       <Show
                         when={s.icon}
                         fallback={
-                          <svg class="w-[18px] h-[18px] text-dim" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <svg class="w-[18px] h-[18px] text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                             <circle cx="12" cy="12" r="9" />
                             <path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" />
                           </svg>
@@ -51,10 +52,10 @@ const ServersPanel: Component<{ instance: InstanceSummary }> = (props) => {
                           style="image-rendering:pixelated"
                         />
                       </Show>
-                    </div>
+                    </Panel>
                     <div class="min-w-0 flex-1">
                       <div class="text-[13px] font-semibold text-fg truncate">{s.name || s.address}</div>
-                      <div class="text-[11px] text-dim truncate">{s.address}</div>
+                      <div class="text-[11px] text-muted truncate">{s.address}</div>
                     </div>
                     <button
                       class={ACCENT_BTN_COMPACT}
@@ -64,7 +65,7 @@ const ServersPanel: Component<{ instance: InstanceSummary }> = (props) => {
                     >
                       {t("instance.serverJoin")}
                     </button>
-                  </div>
+                  </Panel>
                 )}
               </For>
             </div>

@@ -17,10 +17,10 @@ import { Menu as Ark } from "@ark-ui/solid/menu";
 
 // 简单文字项的交互/着色基样式。
 const ITEM_NORMAL =
-  "flex items-center px-[10px] py-[7px] rounded-xs cursor-pointer select-none " +
-  "text-fg data-[highlighted]:bg-glass-hover motion-reduce:transition-none";
+  "flex items-center px-[10px] py-[7px] rounded-none cursor-pointer select-none " +
+  "text-fg data-[highlighted]:bg-panel-3 data-[highlighted]:text-accent motion-reduce:transition-none";
 const ITEM_DANGER =
-  "flex items-center px-[10px] py-[7px] rounded-xs cursor-pointer select-none " +
+  "flex items-center px-[10px] py-[7px] rounded-none cursor-pointer select-none " +
   "text-danger-text data-[highlighted]:bg-danger-soft motion-reduce:transition-none";
 
 interface MenuContentProps {
@@ -34,8 +34,8 @@ function MenuContent(props: MenuContentProps): JSX.Element {
       <Ark.Positioner>
         <Ark.Content
           class={
-            "z-[300] min-w-[168px] p-[4px] rounded-ctl glass-pop " +
-            "flex flex-col gap-[2px] text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5 " +
+            "z-[300] min-w-[168px] p-[4px] rounded-none bg-panel-2 text-fg border border-titlebar shadow-raised " +
+            "flex flex-col gap-[2px] text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent " +
             (props.class ?? "")
           }
         >
@@ -64,7 +64,7 @@ function MenuItem(props: MenuItemProps): JSX.Element {
 }
 
 function MenuSeparator(props: { class?: string }): JSX.Element {
-  return <Ark.Separator class={"my-[4px] h-px bg-glass-divider border-none " + (props.class ?? "")} />;
+  return <Ark.Separator class={"my-[4px] h-px bg-titlebar border-none " + (props.class ?? "")} />;
 }
 
 export const Menu = {

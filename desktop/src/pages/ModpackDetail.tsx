@@ -1,6 +1,7 @@
 import { Component, createResource, createSignal, For, Show, onMount, onCleanup } from "solid-js";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
-import { BlockedFilesDialog, Spinner, toast, Lightbox, type ModpackHit, type LightboxImage } from "../components";
+import { BlockedFilesDialog, Spinner, toast, Lightbox, Panel, Chip, Tag, Heading, PixelLabel, type ModpackHit, type LightboxImage } from "../components";
+import { ACCENT_BTN } from "../components/styles";
 import { api, onInstallProgress } from "../ipc/api";
 import { cached } from "../ipc/cache";
 import { activeRoot, refreshInstances } from "../store";
@@ -143,7 +144,7 @@ const ModpackDetail: Component<{
   return (
     <div class="flex flex-col gap-[16px] px-[2px] pt-[4px] pb-[24px] overflow-y-auto">
       <button
-        class="self-start bg-transparent border-none text-a-6 text-[14px] cursor-pointer py-[4px] px-0 rounded-xs transition-opacity duration-[var(--mo-dur-fast)] ease-emph hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5"
+        class="self-start bg-transparent border-none text-accent text-[14px] cursor-pointer py-[4px] px-0 rounded-none transition-opacity duration-[var(--dur)] ease-app hover:opacity-70 focus-visible:outline-none"
         onClick={props.onBack}
       >
         {t("discover.back")}
@@ -152,7 +153,7 @@ const ModpackDetail: Component<{
       <div class="flex flex-col gap-[12px]">
         <Show when={props.hit.gallery_url}>
           <img
-            class="w-full max-h-[240px] object-cover rounded-card"
+            class="w-full max-h-[240px] object-cover rounded-none shadow-sunken"
             src={props.hit.gallery_url}
             alt=""
             width="960"
@@ -163,22 +164,23 @@ const ModpackDetail: Component<{
           <Show
             when={props.hit.icon_url}
             fallback={
-              <div class="w-[72px] h-[72px] rounded-[14px] object-cover flex-[0_0_auto] flex items-center justify-center text-[32px] font-bold text-white bg-[linear-gradient(135deg,var(--a-5,#1370f3),var(--a-7,#4890f5))]">
+              <Panel variant="raised" class="w-[72px] h-[72px] object-cover flex-[0_0_auto] flex items-center justify-center font-display text-[32px] text-strong bg-panel-2">
                 {(props.hit.title[0] ?? "?").toUpperCase()}
-              </div>
+              </Panel>
             }
           >
             <img
-              class="w-[72px] h-[72px] rounded-[14px] object-cover flex-[0_0_auto]"
+              class="w-[72px] h-[72px] rounded-none object-cover flex-[0_0_auto] shadow-sunken"
               src={props.hit.icon_url}
               alt=""
               width="72"
               height="72"
+              style="image-rendering:pixelated"
             />
           </Show>
           <div class="min-w-0">
-            <h1 class="m-0 text-[24px] font-extrabold text-n-8 whitespace-nowrap overflow-hidden text-ellipsis">{props.hit.title}</h1>
-            <div class="mt-[4px] text-[13px] text-n-6">
+            <Heading as="h1" size="page" class="whitespace-nowrap overflow-hidden text-ellipsis">{props.hit.title}</Heading>
+            <div class="mt-[4px] text-[13px] text-sub">
               by {props.hit.author} · ⬇ {props.hit.downloads.toLocaleString()}
               <Show when={project()?.followers}>
                 {" · ♥ "}
@@ -187,17 +189,15 @@ const ModpackDetail: Component<{
             </div>
             <div class="mt-[8px] flex flex-wrap gap-[6px]">
               <For each={props.hit.categories}>
-                {(c) => (
-                  <span class="text-[11px] py-[2px] px-[8px] rounded-full bg-a-1 text-a-6">{c}</span>
-                )}
+                {(c) => <Tag>{c}</Tag>}
               </For>
             </div>
           </div>
 
           {/* 头部主操作:安装最新版 + 下拉选具体版本(整合包安装即新建实例)。 */}
-          <div class="relative ml-auto shrink-0 self-start flex items-stretch">
+          <div class="relative ml-auto shrink-0 self-start flex items-stretch gap-[2px]">
             <button
-              class="h-[36px] rounded-l-ctl border-none bg-a-5 px-[16px] text-white text-[13px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90 disabled:opacity-50 disabled:cursor-default"
+              class="h-[36px] rounded-none bg-accent px-[16px] text-accent-text text-[13px] font-semibold cursor-pointer shadow-raised active:shadow-pressed hover:bg-accent-hover transition-[box-shadow,background-color] duration-[var(--dur)] ease-app disabled:opacity-50 disabled:cursor-default"
               disabled={installing() !== null || vList().length === 0}
               onClick={() => {
                 const v = vList()[0];
@@ -207,8 +207,7 @@ const ModpackDetail: Component<{
               {installing() ? progress() || t("discover.installing") : t("discover.installLatestVersion")}
             </button>
             <button
-              class="h-[36px] w-[30px] rounded-r-ctl border-none bg-a-5 text-white text-[14px] cursor-pointer transition-opacity duration-150 hover:opacity-90 disabled:opacity-50 disabled:cursor-default"
-              style={{ "border-left": "1px solid rgba(255,255,255,0.22)" }}
+              class="h-[36px] w-[32px] grid place-items-center rounded-none bg-accent text-accent-text text-[14px] cursor-pointer shadow-raised active:shadow-pressed hover:bg-accent-hover transition-[box-shadow,background-color] duration-[var(--dur)] ease-app disabled:opacity-50 disabled:cursor-default"
               disabled={installing() !== null || vList().length === 0}
               title={t("discover.chooseVersion")}
               aria-label={t("discover.chooseVersion")}
@@ -218,73 +217,48 @@ const ModpackDetail: Component<{
             </button>
             <Show when={menuOpen()}>
               <div class="fixed inset-0 z-20" onClick={() => setMenuOpen(false)} />
-              <div class="absolute right-0 top-[42px] z-30 w-[340px] max-h-[380px] overflow-y-auto glass-panel rounded-card border border-glass-border p-[6px]">
-                <div class="px-[8px] py-[6px] text-[12px] text-n-6">{t("discover.chooseVersion")}</div>
+              <Panel variant="raised" class="absolute right-0 top-[42px] z-30 w-[340px] max-h-[380px] overflow-y-auto bg-panel p-[6px]">
+                <div class="px-[8px] py-[6px] text-[12px] text-muted">{t("discover.chooseVersion")}</div>
                 <For each={vList()}>
                   {(v) => (
                     <button
-                      class="w-full flex items-center justify-between gap-[10px] px-[10px] py-[8px] rounded-ctl bg-transparent border-none text-left cursor-pointer transition-colors duration-150 hover:bg-glass-hover disabled:opacity-50 disabled:cursor-default"
+                      class="w-full flex items-center justify-between gap-[10px] px-[10px] py-[8px] rounded-none bg-transparent border-none text-left cursor-pointer hover:bg-panel-2 transition-colors duration-[var(--dur)] ease-app disabled:opacity-50 disabled:cursor-default"
                       disabled={installing() !== null}
                       onClick={() => {
                         setMenuOpen(false);
                         install(v);
                       }}
                     >
-                      <span class="min-w-0 flex-1 text-[13px] text-n-8 whitespace-nowrap overflow-hidden text-ellipsis">{v.version_number}</span>
-                      <span class="shrink-0 text-[11px] text-n-6">{typeLabel(v.version_type)} · {fmtDate(v.date_published)}</span>
+                      <span class="min-w-0 flex-1 text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">{v.version_number}</span>
+                      <span class="shrink-0 text-[11px] text-muted">{typeLabel(v.version_type)} · {fmtDate(v.date_published)}</span>
                     </button>
                   )}
                 </For>
-              </div>
+              </Panel>
             </Show>
           </div>
         </div>
         <Show when={props.hit.description}>
-          <p class="m-0 text-[14px] leading-[1.7] text-n-7">{props.hit.description}</p>
+          <p class="m-0 text-[14px] leading-[1.7] text-sub">{props.hit.description}</p>
         </Show>
       </div>
 
       {/* ---- 标签页切换 ---- */}
-      <div class="flex gap-[4px] border-b border-b-n-3">
-        <button
-          class="relative bg-transparent border-none py-[8px] px-[16px] text-[14px] font-semibold cursor-pointer border-b-2 border-b-transparent mb-[-1px] transition-colors duration-[var(--mo-dur-fast)] ease-emph"
-          classList={{
-            "text-n-6 hover:text-n-8": tab() !== "about",
-            "text-a-6 !border-b-a-5": tab() === "about",
-          }}
-          onClick={() => setTab("about")}
-        >
+      <div class="flex gap-[6px]">
+        <Chip active={tab() === "about"} onClick={() => setTab("about")}>
           {t("discover.tabAbout")}
-        </button>
-        <button
-          class="relative bg-transparent border-none py-[8px] px-[16px] text-[14px] font-semibold cursor-pointer border-b-2 border-b-transparent mb-[-1px] transition-colors duration-[var(--mo-dur-fast)] ease-emph"
-          classList={{
-            "text-n-6 hover:text-n-8": tab() !== "versions",
-            "text-a-6 !border-b-a-5": tab() === "versions",
-          }}
-          onClick={() => setTab("versions")}
-        >
+        </Chip>
+        <Chip active={tab() === "versions"} onClick={() => setTab("versions")}>
           {t("discover.tabVersions")}
           <Show when={(versions() ?? []).length}>
-            <span class="ml-[6px] text-[11px] font-semibold px-[6px] rounded-full bg-glass-card text-n-6">
-              {(versions() ?? []).length}
-            </span>
+            <PixelLabel class="ml-[4px]">{(versions() ?? []).length}</PixelLabel>
           </Show>
-        </button>
+        </Chip>
         <Show when={gallery().length}>
-          <button
-            class="relative bg-transparent border-none py-[8px] px-[16px] text-[14px] font-semibold cursor-pointer border-b-2 border-b-transparent mb-[-1px] transition-colors duration-[var(--mo-dur-fast)] ease-emph"
-            classList={{
-              "text-n-6 hover:text-n-8": tab() !== "gallery",
-              "text-a-6 !border-b-a-5": tab() === "gallery",
-            }}
-            onClick={() => setTab("gallery")}
-          >
+          <Chip active={tab() === "gallery"} onClick={() => setTab("gallery")}>
             {t("discover.tabGallery")}
-            <span class="ml-[6px] text-[11px] font-semibold px-[6px] rounded-full bg-glass-card text-n-6">
-              {gallery().length}
-            </span>
-          </button>
+            <PixelLabel class="ml-[4px]">{gallery().length}</PixelLabel>
+          </Chip>
         </Show>
       </div>
 
@@ -294,14 +268,14 @@ const ModpackDetail: Component<{
           <Show
             when={!project.loading}
             fallback={
-              <div class="p-[28px] text-center text-n-6">
+              <div class="p-[28px] text-center text-muted">
                 <Spinner />
               </div>
             }
           >
             <Show
               when={project()}
-              fallback={<div class="p-[28px] text-center text-n-6">{t("discover.noAbout")}</div>}
+              fallback={<div class="p-[28px] text-center text-muted">{t("discover.noAbout")}</div>}
             >
               {(p) => (
                 <>
@@ -310,7 +284,7 @@ const ModpackDetail: Component<{
                       <For each={links()}>
                         {(l) => (
                           <button
-                            class="py-[6px] px-[14px] border border-glass-border rounded-[6px] bg-glass-card text-a-6 text-[13px] cursor-pointer transition-colors duration-[var(--mo-dur-fast)] ease-emph hover:bg-a-1"
+                            class="py-[6px] px-[14px] rounded-none bg-panel-3 text-tag text-[13px] cursor-pointer shadow-raised active:shadow-pressed transition-[box-shadow] duration-[var(--dur)] ease-app"
                             onClick={() => shellOpen(l.url)}
                           >
                             {l.label} ↗
@@ -323,12 +297,12 @@ const ModpackDetail: Component<{
                   <Show
                     when={p().body?.trim()}
                     fallback={
-                      <div class="p-[28px] text-center text-n-6">{t("discover.noAboutBody")}</div>
+                      <div class="p-[28px] text-center text-muted">{t("discover.noAboutBody")}</div>
                     }
                   >
                     {/* renderMarkdown 转义优先,输出仅含白名单标签,innerHTML 安全 */}
                     <div
-                      class="md text-[14px] leading-[1.75] text-n-7"
+                      class="md text-[14px] leading-[1.75] text-sub"
                       innerHTML={renderMarkdown(p().body)}
                     />
                   </Show>
@@ -346,7 +320,7 @@ const ModpackDetail: Component<{
             {(g, i) => (
               <figure class="m-0 flex flex-col gap-[6px]">
                 <img
-                  class="w-full aspect-[16/9] object-cover rounded-[8px] cursor-zoom-in bg-glass-card transition-transform duration-[var(--mo-dur-fast)] ease-emph hover:scale-[1.015]"
+                  class="w-full aspect-[16/9] object-cover rounded-none cursor-zoom-in bg-panel-2 shadow-sunken transition-transform duration-[var(--dur)] ease-app hover:scale-[1.015]"
                   src={g.url}
                   alt={g.title ?? ""}
                   width="960"
@@ -355,7 +329,7 @@ const ModpackDetail: Component<{
                   onClick={() => setLbIndex(i())}
                 />
                 <Show when={g.title}>
-                  <figcaption class="text-[12px] text-n-6">{g.title}</figcaption>
+                  <figcaption class="text-[12px] text-muted">{g.title}</figcaption>
                 </Show>
               </figure>
             )}
@@ -369,30 +343,30 @@ const ModpackDetail: Component<{
           <Show
             when={!versions.loading}
             fallback={
-              <div class="p-[28px] text-center text-n-6">
+              <div class="p-[28px] text-center text-muted">
                 <Spinner />
               </div>
             }
           >
             <Show
               when={vList().length > 0}
-              fallback={<div class="p-[28px] text-center text-n-6">{t("discover.noVersions")}</div>}
+              fallback={<div class="p-[28px] text-center text-muted">{t("discover.noVersions")}</div>}
             >
-              <div class="overflow-y-auto max-h-[calc(100vh-300px)] px-[2px] -mx-[2px]">
+              <div class="overflow-y-auto max-h-[calc(100vh-300px)] flex flex-col gap-[6px] px-[2px] -mx-[2px]">
                 <For each={vList()}>
                   {(v) => (
-                    <div class="flex items-start gap-[12px] py-[12px] px-[2px] border-b border-b-glass-divider">
+                    <Panel variant="sunken" class="flex items-start gap-[12px] bg-panel py-[10px] px-[12px]">
                     <div class="flex-1 min-w-0">
                       <div class="flex items-center gap-[8px]">
-                        <span class="text-[14px] font-bold text-n-8">{v.version_number}</span>
+                        <span class="text-[14px] font-bold text-strong">{v.version_number}</span>
                         <span
-                          class="text-[11px] py-[1px] px-[7px] rounded-[3px] bg-glass-card text-n-6 data-[type=release]:bg-[rgba(40,167,69,0.14)] data-[type=release]:text-[#1f9d4d] data-[type=beta]:bg-[rgba(255,159,10,0.16)] data-[type=beta]:text-[#c77800] data-[type=alpha]:bg-[rgba(255,59,48,0.14)] data-[type=alpha]:text-[#d23b30]"
+                          class="text-[11px] py-[2px] px-[7px] rounded-none bg-panel-2 text-tag data-[type=release]:text-[#7bbf5a] data-[type=beta]:text-[#d8a23c] data-[type=alpha]:text-[#d97a4a]"
                           data-type={v.version_type}
                         >
                           {typeLabel(v.version_type)}
                         </span>
                       </div>
-                      <div class="mt-[4px] text-[12px] text-n-6">
+                      <div class="mt-[4px] text-[12px] text-muted">
                         {v.game_versions.slice(0, 5).join(", ")}
                         <Show when={v.loaders.length}>
                           {" · "}
@@ -404,27 +378,27 @@ const ModpackDetail: Component<{
                       </div>
                       <Show when={v.changelog?.trim()}>
                         <button
-                          class="mt-[8px] bg-transparent border-none p-0 text-[12px] text-a-6 cursor-pointer hover:underline"
+                          class="mt-[8px] bg-transparent border-none p-0 text-[12px] text-accent cursor-pointer hover:underline"
                           onClick={() => setOpenLog((o) => ({ ...o, [v.id]: !o[v.id] }))}
                         >
                           {openLog()[v.id] ? t("discover.collapseChangelog") : t("discover.changelog")}
                         </button>
                         <Show when={openLog()[v.id]}>
                           <div
-                            class="md mt-[8px] mb-0 mx-0 py-[6px] px-[12px] max-h-[260px] overflow-y-auto [word-break:break-word] text-[12px] text-n-7 bg-n-1 rounded-[6px]"
+                            class="md mt-[8px] mb-0 mx-0 py-[6px] px-[12px] max-h-[260px] overflow-y-auto [word-break:break-word] text-[12px] text-sub bg-window shadow-input"
                             innerHTML={renderMarkdown(v.changelog)}
                           />
                         </Show>
                       </Show>
                     </div>
                             <button
-                              class="flex-[0_0_auto] py-[8px] px-[16px] border-none rounded-ctl bg-a-4 text-white text-[13px] font-semibold cursor-pointer transition-[background-color,opacity] duration-[var(--mo-dur-fast)] ease-emph hover:not-disabled:bg-a-5 disabled:opacity-50 disabled:cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5/40"
+                              class={`flex-[0_0_auto] ${ACCENT_BTN}`}
                               disabled={(provider() === "modrinth" && !v.mrpack_url) || installing() !== null}
                               onClick={() => install(v)}
                             >
                               {installing() === v.id ? (progress() || t("discover.installing")) : t("discover.installThisVersion")}
                             </button>
-                    </div>
+                    </Panel>
                   )}
                 </For>
               </div>

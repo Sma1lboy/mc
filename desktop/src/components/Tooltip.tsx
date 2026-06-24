@@ -22,12 +22,12 @@ export const Tooltip: Component<TooltipProps> = (props) => {
       closeDelay={80}
       positioning={{ placement: props.placement ?? "top" }}
     >
-      <Ark.Trigger class="inline-flex items-center bg-transparent border-none p-0 cursor-help text-dim hover:text-fg transition-colors duration-150">
+      <Ark.Trigger class="inline-flex items-center bg-transparent border-none p-0 cursor-help text-muted hover:text-fg transition-colors duration-150">
         {props.children}
       </Ark.Trigger>
       <Portal>
         <Ark.Positioner>
-          <Ark.Content class="z-[300] max-w-[280px] px-[10px] py-[6px] rounded-ctl bg-n-8 text-n-1 text-[12px] leading-[1.5]">
+          <Ark.Content class="z-[300] max-w-[280px] px-[10px] py-[6px] rounded-none border border-titlebar bg-panel-2 shadow-raised text-fg text-[12px] leading-[1.5]">
             {props.content}
           </Ark.Content>
         </Ark.Positioner>

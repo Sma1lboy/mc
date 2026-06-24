@@ -3,6 +3,7 @@ import { PlayButton } from "./PlayButton";
 import { InstanceIcon } from "./InstanceIcon";
 import { Dialog } from "./Dialog";
 import { Menu } from "./Menu";
+import { Button } from "./Button";
 import { Icon } from "./Icon";
 import { formatRelativeTime } from "./format";
 import { loaderLabel as fmtLoader } from "../util/loaders";
@@ -73,14 +74,12 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
 
   return (
     <>
-      <div
-        class="relative flex items-center gap-[14px] glass-card glass-card--hover rounded-card px-[14px] py-[12px] transition-[transform,box-shadow,border-color,background-color] duration-[var(--dur)] ease-app hover:-translate-y-[2px]"
-      >
-        {/* 选中:边缘 accent 高亮 + 柔光。用覆盖层而非 ring 类,绕开 glass-card 的 box-shadow,
-            hover 时不会被 .glass-card--hover 的 box-shadow 覆盖丢失。 */}
+      <div class="relative flex items-center gap-[14px] bg-panel shadow-sunken rounded-none px-[14px] py-[12px] transition-[filter] duration-[var(--dur)] ease-app hover:brightness-[1.06]">
+        {/* 选中:覆盖一层凸起倒角 + accent 内描边,绕开面板自身的 sunken 阴影,
+            不被 hover 滤镜吃掉。 */}
         <Show when={props.selectable && props.selected}>
           <span
-            class="pointer-events-none absolute inset-0 rounded-card ring-[1.5px] ring-inset ring-a-5 shadow-[0_0_12px_-1px_color-mix(in_srgb,var(--a-5)_45%,transparent)]"
+            class="pointer-events-none absolute inset-0 rounded-none shadow-raised ring-[2px] ring-inset ring-accent"
             aria-hidden="true"
           />
         </Show>
@@ -92,10 +91,10 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
             aria-checked={!!props.selected}
             aria-label={t("instance.selectRow", { name: inst().name })}
             onClick={() => props.onToggleSelect?.(inst().id)}
-            class="shrink-0 w-[20px] h-[20px] rounded-[6px] border flex items-center justify-center cursor-pointer transition-colors duration-[var(--dur)] ease-app"
+            class="relative z-[1] shrink-0 w-[22px] h-[22px] rounded-none border-none flex items-center justify-center cursor-pointer transition-[filter] duration-[var(--dur)] ease-app active:shadow-pressed hover:brightness-110"
             classList={{
-              "bg-a-5 border-a-5 text-white": !!props.selected,
-              "bg-glass-card border-glass-border text-transparent hover:border-a-4": !props.selected,
+              "bg-accent text-accent-text shadow-raised": !!props.selected,
+              "bg-panel-2 text-transparent shadow-input": !props.selected,
             }}
           >
             <Icon name="check" size={14} />
@@ -104,30 +103,30 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
         {/* 行主体:多选模式下点击切换选中,否则进入实例详情。 */}
         <button
           type="button"
-          class="flex items-center gap-[14px] flex-1 min-w-0 bg-transparent border-none p-0 text-left cursor-pointer"
+          class="relative z-[1] flex items-center gap-[14px] flex-1 min-w-0 bg-transparent border-none p-0 text-left cursor-pointer"
           onClick={() => (props.selectable ? props.onToggleSelect?.(inst().id) : props.onOpen?.(inst().id))}
         >
-          {/* 左: 图标 (有 icon 显示图片, 否则 MC 像素占位)。 */}
-          <div class="relative shrink-0 w-[48px] h-[48px] rounded-ctl overflow-hidden select-none">
+          {/* 左: 图标 (有 icon 显示图片, 否则 MC 像素占位)。50px 方块 + 深凹边框。 */}
+          <div class="relative shrink-0 w-[50px] h-[50px] rounded-none shadow-input overflow-hidden select-none">
             <InstanceIcon name={inst().name} icon={inst().icon} />
-            {/* 运行中绿点。 */}
+            {/* 运行中熔岩橙指示点。 */}
             <Show when={running()}>
               <span
-                class="absolute right-[2px] bottom-[2px] w-[11px] h-[11px] rounded-full bg-a-5 shadow-[0_0_0_2px_var(--bg-card)]"
+                class="absolute right-[3px] bottom-[3px] w-[10px] h-[10px] rounded-none bg-accent shadow-raised"
                 title={t("instance.running")}
               />
             </Show>
           </div>
 
           {/* 中: 名称 + 元信息。 */}
-          <div class="flex-1 min-w-0 flex flex-col gap-[3px]">
+          <div class="flex-1 min-w-0 flex flex-col gap-[4px]">
             <div
               class="text-[length:var(--fs-base)] font-semibold text-fg whitespace-nowrap overflow-hidden text-ellipsis"
               title={inst().name}
             >
               {inst().name}
             </div>
-            <div class="text-[12px] text-dim whitespace-nowrap overflow-hidden text-ellipsis flex items-center gap-[6px]">
+            <div class="text-[12px] text-muted whitespace-nowrap overflow-hidden text-ellipsis flex items-center gap-[6px]">
               <span>{loaderLabel()}</span>
               <span class="opacity-50">·</span>
               <span>{playedLabel()}</span>
@@ -136,11 +135,11 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
         </button>
 
         {/* 右: Play + ⋮ 菜单(Ark Menu:键盘可达 + 点外部/Esc 关闭)。 */}
-        <div class="shrink-0 flex items-center gap-[6px]">
+        <div class="relative z-[1] shrink-0 flex items-center gap-[8px]">
           <PlayButton running={running()} disabled={isLaunching(inst().id)} onClick={() => props.onPlay?.(inst().id)} />
           <Menu.Root positioning={{ placement: "bottom-end" }} onSelect={(d: { value: string }) => onSelectAction(d.value)}>
             <Menu.Trigger
-              class="inline-flex items-center justify-center w-[34px] h-[34px] border-none bg-transparent text-dim rounded-ctl cursor-pointer transition-[background-color,color] duration-[var(--dur)] ease-app hover:bg-glass-hover hover:text-fg data-[state=open]:bg-glass-hover data-[state=open]:text-fg"
+              class="inline-flex items-center justify-center w-[36px] h-[36px] border-none rounded-none bg-panel-3 text-sub shadow-raised cursor-pointer transition-[filter,color] duration-[var(--dur)] ease-app hover:brightness-110 hover:text-fg active:shadow-pressed data-[state=open]:shadow-pressed data-[state=open]:text-fg"
               aria-label={t("instance.moreActions")}
             >
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
@@ -168,29 +167,26 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
         open={confirmOpen()}
         onClose={() => setConfirmOpen(false)}
         label={t("instance.deleteInstance")}
-        contentClass="w-[360px] max-w-[calc(100vw-48px)] glass-pop rounded-card overflow-hidden"
+        contentClass="w-[360px] max-w-[calc(100vw-48px)]"
       >
         <div class="p-[20px] flex flex-col gap-[14px]">
-          <div class="text-[15px] font-semibold text-fg break-words">{t("instance.deleteInstanceConfirm", { name: inst().name })}</div>
-          <div class="text-[13px] text-dim leading-[1.6]">
+          <div class="text-[15px] font-semibold text-strong break-words">{t("instance.deleteInstanceConfirm", { name: inst().name })}</div>
+          <div class="text-[13px] text-muted leading-[1.6]">
             {t("instance.deleteInstanceBodyRow")}
           </div>
           <div class="flex justify-end gap-[10px]">
-            <button
-              class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-glass-card text-fg text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-glass-hover"
-              onClick={() => setConfirmOpen(false)}
-            >
+            <Button variant="ghost" onClick={() => setConfirmOpen(false)}>
               {t("instance.cancel")}
-            </button>
-            <button
-              class="h-[34px] px-[16px] border-none rounded-ctl bg-danger text-white text-[13px] cursor-pointer transition-[background] duration-[var(--dur)] ease-app hover:bg-danger-hover"
+            </Button>
+            <Button
+              variant="danger"
               onClick={() => {
                 setConfirmOpen(false);
                 props.onDelete?.(inst().id);
               }}
             >
               {t("instance.delete")}
-            </button>
+            </Button>
           </div>
         </div>
       </Dialog>

@@ -19,6 +19,8 @@ import ServersPanel from "./ServersPanel";
 import { ContentBrowser, type ContentProvider } from "./ContentBrowser";
 import { ErrorState } from "./ErrorState";
 import { ACCENT_BTN_COMPACT, ACCENT_BTN } from "./styles";
+import { Button } from "./Button";
+import { Heading } from "./Typography";
 import { Toggle } from "./Toggle";
 import { ModpackOverview } from "./ModpackOverview";
 import type { ModpackHit } from "./ModpackCard";
@@ -48,14 +50,14 @@ import type {
  */
 
 const FIELD =
-  "glass-input h-[34px] px-[12px] rounded-ctl border border-glass-border text-fg text-[13px] " +
-  "transition-[border-color,box-shadow] duration-150 focus-visible:outline-none " +
-  "focus-visible:border-a-4 focus-visible:ring-2 focus-visible:ring-a-5/25";
-const LABEL = "text-[12px] text-dim";
+  "bg-sidebar shadow-input h-[34px] px-[12px] rounded-none text-fg text-[13px] " +
+  "placeholder:text-faint transition-[box-shadow] duration-150 focus-visible:outline-none " +
+  "focus-visible:ring-2 focus-visible:ring-accent";
+const LABEL = "text-[12px] text-sub";
 const TAB =
   "px-[14px] py-[7px] text-[13px] font-semibold cursor-pointer border-b-2 border-b-transparent " +
-  "text-n-6 hover:text-n-8 transition-colors duration-150";
-const TAB_ACTIVE = "!text-a-4 !border-b-a-4";
+  "text-muted hover:text-fg transition-colors duration-150";
+const TAB_ACTIVE = "!text-accent !border-b-accent";
 
 export type InstanceManageTab =
   | "overview"
@@ -116,7 +118,7 @@ const ScreenshotTile: Component<{
   return (
     <div
       ref={el}
-      class="group relative aspect-video rounded-ctl overflow-hidden bg-glass-card cursor-pointer"
+      class="group relative aspect-video rounded-none overflow-hidden bg-panel-2 cursor-pointer"
       onClick={props.onOpen}
     >
       <Show
@@ -132,7 +134,7 @@ const ScreenshotTile: Component<{
           >
             {/* 读图失败:给可重试的占位,而不是永远转圈。 */}
             <button
-              class="w-full h-full grid place-items-center gap-[2px] text-[11px] text-dim bg-glass-card cursor-pointer hover:text-fg"
+              class="w-full h-full grid place-items-center gap-[2px] text-[11px] text-muted bg-panel-2 cursor-pointer hover:text-fg"
               onClick={(e) => {
                 e.stopPropagation();
                 props.onRetry();
@@ -148,7 +150,7 @@ const ScreenshotTile: Component<{
         <img src={props.url} alt={props.info.file_name} width="320" height="180" class="w-full h-full object-cover" />
       </Show>
       <button
-        class="absolute top-[4px] right-[4px] opacity-0 group-hover:opacity-100 transition-opacity duration-150 text-[11px] text-white px-[6px] py-[2px] rounded-xs bg-[rgba(0,0,0,0.55)] hover:bg-danger"
+        class="absolute top-[4px] right-[4px] opacity-0 group-hover:opacity-100 transition-opacity duration-150 text-[11px] text-white px-[6px] py-[2px] rounded-none bg-[rgba(0,0,0,0.55)] hover:bg-danger"
         onClick={props.onDelete}
       >
         {t("instance.delete")}
@@ -221,7 +223,7 @@ const ScreenshotsPanel: Component<{ instance: InstanceSummary }> = (props) => {
       </div>
 
       <Show when={(shots() ?? []).length > SCREENSHOT_CAP}>
-        <div class="text-[11px] text-dim">
+        <div class="text-[11px] text-muted">
           {t("instance.screenshotCapNote", { total: shots()!.length, cap: SCREENSHOT_CAP })}
         </div>
       </Show>
@@ -229,7 +231,7 @@ const ScreenshotsPanel: Component<{ instance: InstanceSummary }> = (props) => {
       <Show
         when={!shots.loading}
         fallback={
-          <div class="flex items-center gap-[10px] text-dim text-[13px] py-[12px]">
+          <div class="flex items-center gap-[10px] text-muted text-[13px] py-[12px]">
             <Spinner size={16} /> {t("instance.scanningScreenshots")}
           </div>
         }
@@ -239,7 +241,7 @@ const ScreenshotsPanel: Component<{ instance: InstanceSummary }> = (props) => {
           fallback={
             shots.error
               ? <ErrorState compact message={t("instance.screenshotLoadError")} onRetry={() => void refetch()} />
-              : <div class="text-dim text-[13px] py-[12px]">{t("instance.noScreenshots")}</div>
+              : <div class="text-muted text-[13px] py-[12px]">{t("instance.noScreenshots")}</div>
           }
         >
           <div class="grid grid-cols-3 gap-[8px]">
@@ -287,9 +289,9 @@ function fmtSize(bytes: number): string {
 
 const INSTALL_BTN = ACCENT_BTN_COMPACT;
 const DEL_BTN =
-  "shrink-0 text-[12px] text-danger-text px-[8px] py-[4px] rounded-xs cursor-pointer hover:bg-danger-soft";
+  "shrink-0 text-[12px] text-danger-text px-[8px] py-[4px] rounded-none cursor-pointer hover:bg-danger-soft";
 const OPEN_BTN =
-  "shrink-0 text-[12px] text-dim px-[8px] py-[3px] rounded-xs cursor-pointer hover:text-fg hover:bg-a-4/10";
+  "shrink-0 text-[12px] text-muted px-[8px] py-[3px] rounded-none cursor-pointer hover:text-fg hover:bg-panel-2";
 
 /**
  * PacksPanel —— 资源包 / 光影的统一面板:Modrinth 搜索安装 + 本地启停/删除。
@@ -403,12 +405,12 @@ const PacksPanel: Component<{
         <Show
           when={(worlds() ?? []).length > 0}
           fallback={
-            <div class="text-[12px] leading-[1.7] text-dim py-[4px]">
+            <div class="text-[12px] leading-[1.7] text-muted py-[4px]">
               {t("instance.datapackNoWorlds")}
             </div>
           }
         >
-          <label class="flex items-center gap-[8px] text-[12px] text-dim">
+          <label class="flex items-center gap-[8px] text-[12px] text-muted">
             <span class="shrink-0">{t("instance.targetWorld")}</span>
             <Select
               class="flex-1 !min-w-0"
@@ -447,7 +449,7 @@ const PacksPanel: Component<{
                   {t("instance.openDir")}
                 </button>
                 <button
-                  class="shrink-0 h-[28px] px-[10px] rounded-ctl bg-a-4 text-white text-[12px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90"
+                  class="shrink-0 h-[28px] px-[10px] rounded-none bg-accent text-white shadow-raised text-[12px] font-semibold cursor-pointer transition-[box-shadow,background-color] duration-[var(--dur)] ease-app hover:bg-accent-hover active:shadow-pressed"
                   onClick={startBrowse}
                 >
                   {t("instance.add")}
@@ -458,7 +460,7 @@ const PacksPanel: Component<{
             <Show
               when={!packs.loading}
               fallback={
-                <div class="flex items-center gap-[10px] text-dim text-[13px] py-[12px]">
+                <div class="flex items-center gap-[10px] text-muted text-[13px] py-[12px]">
                   <Spinner size={16} /> {t("instance.scanning")}
                 </div>
               }
@@ -470,7 +472,7 @@ const PacksPanel: Component<{
                     <ErrorState compact message={t("instance.loadFailedShort")} onRetry={() => void refetch()} />
                   ) : (
                     <div class="flex flex-col items-center justify-center gap-[12px] py-[40px] text-center">
-                      <div class="text-dim text-[13px]">{props.emptyHint}</div>
+                      <div class="text-muted text-[13px]">{props.emptyHint}</div>
                       <button
                         class={ACCENT_BTN}
                         onClick={startBrowse}
@@ -485,14 +487,14 @@ const PacksPanel: Component<{
                   <For each={packs()}>
                     {(p) => (
                       <div
-                        class="flex items-center gap-[10px] py-[8px] px-[10px] rounded-ctl bg-glass-card"
+                        class="flex items-center gap-[10px] py-[8px] px-[10px] rounded-none bg-panel-2"
                         classList={{ "opacity-55": !p.enabled }}
                       >
                         <div class="flex-1 min-w-0">
                           <div class="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">
                             {p.file_name.replace(/\.disabled$/, "")}
                           </div>
-                          <div class="text-[11px] text-dim whitespace-nowrap overflow-hidden text-ellipsis">
+                          <div class="text-[11px] text-muted whitespace-nowrap overflow-hidden text-ellipsis">
                             {[p.description, fmtSize(p.size)].filter(Boolean).join(" · ")}
                           </div>
                         </div>
@@ -517,7 +519,7 @@ const PacksPanel: Component<{
           fallback={
             <>
               <button
-                class="self-start inline-flex items-center gap-[4px] h-[28px] px-[10px] rounded-ctl border-none bg-transparent text-dim text-[12px] cursor-pointer transition-colors duration-150 hover:bg-glass-hover hover:text-fg"
+                class="self-start inline-flex items-center gap-[4px] h-[28px] px-[10px] rounded-none border-none bg-transparent text-muted text-[12px] cursor-pointer transition-colors duration-150 hover:bg-panel-3 hover:text-fg"
                 onClick={() => {
                   setDetail(null);
                   props.onBrowse(false);
@@ -564,22 +566,19 @@ const PacksPanel: Component<{
         open={confirmDel() !== null}
         onClose={() => setConfirmDel(null)}
         label={t("instance.deleteResourcePack")}
-        contentClass="w-[360px] max-w-[calc(100vw-48px)] glass-pop rounded-card overflow-hidden"
+        contentClass="w-[360px] max-w-[calc(100vw-48px)] overflow-hidden"
       >
         <div class="p-[20px] flex flex-col gap-[14px]">
           <div class="text-[15px] font-semibold text-fg break-words">
             {t("instance.deleteFileConfirm", { file: confirmDel()?.file_name.replace(/\.disabled$/, "") ?? "" })}
           </div>
-          <div class="text-[13px] text-dim leading-[1.6]">{t("instance.deleteFileBody")}</div>
+          <div class="text-[13px] text-muted leading-[1.6]">{t("instance.deleteFileBody")}</div>
           <div class="flex justify-end gap-[10px]">
-            <button
-              class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-glass-card text-fg text-[13px] cursor-pointer transition-colors duration-150 hover:bg-glass-hover"
-              onClick={() => setConfirmDel(null)}
-            >
+            <Button variant="ghost" onClick={() => setConfirmDel(null)}>
               {t("instance.cancel")}
-            </button>
-            <button
-              class="h-[34px] px-[16px] border-none rounded-ctl bg-danger text-white text-[13px] cursor-pointer transition-colors duration-150 hover:bg-danger-hover"
+            </Button>
+            <Button
+              variant="danger"
               onClick={() => {
                 const p = confirmDel();
                 setConfirmDel(null);
@@ -587,7 +586,7 @@ const PacksPanel: Component<{
               }}
             >
               {t("instance.delete")}
-            </button>
+            </Button>
           </div>
         </div>
       </Dialog>
@@ -705,7 +704,7 @@ const WorldsPanel: Component<{ instance: InstanceSummary; tick?: number }> = (pr
             {t("instance.openDir")}
           </button>
           <button
-            class="text-[12px] text-a-6 px-[8px] py-[3px] rounded-xs cursor-pointer hover:bg-a-4/10 disabled:opacity-50 disabled:cursor-default"
+            class="text-[12px] text-accent px-[8px] py-[3px] rounded-none cursor-pointer hover:bg-panel-2 disabled:opacity-50 disabled:cursor-default"
             disabled={importing()}
             onClick={importZip}
           >
@@ -717,7 +716,7 @@ const WorldsPanel: Component<{ instance: InstanceSummary; tick?: number }> = (pr
       <Show
         when={!worlds.loading}
         fallback={
-          <div class="flex items-center gap-[10px] text-dim text-[13px] py-[12px]">
+          <div class="flex items-center gap-[10px] text-muted text-[13px] py-[12px]">
             <Spinner size={16} /> {t("instance.scanningWorlds")}
           </div>
         }
@@ -727,13 +726,13 @@ const WorldsPanel: Component<{ instance: InstanceSummary; tick?: number }> = (pr
         fallback={
           worlds.error
             ? <ErrorState compact message={t("instance.worldsLoadError")} onRetry={() => void refetch()} />
-            : <div class="text-dim text-[13px] py-[12px]">{t("instance.noWorlds")}</div>
+            : <div class="text-muted text-[13px] py-[12px]">{t("instance.noWorlds")}</div>
         }
       >
         <div class="flex flex-col gap-[6px]">
           <For each={worlds()}>
             {(w) => (
-              <div class="glass-card flex items-center gap-[10px] py-[8px] px-[10px] rounded-ctl">
+              <div class="bg-panel-2 shadow-sunken flex items-center gap-[10px] py-[8px] px-[10px] rounded-none">
                 <div class="flex-1 min-w-0">
                   <Show
                     when={editing() === w.folder}
@@ -758,7 +757,7 @@ const WorldsPanel: Component<{ instance: InstanceSummary; tick?: number }> = (pr
                       onBlur={() => commitRename(w)}
                     />
                   </Show>
-                  <div class="text-[11px] text-dim whitespace-nowrap overflow-hidden text-ellipsis">
+                  <div class="text-[11px] text-muted whitespace-nowrap overflow-hidden text-ellipsis">
                     {[
                       MODE_LABEL()[w.game_mode] ?? w.game_mode,
                       fmtSize(w.size_bytes),
@@ -770,14 +769,14 @@ const WorldsPanel: Component<{ instance: InstanceSummary; tick?: number }> = (pr
                   </div>
                 </div>
                 <button
-                  class="shrink-0 text-[12px] text-dim px-[8px] py-[4px] rounded-xs cursor-pointer hover:text-fg hover:bg-a-4/10 disabled:opacity-50 disabled:cursor-default"
+                  class="shrink-0 text-[12px] text-muted px-[8px] py-[4px] rounded-none cursor-pointer hover:text-fg hover:bg-panel-2 disabled:opacity-50 disabled:cursor-default"
                   disabled={busy() === w.folder}
                   onClick={() => backup(w)}
                 >
                   {busy() === w.folder ? t("instance.backingUp") : t("instance.backup")}
                 </button>
                 <button
-                  class="shrink-0 text-[12px] text-dim px-[8px] py-[4px] rounded-xs cursor-pointer hover:text-fg hover:bg-a-4/10"
+                  class="shrink-0 text-[12px] text-muted px-[8px] py-[4px] rounded-none cursor-pointer hover:text-fg hover:bg-panel-2"
                   onClick={() => startRename(w)}
                 >
                   {t("instance.rename")}
@@ -796,20 +795,17 @@ const WorldsPanel: Component<{ instance: InstanceSummary; tick?: number }> = (pr
         open={confirmDel() !== null}
         onClose={() => setConfirmDel(null)}
         label={t("instance.deleteWorld")}
-        contentClass="w-[360px] max-w-[calc(100vw-48px)] glass-pop rounded-card overflow-hidden"
+        contentClass="w-[360px] max-w-[calc(100vw-48px)] overflow-hidden"
       >
         <div class="p-[20px] flex flex-col gap-[14px]">
           <div class="text-[15px] font-semibold text-fg">{t("instance.deleteWorldConfirm", { name: confirmDel()?.name ?? "" })}</div>
-          <div class="text-[13px] text-dim leading-[1.6]">{t("instance.deleteWorldBody")}</div>
+          <div class="text-[13px] text-muted leading-[1.6]">{t("instance.deleteWorldBody")}</div>
           <div class="flex justify-end gap-[10px]">
-            <button
-              class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-glass-card text-fg text-[13px] cursor-pointer transition-colors duration-150 hover:bg-glass-hover"
-              onClick={() => setConfirmDel(null)}
-            >
+            <Button variant="ghost" onClick={() => setConfirmDel(null)}>
               {t("instance.cancel")}
-            </button>
-            <button
-              class="h-[34px] px-[16px] border-none rounded-ctl bg-danger text-white text-[13px] cursor-pointer transition-colors duration-150 hover:bg-danger-hover"
+            </Button>
+            <Button
+              variant="danger"
               onClick={() => {
                 const w = confirmDel();
                 setConfirmDel(null);
@@ -817,7 +813,7 @@ const WorldsPanel: Component<{ instance: InstanceSummary; tick?: number }> = (pr
               }}
             >
               {t("instance.delete")}
-            </button>
+            </Button>
           </div>
         </div>
       </Dialog>
@@ -881,7 +877,7 @@ const AddLoaderPanel: Component<{
 
   return (
     <div class="flex flex-col gap-[10px] py-[4px]">
-      <div class="text-[13px] text-dim leading-[1.6]">
+      <div class="text-[13px] text-muted leading-[1.6]">
         {t("instance.addLoaderIntro")}
       </div>
       <div class="flex items-center gap-[8px]">
@@ -895,7 +891,7 @@ const AddLoaderPanel: Component<{
           />
         </Show>
         <button
-          class="shrink-0 h-[34px] px-[14px] rounded-ctl bg-a-4 text-white text-[13px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90 disabled:opacity-50 disabled:cursor-default"
+          class="shrink-0 h-[34px] px-[14px] rounded-none bg-accent text-white shadow-raised text-[13px] font-semibold cursor-pointer transition-[box-shadow,background-color] duration-[var(--dur)] ease-app hover:bg-accent-hover active:shadow-pressed disabled:opacity-50 disabled:cursor-default"
           disabled={busy()}
           onClick={add}
         >
@@ -903,7 +899,7 @@ const AddLoaderPanel: Component<{
         </button>
       </div>
       <Show when={busy() && progress()}>
-        <div class="flex items-center gap-[8px] text-a-5 text-[12px]">
+        <div class="flex items-center gap-[8px] text-accent text-[12px]">
           <Spinner size={14} /> {progress()}
         </div>
       </Show>
@@ -1240,29 +1236,29 @@ export const InstanceManageDialog: Component<{
         classList={{
           "max-h-[calc(100vh-100px)]": !props.embedded,
           "h-full": props.embedded,
-          "ring-2 ring-inset ring-a-4": dragOver(),
+          "ring-2 ring-inset ring-accent": dragOver(),
         }}
       >
         <Show when={dragOver() && dropAccepted()}>
-          <div class="absolute inset-0 z-10 grid place-items-center bg-card/85 pointer-events-none">
-            <div class="text-[14px] text-a-6 font-semibold">{t("instance.dropToImport")}</div>
+          <div class="absolute inset-0 z-10 grid place-items-center bg-window/85 pointer-events-none">
+            <div class="text-[14px] text-accent font-semibold">{t("instance.dropToImport")}</div>
           </div>
         </Show>
         <Show when={dropping()}>
-          <div class="absolute inset-0 z-10 grid place-items-center bg-card/85">
+          <div class="absolute inset-0 z-10 grid place-items-center bg-window/85">
             <div class="flex items-center gap-[10px] text-[14px] text-fg font-semibold">
               <Spinner size={18} /> {t("instance.importingOverlay")}
             </div>
           </div>
         </Show>
         <Show when={!props.embedded}>
-          <div class="px-[20px] pt-[18px] text-[15px] font-bold text-fg">
+          <Heading size="sub" class="px-[20px] pt-[18px]">
             {props.instance?.name || props.instance?.id}
-          </div>
+          </Heading>
         </Show>
 
         <Show when={!props.hideTabs && !browsing()}>
-          <div class="shrink-0 flex gap-[4px] px-[16px] border-b border-glass-divider mt-[10px] overflow-x-auto">
+          <div class="shrink-0 flex gap-[4px] px-[16px] border-b border-titlebar mt-[10px] overflow-x-auto">
             <For each={visibleTabs()}>
               {(item) => (
                 <button
@@ -1287,7 +1283,7 @@ export const InstanceManageDialog: Component<{
             <Show
               when={cfg()}
               fallback={
-                <div class="flex items-center gap-[10px] text-dim text-[13px] py-[12px]">
+                <div class="flex items-center gap-[10px] text-muted text-[13px] py-[12px]">
                   <Spinner size={16} /> {t("instance.readingConfig")}
                 </div>
               }
@@ -1295,13 +1291,13 @@ export const InstanceManageDialog: Component<{
               {(c) => (
                 <>
                   <div class="flex items-center gap-[12px]">
-                    <div class="w-[56px] h-[56px] rounded-ctl overflow-hidden bg-glass-card shrink-0 select-none">
+                    <div class="w-[56px] h-[56px] rounded-none overflow-hidden bg-panel-2 shrink-0 select-none">
                       <InstanceIcon name={props.instance?.name || props.instance?.id} icon={props.instance?.icon ?? undefined} />
                     </div>
                     <div class="flex flex-col gap-[5px]">
                       <span class={LABEL}>{t("instance.instanceIcon")}</span>
                       <button
-                        class="h-[30px] px-[12px] border border-glass-border rounded-ctl bg-glass-card text-fg text-[12px] cursor-pointer transition-colors duration-150 hover:bg-glass-hover w-fit"
+                        class="h-[30px] px-[12px] shadow-raised rounded-none bg-panel-3 text-fg text-[12px] cursor-pointer transition-[box-shadow,filter] duration-[var(--dur)] ease-app hover:brightness-110 active:shadow-pressed w-fit"
                         onClick={pickIcon}
                       >
                         {t("instance.changeIcon")}
@@ -1321,7 +1317,7 @@ export const InstanceManageDialog: Component<{
                   <div class="flex flex-col gap-[5px]">
                     <span class={LABEL}>{t("instance.maxMemory", { mb: c().memory_mb ?? 0 })}</span>
                     <input
-                      class="w-full accent-[var(--a-4)]"
+                      class="kb-range"
                       type="range"
                       min="512"
                       max="16384"
@@ -1393,7 +1389,7 @@ export const InstanceManageDialog: Component<{
 
                   <div class="pt-[4px]">
                     <button
-                      class="h-[30px] px-[12px] border border-glass-border rounded-ctl bg-glass-card text-fg text-[12px] cursor-pointer transition-colors duration-150 hover:bg-glass-hover"
+                      class="h-[30px] px-[12px] shadow-raised rounded-none bg-panel-3 text-fg text-[12px] cursor-pointer transition-[box-shadow,filter] duration-[var(--dur)] ease-app hover:brightness-110 active:shadow-pressed"
                       onClick={() => props.instance && openInstanceDir(activeRoot(), props.instance.id)}
                     >
                       {t("instance.openGameDir")}
@@ -1436,14 +1432,14 @@ export const InstanceManageDialog: Component<{
                             {t("instance.openDir")}
                           </button>
                           <button
-                            class="text-[12px] text-a-6 px-[8px] py-[3px] rounded-xs cursor-pointer hover:bg-a-4/10 disabled:opacity-50 disabled:cursor-default"
+                            class="text-[12px] text-accent px-[8px] py-[3px] rounded-none cursor-pointer hover:bg-panel-2 disabled:opacity-50 disabled:cursor-default"
                             disabled={checking() || searchLoader() === null}
                             onClick={checkUpdates}
                           >
                             {checking() ? t("instance.checking") : t("instance.checkUpdates")}
                           </button>
                           <button
-                            class="shrink-0 h-[28px] px-[10px] rounded-ctl bg-a-4 text-white text-[12px] font-semibold cursor-pointer transition-opacity duration-150 hover:opacity-90"
+                            class="shrink-0 h-[28px] px-[10px] rounded-none bg-accent text-white shadow-raised text-[12px] font-semibold cursor-pointer transition-[box-shadow,background-color] duration-[var(--dur)] ease-app hover:bg-accent-hover active:shadow-pressed"
                             onClick={startBrowse}
                           >
                             {t("instance.add")}
@@ -1453,7 +1449,7 @@ export const InstanceManageDialog: Component<{
 
                       {/* 可更新清单(检查后才出现) */}
                       <Show when={(updates() ?? []).length > 0}>
-                        <div class="flex flex-col gap-[6px] rounded-ctl bg-a-4/10 p-[8px]">
+                        <div class="flex flex-col gap-[6px] rounded-none bg-panel-2 p-[8px]">
                           <div class="flex items-center justify-between">
                             <span class="text-[12px] text-fg font-semibold">
                               {t("instance.updatesAvailable", { n: updates()!.length })}
@@ -1468,12 +1464,12 @@ export const InstanceManageDialog: Component<{
                           </div>
                           <For each={updates()}>
                             {(u) => (
-                              <div class="glass-card flex items-center gap-[10px] py-[6px] px-[8px] rounded-ctl">
+                              <div class="bg-panel-2 shadow-sunken flex items-center gap-[10px] py-[6px] px-[8px] rounded-none">
                                 <div class="flex-1 min-w-0">
                                   <div class="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">
                                     {u.name}
                                   </div>
-                                  <div class="text-[11px] text-dim whitespace-nowrap overflow-hidden text-ellipsis">
+                                  <div class="text-[11px] text-muted whitespace-nowrap overflow-hidden text-ellipsis">
                                     {(u.current_version ?? t("instance.currentVersion")) + " → " + u.new_version}
                                   </div>
                                 </div>
@@ -1494,7 +1490,7 @@ export const InstanceManageDialog: Component<{
                       <Show
                         when={!mods.loading}
                         fallback={
-                          <div class="flex items-center gap-[10px] text-dim text-[13px] py-[12px]">
+                          <div class="flex items-center gap-[10px] text-muted text-[13px] py-[12px]">
                             <Spinner size={16} /> {t("instance.scanningMods")}
                           </div>
                         }
@@ -1506,7 +1502,7 @@ export const InstanceManageDialog: Component<{
                               <ErrorState compact message={t("instance.modListError")} onRetry={() => void refetchMods()} />
                             ) : (
                               <div class="flex flex-col items-center justify-center gap-[12px] py-[40px] text-center">
-                                <div class="text-dim text-[13px]">{t("instance.noMods")}</div>
+                                <div class="text-muted text-[13px]">{t("instance.noMods")}</div>
                                 <button
                                   class={ACCENT_BTN}
                                   onClick={startBrowse}
@@ -1521,14 +1517,14 @@ export const InstanceManageDialog: Component<{
                             <For each={mods()}>
                               {(m) => (
                                 <div
-                                  class="flex items-center gap-[10px] py-[8px] px-[10px] rounded-ctl bg-glass-card"
+                                  class="flex items-center gap-[10px] py-[8px] px-[10px] rounded-none bg-panel-2"
                                   classList={{ "opacity-55": !m.enabled }}
                                 >
                                   <div class="flex-1 min-w-0">
                                     <div class="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">
                                       {m.name}
                                     </div>
-                                    <div class="text-[11px] text-dim whitespace-nowrap overflow-hidden text-ellipsis">
+                                    <div class="text-[11px] text-muted whitespace-nowrap overflow-hidden text-ellipsis">
                                       {[m.version, m.loader, m.file_name].filter(Boolean).join(" · ")}
                                     </div>
                                   </div>
@@ -1553,7 +1549,7 @@ export const InstanceManageDialog: Component<{
                     fallback={
                       <>
                         <button
-                          class="self-start inline-flex items-center gap-[4px] h-[28px] px-[10px] rounded-ctl border-none bg-transparent text-dim text-[12px] cursor-pointer transition-colors duration-150 hover:bg-glass-hover hover:text-fg"
+                          class="self-start inline-flex items-center gap-[4px] h-[28px] px-[10px] rounded-none border-none bg-transparent text-muted text-[12px] cursor-pointer transition-colors duration-150 hover:bg-panel-3 hover:text-fg"
                           onClick={() => setBrowsing(false)}
                         >
                           {t("instance.backToInstalled")}
@@ -1651,20 +1647,13 @@ export const InstanceManageDialog: Component<{
 
         {/* 内嵌模式(实例详情页)不渲染底部栏:复制实例移到详情页头部 ⋮ 菜单,完成本就不显示。 */}
         <Show when={!props.embedded}>
-          <div class="flex justify-between items-center px-[20px] py-[14px] border-t border-glass-divider">
-            <button
-              class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-transparent text-dim text-[13px] cursor-pointer transition-colors duration-150 hover:text-fg hover:bg-glass-hover disabled:opacity-50 disabled:cursor-default"
-              disabled={copying() || !props.instance}
-              onClick={copyInstance}
-            >
+          <div class="flex justify-between items-center px-[20px] py-[14px] border-t border-titlebar">
+            <Button variant="ghost" disabled={copying() || !props.instance} onClick={copyInstance}>
               {copying() ? t("instance.copying") : t("instance.copyInstance")}
-            </button>
-            <button
-              class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-glass-card text-fg text-[13px] cursor-pointer transition-colors duration-150 hover:bg-glass-hover"
-              onClick={() => props.onClose?.()}
-            >
+            </Button>
+            <Button variant="ghost" onClick={() => props.onClose?.()}>
               {t("instance.done")}
-            </button>
+            </Button>
           </div>
         </Show>
 
@@ -1672,22 +1661,19 @@ export const InstanceManageDialog: Component<{
           open={confirmDelMod() !== null}
           onClose={() => setConfirmDelMod(null)}
           label={t("instance.deleteMod")}
-          contentClass="w-[360px] max-w-[calc(100vw-48px)] glass-pop rounded-card overflow-hidden"
+          contentClass="w-[360px] max-w-[calc(100vw-48px)] overflow-hidden"
         >
           <div class="p-[20px] flex flex-col gap-[14px]">
             <div class="text-[15px] font-semibold text-fg break-words">
               {t("instance.deleteModConfirm", { name: confirmDelMod()?.name ?? "" })}
             </div>
-            <div class="text-[13px] text-dim leading-[1.6]">{t("instance.deleteModBody")}</div>
+            <div class="text-[13px] text-muted leading-[1.6]">{t("instance.deleteModBody")}</div>
             <div class="flex justify-end gap-[10px]">
-              <button
-                class="h-[34px] px-[16px] border border-glass-border rounded-ctl bg-glass-card text-fg text-[13px] cursor-pointer transition-colors duration-150 hover:bg-glass-hover"
-                onClick={() => setConfirmDelMod(null)}
-              >
+              <Button variant="ghost" onClick={() => setConfirmDelMod(null)}>
                 {t("instance.cancel")}
-              </button>
-              <button
-                class="h-[34px] px-[16px] border-none rounded-ctl bg-danger text-white text-[13px] cursor-pointer transition-colors duration-150 hover:bg-danger-hover"
+              </Button>
+              <Button
+                variant="danger"
                 onClick={() => {
                   const m = confirmDelMod();
                   setConfirmDelMod(null);
@@ -1695,7 +1681,7 @@ export const InstanceManageDialog: Component<{
                 }}
               >
                 {t("instance.delete")}
-              </button>
+              </Button>
             </div>
           </div>
         </Dialog>
@@ -1710,7 +1696,7 @@ export const InstanceManageDialog: Component<{
       open={props.open}
       onClose={() => props.onClose?.()}
       label={t("instance.instanceManage")}
-      contentClass="glass-pop w-[520px] max-w-[calc(100vw-48px)] rounded-card overflow-hidden"
+      contentClass="w-[520px] max-w-[calc(100vw-48px)] rounded-none overflow-hidden"
     >
       {body}
     </Dialog>

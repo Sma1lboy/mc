@@ -1,127 +1,84 @@
-import { Component, JSX, For, Show, createResource, createSignal } from "solid-js";
-import { AccountDialog, Avatar, InstanceIcon, NewInstanceDialog } from "../components";
+import { Component, JSX, For, createSignal } from "solid-js";
+import {
+  AccountMenu,
+  BlockIcon,
+  InstanceIcon,
+  NavItem,
+  NewInstanceDialog,
+} from "../components";
 import { currentPage, setCurrentPage, openInstance, currentInstanceId, instances, refreshInstances } from "../store";
-import { api } from "../ipc/api";
 import { sortByRecent } from "../util/instances";
-import type { AccountSummary } from "../ipc/types";
 import { t } from "../i18n";
 import "./Rail.css";
 
 /**
- * Rail —— 64px 竖直图标栏(工作台主导航形态)。
+ * Rail —— 64px 石质竖栏(Blocky Craft 主导航形态)。
  *
- * 结构(自上而下):
- *   - App Logo
- *   - 主导航:home / discover / library(内联 SVG 图标)
- *   - 分隔线
- *   - 中部:固定实例占位(未来可拖入置顶实例)
- *   - 底部:settings 图标 + 账号头像
- *
- * 选中态:左侧 4px accent 竖条 + 图标变 accent 色;
- * Hover:半透明 accent 底。背景 --n-2。
+ * 自上而下:草方块 Logo → 主导航(首页 / 发现 / 库)→ 2px 暗分隔 →
+ * 最近实例快捷方块 → 虚线「+新建」→ mt-auto 撑开 → 设置 → 账号头像方块。
+ * 选中态走 NavItem 的熔岩橙凸起;实例快捷块用凸起倒角的 InstanceIcon。
  */
 
 // 主导航项。id 必须与 store 的 Page 联合类型一致(home/discover/library/settings)。
 type NavId = "home" | "discover" | "library" | "settings";
 
-interface NavItem {
+interface NavEntry {
   id: NavId;
   label: string;
   icon: () => JSX.Element;
 }
 
-// 内联 SVG 图标(线性、24x24、currentColor 描边),与 Classic 的 path 风格统一。
+// 内联 SVG 图标:线性、24x24、stroke 2.2、fill=none stroke=currentColor。
 const HomeIcon = (): JSX.Element => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+       stroke-linecap="round" stroke-linejoin="round" class="w-[22px] h-[22px]" aria-hidden="true">
     <path d="M3 10.5 12 3l9 7.5" />
     <path d="M5 9.5V20a1 1 0 0 0 1 1h3v-6h6v6h3a1 1 0 0 0 1-1V9.5" />
   </svg>
 );
 
+// 发现:罗盘(compass)。
 const DiscoverIcon = (): JSX.Element => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+       stroke-linecap="round" stroke-linejoin="round" class="w-[22px] h-[22px]" aria-hidden="true">
     <circle cx="12" cy="12" r="9" />
-    <path d="m15.5 8.5-2 5-5 2 2-5 5-2Z" />
+    <path d="m15.5 8.5-2.2 4.8-4.8 2.2 2.2-4.8 4.8-2.2Z" />
   </svg>
 );
 
+// 库:书本(book)。
 const LibraryIcon = (): JSX.Element => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-    <rect x="3" y="4" width="6" height="16" rx="1" />
-    <rect x="11" y="4" width="6" height="16" rx="1" />
-    <path d="M19.5 5.2 21 19" />
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+       stroke-linecap="round" stroke-linejoin="round" class="w-[22px] h-[22px]" aria-hidden="true">
+    <path d="M4 5.5A2 2 0 0 1 6 4h13v15H6a2 2 0 0 0-2 2V5.5Z" />
+    <path d="M4 19.5A2 2 0 0 1 6 18h13" />
   </svg>
 );
 
+// 设置:滑块(sliders)。
 const SettingsIcon = (): JSX.Element => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-    <circle cx="12" cy="12" r="3" />
-    <path d="M19.4 13a7.8 7.8 0 0 0 0-2l1.8-1.4-1.9-3.3-2.2.9a7.6 7.6 0 0 0-1.7-1l-.3-2.3H10.5l-.3 2.3a7.6 7.6 0 0 0-1.7 1l-2.2-.9-1.9 3.3L6.2 11a7.8 7.8 0 0 0 0 2l-1.8 1.4 1.9 3.3 2.2-.9a7.6 7.6 0 0 0 1.7 1l.3 2.3h3.9l.3-2.3a7.6 7.6 0 0 0 1.7-1l2.2.9 1.9-3.3Z" />
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+       stroke-linecap="round" stroke-linejoin="round" class="w-[22px] h-[22px]" aria-hidden="true">
+    <path d="M4 7h10M18 7h2M4 17h2M10 17h10" />
+    <circle cx="16" cy="7" r="2" />
+    <circle cx="8" cy="17" r="2" />
   </svg>
 );
 
 const PlusIcon = (): JSX.Element => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+       stroke-linecap="round" stroke-linejoin="round" class="w-[18px] h-[18px]" aria-hidden="true">
     <path d="M12 5v14M5 12h14" />
   </svg>
 );
 
-// App Logo:等距 3D 草方块(品牌 mark,与 branding/ 的 iso-cube 同源)。
-// 顶面绿(草)+ 两侧陶土(土)+ 草檐,固定配色不随主题强调色变。
-const LogoMark = (): JSX.Element => (
-  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" stroke-linejoin="round">
-    {/* 左面(陶土) */}
-    <polygon points="3,7 12,12 12,22 3,17" fill="#cc785c" />
-    {/* 右面(陶土深) */}
-    <polygon points="21,7 12,12 12,22 21,17" fill="#a85741" />
-    {/* 草檐(侧面顶部窄绿) */}
-    <polygon points="3,7 12,12 12,13.6 3,8.6" fill="#2f9e63" />
-    <polygon points="21,7 12,12 12,13.6 21,8.6" fill="#1f7a4d" />
-    {/* 顶面(绿,草) */}
-    <polygon points="12,2 21,7 12,12 3,7" fill="#3fbf78" />
-    {/* 顶面高光边 + 前棱 */}
-    <polygon points="12,2 21,7 12,12 3,7" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="0.5" />
-    <line x1="12" y1="12" x2="12" y2="22" stroke="rgba(255,255,255,0.12)" stroke-width="0.5" />
-    {/* 中央 M 徽标(品牌字母,奶白),收在方块正面内 */}
-    <path d="M8.5,17.2 L8.5,13.6 L12,15.4 L15.5,13.6 L15.5,17.2" fill="none" stroke="#eae7df" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" />
-  </svg>
-);
-
-const TOP_NAV = (): NavItem[] => [
+const TOP_NAV = (): NavEntry[] => [
   { id: "home", label: t("layout.navHome"), icon: HomeIcon },
   { id: "discover", label: t("layout.navDiscover"), icon: DiscoverIcon },
   { id: "library", label: t("layout.navLibrary"), icon: LibraryIcon },
 ];
 
-// 主导航 / 设置按钮通用类。relative + 48x48 + 居中网格 + accent hover/选中态。
-// 默认中性图标色 --n-7;hover 半透明 accent 底 + --n-8;选中 accent 色 + 更淡的底。
-const RAIL_ITEM =
-  "relative w-[48px] h-[48px] border-0 bg-transparent rounded-ctl cursor-pointer " +
-  "grid place-items-center text-n-7 " +
-  "transition-[background-color,color] duration-200 ease-app motion-reduce:transition-none " +
-  "hover:bg-[color-mix(in_srgb,var(--a-4)_16%,transparent)] hover:text-n-8";
-// 选中态附加类(配合 RAIL_ITEM 使用)。
-const RAIL_ITEM_SELECTED =
-  "text-a-5 bg-[color-mix(in_srgb,var(--a-4)_12%,transparent)]";
-// 左侧 4px accent 竖条:默认 scaleY(0)+透明,选中时展开。
-const RAIL_BAR =
-  "absolute left-[-8px] top-1/2 w-[4px] h-[24px] rounded-[0_2px_2px_0] bg-a-4 " +
-  "-translate-y-1/2 scale-y-0 opacity-0 origin-center " +
-  "transition-[transform,opacity] duration-200 ease-app motion-reduce:transition-none";
-// 选中时竖条展开类(覆盖 RAIL_BAR 的隐藏变换)。
-const RAIL_BAR_SELECTED = "scale-y-100 opacity-100";
-// 图标容器:居中网格,内部 svg 固定 22x22。
-const RAIL_ICON = "grid place-items-center [&_svg]:w-[22px] [&_svg]:h-[22px]";
-
 const Rail: Component = () => {
-  // 拉取账号用于底部头像。失败/空态都要稳:取 selected 账号,否则取第一个。
-  const [accounts, { refetch }] = createResource<AccountSummary[]>(() => api.listAccounts());
-
   // 最近实例:按上次游玩排序取前 3,作为 rail 快捷入口(点击进详情)。
   // 实例列表来自全局 store(单一真相),库页删除后这里同步更新。
   const pinned = () => sortByRecent(instances() ?? []).slice(0, 3);
@@ -129,65 +86,45 @@ const Rail: Component = () => {
   // 新增实例对话框。
   const [newOpen, setNewOpen] = createSignal(false);
 
-  // 没有任何账号时,点头像直接弹登录(首次启动的主登录入口);已有账号则进 Home 的账号面板。
-  const [loginOpen, setLoginOpen] = createSignal(false);
-  const onAvatarClick = () => {
-    if ((accounts()?.length ?? 0) === 0) setLoginOpen(true);
-    else setCurrentPage("home");
-  };
-
-  // 当前账号(用于头像首字母)。无数据时返回 undefined,渲染占位。
-  const activeAccount = (): AccountSummary | undefined => {
-    const list = accounts();
-    if (!list || list.length === 0) return undefined;
-    return list.find((a) => a.selected) ?? list[0];
-  };
-
   return (
     <nav
-      class="[grid-area:rail] w-[64px] h-full flex flex-col items-center glass-panel border-r border-glass-divider pt-[36px] px-0 pb-[8px] gap-[4px] box-border"
+      class="stone [grid-area:rail] w-[64px] h-full flex flex-col items-center border-r-2 border-titlebar pt-[34px] pb-[10px] gap-[6px] box-border"
       aria-label={t("layout.primaryNav")}
     >
-      {/* 顶部 Logo */}
+      {/* 顶部 Logo:草方块 */}
       <button
-        class="w-[40px] h-[40px] mb-[6px] p-[6px] border-0 bg-transparent rounded-ctl cursor-pointer grid place-items-center transition-[background-color,transform] duration-200 ease-app motion-reduce:transition-none hover:bg-[color-mix(in_srgb,var(--a-4)_14%,transparent)] active:scale-[0.94] [&_svg]:w-[26px] [&_svg]:h-[26px]"
+        type="button"
+        class="border-none bg-transparent cursor-pointer p-0 mb-[2px] transition-transform duration-[var(--dur)] ease-app active:scale-[0.94] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         title="kobeMC"
         onClick={() => setCurrentPage("home")}
       >
-        <LogoMark />
+        <BlockIcon class="w-[32px] h-[32px]" />
       </button>
 
-      {/* 主导航图标 */}
+      {/* 主导航 */}
       <div class="flex flex-col items-center gap-[4px]">
         <For each={TOP_NAV()}>
           {(item) => {
             const selected = () => currentPage() === item.id;
             return (
-              <button
-                class={`${RAIL_ITEM}${selected() ? " " + RAIL_ITEM_SELECTED : ""}`}
+              <NavItem
+                active={selected()}
                 title={item.label}
-                aria-current={selected() ? "page" : undefined}
                 onClick={() => setCurrentPage(item.id)}
               >
-                <span
-                  class={`${RAIL_BAR}${selected() ? " " + RAIL_BAR_SELECTED : ""}`}
-                  aria-hidden="true"
-                />
-                <span class={RAIL_ICON}>{item.icon()}</span>
-              </button>
+                {item.icon()}
+              </NavItem>
             );
           }}
         </For>
       </div>
 
-      <div
-        class="w-[32px] h-[1px] bg-glass-divider my-[6px] shrink-0"
-        aria-hidden="true"
-      />
+      {/* 2px 暗分隔 */}
+      <div class="w-[34px] h-[2px] bg-titlebar my-[4px] shrink-0" aria-hidden="true" />
 
-      {/* 中部:最近实例快捷入口 + 新增实例(可滚动) */}
+      {/* 中部:最近实例快捷方块 + 新增(可滚动) */}
       <div
-        class="rail-pinned flex-[1_1_auto] w-full flex flex-col items-center gap-[4px] overflow-y-auto overflow-x-hidden min-h-0"
+        class="rail-pinned flex-[1_1_auto] w-full flex flex-col items-center gap-[6px] py-[4px] overflow-y-auto overflow-x-hidden min-h-0"
         aria-label={t("layout.recentInstances")}
       >
         <For each={pinned()}>
@@ -195,12 +132,14 @@ const Rail: Component = () => {
             const selected = () => currentPage() === "instance" && currentInstanceId() === inst.id;
             return (
               <button
-                class={`${RAIL_ITEM}${selected() ? " " + RAIL_ITEM_SELECTED : ""}`}
+                type="button"
+                class={`w-[36px] h-[36px] shrink-0 border-none bg-transparent p-0 cursor-pointer shadow-raised transition-transform duration-[var(--dur)] ease-app active:scale-[0.94] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent${
+                  selected() ? " ring-2 ring-accent" : ""
+                }`}
                 title={inst.name || inst.id}
                 onClick={() => openInstance(inst.id)}
               >
-                <span class={`${RAIL_BAR}${selected() ? " " + RAIL_BAR_SELECTED : ""}`} aria-hidden="true" />
-                <span class="w-[34px] h-[34px] rounded-ctl overflow-hidden select-none">
+                <span class="block w-full h-full overflow-hidden select-none">
                   <InstanceIcon name={inst.name || inst.id} icon={inst.icon ?? undefined} />
                 </span>
               </button>
@@ -208,69 +147,35 @@ const Rail: Component = () => {
           }}
         </For>
 
-        {/* 新增实例:虚线 + 号,点开新建对话框。 */}
-        <button class={RAIL_ITEM} title={t("layout.newInstance")} onClick={() => setNewOpen(true)}>
-          <span class="grid place-items-center w-[34px] h-[34px] rounded-ctl border border-dashed border-glass-border-strong text-n-7 [&_svg]:w-[18px] [&_svg]:h-[18px]">
-            <PlusIcon />
-          </span>
+        {/* 新增实例:虚线 + 方块,点开新建对话框。 */}
+        <button
+          type="button"
+          class="w-[36px] h-[36px] shrink-0 grid place-items-center border-2 border-dashed border-titlebar bg-transparent text-muted cursor-pointer transition-[color,border-color] duration-[var(--dur)] ease-app hover:text-accent hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          title={t("layout.newInstance")}
+          onClick={() => setNewOpen(true)}
+        >
+          <PlusIcon />
         </button>
       </div>
 
-      {/* 底部:设置 + 账号头像。flex 把它推到底。 */}
-      <div class="flex flex-col items-center gap-[6px] shrink-0 mt-[4px]">
+      {/* mt-auto 撑开 → 设置 + 账号头像。 */}
+      <div class="mt-auto flex flex-col items-center gap-[8px] shrink-0">
         {(() => {
           const selected = () => currentPage() === "settings";
           return (
-            <button
-              class={`${RAIL_ITEM}${selected() ? " " + RAIL_ITEM_SELECTED : ""}`}
+            <NavItem
+              active={selected()}
               title={t("layout.navSettings")}
-              aria-current={selected() ? "page" : undefined}
               onClick={() => setCurrentPage("settings")}
             >
-              <span
-                class={`${RAIL_BAR}${selected() ? " " + RAIL_BAR_SELECTED : ""}`}
-                aria-hidden="true"
-              />
-              <span class={RAIL_ICON}>
-                <SettingsIcon />
-              </span>
-            </button>
+              <SettingsIcon />
+            </NavItem>
           );
         })()}
 
-        {/* 账号头像:无账号→弹登录;有账号→进 Home 账号面板。加载中显示占位环。 */}
-        <button
-          class="w-[36px] h-[36px] border border-glass-border bg-glass-card rounded-full cursor-pointer grid place-items-center overflow-hidden transition-[border-color,transform] duration-200 ease-app motion-reduce:transition-none hover:border-a-4 active:scale-[0.94]"
-          title={activeAccount()?.username ?? t("layout.loginOrAddAccount")}
-          onClick={onAvatarClick}
-        >
-          <Show
-            when={!accounts.loading}
-            fallback={
-              <span
-                class="rail-pulse-anim w-full h-full bg-n-5"
-                aria-hidden="true"
-              />
-            }
-          >
-            <Avatar
-              class="rail-avatar-img"
-              kind={activeAccount()?.kind}
-              uuid={activeAccount()?.uuid}
-            />
-          </Show>
-        </button>
+        {/* 账号:头像方块,点开切换/添加账号(AccountMenu 自带列表 + 登录弹窗)。 */}
+        <AccountMenu variant="avatar" />
       </div>
-
-      <Show when={loginOpen()}>
-        <AccountDialog
-          onClose={() => setLoginOpen(false)}
-          onDone={() => {
-            setLoginOpen(false);
-            void refetch();
-          }}
-        />
-      </Show>
 
       <NewInstanceDialog
         open={newOpen()}

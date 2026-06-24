@@ -13,9 +13,9 @@ export interface DialogProps {
   open: boolean;
   onClose: () => void;
   children: JSX.Element;
-  /** Content 卡片类名(尺寸/背景/圆角);默认给一个中性卡片。 */
+  /** Content 卡片额外类名(尺寸/覆盖);不透明面板皮肤(底/边/倒角)已恒定应用,这里只加尺寸等。 */
   contentClass?: string;
-  /** 遮罩类名(默认深色半透明 + 亚克力模糊)。 */
+  /** 遮罩类名(默认深色半透明)。 */
   backdropClass?: string;
   /** 无障碍标题(aria-label)。 */
   label?: string;
@@ -33,16 +33,18 @@ export const Dialog: Component<DialogProps> = (props) => {
         <Ark.Backdrop
           class={
             "fixed inset-0 z-[100] " +
-            (props.backdropClass ?? "bg-[rgba(8,10,14,0.5)] backdrop-blur-[var(--blur-r)]")
+            (props.backdropClass ?? "bg-[rgba(8,7,5,0.62)]")
           }
         />
         <Ark.Positioner class="fixed inset-0 z-[100] flex items-center justify-center p-[24px] overscroll-contain">
           <Ark.Content
             aria-label={props.label}
+            // 不透明面板皮肤恒定应用(避免调用方只传尺寸 contentClass 时漏掉底色导致弹窗透明);
+            // contentClass 仅追加尺寸/覆盖。
             class={
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-a-5 " +
-              (props.contentClass ??
-                "w-[420px] max-w-[calc(100vw-48px)] glass-pop rounded-card overflow-hidden")
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent " +
+              "bg-panel text-fg border border-titlebar shadow-raised rounded-none overflow-hidden " +
+              (props.contentClass ?? "w-[420px] max-w-[calc(100vw-48px)]")
             }
           >
             {props.children}
