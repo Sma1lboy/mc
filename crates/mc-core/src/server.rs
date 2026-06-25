@@ -66,7 +66,7 @@ pub struct SharedInstance {
 /// The authenticated user (better-auth user shape). The session lives in the
 /// reqwest cookie jar (better-auth sets a session cookie), so keep one
 /// `ServerClient` and its session persists across calls.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct AuthUser {
     pub id: String,
     #[serde(default)]

@@ -259,6 +259,19 @@ export const commands = {
 	readLogTail: (lines: number) => typedError<string, string>(__TAURI_INVOKE("read_log_tail", { lines })),
 	/**  拉取轻量后端(mc-server)的新闻/公告。后端未运行/不可达时返回错误,UI 降级到空/错误态。 */
 	fetchNews: () => typedError<NewsItem[], string>(__TAURI_INVOKE("fetch_news")),
+	/**  Register a kobeMC account (email/password); establishes the session. */
+	kobemcSignup: (email: string, password: string, name: string) => typedError<AuthUser, string>(__TAURI_INVOKE("kobemc_signup", { email, password, name })),
+	/**  Log in to a kobeMC account; establishes the session cookie. */
+	kobemcLogin: (email: string, password: string) => typedError<AuthUser, string>(__TAURI_INVOKE("kobemc_login", { email, password })),
+	/**  The current kobeMC session user, or `None` if not logged in. */
+	kobemcSession: () => typedError<{
+	id: string,
+	email?: string | null,
+	name?: string | null,
+	username?: string | null,
+} | null, string>(__TAURI_INVOKE("kobemc_session")),
+	/**  Log out of the kobeMC account (clears the server session). */
+	kobemcLogout: () => typedError<null, string>(__TAURI_INVOKE("kobemc_logout")),
 	/**
 	 *  检查某实例(由 Modrinth 整合包安装)是否有更新:返回比当前来源版本更新的版本列表。
 	 *  非整合包来源 / 非 modrinth / 缺 project_id 时返回空(前端据此不显示更新提示)。
@@ -290,6 +303,18 @@ export type AccountSummary = {
 	selected?: boolean,
 	/**  Whether the account owns Minecraft (Microsoft accounts only). */
 	owns_game?: boolean,
+};
+
+/**
+ *  The authenticated user (better-auth user shape). The session lives in the
+ *  reqwest cookie jar (better-auth sets a session cookie), so keep one
+ *  `ServerClient` and its session persists across calls.
+ */
+export type AuthUser = {
+	id: string,
+	email?: string | null,
+	name?: string | null,
+	username?: string | null,
 };
 
 /**  一个 blocked 文件(CurseForge 作者禁第三方分发)的 UI 视图:需用户手动下载。 */
