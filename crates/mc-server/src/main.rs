@@ -4,25 +4,34 @@
 //!
 //! Local test env:  set `DATABASE_URL` (Supabase) then `cargo run -p mc-server`.
 
+mod account;
 mod auth;
 mod db;
 mod meta;
 mod news;
+mod realm;
+mod session;
 mod share;
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use better_auth::handlers::AxumIntegration;
+use sqlx::PgPool;
 use tower_http::cors::CorsLayer;
 
+use realm::RealmStore;
 use share::{ShareStore, SharedInstance};
 
 #[derive(Clone)]
 struct AppState {
     http: reqwest::Client,
+    /// Shared Supabase pool — also used directly for session validation
+    /// (`session::require_user`) on our authed endpoints.
+    pool: PgPool,
     shares: ShareStore,
+    realms: RealmStore,
 }
 
 #[tokio::main]
@@ -44,7 +53,9 @@ async fn main() {
             .user_agent("mc-launcher-server/0.1")
             .build()
             .expect("build http client"),
-        shares: ShareStore::new(pool),
+        pool: pool.clone(),
+        shares: ShareStore::new(pool.clone()),
+        realms: RealmStore::new(pool),
     };
 
     // better-auth's own routes (sign-up/email, sign-in/email, get-session,
@@ -59,6 +70,20 @@ async fn main() {
         .route("/v1/news", get(get_news))
         .route("/v1/instances/share", post(share_instance))
         .route("/v1/instances/{id}", get(get_instance))
+        // Account linking (bind Microsoft to a kobeMC user; authed).
+        .route("/v1/account/link/microsoft", post(account::link_microsoft))
+        .route("/v1/account/identities", get(account::list_identities))
+        .route("/v1/account/link/{provider}", delete(account::unlink_provider))
+        // Private realms + mod sync (authed).
+        .route("/v1/realms", post(realm::create))
+        .route("/v1/realms/join", post(realm::join))
+        .route("/v1/realms/mine", get(realm::list_mine))
+        .route("/v1/realms/{id}", get(realm::get).delete(realm::disband))
+        .route("/v1/realms/{id}/manifest", get(realm::get_manifest).post(realm::push_manifest))
+        .route("/v1/realms/{id}/members", get(realm::members))
+        .route("/v1/realms/{id}/members/{uid}/role", post(realm::set_role))
+        .route("/v1/realms/{id}/members/{uid}", delete(realm::remove_member))
+        .route("/v1/realms/{id}/synced", post(realm::mark_synced))
         .with_state(state);
 
     let app = Router::new()

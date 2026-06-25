@@ -82,6 +82,36 @@ CREATE TABLE IF NOT EXISTS shares (
 );
 "#;
 
+/// Private realms (临时领域)+ their members. A realm is a code-joined, *non*-
+/// discoverable shared mod set: the owner pushes a versioned `manifest` (the
+/// file list to sync), friends join by `code`, and the launcher reconciles each
+/// member's instance to the manifest (the "外侧 syncer"). `gen_random_uuid()`
+/// (present on Supabase / PG13+) generates ids + join codes server-side.
+const REALMS_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS realms (
+    id               TEXT PRIMARY KEY,
+    code             TEXT NOT NULL UNIQUE,
+    name             TEXT NOT NULL,
+    owner_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    mc_version       TEXT,
+    loader           TEXT,
+    manifest         JSONB NOT NULL DEFAULT '{}'::jsonb,
+    manifest_version INTEGER NOT NULL DEFAULT 0,
+    expires_at       TIMESTAMPTZ,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS realm_members (
+    realm_id       TEXT NOT NULL REFERENCES realms(id) ON DELETE CASCADE,
+    user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role           TEXT NOT NULL DEFAULT 'member',
+    synced_version INTEGER NOT NULL DEFAULT 0,
+    joined_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (realm_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_realms_code ON realms(code);
+CREATE INDEX IF NOT EXISTS idx_realm_members_user ON realm_members(user_id);
+"#;
+
 /// Connect to Postgres and ensure both schemas exist.
 pub async fn connect() -> anyhow::Result<PgPool> {
     let url = std::env::var("DATABASE_URL")
@@ -96,14 +126,19 @@ pub async fn connect() -> anyhow::Result<PgPool> {
     // raw_sql runs the multi-statement migration unprepared.
     sqlx::raw_sql(BETTER_AUTH_CORE_SQL).execute(&pool).await.context("建 better-auth 表")?;
     sqlx::raw_sql(SHARES_SQL).execute(&pool).await.context("建 shares 表")?;
+    sqlx::raw_sql(REALMS_SQL).execute(&pool).await.context("建 realms 表")?;
     Ok(pool)
 }
 
 /// Test pool: returns `None` (test skips) unless `TEST_DATABASE_URL` is set.
+/// Ensures every table a test might touch (better-auth core for the FK to
+/// `users`, plus shares + realms).
 #[cfg(test)]
 pub async fn test_pool() -> Option<PgPool> {
     let url = std::env::var("TEST_DATABASE_URL").ok()?;
     let pool = PgPoolOptions::new().max_connections(2).connect(&url).await.ok()?;
+    sqlx::raw_sql(BETTER_AUTH_CORE_SQL).execute(&pool).await.ok()?;
     sqlx::raw_sql(SHARES_SQL).execute(&pool).await.ok()?;
+    sqlx::raw_sql(REALMS_SQL).execute(&pool).await.ok()?;
     Some(pool)
 }
