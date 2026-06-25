@@ -5,8 +5,8 @@ import { t } from "./i18n";
 import type { ProjectKind } from "./ipc/types";
 import type { AuthUser } from "./ipc/bindings";
 
-// 页面标识。home/library/discover/settings + 实例详情。
-export type Page = "home" | "library" | "discover" | "settings" | "instance";
+// 页面标识。home/library/discover/realm/settings + 实例详情。
+export type Page = "home" | "library" | "discover" | "realm" | "settings" | "instance";
 
 /**
  * 全局轻量状态:模块级 createSignal,任何组件 import 即读写,无需 Context。

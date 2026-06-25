@@ -3,6 +3,7 @@ import type { Page } from "./store";
 import Home from "./pages/Home";
 import Library from "./pages/Library";
 import Discover from "./pages/Discover";
+import Realms from "./pages/Realms";
 import Settings from "./pages/Settings";
 import InstanceDetail from "./pages/InstanceDetail";
 
@@ -27,6 +28,7 @@ export const WORKSPACE_ROUTES: Route[] = [
   { page: "home", component: Home, showContext: false },
   { page: "discover", component: Discover, showContext: false },
   { page: "library", component: Library, showContext: false },
+  { page: "realm", component: Realms, showContext: false },
   { page: "settings", component: Settings, showContext: false },
   { page: "instance", component: InstanceDetail, showContext: false },
 ];

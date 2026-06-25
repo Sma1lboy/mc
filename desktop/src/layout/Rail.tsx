@@ -19,8 +19,8 @@ import "./Rail.css";
  * 选中态走 NavItem 的熔岩橙凸起;实例快捷块用凸起倒角的 InstanceIcon。
  */
 
-// 主导航项。id 必须与 store 的 Page 联合类型一致(home/discover/library/settings)。
-type NavId = "home" | "discover" | "library" | "settings";
+// 主导航项。id 必须与 store 的 Page 联合类型一致(home/discover/library/realm/settings)。
+type NavId = "home" | "discover" | "library" | "realm" | "settings";
 
 interface NavEntry {
   id: NavId;
@@ -55,6 +55,17 @@ const LibraryIcon = (): JSX.Element => (
   </svg>
 );
 
+// 领域:共享(两人 + 连接)。临时领域 = 和好友共享的 mod 集。
+const RealmIcon = (): JSX.Element => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+       stroke-linecap="round" stroke-linejoin="round" class="w-[22px] h-[22px]" aria-hidden="true">
+    <circle cx="8" cy="8.5" r="3" />
+    <path d="M3 19v-1.5A4.5 4.5 0 0 1 7.5 13h1A4.5 4.5 0 0 1 13 17.5V19" />
+    <circle cx="17" cy="7" r="2.4" />
+    <path d="M15.5 13h.8a4 4 0 0 1 4 4V18" />
+  </svg>
+);
+
 // 设置:滑块(sliders)。
 const SettingsIcon = (): JSX.Element => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
@@ -76,6 +87,7 @@ const TOP_NAV = (): NavEntry[] => [
   { id: "home", label: t("layout.navHome"), icon: HomeIcon },
   { id: "discover", label: t("layout.navDiscover"), icon: DiscoverIcon },
   { id: "library", label: t("layout.navLibrary"), icon: LibraryIcon },
+  { id: "realm", label: t("layout.navRealm"), icon: RealmIcon },
 ];
 
 const Rail: Component = () => {
