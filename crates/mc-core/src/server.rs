@@ -8,7 +8,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{CoreError, Result};
 
-const DEFAULT_BASE: &str = "https://api.mc-launcher.dev";
+// TEMP DEV default: the current Railway dev deployment of mc-server. This URL may
+// be rotated/refreshed — override with `MC_SERVER_URL`, and swap to the stable
+// production host before GA. Marked temporary on purpose.
+const DEFAULT_BASE: &str = "https://mc-server-production-9152.up.railway.app";
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct LoaderMeta {
