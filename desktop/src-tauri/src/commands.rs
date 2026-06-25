@@ -1659,7 +1659,8 @@ pub async fn realm_plan_sync(
 
 /// Reconcile `instance_id` to the realm manifest: download missing/changed mods,
 /// optionally drop the ones the manifest no longer carries, then report progress
-/// to the server. Progress streams over `install://progress`.
+/// to the server. Progress streams over a dedicated `realm://sync-progress` event
+/// (kept off `install://progress` so it can't collide with a concurrent install).
 #[tauri::command]
 #[specta::specta]
 pub async fn realm_sync(
@@ -1676,7 +1677,7 @@ pub async fn realm_sync(
 
     let dl = make_downloader()?;
     let (tx, rx) = watch::channel(Progress::new("同步领域"));
-    forward_progress(app, "install://progress", rx);
+    forward_progress(app, "realm://sync-progress", rx);
     let report = mc_core::realm::apply_sync(&inst, &dl, &plan, remove_extras, Some(tx)).await.map_err(err)?;
 
     // Best-effort: record how far this member has synced (don't fail the sync).

@@ -157,6 +157,11 @@ export function onInstallProgress(cb: (p: InstallProgress) => void): () => void 
   return subscribe<InstallProgress>("install://progress", cb);
 }
 
+/** 订阅领域同步进度(独立事件,不与安装队列串台),返回 unlisten */
+export function onRealmSyncProgress(cb: (p: InstallProgress) => void): () => void {
+  return subscribe<InstallProgress>("realm://sync-progress", cb);
+}
+
 /** 订阅启动进度,返回 unlisten */
 export function onLaunchProgress(cb: (p: LaunchProgress) => void): () => void {
   return subscribe<LaunchProgress>("launch://progress", cb);

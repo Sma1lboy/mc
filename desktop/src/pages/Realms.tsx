@@ -1,4 +1,4 @@
-import { Component, createMemo, createResource, createSignal, For, Show } from "solid-js";
+import { Component, createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import {
   Button,
   Panel,
@@ -11,7 +11,7 @@ import {
   Tag,
   toast,
 } from "../components";
-import { api } from "../ipc/api";
+import { api, onRealmSyncProgress } from "../ipc/api";
 import {
   kobeUser,
   isKobeSignedIn,
@@ -237,17 +237,28 @@ const RealmDetail: Component<{
   const [plan, setPlan] = createSignal<SyncPlan | null>(null);
   const [removeExtras, setRemoveExtras] = createSignal(false);
   const [busy, setBusy] = createSignal(false);
+  const [progress, setProgress] = createSignal<{ current: number; total: number } | null>(null);
+  const [confirmKind, setConfirmKind] = createSignal<"leave" | "disband" | null>(null);
   const pickedInstance = createMemo(() => insts().find((i) => i.id === syncInst()) ?? null);
+
+  // 领域同步进度(专用事件,避免与安装队列串台)。仅在本页挂载期间订阅。
+  onCleanup(onRealmSyncProgress((p) => setProgress({ current: p.current, total: p.total })));
 
   function fail(e: unknown) {
     toast({ type: "error", message: t("realm.opError", { err: String(e) }) });
+  }
+
+  /** 切换实例或同步结束:清空计划并复位「移除清单外」开关,避免陈旧标志带入下一次。 */
+  function resetPlan() {
+    setPlan(null);
+    setRemoveExtras(false);
   }
 
   async function checkPlan() {
     const inst = pickedInstance();
     if (!inst) return;
     setBusy(true);
-    setPlan(null);
+    resetPlan();
     try {
       setPlan(await api.realmPlanSync(realmId(), activeRoot(), inst.id));
     } catch (e) {
@@ -261,11 +272,12 @@ const RealmDetail: Component<{
     const inst = pickedInstance();
     if (!inst) return;
     setBusy(true);
+    setProgress({ current: 0, total: 0 });
     try {
       const report: SyncReport = await api.realmSync(realmId(), activeRoot(), inst.id, removeExtras());
       void refreshInstances();
       void refetchMembers();
-      setPlan(null);
+      resetPlan();
       toast({
         type: report.failed.length ? "error" : "success",
         message: report.failed.length
@@ -279,6 +291,7 @@ const RealmDetail: Component<{
       fail(e);
     } finally {
       setBusy(false);
+      setProgress(null);
     }
   }
 
@@ -338,9 +351,11 @@ const RealmDetail: Component<{
     }
   }
 
-  async function leave() {
+  // 退出 / 解散走应用内 Dialog 确认(原生 window.confirm 在 Linux WebKitGTK 上可能是
+  // no-op,会让操作静默失效,且与全站的危险操作确认样式不一致)。
+  async function doLeave() {
     if (!myId()) return;
-    if (!window.confirm(t("realm.confirmLeave", { name: props.realm.name }))) return;
+    setConfirmKind(null);
     setBusy(true);
     try {
       await api.realmRemoveMember(realmId(), myId()!);
@@ -351,8 +366,8 @@ const RealmDetail: Component<{
     }
   }
 
-  async function disband() {
-    if (!window.confirm(t("realm.confirmDisband", { name: props.realm.name }))) return;
+  async function doDisband() {
+    setConfirmKind(null);
     setBusy(true);
     try {
       await api.realmDisband(realmId());
@@ -426,7 +441,7 @@ const RealmDetail: Component<{
               value={syncInst()}
               onChange={(v) => {
                 setSyncInst(v);
-                setPlan(null);
+                resetPlan();
               }}
               options={instanceOptions(insts())}
               placeholder={t("realm.pickInstance")}
@@ -487,6 +502,19 @@ const RealmDetail: Component<{
                 >
                   {busy() ? t("realm.syncing") : t("realm.syncNow")}
                 </Button>
+
+                <Show when={progress()}>
+                  {(pr) => (
+                    <div class="h-[6px] w-full bg-window shadow-input rounded-none overflow-hidden">
+                      <div
+                        class="h-full bg-accent transition-[width] duration-150 ease-app"
+                        style={{
+                          width: `${pr().total > 0 ? Math.round((pr().current / pr().total) * 100) : 8}%`,
+                        }}
+                      />
+                    </div>
+                  )}
+                </Show>
               </div>
             )}
           </Show>
@@ -582,17 +610,44 @@ const RealmDetail: Component<{
           <Show
             when={isOwner()}
             fallback={
-              <Button variant="danger" disabled={busy()} onClick={() => void leave()}>
+              <Button variant="danger" disabled={busy()} onClick={() => setConfirmKind("leave")}>
                 {t("realm.leave")}
               </Button>
             }
           >
-            <Button variant="danger" disabled={busy()} onClick={() => void disband()}>
+            <Button variant="danger" disabled={busy()} onClick={() => setConfirmKind("disband")}>
               {t("realm.disband")}
             </Button>
           </Show>
         </div>
       </Panel>
+
+      {/* 危险操作:应用内 Dialog 确认(退出 / 解散) */}
+      <Dialog
+        open={confirmKind() !== null}
+        onClose={() => setConfirmKind(null)}
+        label={confirmKind() === "disband" ? t("realm.disband") : t("realm.leave")}
+      >
+        <div class="p-[20px] flex flex-col gap-[16px]">
+          <p class="text-[14px] text-fg leading-[1.6]">
+            {confirmKind() === "disband"
+              ? t("realm.confirmDisband", { name: props.realm.name })
+              : t("realm.confirmLeave", { name: props.realm.name })}
+          </p>
+          <div class="flex justify-end gap-[8px]">
+            <Button variant="ghost" onClick={() => setConfirmKind(null)}>
+              {t("realm.cancel")}
+            </Button>
+            <Button
+              variant="danger"
+              disabled={busy()}
+              onClick={() => void (confirmKind() === "disband" ? doDisband() : doLeave())}
+            >
+              {confirmKind() === "disband" ? t("realm.disband") : t("realm.leave")}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
     </div>
   );
 };

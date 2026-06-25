@@ -227,6 +227,17 @@ pub struct SyncReport {
     pub version: i32,
 }
 
+/// Resolve a manifest file's **server-controlled** `path` to a safe absolute
+/// target under the instance's `mods/` dir, or `None` if it escapes — absolute,
+/// contains `..`, or is declared outside `mods/`. The manifest is owner/admin-
+/// controlled, so this is the trust boundary: without it a crafted manifest could
+/// make the downloader write anywhere (the same defense the mrpack importer gets
+/// from [`crate::fs::safe_join`]). MVP only reconciles `mods/`.
+fn safe_target(inst: &Instance, path: &str) -> Option<std::path::PathBuf> {
+    let rel = path.strip_prefix("mods/")?;
+    crate::fs::safe_join(&inst.mods_dir(), rel)
+}
+
 /// Does `path` exist and satisfy the manifest file's strongest available hash?
 fn file_matches(path: &Path, f: &RealmFile) -> bool {
     if !path.exists() {
@@ -250,12 +261,19 @@ pub fn plan_sync(inst: &Instance, manifest: &RealmManifest) -> SyncPlan {
     let mut manifest_mods: HashSet<String> = HashSet::new();
 
     for f in &manifest.files {
+        // The path is owner/admin-controlled; reject anything that escapes mods/
+        // (absolute / `..` / outside mods/) so a crafted manifest can't probe or
+        // target files outside the instance.
+        let Some(target) = safe_target(inst, &f.path) else {
+            tracing::warn!(target: "mc_core::realm", path = %f.path, "拒绝越界的领域清单路径");
+            continue;
+        };
         if let Some(name) = f.path.strip_prefix("mods/") {
             manifest_mods.insert(name.to_string());
         }
         match f.url.as_deref() {
             Some(url) if !url.is_empty() => {
-                if file_matches(&inst.dir().join(&f.path), f) {
+                if file_matches(&target, f) {
                     continue; // already present + correct
                 }
                 download.push(f.clone());
@@ -292,7 +310,11 @@ pub async fn apply_sync(
     let mut items = Vec::with_capacity(plan.download.len());
     for f in &plan.download {
         let Some(url) = f.url.clone().filter(|u| !u.is_empty()) else { continue };
-        let path = inst.dir().join(&f.path);
+        // Defense in depth — the plan crossed an IPC boundary; re-validate the path.
+        let Some(path) = safe_target(inst, &f.path) else {
+            tracing::warn!(target: "mc_core::realm", path = %f.path, "跳过越界的下载路径");
+            continue;
+        };
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| CoreError::Io { path: parent.to_path_buf(), source: e })?;
@@ -502,6 +524,28 @@ mod tests {
         assert!(plan.download.is_empty());
         assert!(plan.remove.is_empty());
         assert!(plan.is_up_to_date());
+    }
+
+    #[test]
+    fn plan_rejects_path_traversal_and_absolute_paths() {
+        let t = TempInst::new("traversal");
+        let manifest = RealmManifest {
+            files: vec![
+                url_file("../../evil.sh", Some("x".into())),        // parent escape
+                url_file("/etc/cron.d/evil", Some("x".into())),     // absolute
+                url_file("mods/../../escape.jar", Some("x".into())), // escape via ..
+                url_file("config/evil.toml", Some("x".into())),     // outside mods/
+                url_file("mods/ok.jar", Some("deadbeef".into())),   // the only legit one
+            ],
+            version: 1,
+            ..Default::default()
+        };
+        let plan = plan_sync(&t.inst, &manifest);
+        // Only the legit, missing mods/ok.jar is scheduled; every escaping path dropped.
+        assert_eq!(plan.download.len(), 1);
+        assert_eq!(plan.download[0].path, "mods/ok.jar");
+        assert!(plan.manual.is_empty());
+        assert!(plan.remove.is_empty());
     }
 
     #[test]
