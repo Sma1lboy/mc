@@ -272,6 +272,42 @@ export const commands = {
 } | null, string>(__TAURI_INVOKE("kobemc_session")),
 	/**  Log out of the kobeMC account (clears the server session). */
 	kobemcLogout: () => typedError<null, string>(__TAURI_INVOKE("kobemc_logout")),
+	/**  Realms the logged-in user belongs to. */
+	realmList: () => typedError<RealmSummary[], string>(__TAURI_INVOKE("realm_list")),
+	/**  A single realm's summary. */
+	realmGet: (realmId: string) => typedError<RealmSummary, string>(__TAURI_INVOKE("realm_get", { realmId })),
+	/**  Create a realm seeded from an instance's current mods. */
+	realmCreate: (root: string, instanceId: string, name: string, mcVersion: string, loader: string, loaderVersion: string | null, expiresInSecs: number | null) => typedError<RealmSummary, string>(__TAURI_INVOKE("realm_create", { root, instanceId, name, mcVersion, loader, loaderVersion, expiresInSecs })),
+	/**  Join a realm by code. `None` ⇒ the code is unknown/expired. */
+	realmJoin: (code: string) => typedError<{
+	id: string,
+	code: string,
+	name: string,
+	owner_id: string,
+	mc_version?: string | null,
+	loader?: string | null,
+	manifest_version: number,
+	role: string,
+	expires_at?: string | null,
+} | null, string>(__TAURI_INVOKE("realm_join", { code })),
+	/**  Member list (with synced-version progress). */
+	realmMembers: (realmId: string) => typedError<RealmMember[], string>(__TAURI_INVOKE("realm_members", { realmId })),
+	/**  Owner/admin republishes the manifest from an instance; returns new version. */
+	realmPushManifest: (realmId: string, root: string, instanceId: string, mcVersion: string, loader: string, loaderVersion: string | null) => typedError<number, string>(__TAURI_INVOKE("realm_push_manifest", { realmId, root, instanceId, mcVersion, loader, loaderVersion })),
+	/**  Dry-run: what syncing `instance_id` to the realm's manifest would change. */
+	realmPlanSync: (realmId: string, root: string, instanceId: string) => typedError<SyncPlan, string>(__TAURI_INVOKE("realm_plan_sync", { realmId, root, instanceId })),
+	/**
+	 *  Reconcile `instance_id` to the realm manifest: download missing/changed mods,
+	 *  optionally drop the ones the manifest no longer carries, then report progress
+	 *  to the server. Progress streams over `install://progress`.
+	 */
+	realmSync: (realmId: string, root: string, instanceId: string, removeExtras: boolean) => typedError<SyncReport, string>(__TAURI_INVOKE("realm_sync", { realmId, root, instanceId, removeExtras })),
+	/**  Owner sets a member's role (`admin`/`member`). */
+	realmSetRole: (realmId: string, userId: string, role: string) => typedError<null, string>(__TAURI_INVOKE("realm_set_role", { realmId, userId, role })),
+	/**  Self-leave, or owner removes a member. */
+	realmRemoveMember: (realmId: string, userId: string) => typedError<null, string>(__TAURI_INVOKE("realm_remove_member", { realmId, userId })),
+	/**  Owner disbands the realm. */
+	realmDisband: (realmId: string) => typedError<null, string>(__TAURI_INVOKE("realm_disband", { realmId })),
 	/**
 	 *  检查某实例(由 Modrinth 整合包安装)是否有更新:返回比当前来源版本更新的版本列表。
 	 *  非整合包来源 / 非 modrinth / 缺 project_id 时返回空(前端据此不显示更新提示)。
@@ -740,6 +776,43 @@ export type ProjectDetail = {
 	discord_url: string | null,
 };
 
+/**
+ *  One file the syncer reconciles into a member's instance. `path` is relative
+ *  to the **instance dir**, e.g. `mods/sodium.jar`.
+ */
+export type RealmFile = {
+	path: string,
+	sha1?: string | null,
+	sha512?: string | null,
+	size?: number | null,
+	/**  Download url (Modrinth/CurseForge). Absent ⇒ `manual` (member adds it). */
+	url?: string | null,
+	/**  `"modrinth"` | `"curseforge"` | `"manual"`. */
+	source?: string | null,
+};
+
+/**  One realm member + how far they've synced. */
+export type RealmMember = {
+	user_id: string,
+	username?: string | null,
+	role: string,
+	synced_version: number,
+	joined_at?: string | null,
+};
+
+/**  A realm as seen by a member (includes *their* role). */
+export type RealmSummary = {
+	id: string,
+	code: string,
+	name: string,
+	owner_id: string,
+	mc_version?: string | null,
+	loader?: string | null,
+	manifest_version: number,
+	role: string,
+	expires_at?: string | null,
+};
+
 /**  The release channel of a Minecraft version. */
 export type ReleaseKind = "release" | "snapshot" | "old_beta" | "old_alpha";
 
@@ -808,6 +881,30 @@ export type SearchHit = {
 	 */
 	gallery_url?: string | null,
 	categories: string[],
+};
+
+/**  What a sync to a manifest *would* change, computed without touching disk. */
+export type SyncPlan = {
+	/**  Files in the manifest that are missing locally or fail their hash. */
+	download: RealmFile[],
+	/**  Mod filenames present under `mods/` but absent from the manifest. */
+	remove: string[],
+	/**  Manifest files with no download url — the member must add them by hand. */
+	manual: RealmFile[],
+	/**  Manifest version this plan targets. */
+	version: number,
+};
+
+/**  Outcome of [`apply_sync`]. */
+export type SyncReport = {
+	downloaded: number,
+	removed: number,
+	/**  Filenames that failed to download (after retries). */
+	failed: string[],
+	/**  Files the member must still add by hand. */
+	manual: RealmFile[],
+	/**  The manifest version that was applied. */
+	version: number,
 };
 
 /**  UI theme preference. */
