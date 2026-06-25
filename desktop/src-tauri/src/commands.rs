@@ -1487,6 +1487,56 @@ pub async fn fetch_news() -> CmdResult<Vec<mc_core::server::NewsItem>> {
     client.news().await.map_err(err)
 }
 
+// --- kobeMC account (our backend: better-auth email/password) ----------------
+// These reuse one shared ServerClient held in Tauri state (lib.rs `.manage`) so
+// the better-auth session cookie persists across calls within an app session.
+
+/// Build the shared mc-server client (managed in Tauri state).
+pub fn kobe_client() -> mc_core::server::ServerClient {
+    mc_core::server::ServerClient::new().expect("build mc-server client")
+}
+
+/// Register a kobeMC account (email/password); establishes the session.
+#[tauri::command]
+#[specta::specta]
+pub async fn kobemc_signup(
+    client: tauri::State<'_, mc_core::server::ServerClient>,
+    email: String,
+    password: String,
+    name: String,
+) -> CmdResult<mc_core::server::AuthUser> {
+    client.register(&email, &password, &name).await.map_err(err)
+}
+
+/// Log in to a kobeMC account; establishes the session cookie.
+#[tauri::command]
+#[specta::specta]
+pub async fn kobemc_login(
+    client: tauri::State<'_, mc_core::server::ServerClient>,
+    email: String,
+    password: String,
+) -> CmdResult<mc_core::server::AuthUser> {
+    client.login(&email, &password).await.map_err(err)
+}
+
+/// The current kobeMC session user, or `None` if not logged in.
+#[tauri::command]
+#[specta::specta]
+pub async fn kobemc_session(
+    client: tauri::State<'_, mc_core::server::ServerClient>,
+) -> CmdResult<Option<mc_core::server::AuthUser>> {
+    Ok(client.me().await.ok())
+}
+
+/// Log out of the kobeMC account (clears the server session).
+#[tauri::command]
+#[specta::specta]
+pub async fn kobemc_logout(
+    client: tauri::State<'_, mc_core::server::ServerClient>,
+) -> CmdResult<()> {
+    client.logout().await.map_err(err)
+}
+
 // --- modpack import / export (thin glue over mc_core::modpack) ---------------
 
 /// 一个 blocked 文件(CurseForge 作者禁第三方分发)的 UI 视图:需用户手动下载。

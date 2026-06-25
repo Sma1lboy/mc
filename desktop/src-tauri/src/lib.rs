@@ -94,6 +94,10 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::open_logs_dir,
             commands::read_log_tail,
             commands::fetch_news,
+            commands::kobemc_signup,
+            commands::kobemc_login,
+            commands::kobemc_session,
+            commands::kobemc_logout,
             commands::check_modpack_updates,
             commands::apply_modpack_update,
             gallery::gallery_enabled,
@@ -154,6 +158,8 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(commands::RunningGames::default())
+        // Shared mc-server client — kobeMC auth session cookie persists across calls.
+        .manage(commands::kobe_client())
         .invoke_handler(builder.invoke_handler())
         .run(tauri::generate_context!())
         .expect("error while running mc-launcher");
