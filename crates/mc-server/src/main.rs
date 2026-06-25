@@ -92,7 +92,12 @@ async fn main() {
         .layer(CorsLayer::permissive());
 
     let port = std::env::var("PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(8787u16);
-    let addr = format!("127.0.0.1:{port}");
+    // Bind 0.0.0.0 on deployed/release builds so the platform's router can reach
+    // the container; 127.0.0.1 in dev. Override with HOST.
+    let host = std::env::var("HOST").unwrap_or_else(|_| {
+        if cfg!(debug_assertions) { "127.0.0.1".to_string() } else { "0.0.0.0".to_string() }
+    });
+    let addr = format!("{host}:{port}");
     let listener = tokio::net::TcpListener::bind(&addr).await.expect("bind");
     tracing::info!("mc-server listening on http://{addr}");
     axum::serve(listener, app).await.expect("serve");

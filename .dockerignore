@@ -1,0 +1,16 @@
+# Keep the mc-server Docker build context small + fast: ship only what
+# `cargo build -p mc-server` needs (Rust sources + workspace manifests).
+.git/
+**/target/
+desktop/node_modules/
+desktop/dist/
+desktop/src-tauri/gen/
+desktop/src/theme/fonts/
+desktop/design-previews/
+ref/
+.claude/
+**/.env
+*.log
+**/*.png
+**/*.jpg
+**/*.woff2
