@@ -12,6 +12,7 @@ import {
   Heading,
   Tag,
 } from "../components";
+import { KobeAccountPanel } from "../components/KobeAccountPanel";
 import { Check, Info, RotateCcw } from "lucide-solid";
 import {
   applyThemeColor,
@@ -364,6 +365,8 @@ const Settings: Component = () => {
           </div>
 
           <div class="settings-page__side">
+            <KobeAccountPanel />
+
             <Panel variant="sunken" class={sectionClass}>
               <Heading size="sub" as="h2" class="mb-[14px]">
                 {t("settings.sectionDownloadGame")}

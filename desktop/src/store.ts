@@ -3,6 +3,7 @@ import { api, onGameExit, onGameStarted } from "./ipc/api";
 import { toast } from "./components/Toast";
 import { t } from "./i18n";
 import type { ProjectKind } from "./ipc/types";
+import type { AuthUser } from "./ipc/bindings";
 
 // 页面标识。home/library/discover/settings + 实例详情。
 export type Page = "home" | "library" | "discover" | "settings" | "instance";
@@ -238,4 +239,54 @@ if (typeof window !== "undefined") {
       toast({ type: "error", message: `${reason}${hint}` });
     }
   });
+}
+
+// ===== kobeMC 账号(我们自己的后端账号,区别于游戏内 MC 账号) =====
+// 与游戏账号(offline / Microsoft / Yggdrasil)正交:这是登录我们 mc-server 后端的账号,
+// 解锁临时领域(realms)同步等服务端能力。会话存活在后端 ServerClient 的 cookie jar 里
+//(进程内),因此当前仅维持本次 app 运行;重启需重新登录(MVP 限制,后续可持久化 token)。
+const [kobeUser, setKobeUser] = createSignal<AuthUser | null>(null);
+export { kobeUser };
+
+/** 是否已登录 kobeMC 账号(响应式)。 */
+export function isKobeSignedIn(): boolean {
+  return kobeUser() !== null;
+}
+
+/** 邮箱 + 密码登录 kobeMC 账号;成功后填充全局会话。 */
+export async function kobeLogin(email: string, password: string): Promise<void> {
+  const user = await api.kobemcLogin(email, password);
+  setKobeUser(user);
+  toast({ type: "info", message: t("kobe.toast.loggedIn", { name: kobeDisplayName(user) }) });
+}
+
+/** 注册新 kobeMC 账号(注册即登录,沿用同一会话 cookie)。 */
+export async function kobeSignup(email: string, password: string, name: string): Promise<void> {
+  const user = await api.kobemcSignup(email, password, name);
+  setKobeUser(user);
+  toast({ type: "info", message: t("kobe.toast.signedUp", { name: kobeDisplayName(user) }) });
+}
+
+/** 退出 kobeMC 账号(清后端会话 + 本地状态)。 */
+export async function kobeLogout(): Promise<void> {
+  try {
+    await api.kobemcLogout();
+  } finally {
+    setKobeUser(null);
+  }
+}
+
+/** 账号展示名:优先昵称 → 用户名 → 邮箱 → id 前缀。 */
+export function kobeDisplayName(user: AuthUser): string {
+  return user.name || user.username || user.email || user.id.slice(0, 8);
+}
+
+// 启动时探一次后端会话:若 cookie jar 仍有效(同一进程的热重载)则恢复登录态。
+if (typeof window !== "undefined") {
+  void api
+    .kobemcSession()
+    .then((user) => {
+      if (user) setKobeUser(user);
+    })
+    .catch(() => {});
 }

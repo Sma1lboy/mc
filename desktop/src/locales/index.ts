@@ -11,6 +11,7 @@ import components from "./components";
 import downloads from "./downloads";
 import home from "./home";
 import projectDetail from "./projectDetail";
+import kobe from "./kobe";
 
 export const dictionaries = {
   zh: {
@@ -26,6 +27,7 @@ export const dictionaries = {
     downloads: downloads.zh,
     home: home.zh,
     projectDetail: projectDetail.zh,
+    kobe: kobe.zh,
   },
   en: {
     settings: settings.en,
@@ -40,5 +42,6 @@ export const dictionaries = {
     downloads: downloads.en,
     home: home.en,
     projectDetail: projectDetail.en,
+    kobe: kobe.en,
   },
 };
