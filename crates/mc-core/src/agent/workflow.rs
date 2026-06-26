@@ -80,8 +80,9 @@ use llm_io::{
 };
 #[cfg(test)]
 use requirements::{
-    apply_requirements_replan, parse_restriction_update_response,
-    restriction_update_request_payload,
+    apply_requirements_replan, invalidation_rule_for_changed_field,
+    parse_restriction_update_response, restriction_update_request_payload,
+    target_phase_for_changed_field, ALL_CHANGED_FIELDS,
 };
 use requirements::{
     changed_restriction_field, continue_after_requirements_confirmation,
