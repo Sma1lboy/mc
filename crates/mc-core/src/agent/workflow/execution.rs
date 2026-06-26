@@ -119,7 +119,7 @@ pub async fn execute_mrpack_build_to_path(
     }
 
     let downloader = Downloader::new(4)?;
-    let base_archive_bytes = downloader.get_bytes(&url).await?;
+    let base_archive_bytes = get_execution_bytes(&downloader, &url, "base archive").await?;
     verify_version_file_bytes("base archive", &archive_file, &base_archive_bytes)?;
 
     let base_index = match read_base_mrpack_index(&base_archive_bytes) {
@@ -208,7 +208,7 @@ async fn download_extra_override_files(
             .get("source_file")
             .and_then(version_file_from_payload)
             .ok_or_else(|| CoreError::other("extra override source missing source_file"))?;
-        let bytes = downloader.get_bytes(&file.url).await?;
+        let bytes = get_execution_bytes(downloader, &file.url, &safe_path).await?;
         verify_version_file_bytes(&safe_path, &file, &bytes)?;
         out.push(MrpackOverrideFile {
             archive_path: safe_path,
@@ -216,6 +216,24 @@ async fn download_extra_override_files(
         });
     }
     Ok(out)
+}
+
+async fn get_execution_bytes(downloader: &Downloader, url: &str, label: &str) -> Result<Vec<u8>> {
+    match tokio::time::timeout(
+        BASE_ARCHIVE_FETCH_TIMEOUT,
+        downloader.get_bytes_capped(url, MAX_BASE_ARCHIVE_BYTES),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => Err(CoreError::Download {
+            url: url.to_string(),
+            reason: format!(
+                "{label} download timed out after {} seconds",
+                BASE_ARCHIVE_FETCH_TIMEOUT.as_secs()
+            ),
+        }),
+    }
 }
 
 fn verify_version_file_bytes(label: &str, file: &VersionFile, bytes: &[u8]) -> Result<()> {
@@ -520,6 +538,15 @@ pub fn compile_mrpack_execution_metadata(
         let install_path = format!("mods/{safe_filename}");
         let archive_path = format!("overrides/{install_path}");
         if seen_paths.insert(install_path.clone()) {
+            if !version_file_has_verifiable_hash(&file) {
+                blocked.push(serde_json::json!({
+                    "title": title,
+                    "reason": "override source has no verifiable hash",
+                    "source_ref": source_ref,
+                    "replan_phase": "confirm_customization_approval",
+                }));
+                continue;
+            }
             extra_override_sources.push(serde_json::json!({
                 "title": title,
                 "project_id": optional_json_string(&extra_ref, "project_id"),
@@ -565,6 +592,16 @@ pub fn compile_mrpack_execution_metadata(
             None
         },
     }))
+}
+
+fn version_file_has_verifiable_hash(file: &VersionFile) -> bool {
+    file.sha512
+        .as_deref()
+        .is_some_and(|hash| !hash.trim().is_empty())
+        || file
+            .sha1
+            .as_deref()
+            .is_some_and(|hash| !hash.trim().is_empty())
 }
 
 /// Consume execution phase output and either advance deterministic execution or

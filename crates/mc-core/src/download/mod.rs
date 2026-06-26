@@ -420,6 +420,81 @@ impl Downloader {
         }))
     }
 
+    /// GET 原始字节,但在响应头和流式读取阶段都强制执行最大字节数。
+    pub async fn get_bytes_capped(&self, url: &str, max_bytes: usize) -> Result<Vec<u8>> {
+        let candidates = self.candidate_urls(&DownloadItem {
+            url: url.to_string(),
+            ..Default::default()
+        });
+        let mut last_err: Option<CoreError> = None;
+        for candidate in &candidates {
+            for attempt in 0..MAX_ATTEMPTS {
+                match self
+                    .client
+                    .get(candidate)
+                    .send()
+                    .await
+                    .and_then(|r| r.error_for_status())
+                {
+                    Ok(resp) => {
+                        if let Some(content_length) = resp.content_length() {
+                            if content_length > max_bytes as u64 {
+                                last_err = Some(capped_download_error(
+                                    candidate,
+                                    max_bytes,
+                                    content_length,
+                                ));
+                                break;
+                            }
+                        }
+
+                        let mut out = Vec::new();
+                        let mut stream = resp.bytes_stream();
+                        let mut stream_err: Option<CoreError> = None;
+                        while let Some(chunk) = stream.next().await {
+                            match chunk {
+                                Ok(chunk) => {
+                                    let next_len = out.len().saturating_add(chunk.len());
+                                    if next_len > max_bytes {
+                                        stream_err = Some(capped_download_error(
+                                            candidate,
+                                            max_bytes,
+                                            next_len as u64,
+                                        ));
+                                        break;
+                                    }
+                                    out.extend_from_slice(&chunk);
+                                }
+                                Err(e) => {
+                                    stream_err = Some(CoreError::Network(e));
+                                    break;
+                                }
+                            }
+                        }
+
+                        match stream_err {
+                            Some(err) => last_err = Some(err),
+                            None => return Ok(out),
+                        }
+                    }
+                    Err(e) => last_err = Some(CoreError::Network(e)),
+                }
+                let retriable = last_err.as_ref().is_some_and(is_retriable)
+                    && !last_err.as_ref().is_some_and(is_not_found)
+                    && !last_err.as_ref().is_some_and(is_size_limit);
+                if retriable && attempt + 1 < MAX_ATTEMPTS {
+                    tokio::time::sleep(BACKOFF_BASE * (1u32 << attempt)).await;
+                    continue;
+                }
+                break;
+            }
+        }
+        Err(last_err.unwrap_or_else(|| CoreError::Download {
+            url: url.to_string(),
+            reason: "no download sources".into(),
+        }))
+    }
+
     /// GET 文本(UTF-8 lossy 由 reqwest::text 处理)。
     pub async fn get_text(&self, url: &str) -> Result<String> {
         let bytes = self.get_bytes(url).await?;
@@ -461,6 +536,22 @@ fn is_not_found(err: &CoreError) -> bool {
     matches!(err, CoreError::Network(e) if e.status().map(|s| s.as_u16()) == Some(404))
 }
 
+fn capped_download_error(url: &str, max_bytes: usize, actual_bytes: u64) -> CoreError {
+    CoreError::Download {
+        url: url.to_string(),
+        reason: format!(
+            "response exceeds maximum size of {max_bytes} bytes: got at least {actual_bytes} bytes"
+        ),
+    }
+}
+
+fn is_size_limit(err: &CoreError) -> bool {
+    matches!(
+        err,
+        CoreError::Download { reason, .. } if reason.contains("exceeds maximum size")
+    )
+}
+
 /// 是否为"确定性"错误(重投也不会变好):校验不符 / 404。用于决定是否跨趟重投。
 fn is_permanent(err: &CoreError) -> bool {
     matches!(err, CoreError::Checksum { .. }) || is_not_found(err)
@@ -490,6 +581,24 @@ mod tests {
                     "HTTP/1.1 {status} {reason}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                     body.len()
                 );
+                let _ = stream.write_all(headers.as_bytes());
+                let _ = stream.write_all(body);
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    fn one_response_server_without_length(body: &'static [u8]) -> String {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0_u8; 1024];
+                let _ = stream.read(&mut buf);
+                let headers = "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n";
                 let _ = stream.write_all(headers.as_bytes());
                 let _ = stream.write_all(body);
             }
@@ -545,5 +654,21 @@ mod tests {
             .unwrap();
 
         assert_eq!(bytes, b"official");
+    }
+
+    #[tokio::test]
+    async fn get_bytes_capped_errors_when_stream_exceeds_cap() {
+        let server = one_response_server_without_length(b"larger than cap");
+        let downloader = Downloader::new(1).unwrap();
+
+        let err = downloader
+            .get_bytes_capped(&format!("{server}/large.bin"), 6)
+            .await
+            .expect_err("body larger than cap should fail");
+
+        assert!(
+            err.to_string().contains("exceeds maximum size"),
+            "unexpected error: {err}"
+        );
     }
 }

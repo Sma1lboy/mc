@@ -1563,6 +1563,80 @@ fn exec_compile_metadata_sanitizes_override_source_paths() {
 }
 
 #[test]
+fn exec_compile_metadata_blocks_unverifiable_override_source() {
+    use crate::modpack::formats::mrpack::{MrpackDependencies, MrpackIndex};
+
+    let base_index = MrpackIndex {
+        format_version: 1,
+        game: "minecraft".to_string(),
+        version_id: "base-1.0.0".to_string(),
+        name: "Base Pack".to_string(),
+        summary: None,
+        dependencies: MrpackDependencies {
+            minecraft: Some("1.20.1".to_string()),
+            fabric_loader: Some("0.15.7".to_string()),
+            ..Default::default()
+        },
+        files: Vec::new(),
+    };
+    let extra_file = VersionFile {
+        url: "https://example.com/download/extra.jar".to_string(),
+        filename: "extra.jar".to_string(),
+        sha1: None,
+        sha512: None,
+        size: None,
+        primary: true,
+    };
+    let approved = ApprovedModpackBuild {
+        base_pack: serde_json::json!({ "title": "Base Pack" }),
+        target: serde_json::json!({ "minecraft_version": "1.20.1", "loader": "fabric" }),
+        extra_mods: Vec::new(),
+        execution_recipe: Some(serde_json::json!({
+            "schema_version": 1,
+            "kind": "mrpack_from_base_modpack",
+            "format": "mrpack",
+            "extra_mod_refs": [{
+                "title": "Unverified Override",
+                "project_id": "extra-project",
+                "source_ref": {
+                    "kind": "mod_file",
+                    "provider": "modrinth",
+                    "project_id": "extra-project",
+                    "version_id": "extra-version",
+                    "file": version_file_payload(&extra_file)
+                }
+            }]
+        })),
+    };
+
+    let base_index_json = serde_json::to_vec(&base_index).unwrap();
+    let base_archive = zip_bytes(&[("modrinth.index.json", &base_index_json)]);
+    let built = build_mrpack_from_base_archive_bytes(&approved, &base_archive, &[]).unwrap();
+
+    assert_eq!(
+        built.manifest.get("status").and_then(|v| v.as_str()),
+        Some("blocked")
+    );
+    assert_eq!(
+        built.manifest.get("replan_phase").and_then(|v| v.as_str()),
+        Some("confirm_customization_approval")
+    );
+    let blocked = built
+        .manifest
+        .get("blocked")
+        .and_then(|v| v.as_array())
+        .expect("blocked manifest should list blocked files");
+    assert!(blocked.iter().any(|item| {
+        item.get("reason").and_then(|v| v.as_str())
+            == Some("override source has no verifiable hash")
+    }));
+    assert!(
+        built.archive_bytes.is_empty(),
+        "blocked override sources must not be packaged"
+    );
+}
+
+#[test]
 fn execution_manifest_ready_enters_executing_phase() {
     let mut run = AgentRunSnapshot::new("make a pack");
     run.status = AgentStatus::Running;
@@ -1880,6 +1954,64 @@ async fn advance_executes_approved_execution_ready_run_to_completed() {
     );
     assert!(output.exists(), "advance should write the mrpack artifact");
     let _ = std::fs::remove_file(output);
+}
+
+#[tokio::test]
+async fn advance_caps_retry_manifests_without_hot_loop() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    let base_archive = base_archive_for_advance();
+    let run = execution_ready_run("https://example.com/base.mrpack", base_archive.len() as u64);
+    let output = temp_mrpack_path("advance-retry-cap");
+    let runtime = test_main_runtime();
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let attempts_for_executor = Arc::clone(&attempts);
+
+    let next = runtime
+        .advance_with_executor(
+            run,
+            &output,
+            move |_approved, _path| {
+                let attempts_for_executor = Arc::clone(&attempts_for_executor);
+                async move {
+                    attempts_for_executor.fetch_add(1, Ordering::SeqCst);
+                    Ok(serde_json::json!({
+                        "schema_version": 1,
+                        "status": "retry",
+                        "format": "mrpack",
+                        "reason": "source timeout",
+                        "error_kind": "network_timeout",
+                        "retryable": true
+                    }))
+                }
+            },
+            std::time::Duration::ZERO,
+        )
+        .await
+        .expect("retry cap should return a terminal run");
+
+    assert_eq!(
+        attempts.load(Ordering::SeqCst),
+        3,
+        "retry driver should stop at the configured cap"
+    );
+    assert_eq!(next.status, AgentStatus::Failed);
+    assert_eq!(next.phase, AgentPhase::Failed);
+    assert_eq!(
+        next.execution.as_ref().map(|e| &e.status),
+        Some(&AgentExecutionStatus::Failed)
+    );
+    let reason = next
+        .execution
+        .as_ref()
+        .and_then(|execution| execution.blocked.as_ref())
+        .map(|blocked| blocked.reason.as_str());
+    assert_eq!(
+        reason,
+        Some("execution exceeded max retries: source timeout")
+    );
+    assert!(!output.exists(), "retry exhaustion must not write output");
 }
 
 #[tokio::test]
