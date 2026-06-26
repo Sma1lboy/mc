@@ -1095,6 +1095,29 @@ fn preserves_raw_version_requirement_without_concrete_target() {
 }
 
 #[test]
+fn requirement_summary_does_not_echo_invalid_version_as_accepted_target() {
+    let input = parse_restriction_update_response(
+            r#"{"base_revision":0,"patch":{"minecraft_version":"99.99","minecraft_version_requirement":"99.99","loader":"fabric","feature_tags":["adventure"],"notes":null}}"#,
+        )
+        .expect("restriction tool json should parse invalid raw version requirement");
+    let output = update_build_restrictions(
+        Some(BuildRestrictions::default()),
+        input,
+        BuildRestrictionChangeSource::InitialPrompt,
+        "initial",
+    )
+    .expect("restriction update should apply");
+
+    assert!(output.restrictions.minecraft_version.is_none());
+    let summary = requirement_summary_message(&output);
+    assert!(!summary.contains("99.99"), "unexpected summary: {summary}");
+    assert!(
+        summary.contains("缺少: Minecraft version"),
+        "unexpected summary: {summary}"
+    );
+}
+
+#[test]
 fn requested_compatibility_comes_from_typed_restrictions() {
     let restrictions = BuildRestrictions {
         revision: 1,

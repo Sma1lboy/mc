@@ -194,9 +194,15 @@ fn local_agent_runtime(
 }
 
 fn cmd_agent_show(session_id: &str, json: bool) -> Result<()> {
-    let snapshot = mc_core::agent::AgentSessionStore::new(data_dir()).load_snapshot(session_id)?;
+    let dir = data_dir();
+    cmd_agent_show_with_dir(&dir, session_id, json).map(|_| ())
+}
+
+fn cmd_agent_show_with_dir(dir: &Path, session_id: &str, json: bool) -> Result<AgentRunSnapshot> {
+    let store = mc_core::agent::AgentSessionStore::new(dir);
+    let snapshot = load_agent_snapshot(&store, session_id)?;
     print_agent_snapshot(&snapshot, json)?;
-    Ok(())
+    Ok(snapshot)
 }
 
 async fn cmd_agent_continue(session_id: &str, message: &str, json: bool) -> Result<()> {
@@ -206,8 +212,11 @@ async fn cmd_agent_continue(session_id: &str, message: &str, json: bool) -> Resu
     }
 
     let dir = data_dir();
+    let store = mc_core::agent::AgentSessionStore::new(&dir);
+    let snapshot = load_agent_snapshot(&store, session_id)?;
+    ensure_session_can_continue(&snapshot)?;
     let agent = local_agent_runtime(&dir, None)?;
-    cmd_agent_continue_with_runtime(&dir, &agent, session_id, user_message, json)
+    cmd_agent_continue_snapshot_with_runtime(&dir, &agent, snapshot, user_message, json)
         .await
         .map(|_| ())
 }
@@ -220,7 +229,19 @@ async fn cmd_agent_continue_with_runtime(
     json: bool,
 ) -> Result<AgentRunSnapshot> {
     let store = mc_core::agent::AgentSessionStore::new(&dir);
-    let snapshot = store.load_snapshot(session_id)?;
+    let snapshot = load_agent_snapshot(&store, session_id)?;
+    cmd_agent_continue_snapshot_with_runtime(dir, agent, snapshot, user_message, json).await
+}
+
+async fn cmd_agent_continue_snapshot_with_runtime(
+    dir: &Path,
+    agent: &mc_core::agent::MainAgentRuntime,
+    snapshot: AgentRunSnapshot,
+    user_message: &str,
+    json: bool,
+) -> Result<AgentRunSnapshot> {
+    ensure_session_can_continue(&snapshot)?;
+    let store = mc_core::agent::AgentSessionStore::new(dir);
     let mut next = agent
         .continue_from_user_message(snapshot, user_message)
         .await?;
@@ -244,7 +265,7 @@ async fn cmd_agent_execute_with_dir(
     json: bool,
 ) -> Result<AgentRunSnapshot> {
     let store = mc_core::agent::AgentSessionStore::new(&dir);
-    let snapshot = store.load_snapshot(session_id)?;
+    let snapshot = load_agent_snapshot(&store, session_id)?;
     if execution_completed(&snapshot) {
         let mut next = copy_completed_artifact_to_output(snapshot, output)?;
         next.push_trace("saved local agent session");
@@ -259,6 +280,28 @@ async fn cmd_agent_execute_with_dir(
     store.save_snapshot(&next)?;
     print_agent_snapshot(&next, json)?;
     Ok(next)
+}
+
+fn load_agent_snapshot(
+    store: &mc_core::agent::AgentSessionStore,
+    session_id: &str,
+) -> Result<AgentRunSnapshot> {
+    match store.load_snapshot(session_id) {
+        Ok(snapshot) => Ok(snapshot),
+        Err(mc_core::CoreError::Io { source, .. })
+            if source.kind() == std::io::ErrorKind::NotFound =>
+        {
+            anyhow::bail!("找不到会话 '{session_id}'。用 `mc agent list` 查看现有会话。")
+        }
+        Err(err) => Err(err.into()),
+    }
+}
+
+fn ensure_session_can_continue(snapshot: &AgentRunSnapshot) -> Result<()> {
+    if snapshot.status == AgentStatus::Completed || snapshot.phase == AgentPhase::Completed {
+        anyhow::bail!("该会话已结束(completed)，无法继续。");
+    }
+    Ok(())
 }
 
 fn default_agent_output_path(data_dir: &Path, session_id: &str) -> PathBuf {
@@ -366,7 +409,7 @@ fn cmd_agent_exec_smoke(
 ) -> Result<()> {
     let dir = data_dir();
     let store = mc_core::agent::AgentSessionStore::new(&dir);
-    let snapshot = store.load_snapshot(session_id)?;
+    let snapshot = load_agent_snapshot(&store, session_id)?;
     let manifest = exec_smoke_manifest(outcome, reason);
     let mut next = mc_core::agent::continue_after_execution_manifest_result(snapshot, manifest)?;
     next.push_trace("saved local agent session");
@@ -1070,6 +1113,61 @@ mod tests {
                 .join("session-123.mrpack")
         );
         assert!(output.is_absolute());
+    }
+
+    #[test]
+    fn show_missing_session_returns_friendly_error_without_internal_path() {
+        let data_dir = temp_data_dir("missing-show");
+        let err = cmd_agent_show_with_dir(&data_dir, "missing-session", true)
+            .expect_err("missing session should be user-facing");
+        let text = err.to_string();
+
+        assert!(text.contains("找不到会话 'missing-session'"));
+        assert!(text.contains("mc agent list"));
+        assert!(!text.contains("snapshot.json"));
+        assert!(!text.contains(data_dir.to_string_lossy().as_ref()));
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    #[tokio::test]
+    async fn continue_missing_session_returns_friendly_error_without_internal_path() {
+        let data_dir = temp_data_dir("missing-continue");
+        let runtime = deterministic_agent_runtime().unwrap();
+
+        let err =
+            cmd_agent_continue_with_runtime(&data_dir, &runtime, "missing-session", "继续", true)
+                .await
+                .expect_err("missing session should be user-facing");
+        let text = err.to_string();
+
+        assert!(text.contains("找不到会话 'missing-session'"));
+        assert!(text.contains("mc agent list"));
+        assert!(!text.contains("snapshot.json"));
+        assert!(!text.contains(data_dir.to_string_lossy().as_ref()));
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    #[tokio::test]
+    async fn continue_completed_session_returns_clear_status_error() {
+        let data_dir = temp_data_dir("completed-continue");
+        let session_id = "completed-continue-session";
+        let mut run = AgentRunSnapshot::new("make a pack");
+        run.id = session_id.to_string();
+        run.status = AgentStatus::Completed;
+        run.phase = AgentPhase::Completed;
+        mc_core::agent::AgentSessionStore::new(&data_dir)
+            .save_snapshot(&run)
+            .unwrap();
+        let runtime = deterministic_agent_runtime().unwrap();
+
+        let err = cmd_agent_continue_with_runtime(&data_dir, &runtime, session_id, "继续", true)
+            .await
+            .expect_err("completed session should not continue");
+        let text = err.to_string();
+
+        assert!(text.contains("该会话已结束(completed)，无法继续。"));
+        assert!(!text.contains("pending approval"));
+        let _ = std::fs::remove_dir_all(data_dir);
     }
 
     #[test]
