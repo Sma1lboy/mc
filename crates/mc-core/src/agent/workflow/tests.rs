@@ -25,6 +25,105 @@ fn zip_bytes_with_dirs(dirs: &[&str], files: &[(&str, &[u8])]) -> Vec<u8> {
     cursor.into_inner()
 }
 
+fn one_response_server(body: Vec<u8>) -> String {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let mut buf = [0_u8; 1024];
+            let _ = stream.read(&mut buf);
+            let headers = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream.write_all(headers.as_bytes());
+            let _ = stream.write_all(&body);
+        }
+    });
+    format!("http://{addr}")
+}
+
+fn temp_mrpack_path(tag: &str) -> std::path::PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    std::env::temp_dir().join(format!(
+        "mc-agent-{tag}-{}-{nanos}.mrpack",
+        std::process::id()
+    ))
+}
+
+fn test_main_runtime() -> MainAgentRuntime {
+    let cfg = crate::agent::OpenAiConfig::new("test-api-key");
+    let openai = crate::agent::OpenAiClient::new(cfg).unwrap();
+    MainAgentRuntime::new(openai)
+}
+
+fn base_archive_for_advance() -> Vec<u8> {
+    use crate::modpack::formats::mrpack::MrpackDependencies;
+
+    let base_index = MrpackIndex {
+        format_version: 1,
+        game: "minecraft".to_string(),
+        version_id: "base-1.0.0".to_string(),
+        name: "Base Pack".to_string(),
+        summary: None,
+        dependencies: MrpackDependencies {
+            minecraft: Some("1.20.1".to_string()),
+            fabric_loader: Some("0.15.7".to_string()),
+            ..Default::default()
+        },
+        files: Vec::new(),
+    };
+    let base_index_json = serde_json::to_vec(&base_index).unwrap();
+    zip_bytes(&[("modrinth.index.json", &base_index_json)])
+}
+
+fn execution_ready_run(base_archive_url: &str, base_archive_size: u64) -> AgentRunSnapshot {
+    let base_file = VersionFile {
+        url: base_archive_url.to_string(),
+        filename: "base.mrpack".to_string(),
+        sha1: None,
+        sha512: None,
+        size: Some(base_archive_size),
+        primary: true,
+    };
+    let option = ApprovalOption {
+        id: "confirm:recommended_customization".to_string(),
+        label: "确认推荐方案".to_string(),
+        description: None,
+        payload: Some(serde_json::json!({
+            "base_pack": {
+                "provider": "modrinth",
+                "project_id": "base-project",
+                "slug": "base-pack",
+                "title": "Base Pack"
+            },
+            "target": {
+                "minecraft_version": "1.20.1",
+                "loader": "fabric"
+            },
+            "extra_mods": [],
+            "execution_recipe": {
+                "schema_version": 1,
+                "kind": "mrpack_from_base_modpack",
+                "format": "mrpack",
+                "base_pack_ref": {
+                    "source_ref": {
+                        "archive_file": version_file_payload(&base_file)
+                    }
+                },
+                "extra_mod_refs": []
+            }
+        })),
+    };
+    continue_after_customization_confirmation(AgentRunSnapshot::new("make a pack"), option).unwrap()
+}
+
 fn test_approval() -> ApprovalRequest {
     ApprovalRequest {
         id: "approval-test".to_string(),
@@ -1742,6 +1841,107 @@ fn blocked_customization_gate_does_not_advertise_unusable_revise() {
             .any(|d| d.kind == UserDecisionKind::Revise),
         "blocked customization gate must not advertise a revise path without a recommended customization payload"
     );
+}
+
+#[tokio::test]
+async fn advance_executes_approved_execution_ready_run_to_completed() {
+    let base_archive = base_archive_for_advance();
+    let base_url = one_response_server(base_archive.clone());
+    let run = execution_ready_run(
+        &format!("{base_url}/base.mrpack"),
+        base_archive.len() as u64,
+    );
+    let tool = run
+        .tools
+        .iter()
+        .find(|tool| tool.name == "build_mrpack_artifact")
+        .expect("execution-ready run should expose deterministic execution tool");
+    assert_eq!(
+        tool.input_schema
+            .get("properties")
+            .and_then(|v| v.get("output_path"))
+            .and_then(|v| v.get("type"))
+            .and_then(|v| v.as_str()),
+        Some("string")
+    );
+    let output = temp_mrpack_path("advance-completed");
+    let runtime = test_main_runtime();
+
+    let next = runtime
+        .advance(run, &output)
+        .await
+        .expect("advance should drive deterministic execution");
+
+    assert_eq!(next.status, AgentStatus::Completed);
+    assert_eq!(next.phase, AgentPhase::Completed);
+    assert_eq!(
+        next.execution.as_ref().map(|e| &e.status),
+        Some(&AgentExecutionStatus::Completed)
+    );
+    assert!(output.exists(), "advance should write the mrpack artifact");
+    let _ = std::fs::remove_file(output);
+}
+
+#[tokio::test]
+async fn advance_stops_at_waiting_for_user_gate_without_executing() {
+    let mut run = AgentRunSnapshot::new("make a pack");
+    run.status = AgentStatus::WaitingForUser;
+    run.phase = AgentPhase::ConfirmCustomizationApproval;
+    run.pending_approval = Some(ApprovalRequest {
+        id: "approval-test".to_string(),
+        kind: ApprovalKind::ConfirmCustomization,
+        title: "Confirm".to_string(),
+        message: "Confirm".to_string(),
+        options: Vec::new(),
+        available_decisions: Vec::new(),
+        tools: Vec::new(),
+        plan: None,
+    });
+    let output = temp_mrpack_path("advance-waiting");
+    let runtime = test_main_runtime();
+
+    let next = runtime
+        .advance(run.clone(), &output)
+        .await
+        .expect("waiting gate should return unchanged");
+
+    assert_eq!(next.status, AgentStatus::WaitingForUser);
+    assert_eq!(next.phase, AgentPhase::ConfirmCustomizationApproval);
+    assert_eq!(
+        next.pending_approval
+            .as_ref()
+            .map(|approval| &approval.kind),
+        Some(&ApprovalKind::ConfirmCustomization)
+    );
+    assert!(
+        !output.exists(),
+        "advance must not execute past a HITL gate"
+    );
+}
+
+#[tokio::test]
+async fn advance_does_not_reexecute_completed_run() {
+    let mut run = AgentRunSnapshot::new("make a pack");
+    run.status = AgentStatus::Completed;
+    run.phase = AgentPhase::Completed;
+    run.execution = Some(AgentExecutionMetadata {
+        status: AgentExecutionStatus::Completed,
+        manifest: Some(serde_json::json!({ "status": "completed" })),
+        blocked: None,
+    });
+    let trace_len = run.trace.len();
+    let output = temp_mrpack_path("advance-idempotent");
+    let runtime = test_main_runtime();
+
+    let next = runtime
+        .advance(run, &output)
+        .await
+        .expect("completed run should be idempotent");
+
+    assert_eq!(next.status, AgentStatus::Completed);
+    assert_eq!(next.phase, AgentPhase::Completed);
+    assert_eq!(next.trace.len(), trace_len);
+    assert!(!output.exists(), "completed run must not be executed again");
 }
 
 #[test]

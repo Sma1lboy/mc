@@ -7,6 +7,7 @@
 //! planning subworkflow.
 
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use crate::error::{CoreError, Result};
@@ -95,6 +96,7 @@ pub use execution::{
 };
 
 const UPDATE_BUILD_RESTRICTIONS_TOOL: &str = "update_build_restrictions";
+const BUILD_MRPACK_ARTIFACT_TOOL: &str = "build_mrpack_artifact";
 const BASE_SEARCH_MAX_ITERATIONS: u32 = 4;
 const BASE_SEARCH_MIN_CANDIDATES: usize = 3;
 const BASE_SEARCH_MAX_CANDIDATES: usize = 12;
@@ -246,6 +248,63 @@ impl MainAgentRuntime {
         Ok(next)
     }
 
+    /// Drive deterministic runtime work after planning has reached an execution
+    /// phase. This dispatch is intentionally phase/status based; the model does
+    /// not decide whether execution should run.
+    pub async fn advance(
+        &self,
+        mut run: AgentRunSnapshot,
+        output_path: impl AsRef<Path>,
+    ) -> Result<AgentRunSnapshot> {
+        let output_path = output_path.as_ref();
+        loop {
+            if run.status != AgentStatus::Running {
+                return Ok(run);
+            }
+            if !matches!(
+                run.phase,
+                AgentPhase::ExecutionReady | AgentPhase::Executing
+            ) {
+                return Ok(run);
+            }
+            match run.execution.as_ref().map(|execution| &execution.status) {
+                Some(AgentExecutionStatus::Completed) => return Ok(run),
+                Some(AgentExecutionStatus::Blocked | AgentExecutionStatus::Failed) => {
+                    return Ok(run);
+                }
+                _ => {}
+            }
+
+            let approved = run
+                .approved_build
+                .as_ref()
+                .ok_or_else(|| CoreError::other("execution requires an approved build"))?;
+            let started = Instant::now();
+            let manifest = execute_mrpack_build_to_path(approved, output_path).await?;
+            let status = manifest
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let input = serde_json::json!({
+                "output_path": output_path.to_string_lossy().to_string(),
+            });
+            let output = serde_json::json!({ "manifest": manifest.clone() });
+            let dispatch_phase = run.phase.clone();
+            run = continue_after_execution_manifest_result(run, manifest)?;
+            run.push_tool_trace(
+                "deterministic execution tool dispatched",
+                dispatch_phase,
+                0,
+                BUILD_MRPACK_ARTIFACT_TOOL,
+                input,
+                output,
+                started.elapsed().as_millis(),
+                status,
+            );
+        }
+    }
+
     pub fn continue_after_execution_manifest_result(
         &self,
         run: AgentRunSnapshot,
@@ -300,6 +359,36 @@ impl MainAgentRuntime {
             })
             .await?;
         parse_approval_decision_response(&response.text, approval)
+    }
+}
+
+pub(super) fn build_mrpack_artifact_tool_spec() -> AgentToolSpec {
+    AgentToolSpec {
+        name: BUILD_MRPACK_ARTIFACT_TOOL.to_string(),
+        description: "Build the approved Modrinth .mrpack artifact at the requested output path."
+            .to_string(),
+        input_schema: serde_json::json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["output_path"],
+            "properties": {
+                "output_path": {
+                    "type": "string",
+                    "description": "Destination .mrpack path to write."
+                }
+            }
+        }),
+        output_schema: serde_json::json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["manifest"],
+            "properties": {
+                "manifest": {
+                    "type": "object",
+                    "description": "Deterministic execution manifest returned by the mrpack executor."
+                }
+            }
+        }),
     }
 }
 
