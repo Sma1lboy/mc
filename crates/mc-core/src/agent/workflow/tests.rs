@@ -847,6 +847,105 @@ fn content_preference_invalidation_preserves_selected_base_pack() {
 }
 
 #[test]
+fn invalidation_dependency_graph_covers_all_changed_fields() {
+    let expected = [
+        (
+            ChangedField::MinecraftVersion,
+            AgentPhase::ConfigureRequirementsApproval,
+            vec![
+                PlanArtifact::BasePack,
+                PlanArtifact::ExtraMods,
+                PlanArtifact::ApprovedBuild,
+                PlanArtifact::ExecutionMetadata,
+            ],
+        ),
+        (
+            ChangedField::Loader,
+            AgentPhase::ConfigureRequirementsApproval,
+            vec![
+                PlanArtifact::BasePack,
+                PlanArtifact::ExtraMods,
+                PlanArtifact::ApprovedBuild,
+                PlanArtifact::ExecutionMetadata,
+            ],
+        ),
+        (
+            ChangedField::VersionRequirement,
+            AgentPhase::ConfigureRequirementsApproval,
+            vec![
+                PlanArtifact::BasePack,
+                PlanArtifact::ExtraMods,
+                PlanArtifact::ApprovedBuild,
+                PlanArtifact::ExecutionMetadata,
+            ],
+        ),
+        (
+            ChangedField::ContentPreference,
+            AgentPhase::ConfirmCustomizationApproval,
+            vec![
+                PlanArtifact::ExtraMods,
+                PlanArtifact::ApprovedBuild,
+                PlanArtifact::ExecutionMetadata,
+            ],
+        ),
+        (
+            ChangedField::SearchPreference,
+            AgentPhase::ChooseBasePackApproval,
+            vec![
+                PlanArtifact::BasePack,
+                PlanArtifact::ExtraMods,
+                PlanArtifact::ApprovedBuild,
+                PlanArtifact::ExecutionMetadata,
+            ],
+        ),
+        (
+            ChangedField::BasePack,
+            AgentPhase::ChooseBasePackApproval,
+            vec![
+                PlanArtifact::ExtraMods,
+                PlanArtifact::ApprovedBuild,
+                PlanArtifact::ExecutionMetadata,
+            ],
+        ),
+    ];
+
+    assert_eq!(ALL_CHANGED_FIELDS.len(), expected.len());
+    for (field, target_phase, invalidates) in expected {
+        let rule = invalidation_rule_for_changed_field(field);
+        assert_eq!(rule.invalidates.to_vec(), invalidates);
+        assert_eq!(
+            target_phase_for_changed_field(field, &AgentPhase::ConfirmCustomizationApproval),
+            target_phase
+        );
+    }
+}
+
+#[test]
+fn content_preference_invalidation_graph_can_refresh_in_place() {
+    assert_eq!(
+        target_phase_for_changed_field(
+            ChangedField::ContentPreference,
+            &AgentPhase::ConfigureRequirementsApproval,
+        ),
+        AgentPhase::ConfigureRequirementsApproval
+    );
+    assert_eq!(
+        target_phase_for_changed_field(
+            ChangedField::ContentPreference,
+            &AgentPhase::BasePackSearch,
+        ),
+        AgentPhase::ChooseBasePackApproval
+    );
+    assert_eq!(
+        target_phase_for_changed_field(
+            ChangedField::ContentPreference,
+            &AgentPhase::ChooseBasePackApproval,
+        ),
+        AgentPhase::ChooseBasePackApproval
+    );
+}
+
+#[test]
 fn execution_retry_outcome_does_not_enter_failed() {
     let mut run = AgentRunSnapshot::new("make a pack");
     run.status = AgentStatus::Running;

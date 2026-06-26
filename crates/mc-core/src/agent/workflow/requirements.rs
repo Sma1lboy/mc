@@ -278,52 +278,113 @@ pub(super) fn changed_restriction_field(
     }
 }
 
-fn invalidates_for_changed_field(changed: ChangedField) -> Vec<PlanArtifact> {
-    match changed {
-        ChangedField::MinecraftVersion
-        | ChangedField::Loader
-        | ChangedField::VersionRequirement => {
-            vec![
-                PlanArtifact::BasePack,
-                PlanArtifact::ExtraMods,
-                PlanArtifact::ApprovedBuild,
-                PlanArtifact::ExecutionMetadata,
-            ]
+pub(super) const ALL_CHANGED_FIELDS: &[ChangedField] = &[
+    ChangedField::MinecraftVersion,
+    ChangedField::Loader,
+    ChangedField::VersionRequirement,
+    ChangedField::ContentPreference,
+    ChangedField::SearchPreference,
+    ChangedField::BasePack,
+];
+
+const TARGET_INVALIDATES: &[PlanArtifact] = &[
+    PlanArtifact::BasePack,
+    PlanArtifact::ExtraMods,
+    PlanArtifact::ApprovedBuild,
+    PlanArtifact::ExecutionMetadata,
+];
+const CONTENT_INVALIDATES: &[PlanArtifact] = &[
+    PlanArtifact::ExtraMods,
+    PlanArtifact::ApprovedBuild,
+    PlanArtifact::ExecutionMetadata,
+];
+
+#[derive(Debug, Clone, Copy)]
+pub(super) struct InvalidationRule {
+    pub(super) changed: ChangedField,
+    pub(super) invalidates: &'static [PlanArtifact],
+    target: InvalidationTarget,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum InvalidationTarget {
+    ConfigureRequirementsApproval,
+    ChooseBasePackApproval,
+    ContentPreference,
+}
+
+impl InvalidationTarget {
+    fn phase(self, from_phase: &AgentPhase) -> AgentPhase {
+        match self {
+            Self::ConfigureRequirementsApproval => AgentPhase::ConfigureRequirementsApproval,
+            Self::ChooseBasePackApproval => AgentPhase::ChooseBasePackApproval,
+            Self::ContentPreference => match from_phase {
+                AgentPhase::ConfigureRequirementsApproval => {
+                    AgentPhase::ConfigureRequirementsApproval
+                }
+                AgentPhase::ChooseBasePackApproval | AgentPhase::BasePackSearch => {
+                    AgentPhase::ChooseBasePackApproval
+                }
+                _ => AgentPhase::ConfirmCustomizationApproval,
+            },
         }
-        ChangedField::ContentPreference => vec![
-            PlanArtifact::ExtraMods,
-            PlanArtifact::ApprovedBuild,
-            PlanArtifact::ExecutionMetadata,
-        ],
-        ChangedField::SearchPreference => vec![
-            PlanArtifact::BasePack,
-            PlanArtifact::ExtraMods,
-            PlanArtifact::ApprovedBuild,
-            PlanArtifact::ExecutionMetadata,
-        ],
-        ChangedField::BasePack => vec![
-            PlanArtifact::ExtraMods,
-            PlanArtifact::ApprovedBuild,
-            PlanArtifact::ExecutionMetadata,
-        ],
     }
 }
 
-fn target_phase_for_changed_field(changed: ChangedField, from_phase: &AgentPhase) -> AgentPhase {
-    match changed {
-        ChangedField::MinecraftVersion
-        | ChangedField::Loader
-        | ChangedField::VersionRequirement => AgentPhase::ConfigureRequirementsApproval,
-        ChangedField::ContentPreference => match from_phase {
-            AgentPhase::ConfigureRequirementsApproval => AgentPhase::ConfigureRequirementsApproval,
-            AgentPhase::ChooseBasePackApproval | AgentPhase::BasePackSearch => {
-                AgentPhase::ChooseBasePackApproval
-            }
-            _ => AgentPhase::ConfirmCustomizationApproval,
-        },
-        ChangedField::SearchPreference => AgentPhase::ChooseBasePackApproval,
-        ChangedField::BasePack => AgentPhase::ChooseBasePackApproval,
-    }
+const INVALIDATION_RULES: &[InvalidationRule] = &[
+    InvalidationRule {
+        changed: ChangedField::MinecraftVersion,
+        invalidates: TARGET_INVALIDATES,
+        target: InvalidationTarget::ConfigureRequirementsApproval,
+    },
+    InvalidationRule {
+        changed: ChangedField::Loader,
+        invalidates: TARGET_INVALIDATES,
+        target: InvalidationTarget::ConfigureRequirementsApproval,
+    },
+    InvalidationRule {
+        changed: ChangedField::VersionRequirement,
+        invalidates: TARGET_INVALIDATES,
+        target: InvalidationTarget::ConfigureRequirementsApproval,
+    },
+    InvalidationRule {
+        changed: ChangedField::ContentPreference,
+        invalidates: CONTENT_INVALIDATES,
+        target: InvalidationTarget::ContentPreference,
+    },
+    InvalidationRule {
+        changed: ChangedField::SearchPreference,
+        invalidates: TARGET_INVALIDATES,
+        target: InvalidationTarget::ChooseBasePackApproval,
+    },
+    InvalidationRule {
+        changed: ChangedField::BasePack,
+        invalidates: CONTENT_INVALIDATES,
+        target: InvalidationTarget::ChooseBasePackApproval,
+    },
+];
+
+pub(super) fn invalidation_rule_for_changed_field(
+    changed: ChangedField,
+) -> &'static InvalidationRule {
+    debug_assert_eq!(INVALIDATION_RULES.len(), ALL_CHANGED_FIELDS.len());
+    INVALIDATION_RULES
+        .iter()
+        .find(|rule| rule.changed == changed)
+        .expect("every ChangedField must have an invalidation rule")
+}
+
+fn invalidates_for_changed_field(changed: ChangedField) -> Vec<PlanArtifact> {
+    invalidation_rule_for_changed_field(changed).invalidates.to_vec()
+}
+
+pub(super) fn target_phase_for_changed_field(
+    changed: ChangedField,
+    from_phase: &AgentPhase,
+) -> AgentPhase {
+    invalidation_rule_for_changed_field(changed)
+        .target
+        .phase(from_phase)
 }
 
 pub(super) fn invalidate_downstream(
