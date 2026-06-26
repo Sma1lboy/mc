@@ -7,21 +7,22 @@ pub(super) async fn generate_restriction_update(
     user_message: &str,
     source: BuildRestrictionChangeSource,
 ) -> Result<GeneratedRestrictionUpdate> {
+    let input = restriction_update_request_payload(
+        original_user_prompt,
+        current,
+        user_message,
+        source.clone(),
+        None,
+        None,
+    )
+    .to_string();
     let response = openai
         .complete(&OpenAiTextRequest {
             instructions: vec![
                 MAIN_AGENT_SYSTEM_PROMPT.to_string(),
                 REQUIREMENT_NORMALIZATION_PROMPT.to_string(),
             ],
-            input: serde_json::json!({
-                "tool": UPDATE_BUILD_RESTRICTIONS_TOOL,
-                "base_revision": current.revision,
-                "source": source,
-                "original_user_prompt": original_user_prompt,
-                "current_restrictions": current,
-                "latest_user_message": user_message,
-            })
-            .to_string(),
+            input,
             max_output_tokens: Some(260),
             temperature: Some(0.0),
             text_format: Some(requirement_text_format()),
@@ -31,6 +32,15 @@ pub(super) async fn generate_restriction_update(
     let input = match parse_restriction_update_response(&response.text) {
         Ok(input) => input,
         Err(first_err) => {
+            let retry_input = restriction_update_request_payload(
+                original_user_prompt,
+                current,
+                user_message,
+                source,
+                Some(first_err.to_string()),
+                Some(response.text.clone()),
+            )
+            .to_string();
             let retry = openai
                 .complete(&OpenAiTextRequest {
                     instructions: vec![
@@ -38,17 +48,7 @@ pub(super) async fn generate_restriction_update(
                         REQUIREMENT_NORMALIZATION_PROMPT.to_string(),
                         REQUIREMENT_NORMALIZATION_RETRY_PROMPT.to_string(),
                     ],
-                    input: serde_json::json!({
-                        "tool": UPDATE_BUILD_RESTRICTIONS_TOOL,
-                        "base_revision": current.revision,
-                        "source": source,
-                        "original_user_prompt": original_user_prompt,
-                        "current_restrictions": current,
-                        "latest_user_message": user_message,
-                        "schema_violation": first_err.to_string(),
-                        "previous_output": response.text,
-                    })
-                    .to_string(),
+                    input: retry_input,
                     max_output_tokens: Some(260),
                     temperature: Some(0.0),
                     text_format: Some(requirement_text_format()),
@@ -63,6 +63,39 @@ pub(super) async fn generate_restriction_update(
         }
     };
     Ok(GeneratedRestrictionUpdate { model, input })
+}
+
+pub(super) fn restriction_update_request_payload(
+    original_user_prompt: &str,
+    current: &BuildRestrictions,
+    user_message: &str,
+    source: BuildRestrictionChangeSource,
+    schema_violation: Option<String>,
+    previous_output: Option<String>,
+) -> serde_json::Value {
+    let mut payload = serde_json::json!({
+        "tool": UPDATE_BUILD_RESTRICTIONS_TOOL,
+        "base_revision": current.revision,
+        "source": source,
+        "original_user_prompt": original_user_prompt,
+        "current_restrictions": current.llm_view(),
+        "latest_user_message": user_message,
+    });
+    if let Some(obj) = payload.as_object_mut() {
+        if let Some(schema_violation) = schema_violation {
+            obj.insert(
+                "schema_violation".to_string(),
+                serde_json::json!(schema_violation),
+            );
+        }
+        if let Some(previous_output) = previous_output {
+            obj.insert(
+                "previous_output".to_string(),
+                serde_json::json!(previous_output),
+            );
+        }
+    }
+    payload
 }
 
 pub(super) fn parse_restriction_update_response(

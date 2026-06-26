@@ -78,7 +78,10 @@ use llm_io::{
     update_build_restrictions_tool_spec,
 };
 #[cfg(test)]
-use requirements::{apply_requirements_replan, parse_restriction_update_response};
+use requirements::{
+    apply_requirements_replan, parse_restriction_update_response,
+    restriction_update_request_payload,
+};
 use requirements::{
     changed_restriction_field, continue_after_requirements_confirmation,
     continue_after_requirements_feedback, generate_restriction_update, invalidate_downstream,
