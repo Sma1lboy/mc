@@ -120,7 +120,6 @@ pub(super) fn requirement_label(restrictions: &BuildRestrictions) -> String {
     let mc = restrictions
         .minecraft_version
         .as_deref()
-        .or(restrictions.minecraft_version_requirement.as_deref())
         .unwrap_or("未选择 Minecraft version");
     let loader = restrictions.loader.as_deref().unwrap_or("未选择 loader");
     format!("{loader} / {mc}")
