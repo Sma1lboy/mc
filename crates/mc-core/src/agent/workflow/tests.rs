@@ -2122,8 +2122,163 @@ async fn advance_executes_approved_execution_ready_run_to_completed() {
         next.execution.as_ref().map(|e| &e.status),
         Some(&AgentExecutionStatus::Completed)
     );
+    assert!(next
+        .trace
+        .iter()
+        .any(|event| event.event.contains("entering verifying phase")));
+    assert!(next
+        .trace
+        .iter()
+        .any(|event| event.event.contains("verification completed")));
     assert!(output.exists(), "advance should write the mrpack artifact");
     let _ = std::fs::remove_file(output);
+}
+
+#[tokio::test]
+async fn advance_fails_during_verifying_for_invalid_artifact() {
+    use crate::modpack::formats::mrpack::{
+        MrpackDependencies, MrpackFile, MrpackHashes, MrpackIndex,
+    };
+
+    let run = execution_ready_run("https://example.com/base.mrpack", 10);
+    let output = temp_mrpack_path("advance-verifying-failed");
+    let runtime = test_main_runtime();
+
+    let invalid_index = MrpackIndex {
+        format_version: 1,
+        game: "minecraft".to_string(),
+        version_id: "bad-1.0.0".to_string(),
+        name: "Bad Pack".to_string(),
+        summary: None,
+        dependencies: MrpackDependencies {
+            minecraft: Some("1.20.1".to_string()),
+            fabric_loader: Some("0.15.7".to_string()),
+            ..Default::default()
+        },
+        files: vec![MrpackFile {
+            path: "mods/bad.jar".to_string(),
+            hashes: MrpackHashes {
+                sha512: "sha512".to_string(),
+                sha1: None,
+            },
+            env: None,
+            downloads: vec!["https://cdn.modrinth.com/data/bad/bad.jar".to_string()],
+            file_size: Some(10),
+        }],
+    };
+    let invalid_index_json = serde_json::to_vec(&invalid_index).unwrap();
+    let archive = zip_bytes(&[("modrinth.index.json", &invalid_index_json)]);
+
+    let next = runtime
+        .advance_with_executor(
+            run,
+            &output,
+            move |_approved, path| {
+                let archive = archive.clone();
+                async move {
+                    std::fs::write(&path, archive).unwrap();
+                    Ok(serde_json::json!({
+                        "schema_version": 1,
+                        "status": "verifying",
+                        "format": "mrpack",
+                        "output_path": path.to_string_lossy().to_string()
+                    }))
+                }
+            },
+            std::time::Duration::ZERO,
+        )
+        .await
+        .expect("verification failures should be represented in run state");
+
+    assert_eq!(next.status, AgentStatus::Failed);
+    assert_eq!(next.phase, AgentPhase::Failed);
+    assert_eq!(
+        next.execution.as_ref().map(|e| &e.status),
+        Some(&AgentExecutionStatus::Failed)
+    );
+    assert!(next
+        .execution
+        .as_ref()
+        .and_then(|e| e.blocked.as_ref())
+        .map(|blocked| blocked.reason.contains("missing env"))
+        .unwrap_or(false));
+    assert!(next
+        .trace
+        .iter()
+        .any(|event| event.event.contains("entering verifying phase")));
+    let _ = std::fs::remove_file(output);
+}
+
+#[test]
+fn verify_written_mrpack_rejects_deep_invalid_artifacts() {
+    use crate::modpack::formats::mrpack::{
+        EnvSupport, MrpackDependencies, MrpackEnv, MrpackFile, MrpackHashes, MrpackIndex,
+    };
+
+    let approved = ApprovedModpackBuild {
+        base_pack: serde_json::json!({ "title": "Base Pack" }),
+        target: serde_json::json!({ "minecraft_version": "1.20.1", "loader": "fabric" }),
+        extra_mods: Vec::new(),
+        execution_recipe: None,
+    };
+    let valid_file = MrpackFile {
+        path: "mods/valid.jar".to_string(),
+        hashes: MrpackHashes {
+            sha512: "sha512".to_string(),
+            sha1: None,
+        },
+        env: Some(MrpackEnv {
+            client: EnvSupport::Required,
+            server: EnvSupport::Unsupported,
+        }),
+        downloads: vec!["https://cdn.modrinth.com/data/valid/valid.jar".to_string()],
+        file_size: Some(10),
+    };
+    let valid_index = MrpackIndex {
+        format_version: 1,
+        game: "minecraft".to_string(),
+        version_id: "verify-1.0.0".to_string(),
+        name: "Verify Pack".to_string(),
+        summary: None,
+        dependencies: MrpackDependencies {
+            minecraft: Some("1.20.1".to_string()),
+            fabric_loader: Some("0.15.7".to_string()),
+            ..Default::default()
+        },
+        files: vec![valid_file.clone()],
+    };
+
+    let mut no_downloads = valid_index.clone();
+    no_downloads.files[0].downloads.clear();
+    let mut no_env = valid_index.clone();
+    no_env.files[0].env = None;
+
+    let cases = vec![
+        ("no-downloads", no_downloads, Vec::new(), "missing downloads"),
+        ("no-env", no_env, Vec::new(), "missing env"),
+        (
+            "override-conflict",
+            valid_index,
+            vec![("overrides/mods/valid.jar", b"conflict".as_slice())],
+            "conflicts with indexed file",
+        ),
+    ];
+
+    for (tag, index, extra_files, reason) in cases {
+        let output = temp_mrpack_path(tag);
+        let index_json = serde_json::to_vec(&index).unwrap();
+        let mut files = vec![("modrinth.index.json", index_json.as_slice())];
+        files.extend(extra_files);
+        std::fs::write(&output, zip_bytes(&files)).unwrap();
+
+        let err = verify_written_mrpack(&output, &approved)
+            .expect_err("invalid artifact should fail verification");
+        assert!(
+            err.to_string().contains(reason),
+            "expected {reason:?}, got {err}"
+        );
+        let _ = std::fs::remove_file(output);
+    }
 }
 
 #[tokio::test]

@@ -99,6 +99,7 @@ pub use execution::{
     continue_after_execution_manifest_result, execute_mrpack_build_to_path, MrpackExecutionBuild,
     MrpackOverrideFile,
 };
+use execution::verify_written_mrpack;
 
 const UPDATE_BUILD_RESTRICTIONS_TOOL: &str = "update_build_restrictions";
 const BUILD_MRPACK_ARTIFACT_TOOL: &str = "build_mrpack_artifact";
@@ -295,7 +296,7 @@ impl MainAgentRuntime {
             }
             if !matches!(
                 run.phase,
-                AgentPhase::ExecutionReady | AgentPhase::Executing
+                AgentPhase::ExecutionReady | AgentPhase::Executing | AgentPhase::Verifying
             ) {
                 return Ok(run);
             }
@@ -311,6 +312,38 @@ impl MainAgentRuntime {
                 .approved_build
                 .clone()
                 .ok_or_else(|| CoreError::other("execution requires an approved build"))?;
+            if run.phase == AgentPhase::Verifying {
+                let started = Instant::now();
+                let manifest = match verify_written_mrpack(&output_path, &approved) {
+                    Ok(()) => execution_verification_completed_manifest(&run, &output_path),
+                    Err(err) => execution_verification_failed_manifest(&err.to_string()),
+                };
+                let status = manifest
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                let input = serde_json::json!({
+                    "output_path": output_path.to_string_lossy().to_string(),
+                });
+                let output = serde_json::json!({ "manifest": manifest.clone() });
+                let dispatch_phase = run.phase.clone();
+                let mut next = continue_after_execution_manifest_result(run, manifest)?;
+                next.push_tool_trace(
+                    "deterministic verification dispatched",
+                    dispatch_phase,
+                    dispatch_iteration,
+                    "verify_mrpack_artifact",
+                    input,
+                    output,
+                    started.elapsed().as_millis(),
+                    status,
+                );
+                dispatch_iteration += 1;
+                retry_count = 0;
+                run = next;
+                continue;
+            }
             let started = Instant::now();
             let manifest = executor(approved, output_path.clone()).await?;
             let status = manifest
@@ -441,6 +474,47 @@ fn execution_retry_exhausted_manifest(reason: &str, attempts: u32) -> serde_json
         "error_kind": "retry_exhausted",
         "retryable": false,
         "attempts": attempts,
+    })
+}
+
+fn execution_verification_completed_manifest(
+    run: &AgentRunSnapshot,
+    output_path: &Path,
+) -> serde_json::Value {
+    let mut manifest = run
+        .execution
+        .as_ref()
+        .and_then(|execution| execution.manifest.clone())
+        .unwrap_or_else(|| serde_json::json!({ "schema_version": 1, "format": "mrpack" }));
+    set_manifest_field(&mut manifest, "status", serde_json::json!("completed"));
+    set_manifest_field(&mut manifest, "verified", serde_json::json!(true));
+    set_manifest_field(
+        &mut manifest,
+        "output_path",
+        serde_json::json!(output_path.to_string_lossy().to_string()),
+    );
+    manifest
+}
+
+fn set_manifest_field(value: &mut serde_json::Value, key: &str, next: serde_json::Value) {
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert(key.to_string(), next);
+    }
+}
+
+fn execution_verification_failed_manifest(reason: &str) -> serde_json::Value {
+    let reason = if reason.starts_with("mrpack verification failed:") {
+        reason.to_string()
+    } else {
+        format!("mrpack verification failed: {reason}")
+    };
+    serde_json::json!({
+        "schema_version": 1,
+        "status": "failed",
+        "format": "mrpack",
+        "reason": reason,
+        "error_kind": "verification_failed",
+        "retryable": false,
     })
 }
 
@@ -915,6 +989,7 @@ enum CustomizationPlanningResult {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ExecutionOutcomeKind {
     Ready,
+    Verifying,
     Completed,
     Blocked,
     Retry,
