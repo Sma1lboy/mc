@@ -28,6 +28,8 @@ reflink-copy = { workspace = true }
 fs4 = { workspace = true }
 tracing = { workspace = true }
 dirs = { workspace = true }
+dotenvy = "0.15"
+uuid = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

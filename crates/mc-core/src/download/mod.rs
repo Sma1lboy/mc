@@ -68,12 +68,22 @@ impl DownloadItem {
         sha1: Option<String>,
         size: Option<u64>,
     ) -> Self {
-        Self { url: url.into(), path, sha1, size, ..Default::default() }
+        Self {
+            url: url.into(),
+            path,
+            sha1,
+            size,
+            ..Default::default()
+        }
     }
 
     /// 下载后用于强校验的"最强可用"摘要;全缺返回 `None`(无法校验)。
     pub fn checksum(&self) -> Option<Checksum> {
-        Checksum::strongest(self.sha512.as_deref(), self.sha1.as_deref(), self.md5.as_deref())
+        Checksum::strongest(
+            self.sha512.as_deref(),
+            self.sha1.as_deref(),
+            self.md5.as_deref(),
+        )
     }
 }
 
@@ -287,12 +297,21 @@ impl Downloader {
         progress: Option<watch::Sender<Progress>>,
     ) -> Result<DownloadOutcome> {
         let total = items.len() as u64;
-        let mut outcome = DownloadOutcome { total, succeeded: 0, failed: Vec::new() };
+        let mut outcome = DownloadOutcome {
+            total,
+            succeeded: 0,
+            failed: Vec::new(),
+        };
 
         // 进度以"完成的文件数"为单位(而非字节),对一批小文件更直观且无需估速。
         let stage = "下载文件";
         if let Some(tx) = &progress {
-            let _ = tx.send(Progress { stage: stage.into(), current: 0, total, speed_bps: 0 });
+            let _ = tx.send(Progress {
+                stage: stage.into(),
+                current: 0,
+                total,
+                speed_bps: 0,
+            });
         }
         if total == 0 {
             return Ok(outcome);
@@ -366,31 +385,38 @@ impl Downloader {
 
     /// GET 原始字节(镜像改写 + 重试)。用于版本 json、清单等小文件。
     pub async fn get_bytes(&self, url: &str) -> Result<Vec<u8>> {
-        let url = self.mirror.rewrite(url);
+        let candidates = self.candidate_urls(&DownloadItem {
+            url: url.to_string(),
+            ..Default::default()
+        });
         let mut last_err: Option<CoreError> = None;
-        for attempt in 0..MAX_ATTEMPTS {
-            match self
-                .client
-                .get(&url)
-                .send()
-                .await
-                .and_then(|r| r.error_for_status())
-            {
-                Ok(resp) => match resp.bytes().await {
-                    Ok(b) => return Ok(b.to_vec()),
+        for candidate in &candidates {
+            for attempt in 0..MAX_ATTEMPTS {
+                match self
+                    .client
+                    .get(candidate)
+                    .send()
+                    .await
+                    .and_then(|r| r.error_for_status())
+                {
+                    Ok(resp) => match resp.bytes().await {
+                        Ok(b) => return Ok(b.to_vec()),
+                        Err(e) => last_err = Some(CoreError::Network(e)),
+                    },
                     Err(e) => last_err = Some(CoreError::Network(e)),
-                },
-                Err(e) => last_err = Some(CoreError::Network(e)),
+                }
+                let retriable = last_err.as_ref().is_some_and(is_retriable)
+                    && !last_err.as_ref().is_some_and(is_not_found);
+                if retriable && attempt + 1 < MAX_ATTEMPTS {
+                    tokio::time::sleep(BACKOFF_BASE * (1u32 << attempt)).await;
+                    continue;
+                }
+                break;
             }
-            if attempt + 1 < MAX_ATTEMPTS && last_err.as_ref().is_some_and(is_retriable) {
-                tokio::time::sleep(BACKOFF_BASE * (1u32 << attempt)).await;
-                continue;
-            }
-            break;
         }
         Err(last_err.unwrap_or_else(|| CoreError::Download {
-            url,
-            reason: "exhausted retries".into(),
+            url: url.to_string(),
+            reason: "no download sources".into(),
         }))
     }
 
@@ -444,6 +470,33 @@ fn is_permanent(err: &CoreError) -> bool {
 mod tests {
     use super::*;
 
+    fn one_response_server(status: u16, body: &'static [u8]) -> String {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0_u8; 1024];
+                let _ = stream.read(&mut buf);
+                let reason = match status {
+                    200 => "OK",
+                    404 => "Not Found",
+                    500 => "Internal Server Error",
+                    _ => "OK",
+                };
+                let headers = format!(
+                    "HTTP/1.1 {status} {reason}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(headers.as_bytes());
+                let _ = stream.write_all(body);
+            }
+        });
+        format!("http://{addr}")
+    }
+
     #[test]
     fn part_path_appends_suffix() {
         let p = PathBuf::from("/tmp/foo/client.jar");
@@ -462,7 +515,9 @@ mod tests {
 
     #[test]
     fn with_mirror_applies_rewrite() {
-        let d = Downloader::new(4).unwrap().with_mirror(MirrorResolver::bmclapi());
+        let d = Downloader::new(4)
+            .unwrap()
+            .with_mirror(MirrorResolver::bmclapi());
         assert_eq!(
             d.mirror.rewrite("https://libraries.minecraft.net/a/b.jar"),
             "https://bmclapi2.bangbang93.com/maven/a/b.jar"
@@ -474,5 +529,21 @@ mod tests {
         // Semaphore(0) 会永久阻塞;new 必须把 0 提升到 1。
         let d = Downloader::new(0).unwrap();
         assert!(d.sem.available_permits() >= 1);
+    }
+
+    #[tokio::test]
+    async fn get_bytes_falls_back_from_mirror_to_official_candidate() {
+        let mirror = one_response_server(404, b"missing");
+        let official = one_response_server(200, b"official");
+        let downloader = Downloader::new(1)
+            .unwrap()
+            .with_mirror(MirrorResolver::from_rules(vec![(official.clone(), mirror)]));
+
+        let bytes = downloader
+            .get_bytes(&format!("{official}/manifest.json"))
+            .await
+            .unwrap();
+
+        assert_eq!(bytes, b"official");
     }
 }
