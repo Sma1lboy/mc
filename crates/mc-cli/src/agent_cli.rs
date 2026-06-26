@@ -212,7 +212,7 @@ async fn cmd_agent_continue(session_id: &str, message: &str, json: bool) -> Resu
     let next = agent
         .continue_from_user_message(snapshot, user_message)
         .await?;
-    let output = default_agent_output_path(session_id);
+    let output = default_agent_output_path(&dir, session_id);
     let mut next = agent.advance(next, &output).await?;
     next.push_trace("saved local agent session");
     store.save_snapshot(&next)?;
@@ -232,8 +232,11 @@ async fn cmd_agent_execute(session_id: &str, output: &Path, json: bool) -> Resul
     Ok(())
 }
 
-fn default_agent_output_path(session_id: &str) -> PathBuf {
-    PathBuf::from("dist").join(format!("{session_id}.mrpack"))
+fn default_agent_output_path(data_dir: &Path, session_id: &str) -> PathBuf {
+    data_dir
+        .join("agent")
+        .join("artifacts")
+        .join(format!("{session_id}.mrpack"))
 }
 
 fn deterministic_agent_runtime() -> Result<mc_core::agent::MainAgentRuntime> {
@@ -727,6 +730,23 @@ fn exec_smoke_manifest(outcome: AgentExecSmokeOutcome, reason: Option<&str>) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_agent_output_path_uses_agent_data_dir() {
+        let data_dir =
+            std::env::temp_dir().join(format!("mc-agent-cli-test-{}", std::process::id()));
+
+        let output = default_agent_output_path(&data_dir, "session-123");
+
+        assert_eq!(
+            output,
+            data_dir
+                .join("agent")
+                .join("artifacts")
+                .join("session-123.mrpack")
+        );
+        assert!(output.is_absolute());
+    }
 
     #[test]
     fn exec_smoke_manifest_builds_ready_retry_failed_and_blocked_outcomes() {
