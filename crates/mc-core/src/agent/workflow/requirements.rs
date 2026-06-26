@@ -352,7 +352,7 @@ pub(super) fn invalidate_downstream(
             && existing.invalidates == invalidates
     });
     if !duplicate {
-        run.replans.push(PlanReplanRequest {
+        run.push_replan(PlanReplanRequest {
             id: crate::agent::state::new_id("replan"),
             reason,
             from_phase,
