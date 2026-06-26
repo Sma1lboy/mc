@@ -1,4 +1,13 @@
-import { Component, createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
+import {
+  Component,
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  For,
+  onCleanup,
+  Show,
+} from "solid-js";
 import {
   Button,
   Panel,
@@ -21,7 +30,7 @@ import {
   refreshInstances,
 } from "../store";
 import { t } from "../i18n";
-import type { RealmSummary, RealmMember, SyncPlan, SyncReport, InstanceSummary } from "../ipc/bindings";
+import type { RealmSummary, RealmMember, SyncReport, InstanceSummary } from "../ipc/bindings";
 
 // 表单输入(与账号面板一致的石质暗底深凹倒角)。
 const INPUT =
@@ -44,6 +53,31 @@ function instanceOptions(list: InstanceSummary[]): { value: string; label: strin
     value: i.id,
     label: i.loader && i.loader !== "vanilla" ? `${i.name} · ${i.mc_version} · ${i.loader}` : `${i.name} · ${i.mc_version}`,
   }));
+}
+
+// 领域 → 本地实例 的绑定(每客户端,存 localStorage):创建时确定 / 加入者首次绑定,
+// 之后**锁定不可替换**,且作为自动同步的目标。
+const BIND_KEY = "mc-launcher.realm-instance";
+function readBindings(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    return JSON.parse(window.localStorage.getItem(BIND_KEY) ?? "{}") as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+function getBoundInstance(realmId: string): string | null {
+  return readBindings()[realmId] ?? null;
+}
+function setBoundInstance(realmId: string, instanceId: string): void {
+  if (typeof window === "undefined") return;
+  const m = readBindings();
+  m[realmId] = instanceId;
+  try {
+    window.localStorage.setItem(BIND_KEY, JSON.stringify(m));
+  } catch {
+    /* localStorage 不可用时忽略 */
+  }
 }
 
 /**
@@ -231,15 +265,33 @@ const RealmDetail: Component<{
 
   const [members, { refetch: refetchMembers }] = createResource(realmId, () => api.realmMembers(realmId()));
 
-  // 同步 / 发布用的实例选择 + 计划 + 进行态。
   const insts = () => instances() ?? [];
-  const [syncInst, setSyncInst] = createSignal("");
-  const [plan, setPlan] = createSignal<SyncPlan | null>(null);
+
+  // 绑定的本地实例:创建时确定 / 加入者首次绑定,之后锁定不可替换,且作为自动同步目标。
+  const [boundId, setBoundIdSig] = createSignal<string | null>(getBoundInstance(props.realm.id));
+  const boundInstance = createMemo(() => {
+    const id = boundId();
+    return id ? insts().find((i) => i.id === id) ?? null : null;
+  });
+  function bindInstance(id: string) {
+    setBoundInstance(props.realm.id, id);
+    setBoundIdSig(id);
+  }
+  const [pickInst, setPickInst] = createSignal(""); // 加入者首次绑定的临时选择
+
   const [removeExtras, setRemoveExtras] = createSignal(false);
   const [busy, setBusy] = createSignal(false);
   const [progress, setProgress] = createSignal<{ current: number; total: number } | null>(null);
   const [confirmKind, setConfirmKind] = createSignal<"leave" | "disband" | null>(null);
-  const pickedInstance = createMemo(() => insts().find((i) => i.id === syncInst()) ?? null);
+
+  // 自动检测差异:绑定实例后,随 (领域, 清单版本) 自动重算,无需手动点击。
+  const [plan, { refetch: refetchPlan }] = createResource(
+    () => {
+      const inst = boundInstance();
+      return inst ? { rid: realmId(), iid: inst.id, mv: props.realm.manifest_version } : null;
+    },
+    (k) => api.realmPlanSync(k.rid, activeRoot(), k.iid),
+  );
 
   // 领域同步进度(专用事件,避免与安装队列串台)。仅在本页挂载期间订阅。
   onCleanup(onRealmSyncProgress((p) => setProgress({ current: p.current, total: p.total })));
@@ -248,36 +300,30 @@ const RealmDetail: Component<{
     toast({ type: "error", message: t("realm.opError", { err: String(e) }) });
   }
 
-  /** 切换实例或同步结束:清空计划并复位「移除清单外」开关,避免陈旧标志带入下一次。 */
-  function resetPlan() {
-    setPlan(null);
-    setRemoveExtras(false);
-  }
-
-  async function checkPlan() {
-    const inst = pickedInstance();
-    if (!inst) return;
-    setBusy(true);
-    resetPlan();
-    try {
-      setPlan(await api.realmPlanSync(realmId(), activeRoot(), inst.id));
-    } catch (e) {
-      fail(e);
-    } finally {
-      setBusy(false);
+  // 自动同步:当差异为「纯新增」(无需移除)时自动下载;有移除(破坏性)留给用户显式确认。
+  // 用「领域:版本」键去重,避免重复触发,且失败后不死循环(手动重试仍可)。
+  let autoSyncedKey = "";
+  createEffect(() => {
+    const p = plan();
+    if (!p || !boundInstance() || busy()) return;
+    const key = `${realmId()}:${p.version}`;
+    if (p.download.length > 0 && p.remove.length === 0 && autoSyncedKey !== key) {
+      autoSyncedKey = key;
+      void runSync(false);
     }
-  }
+  });
 
-  async function doSync() {
-    const inst = pickedInstance();
-    if (!inst) return;
+  async function runSync(remove: boolean) {
+    const inst = boundInstance();
+    if (!inst || busy()) return;
     setBusy(true);
     setProgress({ current: 0, total: 0 });
     try {
-      const report: SyncReport = await api.realmSync(realmId(), activeRoot(), inst.id, removeExtras());
+      const report: SyncReport = await api.realmSync(realmId(), activeRoot(), inst.id, remove);
       void refreshInstances();
       void refetchMembers();
-      resetPlan();
+      await refetchPlan();
+      setRemoveExtras(false);
       toast({
         type: report.failed.length ? "error" : "success",
         message: report.failed.length
@@ -296,7 +342,7 @@ const RealmDetail: Component<{
   }
 
   async function pushManifest() {
-    const inst = pickedInstance();
+    const inst = boundInstance();
     if (!inst) return;
     setBusy(true);
     try {
@@ -308,7 +354,6 @@ const RealmDetail: Component<{
         inst.loader ?? "vanilla",
         inst.loader_version ?? null,
       );
-      setPlan(null);
       toast({ type: "success", message: t("realm.pushDone", { version }) });
       props.onBack(); // 回列表刷新清单版本
     } catch (e) {
@@ -424,113 +469,139 @@ const RealmDetail: Component<{
         </div>
       </Panel>
 
-      {/* 同步到实例 */}
+      {/* 同步(绑定实例 → 自动检测差异 → 自动同步) */}
       <Panel variant="sunken" class="p-[20px]">
         <Heading size="sub" as="h2" class="mb-[6px]">
           {t("realm.syncTitle")}
         </Heading>
-        <p class="text-[12px] text-muted mb-[14px] leading-[1.6]">{t("realm.syncHint")}</p>
 
         <Show
-          when={insts().length > 0}
-          fallback={<p class="text-[13px] text-muted">{t("realm.noInstances")}</p>}
-        >
-          <div class="flex items-center gap-[10px] flex-wrap">
-            <Select
-              class="min-w-[240px]"
-              value={syncInst()}
-              onChange={(v) => {
-                setSyncInst(v);
-                resetPlan();
-              }}
-              options={instanceOptions(insts())}
-              placeholder={t("realm.pickInstance")}
-            />
-            <Button variant="ghost" disabled={!pickedInstance() || busy()} onClick={() => void checkPlan()}>
-              {t("realm.checkPlan")}
-            </Button>
-          </div>
-
-          <Show when={plan()}>
-            {(p) => (
-              <div class="mt-[14px] flex flex-col gap-[10px]">
-                <Show
-                  when={!(p().download.length === 0 && p().remove.length === 0)}
-                  fallback={<p class="text-[13px] text-accent">{t("realm.planUpToDate")}</p>}
-                >
-                  <div class="flex flex-wrap gap-[8px] text-[12px]">
-                    <span class="bg-window shadow-input px-[8px] py-[3px]">
-                      {t("realm.planDownload", { count: p().download.length })}
-                    </span>
-                    <span class="bg-window shadow-input px-[8px] py-[3px]">
-                      {t("realm.planRemove", { count: p().remove.length })}
-                    </span>
-                    <Show when={p().manual.length}>
-                      <span class="bg-window shadow-input px-[8px] py-[3px]">
-                        {t("realm.planManual", { count: p().manual.length })}
-                      </span>
-                    </Show>
-                  </div>
-                </Show>
-
-                <Show when={p().remove.length > 0}>
-                  <div class="flex items-center justify-between text-[13px] text-fg">
-                    <div class="flex flex-col gap-[2px] min-w-0 pr-[12px]">
-                      <span>{t("realm.removeExtras")}</span>
-                      <span class="text-[11px] text-muted">{t("realm.removeExtrasHint")}</span>
-                    </div>
-                    <Toggle checked={removeExtras()} onChange={setRemoveExtras} disabled={busy()} />
-                  </div>
-                </Show>
-
-                <Show when={p().manual.length > 0}>
-                  <div class="text-[12px] text-muted">
-                    <div class="mb-[4px]">{t("realm.manualList")}</div>
-                    <ul class="list-disc pl-[18px] flex flex-col gap-[2px]">
-                      <For each={p().manual}>
-                        {(f) => <li class="break-all text-faint">{f.path.replace(/^mods\//, "")}</li>}
-                      </For>
-                    </ul>
-                  </div>
-                </Show>
-
-                <Button
-                  variant="primary"
-                  class="self-start"
-                  disabled={busy() || (p().download.length === 0 && p().remove.length === 0)}
-                  onClick={() => void doSync()}
-                >
-                  {busy() ? t("realm.syncing") : t("realm.syncNow")}
+          when={boundInstance()}
+          fallback={
+            // 未绑定(加入者首次):选一个实例绑定,之后锁定。
+            <Show
+              when={insts().length > 0}
+              fallback={<p class="text-[13px] text-muted">{t("realm.noInstances")}</p>}
+            >
+              <p class="text-[12px] text-muted mb-[12px] leading-[1.6]">{t("realm.bindHint")}</p>
+              <div class="flex items-center gap-[10px] flex-wrap">
+                <Select
+                  class="min-w-[240px]"
+                  value={pickInst()}
+                  onChange={setPickInst}
+                  options={instanceOptions(insts())}
+                  placeholder={t("realm.pickInstance")}
+                />
+                <Button variant="primary" disabled={!pickInst()} onClick={() => bindInstance(pickInst())}>
+                  {t("realm.bindAction")}
                 </Button>
+              </div>
+            </Show>
+          }
+        >
+          {(inst) => (
+            <div class="flex flex-col gap-[12px]">
+              {/* 绑定信息(锁定,不可替换) */}
+              <div class="flex items-center gap-[8px] text-[13px] text-fg flex-wrap">
+                <span class="text-muted">{t("realm.boundInstance")}</span>
+                <span class="font-display text-strong">{inst().name}</span>
+                <Tag>{t("realm.boundLocked")}</Tag>
+              </div>
 
-                <Show when={progress()}>
-                  {(pr) => (
-                    <div class="h-[6px] w-full bg-window shadow-input rounded-none overflow-hidden">
-                      <div
-                        class="h-full bg-accent transition-[width] duration-150 ease-app"
-                        style={{
-                          width: `${pr().total > 0 ? Math.round((pr().current / pr().total) * 100) : 8}%`,
-                        }}
-                      />
-                    </div>
+              {/* 状态:检查中 / 同步中 / 已最新 / 待确认的差异 */}
+              <Show
+                when={!plan.loading}
+                fallback={<p class="text-[13px] text-muted">{t("realm.checking")}</p>}
+              >
+                <Show when={busy()}>
+                  <p class="text-[13px] text-accent">{t("realm.syncing")}</p>
+                </Show>
+                <Show when={!busy() && plan()}>
+                  {(p) => (
+                    <Show
+                      when={!(p().download.length === 0 && p().remove.length === 0)}
+                      fallback={<p class="text-[13px] text-accent">{t("realm.planUpToDate")}</p>}
+                    >
+                      <div class="flex flex-wrap gap-[8px] text-[12px]">
+                        <Show when={p().download.length}>
+                          <span class="bg-window shadow-input px-[8px] py-[3px]">
+                            {t("realm.planDownload", { count: p().download.length })}
+                          </span>
+                        </Show>
+                        <Show when={p().remove.length}>
+                          <span class="bg-window shadow-input px-[8px] py-[3px]">
+                            {t("realm.planRemove", { count: p().remove.length })}
+                          </span>
+                        </Show>
+                        <Show when={p().manual.length}>
+                          <span class="bg-window shadow-input px-[8px] py-[3px]">
+                            {t("realm.planManual", { count: p().manual.length })}
+                          </span>
+                        </Show>
+                      </div>
+
+                      {/* 破坏性:有「需移除」时不自动执行,显式确认后再应用 */}
+                      <Show when={p().remove.length > 0}>
+                        <div class="flex items-center justify-between text-[13px] text-fg mt-[8px]">
+                          <div class="flex flex-col gap-[2px] min-w-0 pr-[12px]">
+                            <span>{t("realm.removeExtras")}</span>
+                            <span class="text-[11px] text-muted">{t("realm.removeExtrasHint")}</span>
+                          </div>
+                          <Toggle checked={removeExtras()} onChange={setRemoveExtras} disabled={busy()} />
+                        </div>
+                        <Button
+                          variant="primary"
+                          class="self-start mt-[8px]"
+                          disabled={busy()}
+                          onClick={() => void runSync(removeExtras())}
+                        >
+                          {t("realm.applyChanges")}
+                        </Button>
+                      </Show>
+
+                      <Show when={p().manual.length > 0}>
+                        <div class="text-[12px] text-muted mt-[8px]">
+                          <div class="mb-[4px]">{t("realm.manualList")}</div>
+                          <ul class="list-disc pl-[18px] flex flex-col gap-[2px]">
+                            <For each={p().manual}>
+                              {(f) => <li class="break-all text-faint">{f.path.replace(/^mods\//, "")}</li>}
+                            </For>
+                          </ul>
+                        </div>
+                      </Show>
+                    </Show>
                   )}
                 </Show>
-              </div>
-            )}
-          </Show>
+              </Show>
 
-          {/* owner/admin:从实例发布新清单 */}
-          <Show when={canPush()}>
-            <div class="mt-[16px] pt-[16px] border-t border-titlebar">
-              <Heading size="sub" as="h3" class="mb-[6px] text-[14px]">
-                {t("realm.pushTitle")}
-              </Heading>
-              <p class="text-[12px] text-muted mb-[10px] leading-[1.6]">{t("realm.pushHint")}</p>
-              <Button variant="ghost" disabled={!pickedInstance() || busy()} onClick={() => void pushManifest()}>
-                {busy() ? t("realm.pushing") : t("realm.pushAction")}
-              </Button>
+              {/* 同步进度条(自动 / 手动同步时显示) */}
+              <Show when={progress()}>
+                {(pr) => (
+                  <div class="h-[6px] w-full bg-window shadow-input rounded-none overflow-hidden">
+                    <div
+                      class="h-full bg-accent transition-[width] duration-150 ease-app"
+                      style={{
+                        width: `${pr().total > 0 ? Math.round((pr().current / pr().total) * 100) : 8}%`,
+                      }}
+                    />
+                  </div>
+                )}
+              </Show>
+
+              {/* owner/admin:从绑定实例发布新清单 */}
+              <Show when={canPush()}>
+                <div class="mt-[8px] pt-[16px] border-t border-titlebar">
+                  <Heading size="sub" as="h3" class="mb-[6px] text-[14px]">
+                    {t("realm.pushTitle")}
+                  </Heading>
+                  <p class="text-[12px] text-muted mb-[10px] leading-[1.6]">{t("realm.pushHint")}</p>
+                  <Button variant="ghost" disabled={busy()} onClick={() => void pushManifest()}>
+                    {busy() ? t("realm.pushing") : t("realm.pushAction")}
+                  </Button>
+                </div>
+              </Show>
             </div>
-          </Show>
+          )}
         </Show>
       </Panel>
 
@@ -688,6 +759,8 @@ const CreateRealmDialog: Component<{
         inst.loader_version ?? null,
         secs > 0 ? secs : null,
       );
+      // 创建时即把该实例绑定到新领域(之后锁定,不可替换)。
+      setBoundInstance(r.id, inst.id);
       toast({ type: "success", message: t("realm.createdToast", { name: r.name }) });
       setName("");
       setInstId("");
