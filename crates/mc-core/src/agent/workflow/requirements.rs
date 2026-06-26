@@ -406,8 +406,7 @@ pub(super) fn invalidate_downstream(
     }
 
     let duplicate = run.replans.iter().any(|existing| {
-        existing.reason == reason
-            && existing.from_phase == from_phase
+        existing.from_phase == from_phase
             && existing.target_phase == target_phase
             && existing.restriction_patch == restriction_patch
             && existing.invalidates == invalidates
