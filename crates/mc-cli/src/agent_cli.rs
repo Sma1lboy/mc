@@ -209,9 +209,11 @@ async fn cmd_agent_continue(session_id: &str, message: &str, json: bool) -> Resu
     let store = mc_core::agent::AgentSessionStore::new(&dir);
     let snapshot = store.load_snapshot(session_id)?;
     let agent = local_agent_runtime(&dir, None)?;
-    let mut next = agent
+    let next = agent
         .continue_from_user_message(snapshot, user_message)
         .await?;
+    let output = default_agent_output_path(session_id);
+    let mut next = agent.advance(next, &output).await?;
     next.push_trace("saved local agent session");
     store.save_snapshot(&next)?;
     print_agent_snapshot(&next, json)?;
@@ -222,16 +224,22 @@ async fn cmd_agent_execute(session_id: &str, output: &Path, json: bool) -> Resul
     let dir = data_dir();
     let store = mc_core::agent::AgentSessionStore::new(&dir);
     let snapshot = store.load_snapshot(session_id)?;
-    let approved = snapshot
-        .approved_build
-        .as_ref()
-        .context("agent session has no approved build to execute")?;
-    let manifest = mc_core::agent::execute_mrpack_build_to_path(approved, output).await?;
-    let mut next = mc_core::agent::continue_after_execution_manifest_result(snapshot, manifest)?;
+    let agent = deterministic_agent_runtime()?;
+    let mut next = agent.advance(snapshot, output).await?;
     next.push_trace("saved local agent session");
     store.save_snapshot(&next)?;
     print_agent_snapshot(&next, json)?;
     Ok(())
+}
+
+fn default_agent_output_path(session_id: &str) -> PathBuf {
+    PathBuf::from("dist").join(format!("{session_id}.mrpack"))
+}
+
+fn deterministic_agent_runtime() -> Result<mc_core::agent::MainAgentRuntime> {
+    let cfg = mc_core::agent::OpenAiConfig::new("deterministic-execution");
+    let openai = mc_core::agent::OpenAiClient::new(cfg)?;
+    Ok(mc_core::agent::MainAgentRuntime::new(openai))
 }
 
 fn cmd_agent_exec_smoke(

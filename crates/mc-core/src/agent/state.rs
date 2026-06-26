@@ -166,6 +166,8 @@ pub struct AgentRunSnapshot {
     pub messages: Vec<AgentMessage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_approval: Option<ApprovalRequest>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<AgentToolSpec>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan: Option<ModpackAgentPlan>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -192,6 +194,7 @@ impl AgentRunSnapshot {
             user_prompt: user_prompt.into(),
             messages: Vec::new(),
             pending_approval: None,
+            tools: Vec::new(),
             plan: None,
             restrictions: None,
             approved_build: None,

@@ -594,6 +594,7 @@ pub fn continue_after_execution_manifest_result(
             run.status = AgentStatus::Running;
             run.phase = AgentPhase::Executing;
             run.pending_approval = None;
+            run.tools = vec![build_mrpack_artifact_tool_spec()];
             run.execution = Some(AgentExecutionMetadata {
                 status: AgentExecutionStatus::Ready,
                 manifest: Some(manifest),
@@ -610,6 +611,7 @@ pub fn continue_after_execution_manifest_result(
             run.status = AgentStatus::Completed;
             run.phase = AgentPhase::Completed;
             run.pending_approval = None;
+            run.tools.clear();
             run.execution = Some(AgentExecutionMetadata {
                 status: AgentExecutionStatus::Completed,
                 manifest: Some(manifest),
@@ -640,6 +642,7 @@ pub fn continue_after_execution_manifest_result(
             run.status = AgentStatus::WaitingForUser;
             run.phase = replan_phase;
             run.pending_approval = Some(approval);
+            run.tools.clear();
             run.execution = Some(AgentExecutionMetadata {
                 status: AgentExecutionStatus::Blocked,
                 manifest: Some(manifest),
@@ -659,6 +662,7 @@ pub fn continue_after_execution_manifest_result(
                 .unwrap_or_else(|| "execution should retry".to_string());
             run.status = AgentStatus::Running;
             run.pending_approval = None;
+            run.tools = vec![build_mrpack_artifact_tool_spec()];
             run.execution = Some(AgentExecutionMetadata {
                 status: AgentExecutionStatus::Retry,
                 manifest: Some(manifest),
@@ -690,6 +694,7 @@ pub fn continue_after_execution_manifest_result(
             run.status = AgentStatus::Failed;
             run.phase = AgentPhase::Failed;
             run.pending_approval = None;
+            run.tools.clear();
             run.execution = Some(AgentExecutionMetadata {
                 status: AgentExecutionStatus::Failed,
                 manifest: Some(manifest),

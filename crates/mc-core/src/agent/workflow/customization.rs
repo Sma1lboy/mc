@@ -114,6 +114,7 @@ pub(super) fn continue_after_customization_confirmation(
     run.status = AgentStatus::Running;
     run.phase = AgentPhase::ExecutionReady;
     run.pending_approval = None;
+    run.tools = vec![build_mrpack_artifact_tool_spec()];
     run.execution = Some(AgentExecutionMetadata {
         status: AgentExecutionStatus::NotStarted,
         manifest: None,
