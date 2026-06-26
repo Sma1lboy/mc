@@ -1021,6 +1021,58 @@ fn rejects_repeated_restriction_tool_schema_instances() {
 }
 
 #[test]
+fn restriction_update_llm_payload_omits_restriction_history() {
+    let mut restrictions = BuildRestrictions {
+        revision: 7,
+        minecraft_version: Some("1.20.1".to_string()),
+        minecraft_version_requirement: Some("1.20.1".to_string()),
+        loader: Some("fabric".to_string()),
+        feature_tags: vec!["adventure".to_string()],
+        notes: Some("prefer exploration".to_string()),
+        history: Vec::new(),
+    };
+    restrictions.history.push(BuildRestrictionChange {
+        revision: 7,
+        source: BuildRestrictionChangeSource::UserRevise,
+        patch: BuildRestrictionPatch {
+            minecraft_version: Some("1.20.1".to_string()),
+            minecraft_version_requirement: Some("1.20.1".to_string()),
+            loader: Some("fabric".to_string()),
+            feature_tags: vec!["adventure".to_string()],
+            notes: Some("prefer exploration".to_string()),
+        },
+        summary: "large audit history entry".to_string(),
+    });
+
+    let payload = restriction_update_request_payload(
+        "make a pack",
+        &restrictions,
+        "改成偏探索",
+        BuildRestrictionChangeSource::UserRevise,
+        None,
+        None,
+    );
+
+    assert_eq!(
+        payload.get("base_revision").and_then(|v| v.as_u64()),
+        Some(7)
+    );
+    let current = payload
+        .get("current_restrictions")
+        .and_then(|v| v.as_object())
+        .expect("current restrictions should be an object");
+    assert_eq!(
+        current.get("minecraft_version").and_then(|v| v.as_str()),
+        Some("1.20.1")
+    );
+    assert!(!current.contains_key("history"), "payload: {payload}");
+    assert!(
+        !payload.to_string().contains("large audit history entry"),
+        "payload: {payload}"
+    );
+}
+
+#[test]
 fn complete_requirements_allow_approve_decision() {
     let input = parse_restriction_update_response(
             r#"{"base_revision":0,"patch":{"minecraft_version":"1.20.1","loader":"fabric","feature_tags":["industrial","automation"],"notes":null}}"#,

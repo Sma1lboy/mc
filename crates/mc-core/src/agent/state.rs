@@ -333,6 +333,34 @@ pub struct BuildRestrictions {
     pub history: Vec<BuildRestrictionChange>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BuildRestrictionsLlmView {
+    pub revision: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minecraft_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minecraft_version_requirement: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loader: Option<String>,
+    #[serde(default)]
+    pub feature_tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+}
+
+impl BuildRestrictions {
+    pub fn llm_view(&self) -> BuildRestrictionsLlmView {
+        BuildRestrictionsLlmView {
+            revision: self.revision,
+            minecraft_version: self.minecraft_version.clone(),
+            minecraft_version_requirement: self.minecraft_version_requirement.clone(),
+            loader: self.loader.clone(),
+            feature_tags: self.feature_tags.clone(),
+            notes: self.notes.clone(),
+        }
+    }
+}
+
 impl Default for BuildRestrictions {
     fn default() -> Self {
         Self {
