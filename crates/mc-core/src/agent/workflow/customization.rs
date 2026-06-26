@@ -817,6 +817,9 @@ fn resolved_file_mod_payload(
     } else {
         format!("matched {matched_query}")
     };
+    let file = root_hit
+        .map(|candidate| version_file_with_project_side(&resolved.file, &candidate.hit))
+        .unwrap_or_else(|| resolved.file.clone());
 
     serde_json::json!({
         "provider": provider,
@@ -832,7 +835,7 @@ fn resolved_file_mod_payload(
             "{} | {} | {}",
             provider_label(resolved.provider),
             if auto_added { "auto-added dependency" } else { "selected candidate" },
-            resolved.file.filename
+            file.filename
         ),
         "author": null,
         "downloads": 0,
@@ -846,17 +849,17 @@ fn resolved_file_mod_payload(
         "review_source": review_source,
         "review_reason": review_reason,
         "review_version": resolved.version_id.clone(),
-        "review_file": resolved.file.filename.clone(),
+        "review_file": file.filename.clone(),
         "resolved_version": {
             "version_id": resolved.version_id.clone(),
-            "primary_file": version_file_payload(&resolved.file),
+            "primary_file": version_file_payload(&file),
         },
         "source_ref": {
             "kind": "mod_file",
             "provider": provider,
             "project_id": resolved.project_id.clone(),
             "version_id": resolved.version_id.clone(),
-            "file": version_file_payload(&resolved.file),
+            "file": version_file_payload(&file),
         },
     })
 }

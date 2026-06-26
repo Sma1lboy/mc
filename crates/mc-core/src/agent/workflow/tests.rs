@@ -91,6 +91,8 @@ fn execution_ready_run(base_archive_url: &str, base_archive_size: u64) -> AgentR
         sha512: None,
         size: Some(base_archive_size),
         primary: true,
+        client_side: ProjectSideSupport::Unknown,
+        server_side: ProjectSideSupport::Unknown,
     };
     let option = ApprovalOption {
         id: "confirm:recommended_customization".to_string(),
@@ -234,6 +236,8 @@ fn base_search_candidate(
         sha512: None,
         size: Some(size),
         primary: true,
+        client_side: ProjectSideSupport::Unknown,
+        server_side: ProjectSideSupport::Unknown,
     });
     BasePackCandidate {
         provider: ProviderId::Modrinth,
@@ -247,6 +251,8 @@ fn base_search_candidate(
             icon_url: None,
             gallery_url: None,
             categories: vec!["fabric".to_string(), "adventure".to_string()],
+            client_side: ProjectSideSupport::Unknown,
+            server_side: ProjectSideSupport::Unknown,
         },
         matched_query: "Fabric 1.20.1 adventure".to_string(),
         resolved_target: Some(TargetCompatibility {
@@ -1351,6 +1357,8 @@ fn base_pack_and_mod_payloads_include_describe() {
         icon_url: None,
         gallery_url: None,
         categories: vec!["tech".to_string()],
+        client_side: ProjectSideSupport::Unknown,
+        server_side: ProjectSideSupport::Unknown,
     };
 
     let base_option = candidate_option(&BasePackCandidate {
@@ -1389,6 +1397,8 @@ fn resolved_mod_payload_contains_source_metadata_not_execution_manifest() {
         icon_url: None,
         gallery_url: None,
         categories: vec!["adventure".to_string()],
+        client_side: ProjectSideSupport::Unknown,
+        server_side: ProjectSideSupport::Unknown,
     };
     let file = VersionFile {
         url: "https://cdn.modrinth.com/data/mod-project/versions/v/mod.jar".to_string(),
@@ -1397,6 +1407,8 @@ fn resolved_mod_payload_contains_source_metadata_not_execution_manifest() {
         sha512: Some("sha512".to_string()),
         size: Some(1234),
         primary: true,
+        client_side: ProjectSideSupport::Unknown,
+        server_side: ProjectSideSupport::Unknown,
     };
     let resolved = ResolvedModCandidate {
         candidate: ModCandidate {
@@ -1412,6 +1424,8 @@ fn resolved_mod_payload_contains_source_metadata_not_execution_manifest() {
             loaders: vec!["fabric".to_string()],
             files: vec![file.clone()],
             dependencies: Vec::new(),
+            client_side: ProjectSideSupport::Unknown,
+            server_side: ProjectSideSupport::Unknown,
         },
         file,
     };
@@ -1470,6 +1484,8 @@ fn mrpack_file_payload_sanitizes_provider_filename() {
         sha512: Some("sha512".to_string()),
         size: Some(1234),
         primary: true,
+        client_side: ProjectSideSupport::Unknown,
+        server_side: ProjectSideSupport::Unknown,
     };
 
     let payload = mrpack_file_payload(&file).expect("remote file should be eligible");
@@ -1482,6 +1498,68 @@ fn mrpack_file_payload_sanitizes_provider_filename() {
     assert!(!path.contains(".."));
     assert!(!path["mods/".len()..].contains('/'));
     assert!(!path["mods/".len()..].contains('\\'));
+}
+
+#[test]
+fn mrpack_file_payload_maps_project_side_env() {
+    let file = VersionFile {
+        url: "https://cdn.modrinth.com/data/mod-project/versions/v/mod.jar".to_string(),
+        filename: "mod.jar".to_string(),
+        sha1: Some("sha1".to_string()),
+        sha512: Some("sha512".to_string()),
+        size: Some(123),
+        primary: true,
+        client_side: ProjectSideSupport::Required,
+        server_side: ProjectSideSupport::Unsupported,
+    };
+
+    let payload = mrpack_file_payload(&file).expect("remote payload should compile");
+
+    assert_eq!(
+        payload
+            .get("env")
+            .and_then(|v| v.get("client"))
+            .and_then(|v| v.as_str()),
+        Some("required")
+    );
+    assert_eq!(
+        payload
+            .get("env")
+            .and_then(|v| v.get("server"))
+            .and_then(|v| v.as_str()),
+        Some("unsupported")
+    );
+}
+
+#[test]
+fn mrpack_file_payload_falls_back_unknown_env_to_optional() {
+    let file = VersionFile {
+        url: "https://cdn.modrinth.com/data/mod-project/versions/v/mod.jar".to_string(),
+        filename: "mod.jar".to_string(),
+        sha1: Some("sha1".to_string()),
+        sha512: Some("sha512".to_string()),
+        size: Some(123),
+        primary: true,
+        client_side: ProjectSideSupport::Unknown,
+        server_side: ProjectSideSupport::Unknown,
+    };
+
+    let payload = mrpack_file_payload(&file).expect("remote payload should compile");
+
+    assert_eq!(
+        payload
+            .get("env")
+            .and_then(|v| v.get("client"))
+            .and_then(|v| v.as_str()),
+        Some("optional")
+    );
+    assert_eq!(
+        payload
+            .get("env")
+            .and_then(|v| v.get("server"))
+            .and_then(|v| v.as_str()),
+        Some("optional")
+    );
 }
 
 #[test]
@@ -1522,6 +1600,8 @@ fn exec_compile_metadata_merges_base_index_and_extra_mod_refs() {
         sha512: Some("extra-sha512".to_string()),
         size: Some(200),
         primary: true,
+        client_side: ProjectSideSupport::Unknown,
+        server_side: ProjectSideSupport::Unknown,
     };
     let approved = ApprovedModpackBuild {
         base_pack: serde_json::json!({ "title": "Base Pack" }),
@@ -1559,12 +1639,23 @@ fn exec_compile_metadata_merges_base_index_and_extra_mod_refs() {
             .map(Vec::len),
         Some(2)
     );
+    let extra_remote_files = metadata
+        .get("extra_remote_files")
+        .and_then(|v| v.as_array())
+        .expect("extra remote files should be listed");
+    assert_eq!(extra_remote_files.len(), 1);
     assert_eq!(
-        metadata
-            .get("extra_remote_files")
-            .and_then(|v| v.as_array())
-            .map(Vec::len),
-        Some(1)
+        extra_remote_files[0]
+            .get("project_side")
+            .and_then(|v| v.get("fallback"))
+            .and_then(|v| v.as_bool()),
+        Some(true)
+    );
+    assert_eq!(
+        extra_remote_files[0]
+            .get("env_fallback")
+            .and_then(|v| v.as_str()),
+        Some("unknown project side metadata mapped to optional")
     );
     assert!(approved
         .execution_recipe
@@ -1597,6 +1688,8 @@ fn exec_compile_metadata_sanitizes_override_source_paths() {
         sha512: Some("extra-sha512".to_string()),
         size: Some(200),
         primary: true,
+        client_side: ProjectSideSupport::Unknown,
+        server_side: ProjectSideSupport::Unknown,
     };
     let approved = ApprovedModpackBuild {
         base_pack: serde_json::json!({ "title": "Base Pack" }),
@@ -1661,6 +1754,8 @@ fn exec_compile_metadata_blocks_unverifiable_override_source() {
         sha512: None,
         size: None,
         primary: true,
+        client_side: ProjectSideSupport::Unknown,
+        server_side: ProjectSideSupport::Unknown,
     };
     let approved = ApprovedModpackBuild {
         base_pack: serde_json::json!({ "title": "Base Pack" }),
@@ -2254,6 +2349,8 @@ fn mrpack_executor_rewrites_index_and_preserves_base_overrides() {
         sha512: Some("extra-sha512".to_string()),
         size: Some(200),
         primary: true,
+        client_side: ProjectSideSupport::Unknown,
+        server_side: ProjectSideSupport::Unknown,
     };
     let approved = ApprovedModpackBuild {
         base_pack: serde_json::json!({ "title": "Base Pack" }),

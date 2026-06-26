@@ -20,7 +20,8 @@ use serde::Deserialize;
 use crate::error::{CoreError, Result};
 
 use super::{
-    Dependency, ProjectVersion, ResourceKind, SearchHit, SearchQuery, SortMethod, VersionFile,
+    Dependency, ProjectSideSupport, ProjectVersion, ResourceKind, SearchHit, SearchQuery,
+    SortMethod, VersionFile,
 };
 
 /// Modrinth API v2 根地址。
@@ -548,6 +549,10 @@ struct RawSearchHit {
     gallery: Vec<String>,
     #[serde(default)]
     categories: Vec<String>,
+    #[serde(default)]
+    client_side: Option<String>,
+    #[serde(default)]
+    server_side: Option<String>,
 }
 
 /// `/v2/project/{id}` 的项目对象。这里 id 字段就叫 `id`,且**没有** `author`
@@ -568,6 +573,10 @@ struct RawProject {
     icon_url: Option<String>,
     #[serde(default)]
     categories: Vec<String>,
+    #[serde(default)]
+    client_side: Option<String>,
+    #[serde(default)]
+    server_side: Option<String>,
     // —— 详情页额外字段(map_project 不消费,project_details 用)——
     /// 完整介绍正文(markdown 原文)。
     #[serde(default)]
@@ -681,6 +690,8 @@ fn map_search_hit(r: RawSearchHit) -> SearchHit {
         // 优先 featured gallery,否则取 gallery 第一张作高清封面。
         gallery_url: r.featured_gallery.or_else(|| r.gallery.into_iter().next()),
         categories: r.categories,
+        client_side: ProjectSideSupport::from_modrinth(r.client_side.as_deref()),
+        server_side: ProjectSideSupport::from_modrinth(r.server_side.as_deref()),
     }
 }
 
@@ -696,6 +707,8 @@ fn map_project(r: RawProject) -> SearchHit {
         icon_url: r.icon_url,
         gallery_url: None,
         categories: r.categories,
+        client_side: ProjectSideSupport::from_modrinth(r.client_side.as_deref()),
+        server_side: ProjectSideSupport::from_modrinth(r.server_side.as_deref()),
     }
 }
 
@@ -708,6 +721,8 @@ fn map_version(r: RawVersion) -> ProjectVersion {
         loaders: r.loaders,
         files: r.files.into_iter().map(map_file).collect(),
         dependencies: r.dependencies.into_iter().map(map_dependency).collect(),
+        client_side: ProjectSideSupport::Unknown,
+        server_side: ProjectSideSupport::Unknown,
     }
 }
 
@@ -1053,6 +1068,8 @@ fn map_file(r: RawFile) -> VersionFile {
         sha512: r.hashes.sha512,
         size: r.size,
         primary: r.primary,
+        client_side: ProjectSideSupport::Unknown,
+        server_side: ProjectSideSupport::Unknown,
     }
 }
 
@@ -1145,6 +1162,8 @@ fn map_file_ref(r: &RawFile) -> VersionFile {
         sha512: r.hashes.sha512.clone(),
         size: r.size,
         primary: r.primary,
+        client_side: ProjectSideSupport::Unknown,
+        server_side: ProjectSideSupport::Unknown,
     }
 }
 
@@ -1410,6 +1429,8 @@ mod tests {
                     "description": "A rendering engine",
                     "author": "jellysquid3",
                     "downloads": 12345,
+                    "client_side": "required",
+                    "server_side": "unsupported",
                     "categories": ["optimization", "fabric"]
                 }
             ],
@@ -1424,6 +1445,8 @@ mod tests {
         assert_eq!(h.author, "jellysquid3");
         assert_eq!(h.downloads, 12345);
         assert_eq!(h.icon_url, None);
+        assert_eq!(h.client_side, ProjectSideSupport::Required);
+        assert_eq!(h.server_side, ProjectSideSupport::Unsupported);
         assert_eq!(h.categories, vec!["optimization".to_string(), "fabric".to_string()]);
     }
 
@@ -1495,6 +1518,8 @@ mod tests {
             "title": "Fabric API",
             "description": "Core library",
             "downloads": 50000000,
+            "client_side": "required",
+            "server_side": "optional",
             "icon_url": "https://cdn.modrinth.com/icon.png",
             "categories": ["library", "fabric"]
         }"#;
@@ -1505,6 +1530,8 @@ mod tests {
         assert_eq!(hit.author, "");
         assert_eq!(hit.downloads, 50_000_000);
         assert_eq!(hit.icon_url.as_deref(), Some("https://cdn.modrinth.com/icon.png"));
+        assert_eq!(hit.client_side, ProjectSideSupport::Required);
+        assert_eq!(hit.server_side, ProjectSideSupport::Optional);
     }
 
     #[test]
@@ -1593,6 +1620,8 @@ mod tests {
                 VersionFile { url: "b".into(), filename: "b".into(), primary: false, ..Default::default() },
             ],
             dependencies: vec![],
+            client_side: ProjectSideSupport::Unknown,
+            server_side: ProjectSideSupport::Unknown,
         };
         assert_eq!(v.primary_file().unwrap().filename, "a");
     }

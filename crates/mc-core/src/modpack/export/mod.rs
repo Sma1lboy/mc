@@ -373,7 +373,7 @@ mod tests {
     use super::*;
     use crate::modplatform::provider::ResourceProvider;
     use crate::modplatform::{
-        ProjectVersion, ProviderCaps, SearchHit, SearchQuery, VersionFile,
+        ProjectSideSupport, ProjectVersion, ProviderCaps, SearchHit, SearchQuery, VersionFile,
     };
     use futures::future::BoxFuture;
     use std::collections::HashMap;
@@ -468,6 +468,8 @@ mod tests {
                 sha512: Some(sha512.into()),
                 size: Some(100),
                 primary: true,
+                client_side: ProjectSideSupport::Unknown,
+                server_side: ProjectSideSupport::Unknown,
             },
             project_name: Some("Sodium".into()),
             project_slug: Some("sodium".into()),

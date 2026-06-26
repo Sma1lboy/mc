@@ -16,8 +16,8 @@ use crate::modpack::export::modrinth::host_in_whitelist;
 use crate::modplatform::dependency::{resolve_dependencies, ModRef};
 use crate::modplatform::provider::ProviderRegistry;
 use crate::modplatform::{
-    Dependency, ProviderId, ResolvedFile, ResourceKind, SearchHit, SearchQuery, SortMethod,
-    VersionFile,
+    Dependency, ProjectSideSupport, ProviderId, ResolvedFile, ResourceKind, SearchHit, SearchQuery,
+    SortMethod, VersionFile,
 };
 
 use super::openai::{OpenAiClient, OpenAiTextFormat, OpenAiTextRequest};
@@ -44,6 +44,7 @@ use artifacts::{
     customization_approval_with_validation, json_str_or, mrpack_file_payload_with_filename,
     project_url, provider_label, provider_slug, safe_provider_filename,
     scratch_fallback_unavailable_plan, selection_plan, source_ref_payload, version_file_payload,
+    version_file_with_project_side,
 };
 
 use approvals::{
@@ -998,6 +999,12 @@ fn version_file_from_payload(value: &serde_json::Value) -> Option<VersionFile> {
             .get("primary")
             .and_then(|v| v.as_bool())
             .unwrap_or(true),
+        client_side: ProjectSideSupport::from_modrinth(
+            value.get("client_side").and_then(|v| v.as_str()),
+        ),
+        server_side: ProjectSideSupport::from_modrinth(
+            value.get("server_side").and_then(|v| v.as_str()),
+        ),
     })
 }
 
