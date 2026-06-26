@@ -224,6 +224,7 @@ fn pick_best_version<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::ProjectSideSupport;
     use crate::error::CoreError;
     use crate::modplatform::provider::ResourceProvider;
     use crate::modplatform::{
@@ -316,6 +317,8 @@ mod tests {
                 ..Default::default()
             }],
             dependencies: deps,
+            client_side: ProjectSideSupport::Unknown,
+            server_side: ProjectSideSupport::Unknown,
         }
     }
 
@@ -349,6 +352,8 @@ mod tests {
                 loaders: vec!["fabric".into()],
                 files: vec![],
                 dependencies: vec![],
+                client_side: ProjectSideSupport::Unknown,
+                server_side: ProjectSideSupport::Unknown,
             },
             // 完全匹配。
             ProjectVersion {
@@ -359,6 +364,8 @@ mod tests {
                 loaders: vec!["fabric".into()],
                 files: vec![],
                 dependencies: vec![],
+                client_side: ProjectSideSupport::Unknown,
+                server_side: ProjectSideSupport::Unknown,
             },
         ];
         let best = pick_best_version(&versions, "1.20.1", "fabric").unwrap();
@@ -375,6 +382,8 @@ mod tests {
             loaders: vec!["forge".into()],
             files: vec![],
             dependencies: vec![],
+            client_side: ProjectSideSupport::Unknown,
+            server_side: ProjectSideSupport::Unknown,
         }];
         // 既不匹配 mc 也不匹配 loader → 退化到首项。
         let best = pick_best_version(&versions, "1.20.1", "fabric").unwrap();

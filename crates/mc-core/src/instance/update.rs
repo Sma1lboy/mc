@@ -134,7 +134,7 @@ pub async fn apply_mod_update(inst: &Instance, dl: &Downloader, update: &ModUpda
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modplatform::VersionFile;
+    use crate::modplatform::{ProjectSideSupport, VersionFile};
 
     fn version_with_primary(sha1: &str, filename: &str) -> ProjectVersion {
         ProjectVersion {
@@ -150,8 +150,12 @@ mod tests {
                 sha512: None,
                 size: Some(123),
                 primary: true,
+                client_side: ProjectSideSupport::Unknown,
+                server_side: ProjectSideSupport::Unknown,
             }],
             dependencies: vec![],
+            client_side: ProjectSideSupport::Unknown,
+            server_side: ProjectSideSupport::Unknown,
         }
     }
 

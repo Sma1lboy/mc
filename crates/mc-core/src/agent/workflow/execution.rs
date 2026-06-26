@@ -519,12 +519,25 @@ pub fn compile_mrpack_execution_metadata(
             };
             if seen_paths.insert(path.to_string()) {
                 files.push(remote_file.clone());
-                extra_remote_files.push(serde_json::json!({
+                let mut remote_metadata = serde_json::json!({
                     "title": title,
                     "project_id": optional_json_string(&extra_ref, "project_id"),
                     "version_id": source_ref.get("version_id").cloned(),
                     "file": remote_file,
-                }));
+                    "project_side": {
+                        "client": file.client_side,
+                        "server": file.server_side,
+                        "fallback": file.client_side.is_unknown() || file.server_side.is_unknown(),
+                    },
+                });
+                if file.client_side.is_unknown() || file.server_side.is_unknown() {
+                    set_json_field(
+                        &mut remote_metadata,
+                        "env_fallback",
+                        serde_json::json!("unknown project side metadata mapped to optional"),
+                    );
+                }
+                extra_remote_files.push(remote_metadata);
             } else {
                 deduped_extra_mods.push(serde_json::json!({
                     "title": title,

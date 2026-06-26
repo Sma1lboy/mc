@@ -295,7 +295,7 @@ fn install_rec<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modplatform::{Dependency, ProjectVersion, VersionFile};
+    use crate::modplatform::{Dependency, ProjectSideSupport, ProjectVersion, VersionFile};
 
     /// 便捷构造一个版本,只填测试关心的字段。
     fn version(
@@ -312,6 +312,8 @@ mod tests {
             loaders: loaders.iter().map(|s| s.to_string()).collect(),
             files,
             dependencies: Vec::new(),
+            client_side: ProjectSideSupport::Unknown,
+            server_side: ProjectSideSupport::Unknown,
         }
     }
 
