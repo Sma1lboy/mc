@@ -807,6 +807,37 @@ fn invalidate_downstream_is_idempotent() {
 }
 
 #[test]
+fn invalidate_downstream_dedupes_by_semantic_identity_not_reason_text() {
+    let mut run = AgentRunSnapshot::new("make a pack");
+    run.phase = AgentPhase::ConfirmCustomizationApproval;
+    let patch = Some(BuildRestrictionPatch {
+        minecraft_version: Some("1.20.1".to_string()),
+        minecraft_version_requirement: Some("1.20.1".to_string()),
+        loader: Some("fabric".to_string()),
+        feature_tags: vec!["tech".to_string()],
+        notes: None,
+    });
+
+    invalidate_downstream(
+        &mut run,
+        ChangedField::MinecraftVersion,
+        "first model wording",
+        AgentPhase::ConfirmCustomizationApproval,
+        patch.clone(),
+    );
+    invalidate_downstream(
+        &mut run,
+        ChangedField::MinecraftVersion,
+        "second model wording",
+        AgentPhase::ConfirmCustomizationApproval,
+        patch,
+    );
+
+    assert_eq!(run.replans.len(), 1);
+    assert_eq!(run.replans[0].reason, "first model wording");
+}
+
+#[test]
 fn content_preference_invalidation_preserves_selected_base_pack() {
     let mut run = AgentRunSnapshot::new("make a pack");
     run.phase = AgentPhase::ConfirmCustomizationApproval;
