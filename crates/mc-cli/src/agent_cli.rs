@@ -206,30 +206,59 @@ async fn cmd_agent_continue(session_id: &str, message: &str, json: bool) -> Resu
     }
 
     let dir = data_dir();
+    let agent = local_agent_runtime(&dir, None)?;
+    cmd_agent_continue_with_runtime(&dir, &agent, session_id, user_message, json)
+        .await
+        .map(|_| ())
+}
+
+async fn cmd_agent_continue_with_runtime(
+    dir: &Path,
+    agent: &mc_core::agent::MainAgentRuntime,
+    session_id: &str,
+    user_message: &str,
+    json: bool,
+) -> Result<AgentRunSnapshot> {
     let store = mc_core::agent::AgentSessionStore::new(&dir);
     let snapshot = store.load_snapshot(session_id)?;
-    let agent = local_agent_runtime(&dir, None)?;
-    let next = agent
+    let mut next = agent
         .continue_from_user_message(snapshot, user_message)
         .await?;
-    let output = default_agent_output_path(&dir, session_id);
-    let mut next = agent.advance(next, &output).await?;
     next.push_trace("saved local agent session");
     store.save_snapshot(&next)?;
     print_agent_snapshot(&next, json)?;
-    Ok(())
+    Ok(next)
 }
 
 async fn cmd_agent_execute(session_id: &str, output: &Path, json: bool) -> Result<()> {
     let dir = data_dir();
+    cmd_agent_execute_with_dir(&dir, session_id, output, json)
+        .await
+        .map(|_| ())
+}
+
+async fn cmd_agent_execute_with_dir(
+    dir: &Path,
+    session_id: &str,
+    output: &Path,
+    json: bool,
+) -> Result<AgentRunSnapshot> {
     let store = mc_core::agent::AgentSessionStore::new(&dir);
     let snapshot = store.load_snapshot(session_id)?;
+    if execution_completed(&snapshot) {
+        let mut next = copy_completed_artifact_to_output(snapshot, output)?;
+        next.push_trace("saved local agent session");
+        store.save_snapshot(&next)?;
+        print_agent_snapshot(&next, json)?;
+        return Ok(next);
+    }
+    ensure_session_is_executable(&snapshot)?;
     let agent = deterministic_agent_runtime()?;
     let mut next = agent.advance(snapshot, output).await?;
     next.push_trace("saved local agent session");
     store.save_snapshot(&next)?;
     print_agent_snapshot(&next, json)?;
-    Ok(())
+    Ok(next)
 }
 
 fn default_agent_output_path(data_dir: &Path, session_id: &str) -> PathBuf {
@@ -237,6 +266,90 @@ fn default_agent_output_path(data_dir: &Path, session_id: &str) -> PathBuf {
         .join("agent")
         .join("artifacts")
         .join(format!("{session_id}.mrpack"))
+}
+
+fn ensure_session_is_executable(snapshot: &AgentRunSnapshot) -> Result<()> {
+    if snapshot.status == AgentStatus::Running
+        && matches!(
+            snapshot.phase,
+            AgentPhase::ExecutionReady | AgentPhase::Executing
+        )
+        && snapshot.approved_build.is_some()
+    {
+        return Ok(());
+    }
+    anyhow::bail!("当前会话还没有可执行的已批准方案，请先完成审核。")
+}
+
+fn execution_completed(snapshot: &AgentRunSnapshot) -> bool {
+    snapshot.status == AgentStatus::Completed
+        || snapshot.phase == AgentPhase::Completed
+        || snapshot.execution.as_ref().is_some_and(|execution| {
+            execution.status == mc_core::agent::AgentExecutionStatus::Completed
+        })
+}
+
+fn copy_completed_artifact_to_output(
+    mut snapshot: AgentRunSnapshot,
+    output: &Path,
+) -> Result<AgentRunSnapshot> {
+    let source = completed_artifact_path(&snapshot)
+        .ok_or_else(|| anyhow::anyhow!("该会话已结束(completed)，但没有记录可复制的产物位置。"))?;
+    if !source.exists() {
+        anyhow::bail!(
+            "该会话已结束(completed)，记录的产物位置不存在: {}",
+            source.display()
+        );
+    }
+    if source != output {
+        if let Some(parent) = output.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("创建输出目录失败: {}", parent.display()))?;
+        }
+        std::fs::copy(&source, output).with_context(|| {
+            format!(
+                "复制已完成产物失败: {} -> {}",
+                source.display(),
+                output.display()
+            )
+        })?;
+    }
+    update_completed_manifest_output(&mut snapshot, output)?;
+    snapshot.push_trace("copied completed agent artifact to requested output");
+    Ok(snapshot)
+}
+
+fn completed_artifact_path(snapshot: &AgentRunSnapshot) -> Option<PathBuf> {
+    snapshot
+        .execution
+        .as_ref()
+        .and_then(|execution| execution.manifest.as_ref())
+        .and_then(|manifest| manifest.get("output_path"))
+        .and_then(|path| path.as_str())
+        .filter(|path| !path.trim().is_empty())
+        .map(PathBuf::from)
+}
+
+fn update_completed_manifest_output(snapshot: &mut AgentRunSnapshot, output: &Path) -> Result<()> {
+    let Some(manifest) = snapshot
+        .execution
+        .as_mut()
+        .and_then(|execution| execution.manifest.as_mut())
+    else {
+        return Ok(());
+    };
+    let Some(obj) = manifest.as_object_mut() else {
+        return Ok(());
+    };
+    obj.insert(
+        "output_path".to_string(),
+        serde_json::json!(output.to_string_lossy().to_string()),
+    );
+    let size = std::fs::metadata(output)
+        .with_context(|| format!("读取输出文件信息失败: {}", output.display()))?
+        .len();
+    obj.insert("output_size".to_string(), serde_json::json!(size));
+    Ok(())
 }
 
 fn deterministic_agent_runtime() -> Result<mc_core::agent::MainAgentRuntime> {
@@ -488,11 +601,9 @@ fn print_approval_header(approval: Option<&ApprovalRequest>) {
 
 fn print_pending_approval_next_steps(snapshot: &AgentRunSnapshot) {
     let Some(approval) = snapshot.pending_approval.as_ref() else {
-        if matches!(snapshot.phase, AgentPhase::ExecutionReady) {
-            println!(
-                "next: mc agent execute --session-id {} --output ./dist/{}.mrpack",
-                snapshot.id, snapshot.id
-            );
+        if let Some(command) = execution_next_step_command(snapshot) {
+            println!("next:");
+            println!("  {command}");
         }
         return;
     };
@@ -536,6 +647,17 @@ fn print_pending_approval_next_steps(snapshot: &AgentRunSnapshot) {
             );
         }
     }
+}
+
+fn execution_next_step_command(snapshot: &AgentRunSnapshot) -> Option<String> {
+    (snapshot.status == AgentStatus::Running && snapshot.phase == AgentPhase::ExecutionReady).then(
+        || {
+            format!(
+                "mc agent execute --session-id {} --output <path>",
+                snapshot.id
+            )
+        },
+    )
 }
 
 fn print_agent_session_list(sessions: &[AgentSessionSummary], all: bool, limit: usize) {
@@ -730,6 +852,208 @@ fn exec_smoke_manifest(outcome: AgentExecSmokeOutcome, reason: Option<&str>) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mc_core::agent::{
+        AgentExecutionMetadata, AgentExecutionStatus, ApprovalDecisionSpec, ApprovalOption,
+        UserDecisionKind,
+    };
+    use mc_core::modpack::formats::mrpack::{MrpackDependencies, MrpackIndex};
+
+    fn temp_data_dir(tag: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!("mc-agent-cli-{tag}-{}-{nanos}", std::process::id()))
+    }
+
+    fn temp_mrpack_path(tag: &str) -> PathBuf {
+        temp_data_dir(tag).with_extension("mrpack")
+    }
+
+    fn zip_bytes(files: &[(&str, &[u8])]) -> Vec<u8> {
+        use std::io::{Cursor, Write};
+        let mut cursor = Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut cursor);
+            let options = zip::write::SimpleFileOptions::default();
+            for (path, bytes) in files {
+                zip.start_file(*path, options).unwrap();
+                zip.write_all(bytes).unwrap();
+            }
+            zip.finish().unwrap();
+        }
+        cursor.into_inner()
+    }
+
+    fn base_archive_for_cli_execute() -> Vec<u8> {
+        let base_index = MrpackIndex {
+            format_version: 1,
+            game: "minecraft".to_string(),
+            version_id: "base-1.0.0".to_string(),
+            name: "Base Pack".to_string(),
+            summary: None,
+            dependencies: MrpackDependencies {
+                minecraft: Some("1.20.1".to_string()),
+                fabric_loader: Some("0.15.7".to_string()),
+                ..Default::default()
+            },
+            files: Vec::new(),
+        };
+        let base_index_json = serde_json::to_vec(&base_index).unwrap();
+        zip_bytes(&[("modrinth.index.json", &base_index_json)])
+    }
+
+    fn one_response_server(status: u16, content_type: &'static str, body: Vec<u8>) -> String {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0_u8; 4096];
+                let _ = stream.read(&mut buf);
+                let reason = match status {
+                    200 => "OK",
+                    404 => "Not Found",
+                    500 => "Internal Server Error",
+                    _ => "OK",
+                };
+                let headers = format!(
+                    "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(headers.as_bytes());
+                let _ = stream.write_all(&body);
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    fn approval_route_runtime(decision: serde_json::Value) -> mc_core::agent::MainAgentRuntime {
+        let body = serde_json::json!({
+            "output_text": decision.to_string(),
+        })
+        .to_string()
+        .into_bytes();
+        let base_url = one_response_server(200, "application/json", body);
+        let mut cfg = mc_core::agent::OpenAiConfig::new("test-key");
+        cfg.base_url = base_url;
+        let openai = mc_core::agent::OpenAiClient::new(cfg).unwrap();
+        mc_core::agent::MainAgentRuntime::new(openai)
+    }
+
+    fn archive_file_payload(url: &str, size: usize) -> serde_json::Value {
+        serde_json::json!({
+            "url": url,
+            "filename": "base.mrpack",
+            "sha1": null,
+            "sha512": null,
+            "size": size,
+            "primary": true,
+        })
+    }
+
+    fn execution_ready_snapshot(
+        session_id: &str,
+        base_url: &str,
+        base_size: usize,
+    ) -> AgentRunSnapshot {
+        let mut run = AgentRunSnapshot::new("make a pack");
+        run.id = session_id.to_string();
+        run.status = AgentStatus::Running;
+        run.phase = AgentPhase::ExecutionReady;
+        run.pending_approval = None;
+        run.approved_build = Some(mc_core::agent::ApprovedModpackBuild {
+            base_pack: serde_json::json!({
+                "provider": "modrinth",
+                "title": "Base Pack",
+            }),
+            target: serde_json::json!({
+                "minecraft_version": "1.20.1",
+                "loader": "fabric",
+            }),
+            extra_mods: Vec::new(),
+            execution_recipe: Some(serde_json::json!({
+                "schema_version": 1,
+                "kind": "mrpack_from_base_modpack",
+                "format": "mrpack",
+                "base_pack_ref": {
+                    "source_ref": {
+                        "archive_file": archive_file_payload(base_url, base_size)
+                    }
+                },
+                "extra_mod_refs": []
+            })),
+        });
+        run.execution = Some(AgentExecutionMetadata {
+            status: AgentExecutionStatus::NotStarted,
+            manifest: None,
+            blocked: None,
+        });
+        run
+    }
+
+    fn customization_approval_snapshot(
+        session_id: &str,
+        base_url: &str,
+        base_size: usize,
+    ) -> AgentRunSnapshot {
+        let mut run = AgentRunSnapshot::new("make a pack");
+        run.id = session_id.to_string();
+        run.status = AgentStatus::WaitingForUser;
+        run.phase = AgentPhase::ConfirmCustomizationApproval;
+        run.pending_approval = Some(ApprovalRequest {
+            id: "approval-test".to_string(),
+            kind: ApprovalKind::ConfirmCustomization,
+            title: "确认定制方案".to_string(),
+            message: "确认后可执行".to_string(),
+            options: vec![ApprovalOption {
+                id: "confirm:recommended_customization".to_string(),
+                label: "确认推荐方案".to_string(),
+                description: None,
+                payload: Some(serde_json::json!({
+                    "base_pack": {
+                        "provider": "modrinth",
+                        "title": "Base Pack"
+                    },
+                    "target": {
+                        "minecraft_version": "1.20.1",
+                        "loader": "fabric"
+                    },
+                    "extra_mods": [],
+                    "execution_recipe": {
+                        "schema_version": 1,
+                        "kind": "mrpack_from_base_modpack",
+                        "format": "mrpack",
+                        "base_pack_ref": {
+                            "source_ref": {
+                                "archive_file": archive_file_payload(base_url, base_size)
+                            }
+                        },
+                        "extra_mod_refs": []
+                    }
+                })),
+            }],
+            available_decisions: vec![
+                ApprovalDecisionSpec {
+                    kind: UserDecisionKind::Approve,
+                    label: "确认推荐方案".to_string(),
+                    requires_selected_option: true,
+                    requires_message: false,
+                },
+                ApprovalDecisionSpec {
+                    kind: UserDecisionKind::Revise,
+                    label: "修改补充 mods".to_string(),
+                    requires_selected_option: false,
+                    requires_message: true,
+                },
+            ],
+            tools: Vec::new(),
+            plan: None,
+        });
+        run
+    }
 
     #[test]
     fn default_agent_output_path_uses_agent_data_dir() {
@@ -746,6 +1070,171 @@ mod tests {
                 .join("session-123.mrpack")
         );
         assert!(output.is_absolute());
+    }
+
+    #[test]
+    fn execution_ready_next_step_points_to_explicit_execute_command() {
+        let mut run = AgentRunSnapshot::new("make a pack");
+        run.id = "session-123".to_string();
+        run.status = AgentStatus::Running;
+        run.phase = AgentPhase::ExecutionReady;
+
+        let next = execution_next_step_command(&run).expect("execution-ready next step");
+
+        assert_eq!(
+            next,
+            "mc agent execute --session-id session-123 --output <path>"
+        );
+    }
+
+    #[tokio::test]
+    async fn continue_to_execution_ready_does_not_write_artifact() {
+        let data_dir = temp_data_dir("continue-ready");
+        let session_id = "continue-ready-session";
+        let base_archive = base_archive_for_cli_execute();
+        let base_server =
+            one_response_server(200, "application/octet-stream", base_archive.clone());
+        let run = customization_approval_snapshot(
+            session_id,
+            &format!("{base_server}/base.mrpack"),
+            base_archive.len(),
+        );
+        let store = mc_core::agent::AgentSessionStore::new(&data_dir);
+        store.save_snapshot(&run).unwrap();
+        let output = default_agent_output_path(&data_dir, session_id);
+        let runtime = approval_route_runtime(serde_json::json!({
+            "decision": "approve",
+            "selected_option_id": "confirm:recommended_customization",
+            "message": null,
+            "rationale": "user confirmed"
+        }));
+
+        let next =
+            cmd_agent_continue_with_runtime(&data_dir, &runtime, session_id, "确认方案", true)
+                .await
+                .expect("continue should reach execution-ready without executing");
+
+        assert_eq!(next.status, AgentStatus::Running);
+        assert_eq!(next.phase, AgentPhase::ExecutionReady);
+        assert!(!output.exists(), "continue must not write mrpack artifacts");
+        let saved = store.load_snapshot(session_id).unwrap();
+        assert_eq!(saved.phase, AgentPhase::ExecutionReady);
+        assert_eq!(
+            execution_next_step_command(&saved).as_deref(),
+            Some("mc agent execute --session-id continue-ready-session --output <path>")
+        );
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    #[tokio::test]
+    async fn execute_writes_artifact_to_requested_output() {
+        let data_dir = temp_data_dir("execute-ready");
+        let session_id = "execute-ready-session";
+        let base_archive = base_archive_for_cli_execute();
+        let base_server =
+            one_response_server(200, "application/octet-stream", base_archive.clone());
+        let run = execution_ready_snapshot(
+            session_id,
+            &format!("{base_server}/base.mrpack"),
+            base_archive.len(),
+        );
+        let store = mc_core::agent::AgentSessionStore::new(&data_dir);
+        store.save_snapshot(&run).unwrap();
+        let output = temp_mrpack_path("explicit-output");
+
+        let next = cmd_agent_execute_with_dir(&data_dir, session_id, &output, true)
+            .await
+            .expect("execute should write requested output");
+
+        assert_eq!(next.status, AgentStatus::Completed);
+        assert!(output.exists());
+        let file = std::fs::File::open(&output).unwrap();
+        let mut archive = zip::ZipArchive::new(file).unwrap();
+        assert!(archive.by_name("modrinth.index.json").is_ok());
+        let default_output = default_agent_output_path(&data_dir, session_id);
+        assert!(
+            !default_output.exists(),
+            "execute must honor --output instead of writing the default path"
+        );
+        let _ = std::fs::remove_file(output);
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    #[tokio::test]
+    async fn execute_before_approval_returns_clear_error_without_writing() {
+        let data_dir = temp_data_dir("execute-unapproved");
+        let session_id = "unapproved-session";
+        let mut run = AgentRunSnapshot::new("make a pack");
+        run.id = session_id.to_string();
+        run.status = AgentStatus::WaitingForUser;
+        run.phase = AgentPhase::ConfirmCustomizationApproval;
+        mc_core::agent::AgentSessionStore::new(&data_dir)
+            .save_snapshot(&run)
+            .unwrap();
+        let output = temp_mrpack_path("unapproved-output");
+
+        let err = cmd_agent_execute_with_dir(&data_dir, session_id, &output, true)
+            .await
+            .expect_err("execute before approval should fail");
+
+        assert!(
+            err.to_string().contains("当前会话还没有可执行的已批准方案"),
+            "unexpected error: {err}"
+        );
+        assert!(!output.exists());
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    #[tokio::test]
+    async fn execute_completed_session_copies_existing_artifact_to_requested_output() {
+        let data_dir = temp_data_dir("execute-completed-copy");
+        let session_id = "completed-session";
+        let source = temp_mrpack_path("completed-source");
+        let output = temp_mrpack_path("completed-new-output");
+        let archive = base_archive_for_cli_execute();
+        if let Some(parent) = source.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(&source, &archive).unwrap();
+        let mut run = AgentRunSnapshot::new("make a pack");
+        run.id = session_id.to_string();
+        run.status = AgentStatus::Completed;
+        run.phase = AgentPhase::Completed;
+        run.execution = Some(AgentExecutionMetadata {
+            status: AgentExecutionStatus::Completed,
+            manifest: Some(serde_json::json!({
+                "status": "completed",
+                "format": "mrpack",
+                "output_path": source.to_string_lossy(),
+                "output_size": archive.len(),
+            })),
+            blocked: None,
+        });
+        mc_core::agent::AgentSessionStore::new(&data_dir)
+            .save_snapshot(&run)
+            .unwrap();
+
+        let next = cmd_agent_execute_with_dir(&data_dir, session_id, &output, true)
+            .await
+            .expect("completed execute should copy recorded artifact");
+
+        assert_eq!(next.status, AgentStatus::Completed);
+        assert!(output.exists());
+        let file = std::fs::File::open(&output).unwrap();
+        let mut archive = zip::ZipArchive::new(file).unwrap();
+        assert!(archive.by_name("modrinth.index.json").is_ok());
+        let manifest = next
+            .execution
+            .as_ref()
+            .and_then(|execution| execution.manifest.as_ref())
+            .expect("completed manifest should be present");
+        assert_eq!(
+            manifest.get("output_path").and_then(|v| v.as_str()),
+            Some(output.to_string_lossy().as_ref())
+        );
+        let _ = std::fs::remove_file(source);
+        let _ = std::fs::remove_file(output);
+        let _ = std::fs::remove_dir_all(data_dir);
     }
 
     #[test]
