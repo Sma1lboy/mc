@@ -1431,19 +1431,38 @@ pub async fn launch_instance(
 
         let code = status.and_then(|s| s.code());
         let success = status.map(|s| s.success()).unwrap_or(false);
+        // 异常退出时保留日志尾部,供前端崩溃面板折叠查看 + 「复制诊断」;正常退出留空。
+        let tail = if success {
+            String::new()
+        } else {
+            log_tail.lock().unwrap().join("\n")
+        };
         let analysis = if success {
             None
         } else {
-            let tail = log_tail.lock().unwrap().join("\n");
             mc_core::diagnostics::analyze_exit(code.unwrap_or(-1), &tail)
         };
-        let (reason, suggestions) = match analysis {
-            Some(a) => (Some(a.reason), a.suggestions),
-            None => (None, Vec::new()),
+        let (reason, suggestions, category, matched) = match analysis {
+            Some(a) => (
+                Some(a.reason),
+                a.suggestions,
+                Some(a.category.slug().to_string()),
+                a.matched,
+            ),
+            None => (None, Vec::new(), None, None),
         };
         let _ = app.emit(
             "game://exit",
-            GameExit { id, code, success, reason, suggestions },
+            GameExit {
+                id,
+                code,
+                success,
+                reason,
+                suggestions,
+                category,
+                matched,
+                log_tail: tail,
+            },
         );
     });
 
@@ -1506,6 +1525,12 @@ pub struct GameExit {
     reason: Option<String>,
     /// 崩溃诊断给出的可执行建议(可能为空)。
     suggestions: Vec<String>,
+    /// 崩溃类别 slug(前端据此本地化类别标签,如 `out_of_memory`);诊断命中才有。
+    category: Option<String>,
+    /// 命中的关键日志行(截断到 200 字符),作为崩溃证据展示。
+    matched: Option<String>,
+    /// 异常退出时保留的日志尾部(最近若干行,换行连接),供折叠查看与「复制诊断」;正常退出为空。
+    log_tail: String,
 }
 
 /// 前端 webview 把启动/错误信息报到这里;经全局 tracing 落进统一日志(`[client]` 前缀)。

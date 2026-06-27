@@ -19,6 +19,33 @@ export const [currentPage, setCurrentPage] = createSignal<Page>("home");
 // 让全局 keydown 处理器(util/shortcuts.ts)与 AppShell 里的 ShortcutsHelp 共享同一状态。
 export const [shortcutsHelpOpen, setShortcutsHelpOpen] = createSignal<boolean>(false);
 
+// ===== 崩溃报告 =====
+// 游戏异常退出(非零 / 被信号杀死)时,后端 game://exit 带回诊断结果,这里组装成一份
+// 可读的崩溃报告交给全局 <CrashDialog/> 展示。正常退出 / 用户主动停止不触发(report 保持 null)。
+export interface CrashReport {
+  id: string;
+  /** 实例名(从 instances 查得,查不到回落 id)。 */
+  name: string;
+  mcVersion?: string;
+  loader?: string;
+  loaderVersion?: string | null;
+  /** 退出码(被信号杀死时为 null)。 */
+  code: number | null;
+  /** 崩溃类别 slug(映射 crash.cat.<slug> 标签);诊断命中才有。 */
+  category: string | null;
+  /** 人话原因(诊断命中才有)。 */
+  reason: string | null;
+  /** 可执行建议。 */
+  suggestions: string[];
+  /** 命中的关键日志行(证据)。 */
+  matched: string | null;
+  /** 保留的日志尾部。 */
+  logTail: string;
+}
+
+const [crashReport, setCrashReport] = createSignal<CrashReport | null>(null);
+export { crashReport, setCrashReport };
+
 // Discover 内容类型:提到 store,让顶栏 TopBar 的类型标签与 Discover 页共享同一状态
 //(标签上提到顶栏后,Discover 下方就纯粹是筛选 + 内容)。默认整合包。
 export const [discoverKind, setDiscoverKind] = createSignal<ProjectKind>("modpack");
@@ -291,13 +318,26 @@ if (typeof window !== "undefined") {
     if (e.success) {
       toast({ type: "info", message: t("store.launch.exited") });
     } else {
+      // 异常退出:弹出崩溃报告弹窗(可读摘要 + 建议 + 日志尾部 + 复制诊断)。
+      const summary = (instances() ?? []).find((x) => x.id === e.id);
       const reason =
         e.reason ||
         (e.code != null
           ? t("store.launch.crashedWithCode", { code: e.code })
           : t("store.launch.crashed"));
-      const hint = e.suggestions && e.suggestions.length > 0 ? ` —— ${e.suggestions[0]}` : "";
-      toast({ type: "error", message: `${reason}${hint}` });
+      setCrashReport({
+        id: e.id,
+        name: summary?.name ?? e.id,
+        mcVersion: summary?.mc_version,
+        loader: summary?.loader,
+        loaderVersion: summary?.loader_version,
+        code: e.code,
+        category: e.category,
+        reason,
+        suggestions: e.suggestions ?? [],
+        matched: e.matched,
+        logTail: e.log_tail ?? "",
+      });
     }
   });
 }
