@@ -942,10 +942,6 @@ export const InstanceManageDialog: Component<{
     setInternalTab(next);
     props.onTabChange?.(next);
   };
-  const packKind = (): PackKind => {
-    const cur = tab();
-    return isPackTab(cur) ? cur : "resource_pack";
-  };
   // 整合包来源(modrinth)→ 多一个「概览」标签并置于首位。
   const modpackSource = () => {
     const s = cfg()?.source;
@@ -956,6 +952,15 @@ export const InstanceManageDialog: Component<{
 
   // 是否「活动」(应加载数据 / 接受拖放):弹窗模式看 open,内嵌模式只要挂载即活动。
   const active = () => props.embedded || props.open;
+
+  // keep-alive:记录已访问过的标签(惰性挂载——首访才挂,之后常驻、切走只以 display:none 隐藏)。
+  // 切走不卸载,保留面板内状态(服务器输入框 / 存档重命名草稿 / 已加载截图缩略图 / 滚动),
+  // 并避免每次切回都重新扫描磁盘。镜像 layout/AppShell 的 keep-alive 实现。
+  const [visited, setVisited] = createSignal<Set<InstanceManageTab>>(new Set());
+  createEffect(() => {
+    const cur = tab();
+    if (active() && !visited().has(cur)) setVisited((s) => new Set(s).add(cur));
+  });
 
   async function copyInstance() {
     const inst = props.instance;
@@ -1005,7 +1010,7 @@ export const InstanceManageDialog: Component<{
 
   // Mods:仅在 Mods 标签 + 弹窗打开时拉取。
   const [mods, { refetch: refetchMods }] = createResource(
-    () => (active() && props.instance && tab() === "mods" ? props.instance.id : false),
+    () => (active() && props.instance && visited().has("mods") ? props.instance.id : false),
     (id) => api.instanceMods(activeRoot(), id as string),
   );
 
@@ -1295,12 +1300,17 @@ export const InstanceManageDialog: Component<{
 
         <div class="flex-1 min-h-0 p-[20px] flex flex-col gap-[14px] overflow-y-auto">
           {/* ---- 概览(整合包来源)---- */}
-          <Show when={tab() === "overview" && modpackSource()}>
-            {(s) => <ModpackOverview projectId={s().project_id} />}
+          <Show when={visited().has("overview") && modpackSource()}>
+            {(s) => (
+              <div classList={{ hidden: tab() !== "overview" }}>
+                <ModpackOverview projectId={s().project_id} />
+              </div>
+            )}
           </Show>
 
           {/* ---- 设置 ---- */}
-          <Show when={tab() === "settings"}>
+          <Show when={visited().has("settings")}>
+            <div class="flex flex-col gap-[14px]" classList={{ hidden: tab() !== "settings" }}>
             <Show
               when={cfg()}
               fallback={
@@ -1438,13 +1448,14 @@ export const InstanceManageDialog: Component<{
                 </>
               )}
             </Show>
+            </div>
           </Show>
 
           {/* ---- Mods ---- */}
-          <Show when={tab() === "mods"}>
+          <Show when={visited().has("mods")}>
             {/* 从 Modrinth 搜索并安装(按本实例的 MC 版本 + 加载器过滤)。
                 搜索体验复用 <ContentBrowser>;「添加」装最新兼容版,点击行打开详情。 */}
-            <div class="flex flex-col gap-[8px]">
+            <div class="flex flex-col gap-[8px]" classList={{ hidden: tab() !== "mods" }}>
               <Show
                 when={searchLoader() !== null}
                 fallback={
@@ -1458,7 +1469,7 @@ export const InstanceManageDialog: Component<{
                 }
               >
                 <Show
-                  when={browsing()}
+                  when={tab() === "mods" && browsing()}
                   fallback={
                     <>
                       {/* 默认:「已安装」标题行,右侧聚拢动作(打开目录 + 检查更新 + 紧凑「添加」)。 */}
@@ -1629,59 +1640,79 @@ export const InstanceManageDialog: Component<{
           </Show>
 
           {/* ---- 资源包 / 光影 / 数据包 ---- */}
-          <Show when={isPackTab(tab()) && props.instance}>
+          {/* keep-alive:三个 pack 标签各自独立常驻,browse 只对当前激活的 pack 标签生效
+              (隐藏面板不应跟着进浏览态、误触发搜索)。 */}
+          <Show when={visited().has("resource_pack") && props.instance}>
             {(inst) => (
-              <>
-                <Show when={packKind() === "resource_pack"}>
-                  <PacksPanel
-                    instance={inst()}
-                    kind="resource_pack"
-                    searchKind="resourcepack"
-                    emptyHint={t("instance.emptyResourcePack")}
-                    tick={importTick()}
-                    browse={browsing()}
-                    onBrowse={setBrowsing}
-                  />
-                </Show>
-                <Show when={packKind() === "shader"}>
-                  <PacksPanel
-                    instance={inst()}
-                    kind="shader"
-                    searchKind="shader"
-                    emptyHint={t("instance.emptyShader")}
-                    tick={importTick()}
-                    browse={browsing()}
-                    onBrowse={setBrowsing}
-                  />
-                </Show>
-                <Show when={packKind() === "datapack"}>
-                  <PacksPanel
-                    instance={inst()}
-                    kind="datapack"
-                    searchKind="datapack"
-                    emptyHint={t("instance.emptyDatapack")}
-                    tick={importTick()}
-                    browse={browsing()}
-                    onBrowse={setBrowsing}
-                  />
-                </Show>
-              </>
+              <div classList={{ hidden: tab() !== "resource_pack" }}>
+                <PacksPanel
+                  instance={inst()}
+                  kind="resource_pack"
+                  searchKind="resourcepack"
+                  emptyHint={t("instance.emptyResourcePack")}
+                  tick={importTick()}
+                  browse={tab() === "resource_pack" && browsing()}
+                  onBrowse={setBrowsing}
+                />
+              </div>
+            )}
+          </Show>
+          <Show when={visited().has("shader") && props.instance}>
+            {(inst) => (
+              <div classList={{ hidden: tab() !== "shader" }}>
+                <PacksPanel
+                  instance={inst()}
+                  kind="shader"
+                  searchKind="shader"
+                  emptyHint={t("instance.emptyShader")}
+                  tick={importTick()}
+                  browse={tab() === "shader" && browsing()}
+                  onBrowse={setBrowsing}
+                />
+              </div>
+            )}
+          </Show>
+          <Show when={visited().has("datapack") && props.instance}>
+            {(inst) => (
+              <div classList={{ hidden: tab() !== "datapack" }}>
+                <PacksPanel
+                  instance={inst()}
+                  kind="datapack"
+                  searchKind="datapack"
+                  emptyHint={t("instance.emptyDatapack")}
+                  tick={importTick()}
+                  browse={tab() === "datapack" && browsing()}
+                  onBrowse={setBrowsing}
+                />
+              </div>
             )}
           </Show>
 
           {/* ---- 存档 ---- */}
-          <Show when={tab() === "worlds" && props.instance}>
-            {(inst) => <WorldsPanel instance={inst()} tick={worldTick()} />}
+          <Show when={visited().has("worlds") && props.instance}>
+            {(inst) => (
+              <div classList={{ hidden: tab() !== "worlds" }}>
+                <WorldsPanel instance={inst()} tick={worldTick()} />
+              </div>
+            )}
           </Show>
 
           {/* ---- 多人服务器(servers.dat) ---- */}
-          <Show when={tab() === "servers" && props.instance}>
-            {(inst) => <ServersPanel instance={inst()} />}
+          <Show when={visited().has("servers") && props.instance}>
+            {(inst) => (
+              <div class="h-full min-h-0" classList={{ hidden: tab() !== "servers" }}>
+                <ServersPanel instance={inst()} />
+              </div>
+            )}
           </Show>
 
           {/* ---- 截图 ---- */}
-          <Show when={tab() === "screenshots" && props.instance}>
-            {(inst) => <ScreenshotsPanel instance={inst()} />}
+          <Show when={visited().has("screenshots") && props.instance}>
+            {(inst) => (
+              <div classList={{ hidden: tab() !== "screenshots" }}>
+                <ScreenshotsPanel instance={inst()} />
+              </div>
+            )}
           </Show>
         </div>
 
