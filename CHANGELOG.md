@@ -9,6 +9,8 @@ To cut a release, move the `[Unreleased]` notes into a stamped version section w
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-06-27
+
 ## [0.1.2] - 2026-06-27
 
 ## [0.1.1] - 2026-06-23
