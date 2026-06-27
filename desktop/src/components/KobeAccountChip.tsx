@@ -1,5 +1,6 @@
 import { Component, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { Button } from "./Button";
+import { Checkbox } from "./Checkbox";
 import { Icon } from "./Icon";
 import { LinkedAccountsSection } from "./LinkedAccountsSection";
 import { kobeUser, kobeLogin, kobeSignup, kobeLogout, kobeDisplayName } from "../store";
@@ -171,33 +172,23 @@ const LoginForm: Component<{ onDone: () => void }> = (props) => {
         onInput={(ev) => setPassword(ev.currentTarget.value)}
       />
       {/* 记住密码 / 自动登录(自动登录隐含记住密码)。 */}
-      <div class="flex items-center gap-[16px] text-[12px] text-muted">
-        <label class="inline-flex items-center gap-[6px] cursor-pointer select-none">
-          <input
-            type="checkbox"
-            class="accent-accent cursor-pointer"
-            checked={remember()}
-            onChange={(ev) => {
-              const v = ev.currentTarget.checked;
-              setRemember(v);
-              if (!v) setAuto(false);
-            }}
-          />
-          {t("kobe.rememberPassword")}
-        </label>
-        <label class="inline-flex items-center gap-[6px] cursor-pointer select-none">
-          <input
-            type="checkbox"
-            class="accent-accent cursor-pointer"
-            checked={auto()}
-            onChange={(ev) => {
-              const v = ev.currentTarget.checked;
-              setAuto(v);
-              if (v) setRemember(true);
-            }}
-          />
-          {t("kobe.autoLogin")}
-        </label>
+      <div class="flex items-center gap-[16px]">
+        <Checkbox
+          label={t("kobe.rememberPassword")}
+          checked={remember()}
+          onChange={(v) => {
+            setRemember(v);
+            if (!v) setAuto(false);
+          }}
+        />
+        <Checkbox
+          label={t("kobe.autoLogin")}
+          checked={auto()}
+          onChange={(v) => {
+            setAuto(v);
+            if (v) setRemember(true);
+          }}
+        />
       </div>
       <Show when={error()}>
         <p class="text-[12px] text-danger-text">{error()}</p>
