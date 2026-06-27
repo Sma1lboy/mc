@@ -31,7 +31,7 @@ import { Select } from "./Select";
 import { toast } from "./Toast";
 import { api, onInstallProgress } from "../ipc/api";
 import { openInstanceDir, openInstanceSubdir } from "../util/instanceActions";
-import { activeRoot, openInstance, isRunning } from "../store";
+import { activeRoot, openInstance, isRunning, socialEnabled, isKobeSignedIn } from "../store";
 import { t } from "../i18n";
 import type {
   InstanceConfig,
@@ -951,7 +951,8 @@ export const InstanceManageDialog: Component<{
   };
   // 领域实例:多一个「领域」标签置于首位(领域同步 / 成员管理),并把「设置」降到末尾
   // (服务器与截图之间)—— 领域成员的主线是同步,设置是次要项。非领域沿用原顺序。
-  const isRealm = () => !!props.instance?.realm;
+  // 仅在「社交开启 + 已登录 kobeMC」时才把领域当作领域(否则隐藏领域 tab,与顶栏社交入口一致)。
+  const isRealm = () => !!props.instance?.realm && socialEnabled() && isKobeSignedIn();
   const visibleTabs = (): { key: InstanceManageTab; label: string }[] => {
     if (isRealm()) {
       return [
