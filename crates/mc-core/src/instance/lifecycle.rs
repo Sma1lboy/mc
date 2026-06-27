@@ -83,6 +83,65 @@ pub async fn create_instance(
     Ok(instance_id)
 }
 
+/// 加入领域时建一个**薄存根**实例:只写 `instance.json`(展示名 + realm 绑定),不装核心。
+/// 返回新实例 id。核心(版本 + loader + mods)留给「开始同步」([`materialize_core`] + 领域同步)。
+/// 这样「加入」是即时的轻动作,重活由用户显式触发。
+pub fn create_realm_shell(
+    paths: &GamePaths,
+    name: &str,
+    realm: crate::types::RealmRef,
+    default_memory_mb: u32,
+    default_java_path: Option<String>,
+) -> Result<String> {
+    let instance_id = unique_instance_id(paths, name);
+    let inst = Instance::new(&instance_id, paths.root().to_path_buf());
+    inst.save_config(&InstanceConfig {
+        name: Some(name.to_string()),
+        memory_mb: if default_memory_mb > 0 { default_memory_mb } else { InstanceConfig::default().memory_mb },
+        java_path: default_java_path.filter(|p| !p.is_empty()),
+        realm: Some(realm),
+        ..InstanceConfig::default()
+    })?;
+    Ok(instance_id)
+}
+
+/// 给一个已有(薄存根)实例装核心:装原版 + 可选 loader,并把实例自身写成可启动版本
+/// json(`{ id, inheritsFrom: core_id }`)。**幂等**:已装(版本 json 已存在)直接返回。
+/// 供「开始同步」首段调用(装核心 → 再下 mods)。
+pub async fn materialize_core(
+    dl: &Downloader,
+    paths: &GamePaths,
+    instance_id: &str,
+    mc_version: &str,
+    loader: Option<(LoaderKind, String)>,
+    progress: Option<watch::Sender<Progress>>,
+) -> Result<()> {
+    if paths.version_json(instance_id).exists() {
+        return Ok(()); // 已装核心,幂等。
+    }
+    let core_id = crate::loader::install_core(dl, paths, mc_version, loader.as_ref(), progress).await?;
+    if instance_id != core_id {
+        let json = serde_json::json!({ "id": instance_id, "inheritsFrom": core_id });
+        let raw = serde_json::to_string_pretty(&json)
+            .map_err(|e| CoreError::Parse { what: "instance version json".into(), source: e })?;
+        crate::fs::write_atomic(&paths.version_json(instance_id), raw.as_bytes())?;
+    }
+    Ok(())
+}
+
+/// 在一个已有实例上写入 / 清除领域绑定:host「分享为领域」时写入(role=owner),
+/// 退出 / 解散时清除(传 `None`)。保留其余配置不变。
+pub fn set_instance_realm(
+    paths: &GamePaths,
+    instance_id: &str,
+    realm: Option<crate::types::RealmRef>,
+) -> Result<()> {
+    let inst = Instance::new(instance_id, paths.root().to_path_buf());
+    let mut cfg = InstanceConfig::load(&inst.config_path()).unwrap_or_default();
+    cfg.realm = realm;
+    inst.save_config(&cfg)
+}
+
 /// 由展示名推一个文件系统安全、且当前 root 下唯一的实例 id(= 目录名)。
 fn unique_instance_id(paths: &GamePaths, name: &str) -> String {
     let base = slugify_instance_id(name);

@@ -276,20 +276,23 @@ export const commands = {
 	realmList: () => typedError<RealmSummary[], string>(__TAURI_INVOKE("realm_list")),
 	/**  A single realm's summary. */
 	realmGet: (realmId: string) => typedError<RealmSummary, string>(__TAURI_INVOKE("realm_get", { realmId })),
-	/**  Create a realm seeded from an instance's current mods. */
+	/**
+	 *  Share an instance as a realm: create it from the instance's current mods, then
+	 *  stamp the realm binding onto that instance (host = owner). Returns the summary.
+	 */
 	realmCreate: (root: string, instanceId: string, name: string, mcVersion: string, loader: string, loaderVersion: string | null, expiresInSecs: number | null) => typedError<RealmSummary, string>(__TAURI_INVOKE("realm_create", { root, instanceId, name, mcVersion, loader, loaderVersion, expiresInSecs })),
-	/**  Join a realm by code. `None` ⇒ the code is unknown/expired. */
-	realmJoin: (code: string) => typedError<{
-	id: string,
-	code: string,
-	name: string,
-	owner_id: string,
-	mc_version?: string | null,
-	loader?: string | null,
-	manifest_version: number,
-	role: string,
-	expires_at?: string | null,
-} | null, string>(__TAURI_INVOKE("realm_join", { code })),
+	/**
+	 *  Join a realm by code and create a **pending** local instance bound to it (no
+	 *  core installed yet — that's "begin"). Returns the new instance id, or `None`
+	 *  if the code is unknown/expired.
+	 */
+	realmJoin: (root: string, code: string) => typedError<string | null, string>(__TAURI_INVOKE("realm_join", { root, code })),
+	/**
+	 *  "Begin": for a freshly-joined (pending) instance, install the core (version +
+	 *  loader from the manifest) then download the realm's mods. Idempotent on the
+	 *  core. Progress streams over `realm://sync-progress`.
+	 */
+	realmBegin: (realmId: string, root: string, instanceId: string) => typedError<SyncReport, string>(__TAURI_INVOKE("realm_begin", { realmId, root, instanceId })),
 	/**  Member list (with synced-version progress). */
 	realmMembers: (realmId: string) => typedError<RealmMember[], string>(__TAURI_INVOKE("realm_members", { realmId })),
 	/**  Owner/admin republishes the manifest from an instance; returns new version. */
@@ -299,15 +302,21 @@ export const commands = {
 	/**
 	 *  Reconcile `instance_id` to the realm manifest: download missing/changed mods,
 	 *  optionally drop the ones the manifest no longer carries, then report progress
-	 *  to the server. Progress streams over `install://progress`.
+	 *  to the server. Progress streams over a dedicated `realm://sync-progress` event
+	 *  (kept off `install://progress` so it can't collide with a concurrent install).
 	 */
 	realmSync: (realmId: string, root: string, instanceId: string, removeExtras: boolean) => typedError<SyncReport, string>(__TAURI_INVOKE("realm_sync", { realmId, root, instanceId, removeExtras })),
 	/**  Owner sets a member's role (`admin`/`member`). */
 	realmSetRole: (realmId: string, userId: string, role: string) => typedError<null, string>(__TAURI_INVOKE("realm_set_role", { realmId, userId, role })),
-	/**  Self-leave, or owner removes a member. */
+	/**  Owner removes another member (their own client clears its binding locally). */
 	realmRemoveMember: (realmId: string, userId: string) => typedError<null, string>(__TAURI_INVOKE("realm_remove_member", { realmId, userId })),
-	/**  Owner disbands the realm. */
-	realmDisband: (realmId: string) => typedError<null, string>(__TAURI_INVOKE("realm_disband", { realmId })),
+	/**
+	 *  Self-leave a realm and unbind it from the local instance (the instance stays;
+	 *  if it was never synced it's just an empty shell that drops out of the list).
+	 */
+	realmLeave: (realmId: string, userId: string, root: string, instanceId: string) => typedError<null, string>(__TAURI_INVOKE("realm_leave", { realmId, userId, root, instanceId })),
+	/**  Owner disbands the realm and unbinds it from the local instance. */
+	realmDisband: (realmId: string, root: string, instanceId: string) => typedError<null, string>(__TAURI_INVOKE("realm_disband", { realmId, root, instanceId })),
 	/**
 	 *  检查某实例(由 Modrinth 整合包安装)是否有更新:返回比当前来源版本更新的版本列表。
 	 *  非整合包来源 / 非 modrinth / 缺 project_id 时返回空(前端据此不显示更新提示)。
@@ -527,6 +536,11 @@ export type InstanceConfig_Deserialize = {
 	 *  仅在由 provider 发起、已知确切项目 id 的安装时写入;URL/裸 zip 导入留 `None`。
 	 */
 	source?: InstanceSource | null,
+	/**
+	 *  该实例所属的临时领域(host 为 owner)。加入领域时写入,退出/解散时清除。
+	 *  「加入即建薄存根」模型下,realm 实例可能尚未装核心(见 list_instances 的 pending 分支)。
+	 */
+	realm?: RealmRef | null,
 };
 
 /**
@@ -557,6 +571,11 @@ export type InstanceConfig_Serialize = {
 	 *  仅在由 provider 发起、已知确切项目 id 的安装时写入;URL/裸 zip 导入留 `None`。
 	 */
 	source?: InstanceSource | null,
+	/**
+	 *  该实例所属的临时领域(host 为 owner)。加入领域时写入,退出/解散时清除。
+	 *  「加入即建薄存根」模型下,realm 实例可能尚未装核心(见 list_instances 的 pending 分支)。
+	 */
+	realm?: RealmRef | null,
 };
 
 /**  实例的整合包来源溯源:它从哪个平台的哪个项目/版本安装而来。 */
@@ -569,7 +588,7 @@ export type InstanceSource = {
 	version_id: string | null,
 };
 
-/**  A summary of an installed instance for list views. */
+/**  A summary of an instance for list views. */
 export type InstanceSummary = {
 	id: string,
 	name: string,
@@ -584,6 +603,13 @@ export type InstanceSummary = {
 	last_played?: number,
 	/**  Whether the instance is currently running. */
 	running?: boolean,
+	/**
+	 *  Whether the core (version + loader) is installed. A realm instance that's
+	 *  been joined but not yet synced is `false` — it can't launch until "begin".
+	 */
+	installed?: boolean,
+	/**  The realm this instance belongs to, if any (host = `owner`). */
+	realm?: RealmRef | null,
 };
 
 /**
@@ -798,6 +824,27 @@ export type RealmMember = {
 	role: string,
 	synced_version: number,
 	joined_at?: string | null,
+};
+
+/**
+ *  The realm an instance belongs to (临时领域), stored on the instance and
+ *  surfaced for badges + the in-instance realm panel. An instance maps to at
+ *  most one realm (1:1). For a freshly-joined instance the core isn't installed
+ *  yet — [`InstanceSummary::installed`] is false until the user hits "begin".
+ */
+export type RealmRef = {
+	realm_id: string,
+	/**  Join code (for display / re-share). */
+	code?: string | null,
+	/**  This client's role in the realm: `owner` | `admin` | `member`. */
+	role: string,
+	/**  Realm display name (cached for offline display). */
+	name?: string | null,
+	/**  Target Minecraft version (so a pending instance can install on "begin"). */
+	mc_version?: string | null,
+	/**  Target loader (`fabric` etc.) for the pending install. */
+	loader?: string | null,
+	loader_version?: string | null,
 };
 
 /**  A realm as seen by a member (includes *their* role). */

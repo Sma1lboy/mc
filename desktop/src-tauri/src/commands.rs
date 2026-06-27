@@ -1545,10 +1545,26 @@ pub async fn kobemc_logout(
 // mods the manifest no longer carries.
 
 use mc_core::realm::{CreateRealmReq, RealmManifest, RealmMember, RealmSummary, SyncPlan, SyncReport};
+use mc_core::types::RealmRef;
 
 /// Resolve an instance from a game root + id.
 fn instance_of(root: &str, id: &str) -> Instance {
     Instance::new(id, root_paths(root).root().to_path_buf())
+}
+
+/// Build the local realm binding (stored on the instance) from a server summary.
+/// `loader_version` is filled later from the manifest on "begin" — the summary
+/// doesn't carry it.
+fn realm_ref(s: &RealmSummary, role: &str) -> RealmRef {
+    RealmRef {
+        realm_id: s.id.clone(),
+        code: Some(s.code.clone()),
+        role: role.to_string(),
+        name: Some(s.name.clone()),
+        mc_version: s.mc_version.clone(),
+        loader: s.loader.clone(),
+        loader_version: None,
+    }
 }
 
 /// Build a realm manifest from a host's instance via the Modrinth provider
@@ -1587,7 +1603,8 @@ pub async fn realm_get(
     client.get_realm(&realm_id).await.map_err(err)
 }
 
-/// Create a realm seeded from an instance's current mods.
+/// Share an instance as a realm: create it from the instance's current mods, then
+/// stamp the realm binding onto that instance (host = owner). Returns the summary.
 #[tauri::command]
 #[specta::specta]
 #[allow(clippy::too_many_arguments)]
@@ -1602,20 +1619,79 @@ pub async fn realm_create(
     expires_in_secs: Option<i64>,
 ) -> CmdResult<RealmSummary> {
     let manifest = manifest_of_instance(&root, &instance_id, &mc_version, &loader, loader_version).await?;
-    client
+    let summary = client
         .create_realm(&CreateRealmReq { name, expires_in_secs, manifest })
         .await
-        .map_err(err)
+        .map_err(err)?;
+    let paths = root_paths(&root);
+    let _ = mc_core::instance::lifecycle::set_instance_realm(
+        &paths,
+        &instance_id,
+        Some(realm_ref(&summary, "owner")),
+    );
+    Ok(summary)
 }
 
-/// Join a realm by code. `None` ⇒ the code is unknown/expired.
+/// Join a realm by code and create a **pending** local instance bound to it (no
+/// core installed yet — that's "begin"). Returns the new instance id, or `None`
+/// if the code is unknown/expired.
 #[tauri::command]
 #[specta::specta]
 pub async fn realm_join(
     client: State<'_, mc_core::server::ServerClient>,
+    root: String,
     code: String,
-) -> CmdResult<Option<RealmSummary>> {
-    client.join_realm(code.trim()).await.map_err(err)
+) -> CmdResult<Option<String>> {
+    let Some(summary) = client.join_realm(code.trim()).await.map_err(err)? else {
+        return Ok(None);
+    };
+    let paths = root_paths(&root);
+    let g = settings_global();
+    let id = mc_core::instance::lifecycle::create_realm_shell(
+        &paths,
+        &summary.name,
+        realm_ref(&summary, &summary.role),
+        g.default_memory_mb,
+        g.java_path.clone(),
+    )
+    .map_err(err)?;
+    Ok(Some(id))
+}
+
+/// "Begin": for a freshly-joined (pending) instance, install the core (version +
+/// loader from the manifest) then download the realm's mods. Idempotent on the
+/// core. Progress streams over `realm://sync-progress`.
+#[tauri::command]
+#[specta::specta]
+pub async fn realm_begin(
+    app: AppHandle,
+    client: State<'_, mc_core::server::ServerClient>,
+    realm_id: String,
+    root: String,
+    instance_id: String,
+) -> CmdResult<SyncReport> {
+    let paths = root_paths(&root);
+    let inst = instance_of(&root, &instance_id);
+    let manifest = client.realm_manifest(&realm_id).await.map_err(err)?;
+    let dl = make_downloader()?;
+    let (tx, rx) = watch::channel(Progress::new("准备"));
+    forward_progress(app, "realm://sync-progress", rx);
+
+    // 1) install the core (version + loader) — idempotent.
+    let mc_version = manifest.mc_version.clone().unwrap_or_default();
+    let loader_opt = match parse_loader_kind(manifest.loader.as_deref().unwrap_or("")) {
+        None | Some(mc_core::types::LoaderKind::Vanilla) => None,
+        Some(kind) => Some((kind, manifest.loader_version.clone().unwrap_or_default())),
+    };
+    mc_core::instance::lifecycle::materialize_core(&dl, &paths, &instance_id, &mc_version, loader_opt, Some(tx.clone()))
+        .await
+        .map_err(err)?;
+
+    // 2) download the realm's mods.
+    let plan = mc_core::realm::plan_sync(&inst, &manifest);
+    let report = mc_core::realm::apply_sync(&inst, &dl, &plan, false, Some(tx)).await.map_err(err)?;
+    let _ = client.mark_realm_synced(&realm_id, report.version).await;
+    Ok(report)
 }
 
 /// Member list (with synced-version progress).
@@ -1697,7 +1773,7 @@ pub async fn realm_set_role(
     client.set_member_role(&realm_id, &user_id, &role).await.map_err(err)
 }
 
-/// Self-leave, or owner removes a member.
+/// Owner removes another member (their own client clears its binding locally).
 #[tauri::command]
 #[specta::specta]
 pub async fn realm_remove_member(
@@ -1708,14 +1784,36 @@ pub async fn realm_remove_member(
     client.remove_member(&realm_id, &user_id).await.map_err(err)
 }
 
-/// Owner disbands the realm.
+/// Self-leave a realm and unbind it from the local instance (the instance stays;
+/// if it was never synced it's just an empty shell that drops out of the list).
+#[tauri::command]
+#[specta::specta]
+pub async fn realm_leave(
+    client: State<'_, mc_core::server::ServerClient>,
+    realm_id: String,
+    user_id: String,
+    root: String,
+    instance_id: String,
+) -> CmdResult<()> {
+    client.remove_member(&realm_id, &user_id).await.map_err(err)?;
+    let paths = root_paths(&root);
+    let _ = mc_core::instance::lifecycle::set_instance_realm(&paths, &instance_id, None);
+    Ok(())
+}
+
+/// Owner disbands the realm and unbinds it from the local instance.
 #[tauri::command]
 #[specta::specta]
 pub async fn realm_disband(
     client: State<'_, mc_core::server::ServerClient>,
     realm_id: String,
+    root: String,
+    instance_id: String,
 ) -> CmdResult<()> {
-    client.disband_realm(&realm_id).await.map_err(err)
+    client.disband_realm(&realm_id).await.map_err(err)?;
+    let paths = root_paths(&root);
+    let _ = mc_core::instance::lifecycle::set_instance_realm(&paths, &instance_id, None);
+    Ok(())
 }
 
 // --- modpack import / export (thin glue over mc_core::modpack) ---------------

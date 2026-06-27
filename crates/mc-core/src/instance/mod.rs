@@ -389,12 +389,61 @@ pub fn list_instances(paths: &GamePaths) -> Vec<InstanceSummary> {
             icon: detect_icon(dir), // versions/<id>/icon.png(导入器写入)→ data URL,无则 None。
             last_played: last_played_for(dir),
             running: false, // 运行态由上层进程管理器维护,列表层不感知。
+            installed: true,
+            realm: config.realm.clone(),
         });
+    }
+
+    // 第三遍:领域「薄存根」—— 加入领域即写 instance.json(带 realm 绑定)但尚未装核心
+    //(无 `<id>/<id>.json`)。这类目录不在 collected 里,这里补成 **pending**(installed=false)
+    // 实例,让库里看得到并提供「开始同步」入口;启动被上层拦下,直到 begin 装好核心。
+    if let Ok(entries) = std::fs::read_dir(&versions_dir) {
+        for entry in entries.flatten() {
+            let dir = entry.path();
+            if !dir.is_dir() {
+                continue;
+            }
+            let dir_id = match dir.file_name().and_then(|n| n.to_str()) {
+                Some(s) if !s.is_empty() => s.to_string(),
+                _ => continue,
+            };
+            // 已装核心(有版本 json)的已在上面处理过,跳过。
+            if paths.version_json(&dir_id).exists() {
+                continue;
+            }
+            let Ok(config) = InstanceConfig::load(&dir.join(INSTANCE_CONFIG_FILE)) else {
+                continue;
+            };
+            let Some(realm) = config.realm.clone() else { continue };
+            out.push(InstanceSummary {
+                id: dir_id.clone(),
+                name: config.name.clone().filter(|s| !s.is_empty()).unwrap_or_else(|| dir_id.clone()),
+                mc_version: realm.mc_version.clone().unwrap_or_default(),
+                loader: loader_kind_from_str(realm.loader.as_deref()),
+                loader_version: realm.loader_version.clone(),
+                icon: detect_icon(&dir),
+                last_played: 0,
+                running: false,
+                installed: false,
+                realm: Some(realm),
+            });
+        }
     }
 
     // 稳定排序:按 id 字典序,保证列表展示顺序确定。
     out.sort_by(|a, b| a.id.cmp(&b.id));
     out
+}
+
+/// 领域薄存根的 loader 字符串 → [`LoaderKind`](mc_types::LoaderKind)(未知 / 缺省视作原版)。
+fn loader_kind_from_str(s: Option<&str>) -> LoaderKind {
+    match s.unwrap_or("").to_ascii_lowercase().as_str() {
+        "fabric" => LoaderKind::Fabric,
+        "quilt" => LoaderKind::Quilt,
+        "forge" => LoaderKind::Forge,
+        "neoforge" => LoaderKind::NeoForge,
+        _ => LoaderKind::Vanilla,
+    }
 }
 
 #[cfg(test)]
