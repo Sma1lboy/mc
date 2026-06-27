@@ -16,6 +16,7 @@ import { Dialog } from "./Dialog";
 import { InstanceIcon } from "./InstanceIcon";
 import Lightbox from "./Lightbox";
 import ServersPanel from "./ServersPanel";
+import { RealmPanel } from "./RealmPanel";
 import { ContentBrowser, type ContentProvider } from "./ContentBrowser";
 import { ErrorState } from "./ErrorState";
 import { ACCENT_BTN_COMPACT, ACCENT_BTN } from "./styles";
@@ -60,6 +61,7 @@ const TAB =
 const TAB_ACTIVE = "!text-accent !border-b-accent";
 
 export type InstanceManageTab =
+  | "realm"
   | "overview"
   | "settings"
   | "mods"
@@ -947,8 +949,26 @@ export const InstanceManageDialog: Component<{
     const s = cfg()?.source;
     return s && s.provider === "modrinth" ? s : null;
   };
-  const visibleTabs = (): { key: InstanceManageTab; label: string }[] =>
-    modpackSource() ? [{ key: "overview", label: t("instance.tabOverview") }, ...TABS()] : TABS();
+  // 领域实例:多一个「领域」标签置于首位(领域同步 / 成员管理),并把「设置」降到末尾
+  // (服务器与截图之间)—— 领域成员的主线是同步,设置是次要项。非领域沿用原顺序。
+  const isRealm = () => !!props.instance?.realm;
+  const visibleTabs = (): { key: InstanceManageTab; label: string }[] => {
+    if (isRealm()) {
+      return [
+        { key: "realm", label: t("instance.tabRealm") },
+        ...(modpackSource() ? [{ key: "overview" as const, label: t("instance.tabOverview") }] : []),
+        { key: "mods", label: t("instance.tabMods") },
+        { key: "resource_pack", label: t("instance.tabResourcePack") },
+        { key: "shader", label: t("instance.tabShader") },
+        { key: "datapack", label: t("instance.tabDatapack") },
+        { key: "worlds", label: t("instance.tabWorlds") },
+        { key: "servers", label: t("instance.tabServers") },
+        { key: "settings", label: t("instance.tabSettings") },
+        { key: "screenshots", label: t("instance.tabScreenshots") },
+      ];
+    }
+    return modpackSource() ? [{ key: "overview", label: t("instance.tabOverview") }, ...TABS()] : TABS();
+  };
 
   // 是否「活动」(应加载数据 / 接受拖放):弹窗模式看 open,内嵌模式只要挂载即活动。
   const active = () => props.embedded || props.open;
@@ -993,9 +1013,11 @@ export const InstanceManageDialog: Component<{
         .getInstanceConfig(activeRoot(), inst.id)
         .then((c) => {
           setCfg(c);
-          // 整合包来源实例默认落在「概览」标签(仅非受控时)。
+          // 默认标签(仅非受控时):领域实例落「领域」,整合包来源落「概览」,其余落「设置」。
           if (props.tab === undefined)
-            setInternalTab(c.source?.provider === "modrinth" ? "overview" : "settings");
+            setInternalTab(
+              isRealm() ? "realm" : c.source?.provider === "modrinth" ? "overview" : "settings",
+            );
         })
         .catch((e) => toast({ type: "error", message: t("instance.readConfigFailed", { err: String(e) }) }));
       // 系统内存只取一次;推荐值按本实例 mod 数计算,随实例变化。
@@ -1299,6 +1321,15 @@ export const InstanceManageDialog: Component<{
         </Show>
 
         <div class="flex-1 min-h-0 p-[20px] flex flex-col gap-[14px] overflow-y-auto">
+          {/* ---- 领域(同步 / 成员;领域实例的主标签)---- */}
+          <Show when={visited().has("realm") && isRealm() && props.instance}>
+            {(i) => (
+              <div classList={{ hidden: tab() !== "realm" }}>
+                <RealmPanel instance={i()} onChanged={() => props.onChanged?.()} />
+              </div>
+            )}
+          </Show>
+
           {/* ---- 概览(整合包来源)---- */}
           <Show when={visited().has("overview") && modpackSource()}>
             {(s) => (

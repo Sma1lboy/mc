@@ -11,6 +11,7 @@ const dict = {
     backToInstalled: "← 返回已安装",
 
     // tab 标签
+    tabRealm: "领域",
     tabOverview: "概览",
     tabSettings: "设置",
     tabMods: "Mods",
@@ -227,6 +228,7 @@ const dict = {
     add: "+ Add",
     backToInstalled: "← Back to installed",
 
+    tabRealm: "Realm",
     tabOverview: "Overview",
     tabSettings: "Settings",
     tabMods: "Mods",

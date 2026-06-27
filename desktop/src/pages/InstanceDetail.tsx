@@ -370,8 +370,9 @@ const InstanceDetail: Component = () => {
       </div>
       </Show>
 
-      {/* 领域段:分享为领域 / 开始同步(pending)/ 管理(成员·同步·清单)。社交关闭时隐藏。 */}
-      <Show when={socialEnabled() && !browsing() && inst()}>
+      {/* 非领域实例:「分享为领域」入口(块状,置于 tabs 上方)。
+          领域实例的同步 / 成员管理已移进 tabs 里的「领域」标签(InstanceManageDialog)。 */}
+      <Show when={socialEnabled() && !browsing() && !inst()?.realm && inst()}>
         {(i) => (
           <div class="shrink-0 border-b border-titlebar overflow-y-auto max-h-[55vh]">
             <RealmPanel instance={i()} onChanged={() => void refetch()} />
