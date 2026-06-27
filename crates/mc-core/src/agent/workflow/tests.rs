@@ -1755,7 +1755,12 @@ fn exec_compile_metadata_merges_base_index_and_extra_mod_refs() {
         })),
     };
 
-    let metadata = compile_mrpack_execution_metadata(&approved, &base_index).unwrap();
+    let metadata = compile_mrpack_execution_metadata(
+        &approved,
+        &base_index,
+        &std::collections::HashMap::new(),
+    )
+    .unwrap();
 
     assert_eq!(
         metadata.get("status").and_then(|v| v.as_str()),
@@ -1792,6 +1797,119 @@ fn exec_compile_metadata_merges_base_index_and_extra_mod_refs() {
         .as_ref()
         .and_then(|v| v.get("extra_remote_files"))
         .is_none());
+}
+
+#[test]
+fn exec_compile_metadata_applies_base_file_env_overrides() {
+    use std::collections::HashMap;
+
+    use crate::modpack::formats::mrpack::{
+        EnvSupport, MrpackDependencies, MrpackEnv, MrpackFile, MrpackHashes,
+    };
+
+    let base_index = MrpackIndex {
+        format_version: 1,
+        game: "minecraft".to_string(),
+        version_id: "base-1.0.0".to_string(),
+        name: "Base Pack".to_string(),
+        summary: None,
+        dependencies: MrpackDependencies {
+            minecraft: Some("1.20.1".to_string()),
+            fabric_loader: Some("0.15.7".to_string()),
+            ..Default::default()
+        },
+        files: vec![
+            MrpackFile {
+                path: "mods/client.jar".to_string(),
+                hashes: MrpackHashes {
+                    sha512: "client-sha512".to_string(),
+                    sha1: None,
+                },
+                env: None,
+                downloads: vec![
+                    "https://cdn.modrinth.com/data/client-project/versions/v/client.jar"
+                        .to_string(),
+                ],
+                file_size: Some(100),
+            },
+            MrpackFile {
+                path: "mods/fallback.jar".to_string(),
+                hashes: MrpackHashes {
+                    sha512: "fallback-sha512".to_string(),
+                    sha1: None,
+                },
+                env: None,
+                downloads: vec![
+                    "https://cdn.modrinth.com/data/fallback-project/versions/v/fallback.jar"
+                        .to_string(),
+                ],
+                file_size: Some(100),
+            },
+            MrpackFile {
+                path: "mods/explicit.jar".to_string(),
+                hashes: MrpackHashes {
+                    sha512: "explicit-sha512".to_string(),
+                    sha1: None,
+                },
+                env: Some(MrpackEnv {
+                    client: EnvSupport::Optional,
+                    server: EnvSupport::Unsupported,
+                }),
+                downloads: vec![
+                    "https://cdn.modrinth.com/data/explicit-project/versions/v/explicit.jar"
+                        .to_string(),
+                ],
+                file_size: Some(100),
+            },
+        ],
+    };
+    let approved = ApprovedModpackBuild {
+        base_pack: serde_json::json!({ "title": "Base Pack" }),
+        target: serde_json::json!({ "minecraft_version": "1.20.1", "loader": "fabric" }),
+        extra_mods: Vec::new(),
+        execution_recipe: Some(serde_json::json!({
+            "schema_version": 1,
+            "kind": "mrpack_from_base_modpack",
+            "format": "mrpack",
+            "extra_mod_refs": []
+        })),
+    };
+    let env_overrides = HashMap::from([(
+        "mods/client.jar".to_string(),
+        (
+            ProjectSideSupport::Required,
+            ProjectSideSupport::Unsupported,
+        ),
+    )]);
+
+    let metadata =
+        compile_mrpack_execution_metadata(&approved, &base_index, &env_overrides).unwrap();
+    let files = metadata
+        .get("output_index")
+        .and_then(|v| v.get("files"))
+        .and_then(|v| v.as_array())
+        .expect("output files should be present");
+    let env_for = |path: &str| {
+        files
+            .iter()
+            .find(|file| file.get("path").and_then(|v| v.as_str()) == Some(path))
+            .and_then(|file| file.get("env"))
+            .cloned()
+            .expect("file env should be present")
+    };
+
+    assert_eq!(
+        env_for("mods/client.jar"),
+        serde_json::json!({ "client": "required", "server": "unsupported" })
+    );
+    assert_eq!(
+        env_for("mods/fallback.jar"),
+        serde_json::json!({ "client": "required", "server": "required" })
+    );
+    assert_eq!(
+        env_for("mods/explicit.jar"),
+        serde_json::json!({ "client": "optional", "server": "unsupported" })
+    );
 }
 
 #[test]
@@ -1843,7 +1961,12 @@ fn exec_compile_metadata_sanitizes_override_source_paths() {
         })),
     };
 
-    let metadata = compile_mrpack_execution_metadata(&approved, &base_index).unwrap();
+    let metadata = compile_mrpack_execution_metadata(
+        &approved,
+        &base_index,
+        &std::collections::HashMap::new(),
+    )
+    .unwrap();
     let source = metadata
         .get("extra_override_sources")
         .and_then(|v| v.as_array())
