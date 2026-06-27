@@ -1026,6 +1026,58 @@ pub async fn refresh_account() -> CmdResult<bool> {
         .map_err(err)
 }
 
+// --- skin / cape management (Microsoft accounts only) --------------------
+
+/// 解析指定 uuid 账号的 Minecraft access token。仅微软账号有皮肤 API;
+/// 离线 / 外置账号返回清晰错误(占位 token 用不了 profile 端点)。
+fn mc_access_token(uuid: &str) -> CmdResult<String> {
+    let store = AccountStore::load(accounts_path()).map_err(err)?;
+    let acc = store
+        .accounts()
+        .iter()
+        .find(|a| a.uuid == uuid)
+        .ok_or_else(|| format!("账号 {uuid} 不存在"))?;
+    if acc.kind != AccountKind::Microsoft {
+        return Err("只有微软正版账号才能管理皮肤与披风".to_string());
+    }
+    if acc.access_token.is_empty() || acc.access_token == "0" {
+        return Err("该账号缺少有效的登录令牌,请重新登录微软账号".to_string());
+    }
+    Ok(acc.access_token.clone())
+}
+
+/// 读取某微软账号的皮肤 / 披风资料。
+#[tauri::command]
+#[specta::specta]
+pub async fn skin_profile(account_uuid: String) -> CmdResult<mc_core::skin::ProfileSkins> {
+    let token = mc_access_token(&account_uuid)?;
+    mc_core::skin::fetch_profile(&token).await.map_err(err)
+}
+
+/// 上传本地 PNG 作为新皮肤。`variant` 为 `classic` / `slim`。返回更新后的资料。
+#[tauri::command]
+#[specta::specta]
+pub async fn skin_upload(
+    account_uuid: String,
+    path: String,
+    variant: String,
+) -> CmdResult<mc_core::skin::ProfileSkins> {
+    let token = mc_access_token(&account_uuid)?;
+    let bytes = std::fs::read(&path).map_err(|e| format!("读取皮肤文件失败:{e}"))?;
+    mc_core::skin::upload_skin(&token, &bytes, &variant).await.map_err(err)
+}
+
+/// 设置当前披风(`Some`)或隐藏披风(`None`)。返回更新后的资料。
+#[tauri::command]
+#[specta::specta]
+pub async fn skin_set_cape(
+    account_uuid: String,
+    cape_id: Option<String>,
+) -> CmdResult<mc_core::skin::ProfileSkins> {
+    let token = mc_access_token(&account_uuid)?;
+    mc_core::skin::set_cape(&token, cape_id.as_deref()).await.map_err(err)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn detect_java() -> CmdResult<Vec<JavaDto>> {

@@ -154,6 +154,12 @@ export const commands = {
 	 *  失败(refresh_token 失效)时返回错误,UI 据此提示重新登录。
 	 */
 	refreshAccount: () => typedError<boolean, string>(__TAURI_INVOKE("refresh_account")),
+	/**  读取某微软账号的皮肤 / 披风资料。 */
+	skinProfile: (accountUuid: string) => typedError<ProfileSkins, string>(__TAURI_INVOKE("skin_profile", { accountUuid })),
+	/**  上传本地 PNG 作为新皮肤。`variant` 为 `classic` / `slim`。返回更新后的资料。 */
+	skinUpload: (accountUuid: string, path: string, variant: string) => typedError<ProfileSkins, string>(__TAURI_INVOKE("skin_upload", { accountUuid, path, variant })),
+	/**  设置当前披风(`Some`)或隐藏披风(`None`)。返回更新后的资料。 */
+	skinSetCape: (accountUuid: string, capeId: string | null) => typedError<ProfileSkins, string>(__TAURI_INVOKE("skin_set_cape", { accountUuid, capeId })),
 	detectJava: () => typedError<JavaDto[], string>(__TAURI_INVOKE("detect_java")),
 	/**
 	 *  跨平台内容搜索:`provider` 缺省 `modrinth`(也可 `curseforge`,需配 CF key),`sort`
@@ -389,6 +395,15 @@ export type BlockedFileDto = {
 	website_url: string,
 	target_dir: string,
 	required: boolean,
+};
+
+/**  profile 里的一条披风。`url` 是 PNG 预览;`alias` 是披风名(如 `Migrator`)。 */
+export type CapeInfo = {
+	id: string,
+	url: string,
+	alias?: string,
+	/**  `ACTIVE` / `INACTIVE`。 */
+	state?: string,
 };
 
 /**
@@ -792,6 +807,14 @@ export type PackInfo_Serialize = {
  */
 export type PackKind = "resource_pack" | "shader" | "datapack";
 
+/**  当前账号的皮肤 / 披风快照。 */
+export type ProfileSkins = {
+	id: string,
+	name: string,
+	skins?: SkinInfo[],
+	capes?: CapeInfo[],
+};
+
 /**  Progress report emitted by long-running tasks (download, verify, launch). */
 export type Progress = {
 	/**  Human-readable description of the current stage, e.g. "下载 libraries". */
@@ -955,6 +978,16 @@ export type SearchHit = {
 	 */
 	gallery_url?: string | null,
 	categories: string[],
+};
+
+/**  profile 里的一条皮肤。`url` 是可直接 `<img>` 的 PNG;`variant` 为 `classic` / `slim`。 */
+export type SkinInfo = {
+	id: string,
+	url: string,
+	/**  模型变体:`classic`(经典)或 `slim`(纤细)。 */
+	variant?: string,
+	/**  `ACTIVE` / `INACTIVE`。 */
+	state?: string,
 };
 
 /**  What a sync to a manifest *would* change, computed without touching disk. */
