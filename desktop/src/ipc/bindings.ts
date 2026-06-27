@@ -299,18 +299,17 @@ export const commands = {
 	/**  Log out of the kobeMC account (clears the server session). */
 	kobemcLogout: () => typedError<null, string>(__TAURI_INVOKE("kobemc_logout")),
 	/**
-	 *  Persist kobeMC login credentials (remember password / auto-login) in the OS
-	 *  keyring. When the keyring is unavailable nothing is written (no plaintext on disk).
+	 *  Remember a kobeMC account (upsert by email) in the OS keyring. When the keyring
+	 *  is unavailable nothing is written (no plaintext on disk). `auto_login = true`
+	 *  makes this the single auto-login account (clears the flag on the others).
 	 */
 	kobeSaveCredentials: (email: string, password: string, autoLogin: boolean) => typedError<null, string>(__TAURI_INVOKE("kobe_save_credentials", { email, password, autoLogin })),
-	/**  The remembered kobeMC credentials, or `None` if nothing was saved. */
-	kobeLoadCredentials: () => typedError<{
-	email: string,
-	password: string,
-	auto_login?: boolean,
-} | null, string>(__TAURI_INVOKE("kobe_load_credentials")),
-	/**  Forget the remembered kobeMC credentials. */
-	kobeClearCredentials: () => typedError<null, string>(__TAURI_INVOKE("kobe_clear_credentials")),
+	/**  The list of remembered kobeMC accounts (may be empty). */
+	kobeListCredentials: () => typedError<KobeCredentials[], string>(__TAURI_INVOKE("kobe_list_credentials")),
+	/**  Forget a remembered kobeMC account by email. */
+	kobeRemoveCredentials: (email: string) => typedError<null, string>(__TAURI_INVOKE("kobe_remove_credentials", { email })),
+	/**  Toggle whether a remembered account auto-logs-in at startup (at most one). */
+	kobeSetAutoLogin: (email: string, autoLogin: boolean) => typedError<null, string>(__TAURI_INVOKE("kobe_set_auto_login", { email, autoLogin })),
 	/**  Realms the logged-in user belongs to. */
 	realmList: () => typedError<RealmSummary[], string>(__TAURI_INVOKE("realm_list")),
 	/**  A single realm's summary. */
@@ -757,7 +756,7 @@ export type JavaDto = {
 	source: string,
 };
 
-/**  记住的 kobeMC 登录凭据。`auto_login` 为真时启动会用它自动登录。 */
+/**  记住的一个 kobeMC 账号凭据。`auto_login` 为真的(至多一个)启动时自动登录。 */
 export type KobeCredentials = {
 	email: string,
 	password: string,
