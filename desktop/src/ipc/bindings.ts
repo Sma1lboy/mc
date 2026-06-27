@@ -119,6 +119,8 @@ export const commands = {
 	instanceWorlds: (root: string, id: string) => typedError<WorldInfo[], string>(__TAURI_INVOKE("instance_worlds", { root, id })),
 	/**  列出某实例已保存的多人服务器(读 game_dir/servers.dat;文件不存在 → 空表)。 */
 	instanceServers: (root: string, id: string) => typedError<SavedServer[], string>(__TAURI_INVOKE("instance_servers", { root, id })),
+	/**  向某实例的 servers.dat 追加一条多人服务器(name 可空,address 必填)。 */
+	addInstanceServer: (root: string, id: string, name: string, address: string) => typedError<null, string>(__TAURI_INVOKE("add_instance_server", { root, id, name, address })),
 	/**  删除一个存档世界(移入系统回收站,可找回)。 */
 	deleteWorld: (root: string, id: string, folder: string) => typedError<null, string>(__TAURI_INVOKE("delete_world", { root, id, folder })),
 	/**

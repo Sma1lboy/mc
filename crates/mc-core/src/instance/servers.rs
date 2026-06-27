@@ -28,27 +28,64 @@ pub struct SavedServer {
 
 /// 读取 `game_dir/servers.dat` 的服务器列表。文件不存在 → 空表;解析失败 → 错误。
 pub fn read_servers(game_dir: &Path) -> Result<Vec<SavedServer>> {
+    let root = read_root(&game_dir.join(SERVERS_DAT))?;
+    Ok(extract_servers(&root))
+}
+
+/// 向实例的 `servers.dat` 追加一条服务器记录,写回**未压缩** NBT(vanilla 格式)。
+///
+/// 文件不存在 → 新建;根损坏 / 非复合 → 宽容重置为干净空根(不冒泡报错)。`name` 可空
+/// (UI 用地址兜底);`address` 去空白后不能为空。不写 `icon`(由游戏首次连接时回填)。
+pub fn add_server(game_dir: &Path, name: &str, address: &str) -> Result<()> {
+    let address = address.trim();
+    if address.is_empty() {
+        return Err(CoreError::other("服务器地址不能为空".to_string()));
+    }
     let path = game_dir.join(SERVERS_DAT);
-    let buf = match std::fs::read(&path) {
-        Ok(b) => b,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(CoreError::io(&path, e)),
+    let mut map = match read_root(&path)? {
+        Value::Compound(m) => m,
+        _ => HashMap::new(),
     };
-    // 规范为未压缩 NBT;个别外部工具可能 gzip,故先按原始解,失败再回退 gzip 解一次。
-    let root: Value = match fastnbt::from_bytes::<Value>(&buf) {
-        Ok(v) => v,
+    let mut list = match map.remove("servers") {
+        Some(Value::List(l)) => l,
+        _ => Vec::new(),
+    };
+    let mut entry = HashMap::new();
+    entry.insert("name".to_string(), Value::String(name.to_string()));
+    entry.insert("ip".to_string(), Value::String(address.to_string()));
+    list.push(Value::Compound(entry));
+    map.insert("servers".to_string(), Value::List(list));
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).with_path(parent)?;
+    }
+    let bytes = fastnbt::to_bytes(&Value::Compound(map))
+        .map_err(|e| CoreError::other(format!("序列化 servers.dat NBT 失败: {e}")))?;
+    std::fs::write(&path, bytes).with_path(&path)?;
+    Ok(())
+}
+
+/// 读 `servers.dat` 的根 NBT(不存在 → 空复合根)。规范为未压缩 NBT;个别外部工具可能
+/// gzip,故先按原始解,失败再回退 gzip 解一次。
+fn read_root(path: &Path) -> Result<Value> {
+    let buf = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(Value::Compound(HashMap::new()))
+        }
+        Err(e) => return Err(CoreError::io(path, e)),
+    };
+    match fastnbt::from_bytes::<Value>(&buf) {
+        Ok(v) => Ok(v),
         Err(_) => {
             use flate2::read::GzDecoder;
             use std::io::Read;
             let mut out = Vec::new();
-            GzDecoder::new(&buf[..])
-                .read_to_end(&mut out)
-                .with_path(&path)?;
+            GzDecoder::new(&buf[..]).read_to_end(&mut out).with_path(path)?;
             fastnbt::from_bytes::<Value>(&out)
-                .map_err(|e| CoreError::other(format!("解析 servers.dat NBT 失败: {e}")))?
+                .map_err(|e| CoreError::other(format!("解析 servers.dat NBT 失败: {e}")))
         }
-    };
-    Ok(extract_servers(&root))
+    }
 }
 
 /// 从已解析的 root NBT 抽出服务器列表(纯函数,可单测)。
@@ -117,6 +154,34 @@ mod tests {
         assert_eq!(servers[1].name, "");
         assert_eq!(servers[1].address, "play.example.com:25566");
         assert_eq!(servers[1].icon, None);
+    }
+
+    #[test]
+    fn add_server_creates_then_appends_roundtrip() {
+        let dir = std::env::temp_dir().join(format!("mc-servers-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let _ = std::fs::remove_file(dir.join(SERVERS_DAT));
+
+        // 文件不存在 → 新建并写入第一条。
+        add_server(&dir, "First", "mc.first.net").unwrap();
+        let one = read_servers(&dir).unwrap();
+        assert_eq!(one.len(), 1);
+        assert_eq!(one[0].name, "First");
+        assert_eq!(one[0].address, "mc.first.net");
+        assert_eq!(one[0].icon, None);
+
+        // 已存在 → 追加第二条(去空白)。
+        add_server(&dir, "Second", "  play.second.com:25566  ").unwrap();
+        let two = read_servers(&dir).unwrap();
+        assert_eq!(two.len(), 2);
+        assert_eq!(two[1].name, "Second");
+        assert_eq!(two[1].address, "play.second.com:25566");
+
+        // 空地址被拒。
+        assert!(add_server(&dir, "Bad", "   ").is_err());
+
+        let _ = std::fs::remove_file(dir.join(SERVERS_DAT));
+        let _ = std::fs::remove_dir(&dir);
     }
 
     #[test]

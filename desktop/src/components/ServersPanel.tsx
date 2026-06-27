@@ -1,8 +1,9 @@
-import { Component, createResource, For, Show } from "solid-js";
+import { Component, createResource, createSignal, For, Show } from "solid-js";
 import { Spinner } from "./Spinner";
 import { EmptyState } from "./EmptyState";
 import { ErrorState } from "./ErrorState";
 import { Panel } from "./Panel";
+import { toast } from "./Toast";
 import { ACCENT_BTN_COMPACT } from "./styles";
 import { api } from "../ipc/api";
 import { activeRoot, isLaunching, isRunning, playInstance } from "../store";
@@ -11,7 +12,8 @@ import type { InstanceSummary } from "../ipc/types";
 
 /**
  * ServersPanel —— 实例的多人服务器列表(读 game_dir/servers.dat)。每条给图标 + 名称 + 地址,
- * 以及「进入游戏」直接带着该地址启动(一次性服务器覆盖,不改实例配置)。
+ * 以及「进入游戏」直接带着该地址启动(一次性服务器覆盖,不改实例配置);底部可手动添加一条
+ * 写回 servers.dat。
  */
 const ServersPanel: Component<{ instance: InstanceSummary }> = (props) => {
   const [servers, { refetch }] = createResource(
@@ -20,8 +22,31 @@ const ServersPanel: Component<{ instance: InstanceSummary }> = (props) => {
   );
   const busy = () => isLaunching(props.instance.id) || isRunning(props.instance.id);
 
+  const [addName, setAddName] = createSignal("");
+  const [addAddress, setAddAddress] = createSignal("");
+  const [adding, setAdding] = createSignal(false);
+  const canAdd = () => !!addAddress().trim() && !adding();
+
+  async function addServer() {
+    if (!canAdd()) return;
+    setAdding(true);
+    try {
+      await api.addInstanceServer(activeRoot(), props.instance.id, addName().trim(), addAddress().trim());
+      setAddName("");
+      setAddAddress("");
+      await refetch();
+    } catch (e) {
+      toast({ type: "error", message: t("instance.serverAddFailed", { error: String(e) }) });
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  const inputClass =
+    "h-[28px] bg-panel-2 text-fg text-[12px] px-[10px] rounded-none shadow-input border-none outline-none placeholder:text-faint focus:shadow-pressed";
+
   return (
-    <div class="h-full overflow-y-auto p-[16px]">
+    <div class="h-full overflow-y-auto p-[16px] flex flex-col gap-[12px]">
       <Show when={!servers.loading} fallback={<div class="flex justify-center p-[24px]"><Spinner /></div>}>
         <Show
           when={!servers.error}
@@ -72,6 +97,31 @@ const ServersPanel: Component<{ instance: InstanceSummary }> = (props) => {
           </Show>
         </Show>
       </Show>
+
+      {/* 手动添加一条服务器(写回 servers.dat;地址必填,名称可空)。 */}
+      <Panel variant="sunken" class="flex items-center gap-[8px] bg-panel px-[12px] py-[9px]">
+        <input
+          class={`${inputClass} w-[120px] shrink-0`}
+          value={addName()}
+          onInput={(e) => setAddName(e.currentTarget.value)}
+          placeholder={t("instance.serverNamePlaceholder")}
+        />
+        <input
+          class={`${inputClass} flex-1 min-w-0`}
+          value={addAddress()}
+          onInput={(e) => setAddAddress(e.currentTarget.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void addServer();
+            }
+          }}
+          placeholder={t("instance.serverAddressPlaceholder")}
+        />
+        <button class={ACCENT_BTN_COMPACT} disabled={!canAdd()} onClick={() => void addServer()}>
+          {t("instance.serverAdd")}
+        </button>
+      </Panel>
     </div>
   );
 };
