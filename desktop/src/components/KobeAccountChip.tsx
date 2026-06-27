@@ -3,6 +3,7 @@ import { Button } from "./Button";
 import { Icon } from "./Icon";
 import { LinkedAccountsSection } from "./LinkedAccountsSection";
 import { kobeUser, kobeLogin, kobeSignup, kobeLogout, kobeDisplayName } from "../store";
+import { api } from "../ipc/api";
 import { t } from "../i18n";
 
 /** 用户名规则:3–24 位,字母/数字/下划线/连字符。 */
@@ -86,8 +87,25 @@ const LoginForm: Component<{ onDone: () => void }> = (props) => {
   const [email, setEmail] = createSignal("");
   const [password, setPassword] = createSignal("");
   const [username, setUsername] = createSignal("");
+  const [remember, setRemember] = createSignal(false);
+  const [auto, setAuto] = createSignal(false);
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+
+  // 预填记住的账号密码(若上次勾了「记住密码」),并回显记住 / 自动登录的勾选态。
+  onMount(async () => {
+    try {
+      const c = await api.kobeLoadCredentials();
+      if (c) {
+        setEmail(c.email);
+        setPassword(c.password);
+        setRemember(true);
+        setAuto(!!c.auto_login);
+      }
+    } catch {
+      /* 读不到记住的凭据无所谓,留空表单 */
+    }
+  });
 
   async function submit(e: Event) {
     e.preventDefault();
@@ -111,6 +129,9 @@ const LoginForm: Component<{ onDone: () => void }> = (props) => {
       } else {
         await kobeLogin(mail, password());
       }
+      // 记住密码 / 自动登录:勾了就存进 keyring,没勾就清掉记住的凭据。
+      if (remember()) await api.kobeSaveCredentials(mail, password(), auto());
+      else await api.kobeClearCredentials();
       props.onDone();
     } catch (err) {
       setError(t("kobe.errAuth", { err: String(err) }));
@@ -149,6 +170,35 @@ const LoginForm: Component<{ onDone: () => void }> = (props) => {
         value={password()}
         onInput={(ev) => setPassword(ev.currentTarget.value)}
       />
+      {/* 记住密码 / 自动登录(自动登录隐含记住密码)。 */}
+      <div class="flex items-center gap-[16px] text-[12px] text-muted">
+        <label class="inline-flex items-center gap-[6px] cursor-pointer select-none">
+          <input
+            type="checkbox"
+            class="accent-accent cursor-pointer"
+            checked={remember()}
+            onChange={(ev) => {
+              const v = ev.currentTarget.checked;
+              setRemember(v);
+              if (!v) setAuto(false);
+            }}
+          />
+          {t("kobe.rememberPassword")}
+        </label>
+        <label class="inline-flex items-center gap-[6px] cursor-pointer select-none">
+          <input
+            type="checkbox"
+            class="accent-accent cursor-pointer"
+            checked={auto()}
+            onChange={(ev) => {
+              const v = ev.currentTarget.checked;
+              setAuto(v);
+              if (v) setRemember(true);
+            }}
+          />
+          {t("kobe.autoLogin")}
+        </label>
+      </div>
       <Show when={error()}>
         <p class="text-[12px] text-danger-text">{error()}</p>
       </Show>

@@ -413,6 +413,13 @@ export async function kobeLogout(): Promise<void> {
   } finally {
     setKobeUser(null);
   }
+  // 显式退出后下次启动不再自动登录;保留记住的账号密码用于预填(只关掉 auto_login)。
+  try {
+    const c = await api.kobeLoadCredentials();
+    if (c?.auto_login) await api.kobeSaveCredentials(c.email, c.password, false);
+  } catch {
+    /* 忽略 */
+  }
 }
 
 /** 账号展示名:优先昵称 → 用户名 → 邮箱 → id 前缀。 */
@@ -420,14 +427,24 @@ export function kobeDisplayName(user: AuthUser): string {
   return user.name || user.username || user.email || user.id.slice(0, 8);
 }
 
-// 启动时探一次后端会话:若 cookie jar 仍有效(同一进程的热重载)则恢复登录态。
+// 启动时探一次后端会话:若 cookie jar 仍有效(同一进程的热重载)则恢复登录态;
+// 否则(全新进程,会话在内存里已丢)若记住了凭据且开了自动登录,就用它静默登录。
 if (typeof window !== "undefined") {
   void api
     .kobemcSession()
-    .then((user) => {
+    .then(async (user) => {
       if (user) {
         setKobeUser(user);
         sendPresenceHeartbeat();
+        return;
+      }
+      try {
+        const creds = await api.kobeLoadCredentials();
+        if (creds?.auto_login && creds.email && creds.password) {
+          await kobeLogin(creds.email, creds.password);
+        }
+      } catch {
+        /* 自动登录尽力而为:失败(密码改了 / 网络)保持登出态,不打扰 */
       }
     })
     .catch(() => {});
