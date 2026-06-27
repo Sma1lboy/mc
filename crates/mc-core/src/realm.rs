@@ -15,9 +15,10 @@
 //!    turns a host's instance into a manifest by resolving each local mod jar to
 //!    a platform download url by hash (unresolvable jars are surfaced as `manual`).
 //!
-//! MVP scope: only the `mods/` directory is reconciled, and only Modrinth-
-//! resolvable (or already-hashed) files carry a download url — truly custom jars
-//! are `manual` and the member adds them by hand.
+//! Scope: the platform-resolvable content dirs ([`MANAGED_DIRS`] — mods,
+//! resourcepacks, shaderpacks, datapacks) are reconciled by url+hash. Files the
+//! provider doesn't recognise are surfaced as `manual` for now (Phase 2 bundles
+//! them — configs/scripts included — into a separate overrides blob).
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -25,14 +26,20 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 
-use crate::download::checksum::{sha1_file, verify_sha1, verify_sha512};
+use crate::download::checksum::{verify_sha1, verify_sha512};
 use crate::download::{DownloadItem, Downloader};
 use crate::error::{CoreError, Result};
-use crate::instance::{list_mods, Instance};
+use crate::instance::Instance;
+use crate::modpack::export::walk::walk_game_root;
 use crate::modplatform::provider::ResourceProvider;
 use crate::modplatform::{HashAlgo, ProviderId};
 use crate::server::ServerClient;
 use crate::types::Progress;
+
+/// Instance subdirectories the syncer reconciles to the manifest. These are the
+/// platform-resolvable content dirs (files get a CDN url by hash). Override-only
+/// dirs (`config`/`scripts`/`kubejs`) ride a separate blob — see the overrides flow.
+const MANAGED_DIRS: &[&str] = &["mods", "resourcepacks", "shaderpacks", "datapacks"];
 
 /* ---------- wire DTOs (mirror crates/mc-server/src/realm.rs) ---------- */
 
@@ -198,7 +205,8 @@ impl ServerClient {
 pub struct SyncPlan {
     /// Files in the manifest that are missing locally or fail their hash.
     pub download: Vec<RealmFile>,
-    /// Mod filenames present under `mods/` but absent from the manifest.
+    /// Paths (relative to the instance dir) under the managed dirs that are
+    /// present locally but absent from the manifest.
     pub remove: Vec<String>,
     /// Manifest files with no download url — the member must add them by hand.
     pub manual: Vec<RealmFile>,
@@ -228,14 +236,25 @@ pub struct SyncReport {
 }
 
 /// Resolve a manifest file's **server-controlled** `path` to a safe absolute
-/// target under the instance's `mods/` dir, or `None` if it escapes — absolute,
-/// contains `..`, or is declared outside `mods/`. The manifest is owner/admin-
-/// controlled, so this is the trust boundary: without it a crafted manifest could
-/// make the downloader write anywhere (the same defense the mrpack importer gets
-/// from [`crate::fs::safe_join`]). MVP only reconciles `mods/`.
+/// target under one of the [`MANAGED_DIRS`], or `None` if it escapes — absolute,
+/// contains `..`, or is declared outside a managed dir. The manifest is
+/// owner/admin-controlled, so this is the trust boundary: without it a crafted
+/// manifest could make the downloader write anywhere (the same defense the mrpack
+/// importer gets from [`crate::fs::safe_join`]).
 fn safe_target(inst: &Instance, path: &str) -> Option<std::path::PathBuf> {
-    let rel = path.strip_prefix("mods/")?;
-    crate::fs::safe_join(&inst.mods_dir(), rel)
+    for d in MANAGED_DIRS {
+        if let Some(rel) = path.strip_prefix(&format!("{d}/")) {
+            return crate::fs::safe_join(&inst.dir().join(d), rel);
+        }
+    }
+    None
+}
+
+/// List every file under one of the instance's managed dirs, as paths relative to
+/// that dir (`/`-separated). Missing dir → empty; hard-ignored junk skipped.
+fn managed_dir_files(inst: &Instance, dir: &str) -> Vec<String> {
+    let base = inst.dir().join(dir);
+    walk_game_root(&base, &[]).map(|fs| fs.into_iter().map(|f| f.rel).collect()).unwrap_or_default()
 }
 
 /// Does `path` exist and satisfy the manifest file's strongest available hash?
@@ -257,20 +276,18 @@ fn file_matches(path: &Path, f: &RealmFile) -> bool {
 pub fn plan_sync(inst: &Instance, manifest: &RealmManifest) -> SyncPlan {
     let mut download = Vec::new();
     let mut manual = Vec::new();
-    // Basenames the manifest expects directly under `mods/` (for stale detection).
-    let mut manifest_mods: HashSet<String> = HashSet::new();
+    // Full relative paths the manifest expects (for stale detection).
+    let mut manifest_paths: HashSet<String> = HashSet::new();
 
     for f in &manifest.files {
-        // The path is owner/admin-controlled; reject anything that escapes mods/
-        // (absolute / `..` / outside mods/) so a crafted manifest can't probe or
-        // target files outside the instance.
+        // The path is owner/admin-controlled; reject anything that escapes the
+        // managed dirs (absolute / `..` / other dir) so a crafted manifest can't
+        // probe or target files outside the instance.
         let Some(target) = safe_target(inst, &f.path) else {
             tracing::warn!(target: "mc_core::realm", path = %f.path, "拒绝越界的领域清单路径");
             continue;
         };
-        if let Some(name) = f.path.strip_prefix("mods/") {
-            manifest_mods.insert(name.to_string());
-        }
+        manifest_paths.insert(f.path.clone());
         match f.url.as_deref() {
             Some(url) if !url.is_empty() => {
                 if file_matches(&target, f) {
@@ -278,18 +295,21 @@ pub fn plan_sync(inst: &Instance, manifest: &RealmManifest) -> SyncPlan {
                 }
                 download.push(f.clone());
             }
-            // No url (or empty) ⇒ a custom jar the member must add by hand.
+            // No url (or empty) ⇒ a custom file the member must add by hand.
             _ => manual.push(f.clone()),
         }
     }
 
-    // Stale: local mods the manifest no longer references (compare both the raw
-    // filename and the `.disabled`-stripped active name).
+    // Stale: files under the managed dirs the manifest no longer references
+    // (compare both the raw path and the `.disabled`-stripped active path).
     let mut remove = Vec::new();
-    for m in list_mods(inst) {
-        let active = m.file_name.strip_suffix(".disabled").unwrap_or(&m.file_name);
-        if !manifest_mods.contains(&m.file_name) && !manifest_mods.contains(active) {
-            remove.push(m.file_name);
+    for d in MANAGED_DIRS {
+        for rel in managed_dir_files(inst, d) {
+            let full = format!("{d}/{rel}");
+            let active = full.strip_suffix(".disabled").unwrap_or(&full);
+            if !manifest_paths.contains(&full) && !manifest_paths.contains(active) {
+                remove.push(full);
+            }
         }
     }
     remove.sort();
@@ -344,8 +364,9 @@ pub async fn apply_sync(
     }
 
     if remove_extras {
-        for name in &plan.remove {
-            if crate::instance::mods::delete_mod(inst, name).is_ok() {
+        for rel in &plan.remove {
+            let Some(p) = safe_target(inst, rel) else { continue };
+            if p.exists() && (trash::delete(&p).is_ok() || std::fs::remove_file(&p).is_ok()) {
                 report.removed += 1;
             }
         }
@@ -354,10 +375,11 @@ pub async fn apply_sync(
     Ok(report)
 }
 
-/// Build a manifest from a host's instance: resolve each **enabled** mod jar to a
-/// platform download url by its sha1; jars the provider doesn't recognise (or
-/// that are blocked from third-party download) become `manual` entries carrying
-/// the local hash so members can still verify a hand-placed copy.
+/// Build a manifest from a host's instance: walk every file under the managed
+/// content dirs ([`MANAGED_DIRS`]) and resolve each to a platform download url by
+/// its sha1; files the provider doesn't recognise (or that are blocked from
+/// third-party download) become `manual` entries carrying the local hash so
+/// members can still verify a hand-placed copy.
 pub async fn build_manifest_from_instance(
     inst: &Instance,
     provider: &dyn ResourceProvider,
@@ -365,14 +387,19 @@ pub async fn build_manifest_from_instance(
     loader: &str,
     loader_version: Option<String>,
 ) -> Result<RealmManifest> {
-    // (filename, size, sha1) for each enabled mod, aligned with `hashes`.
+    // (path-relative-to-instance, size, sha1) for every file under the managed
+    // dirs (skipping disabled), aligned with `hashes`.
     let mut entries: Vec<(String, u64, String)> = Vec::new();
     let mut hashes: Vec<String> = Vec::new();
-    for m in list_mods(inst).into_iter().filter(|m| m.enabled) {
-        let path = inst.mods_dir().join(&m.file_name);
-        if let Ok(h) = sha1_file(&path) {
-            entries.push((m.file_name.clone(), m.size, h.clone()));
-            hashes.push(h);
+    for d in MANAGED_DIRS {
+        for wf in walk_game_root(&inst.dir().join(d), &[]).unwrap_or_default() {
+            if wf.rel.ends_with(".disabled") {
+                continue; // disabled content isn't part of the shared set
+            }
+            if let Ok(h) = wf.hash(HashAlgo::Sha1) {
+                entries.push((format!("{d}/{}", wf.rel), wf.size, h.clone()));
+                hashes.push(h);
+            }
         }
     }
 
@@ -384,13 +411,12 @@ pub async fn build_manifest_from_instance(
 
     let source = provider_source(provider.id());
     let mut files = Vec::with_capacity(entries.len());
-    for (i, (filename, size, sha1)) in entries.into_iter().enumerate() {
+    for (i, (path, size, sha1)) in entries.into_iter().enumerate() {
         match resolved.get(i).and_then(|r| r.as_ref()) {
-            // Resolved to a real, downloadable file.
+            // Resolved to a real, downloadable file — keep the original install path.
             Some(rf) if !rf.file.url.is_empty() => {
-                let name = if rf.file.filename.is_empty() { filename } else { rf.file.filename.clone() };
                 files.push(RealmFile {
-                    path: format!("mods/{name}"),
+                    path,
                     sha1: rf.file.sha1.clone().or(Some(sha1)),
                     sha512: rf.file.sha512.clone(),
                     size: rf.file.size.or(Some(size)),
@@ -398,9 +424,10 @@ pub async fn build_manifest_from_instance(
                     source: Some(source.to_string()),
                 });
             }
-            // Unresolved, or resolved-but-blocked (empty url) ⇒ manual.
+            // Unresolved, or resolved-but-blocked (empty url) ⇒ manual (Phase 2:
+            // these ride the overrides blob instead).
             _ => files.push(RealmFile {
-                path: format!("mods/{filename}"),
+                path,
                 sha1: Some(sha1),
                 sha512: None,
                 size: Some(size),
@@ -429,6 +456,7 @@ fn provider_source(id: ProviderId) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::download::checksum::sha1_file;
     use std::fs;
     use std::path::PathBuf;
 
@@ -447,10 +475,15 @@ mod tests {
             Self { root, inst }
         }
 
-        /// Write a top-level mod jar (any bytes — `list_mods` accepts unparsable
-        /// jars and falls back to the filename) and return its sha1.
+        /// Write a top-level mod jar and return its sha1.
         fn put_mod(&self, file_name: &str, bytes: &[u8]) -> String {
-            let p = self.inst.mods_dir().join(file_name);
+            self.put_file(&format!("mods/{file_name}"), bytes)
+        }
+
+        /// Write a file at `rel` (relative to the instance dir) and return its sha1.
+        fn put_file(&self, rel: &str, bytes: &[u8]) -> String {
+            let p = self.inst.dir().join(rel);
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
             fs::write(&p, bytes).unwrap();
             sha1_file(&p).unwrap()
         }
@@ -507,8 +540,29 @@ mod tests {
         assert_eq!(plan.manual.len(), 1);
         assert_eq!(plan.manual[0].path, "mods/custom.jar");
         // `extra.jar` is stale; `present.jar` and the manual `custom.jar` are not.
-        assert_eq!(plan.remove, vec!["extra.jar".to_string()]);
+        assert_eq!(plan.remove, vec!["mods/extra.jar".to_string()]);
         assert!(!plan.is_up_to_date());
+    }
+
+    #[test]
+    fn plan_covers_resourcepacks_and_shaders_not_just_mods() {
+        let t = TempInst::new("multidir");
+        // a present, matching resourcepack → skipped; a missing shader → download;
+        // a stale local resourcepack → remove.
+        let rp = t.put_file("resourcepacks/faithful.zip", b"rp-bytes");
+        t.put_file("resourcepacks/stale-rp.zip", b"old-rp");
+        let manifest = RealmManifest {
+            files: vec![
+                url_file("resourcepacks/faithful.zip", Some(rp)),
+                url_file("shaderpacks/complementary.zip", Some("deadbeef".into())),
+            ],
+            version: 1,
+            ..Default::default()
+        };
+        let plan = plan_sync(&t.inst, &manifest);
+        assert_eq!(plan.download.len(), 1);
+        assert_eq!(plan.download[0].path, "shaderpacks/complementary.zip");
+        assert_eq!(plan.remove, vec!["resourcepacks/stale-rp.zip".to_string()]);
     }
 
     #[test]
