@@ -308,6 +308,37 @@ fn resolve_base_mc_version(paths: &GamePaths, id: &str, inherits: Option<&str>) 
     }
 }
 
+/// 从实例继承链里解析出**真实**的 loader 版本。fabric/quilt 的 loader profile id 形如
+/// `fabric-loader-0.19.3-26.2`(= `<family>-loader-<loaderver>-<mcver>`),取中间的
+/// `0.19.3`。供领域 manifest 用:`InstanceSummary::loader_version` 存的是给人看的整体
+/// 实例 id(见 [`list_instances`]),不能直接喂给 fabric meta(`/loader/<mc>/<ver>/…`),
+/// 否则 URL 段错误 → 400。解析不出时返回 `None`(调用方可置空让安装器自动选最新兼容 loader)。
+pub fn resolve_loader_version(paths: &GamePaths, id: &str, mc_version: &str) -> Option<String> {
+    let chain = crate::version::walk_inherits(id, |cur| {
+        let parent = std::fs::read_to_string(paths.version_json(cur))
+            .ok()
+            .and_then(|raw| serde_json::from_str::<VersionHead>(&raw).ok())
+            .and_then(|h| h.inherits_from);
+        Ok::<_, crate::error::CoreError>(crate::version::InheritNode {
+            payload: cur.to_string(),
+            parent,
+        })
+    })
+    .ok()?;
+    for node_id in chain {
+        for fam in ["fabric-loader-", "quilt-loader-"] {
+            if let Some(rest) = node_id.strip_prefix(fam) {
+                // rest = "<loaderver>-<mcver>";剥掉尾部的 "-<mc_version>" 得 loader 版本。
+                let lv = rest.strip_suffix(&format!("-{mc_version}")).unwrap_or(rest);
+                if !lv.is_empty() {
+                    return Some(lv.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
 /// 扫描一个 game root,列出其中所有**用户实例**。
 ///
 /// 规则:遍历 `versions/` 下每个带可解析 `<id>/<id>.json` 的子目录;但「版本即实例」模型下

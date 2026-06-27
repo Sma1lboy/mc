@@ -1742,6 +1742,14 @@ async fn snapshot_of_instance(
     let inst = instance_of(root, id);
     let reg = make_registry();
     let provider = provider_or_err(&reg, mc_core::modplatform::ProviderId::Modrinth)?;
+    // The frontend's `loader_version` is the instance display id, not a real loader
+    // version (see InstanceSummary). For fabric/quilt, derive the actual version from
+    // the installed core so members can install the same loader; else members hit
+    // `/loader/<mc>/<display-id>/profile/json` → 400. Falls back to None (auto-pick).
+    let loader_version = match loader {
+        "fabric" | "quilt" => mc_core::instance::resolve_loader_version(&root_paths(root), id, mc_version),
+        _ => loader_version,
+    };
     mc_core::realm::build_snapshot(&inst, provider.as_ref(), mc_version, loader, loader_version)
         .await
         .map_err(err)
@@ -1884,7 +1892,14 @@ pub async fn realm_begin(
     let mc_version = manifest.mc_version.clone().unwrap_or_default();
     let loader_opt = match parse_loader_kind(manifest.loader.as_deref().unwrap_or("")) {
         None | Some(mc_core::types::LoaderKind::Vanilla) => None,
-        Some(kind) => Some((kind, manifest.loader_version.clone().unwrap_or_default())),
+        Some(kind) => {
+            // Defensive: older manifests stored the instance display id (which contains
+            // spaces) as the loader version — not a real loader version. Blank it so the
+            // installer auto-picks the latest loader compatible with `mc_version`.
+            let lv = manifest.loader_version.clone().unwrap_or_default();
+            let lv = if lv.contains(' ') { String::new() } else { lv };
+            Some((kind, lv))
+        }
     };
     mc_core::instance::lifecycle::materialize_core(&dl, &paths, &instance_id, &mc_version, loader_opt, Some(tx.clone()))
         .await
