@@ -19,13 +19,13 @@ use crate::instance::Instance;
 use crate::modplatform::provider::ProviderRegistry;
 use crate::paths::{ensure_dir, GamePaths};
 
-use super::archive::{overlay_dir_safe, StagingDir, ZipArchiveIndex};
+use super::archive::{overlay_dir_safe, PackArchive, StagingDir};
 use super::{ArchiveIndex, BlockedFile, DetectMatch, ImportPlan, ManagedPack, ModpackImporter};
 
 /// 导入来源:本地归档文件,或先下载后导入的远程 URL。
 #[derive(Debug, Clone)]
 pub enum ImportSource {
-    /// 本地 `.zip`/`.mrpack` 等归档文件。
+    /// 本地包来源:`.zip`/`.mrpack` 文件,**或**未解压的 MultiMC/Prism 实例目录。
     LocalFile(PathBuf),
     /// 远程整包 URL —— 引擎先用 [`Downloader`] 下到临时文件,再当作本地归档导入。
     Url(String),
@@ -147,7 +147,7 @@ impl ImportEngine {
         let (archive_path, _tmp) = self.acquire_archive(&src).await?;
 
         // ---- 2) 打开 zip 一次 → 建 ArchiveIndex → dispatch ----
-        let raw_index = ZipArchiveIndex::open(&archive_path)?;
+        let raw_index = PackArchive::open(&archive_path)?;
         // detect 的内容判别(CF vs MCBBS)需读 manifest.json;预取它喂给带缓存的只读视图。
         let prepared = raw_index.into_prepared(&["manifest.json", "mcbbs.packmeta"]);
         let (idx, det) = self
@@ -260,8 +260,9 @@ impl ImportEngine {
     ) -> Result<(PathBuf, Option<StagingDir>)> {
         match src {
             ImportSource::LocalFile(p) => {
-                if !p.is_file() {
-                    return Err(CoreError::other(format!("整合包文件不存在: {}", p.display())));
+                // 接受 zip/mrpack 文件,或未解压的实例目录(PackArchive::open 按类型择后端)。
+                if !p.exists() {
+                    return Err(CoreError::other(format!("整合包路径不存在: {}", p.display())));
                 }
                 Ok((p.clone(), None))
             }

@@ -41,6 +41,7 @@ const dict = {
     "import.fmtCurseforge": "CurseForge 整合包",
     "import.fmtMultimc": "MultiMC / Prism 实例包",
     "import.fmtMcbbs": "MCBBS 整合包",
+    "import.fmtDir": "MultiMC / Prism 实例文件夹(未压缩)",
     "import.tipsTitle": "导入须知",
     "import.tipFormats": "自动识别格式,无需手动选择类型。",
     "import.tipCurseforge": "CurseForge 中受作者限制的文件需手动下载,导入后会列出。",
@@ -50,6 +51,7 @@ const dict = {
     "import.onlyFirst": "一次只导入一个整合包,已取第一个文件",
     "import.close": "取消",
     "import.choose": "选择文件",
+    "import.chooseFolder": "选择文件夹",
     "import.failed": "导入失败:{{ err }}",
 
     // ExportModpackDialog
@@ -154,6 +156,7 @@ const dict = {
     "import.fmtCurseforge": "CurseForge modpack",
     "import.fmtMultimc": "MultiMC / Prism instance",
     "import.fmtMcbbs": "MCBBS modpack",
+    "import.fmtDir": "MultiMC / Prism instance folder (unzipped)",
     "import.tipsTitle": "Before you import",
     "import.tipFormats": "The format is detected automatically — no need to pick a type.",
     "import.tipCurseforge": "Files the author restricted on CurseForge must be downloaded by hand; they're listed after import.",
@@ -163,6 +166,7 @@ const dict = {
     "import.onlyFirst": "Only one modpack is imported at a time; using the first file",
     "import.close": "Cancel",
     "import.choose": "Choose file",
+    "import.chooseFolder": "Choose folder",
     "import.failed": "Import failed: {{ err }}",
 
     // ExportModpackDialog

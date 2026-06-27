@@ -152,15 +152,115 @@ impl super::ArchiveIndex for ZipArchiveIndex {
 }
 
 impl ZipArchiveIndex {
-    /// 取 `&mut self` 的内容读取(detect 的内容判别用)。`read_small`(&self)受 trait
-    /// 签名所限无法读 zip,引擎在 detect 前用本方法预取需要判别的 manifest 喂给一个带
-    /// 内容缓存的视图(见 [`PreparedIndex`])。
+    /// 取 `&mut self` 的内容读取(detect 的内容判别 / 更新流读 manifest 用)。`read_small`
+    /// (&self)受 trait 签名所限无法读 zip,故在持有 `&mut` 的路径上用本方法。
     pub fn read_small_owned(&mut self, name: &str) -> Option<Vec<u8>> {
         self.read_entry(name)
     }
+}
 
-    /// 把本归档转成一个**带内容缓存**的只读视图:预读 `prefetch` 列出的小文件内容,
-    /// 使 [`super::ArchiveIndex::read_small`] 在 `&self` 下也能命中(CF vs MCBBS 判别)。
+/// 目录形态的包:**未解压**的 MultiMC / Prism 实例目录(磁盘上 Prism 的实例本就是目录,
+/// 用户常想直接指向它而非先打 zip)。把目录递归当作一个只读归档:条目 = 目录下所有文件的
+/// 相对路径(`/` 分隔);「解压子树」退化为按前缀**拷贝**文件到 staging,同样经
+/// [`crate::fs::safe_join`] 收口(防越权路径逃逸)。
+pub struct DirArchiveIndex {
+    root: PathBuf,
+    /// 目录下所有文件条目的相对路径(`/` 分隔)。
+    entries: Vec<String>,
+}
+
+impl DirArchiveIndex {
+    /// 递归扫描 `root` 下的所有文件,建立条目索引。
+    pub fn open(root: &Path) -> Result<Self> {
+        let mut entries = Vec::new();
+        collect_dir_entries(root, root, &mut entries)?;
+        Ok(Self { root: root.to_path_buf(), entries })
+    }
+
+    /// 读取一个相对条目的字节(供内容判别 / plan 读 manifest);经 safe_join 收口。
+    fn read_entry(&self, name: &str) -> Option<Vec<u8>> {
+        let src = crate::fs::safe_join(&self.root, &normalize_entry(name))?;
+        std::fs::read(&src).ok()
+    }
+
+    /// 把 `archive_root` 指定的子树拷贝到 `staging`(等价 zip 的 `extract_subtree`)。
+    pub fn extract_subtree(&self, archive_root: &str, staging: &Path) -> Result<()> {
+        let prefix = root_prefix(archive_root);
+        for name in &self.entries {
+            let Some(rel) = strip_root(name, &prefix) else {
+                continue;
+            };
+            let Some(src) = crate::fs::safe_join(&self.root, name) else {
+                return Err(CoreError::other(format!("非法的目录路径(越权): {name}")));
+            };
+            let Some(dest) = crate::fs::safe_join(staging, &rel) else {
+                return Err(CoreError::other(format!("非法的归档路径(越权): {rel}")));
+            };
+            if let Some(parent) = dest.parent() {
+                ensure_dir(parent)?;
+            }
+            std::fs::copy(&src, &dest).with_path(&dest)?;
+        }
+        Ok(())
+    }
+}
+
+/// 递归收集 `current` 下的文件相对 `base` 的路径(`/` 分隔,跳过目录条目本身)。
+fn collect_dir_entries(base: &Path, current: &Path, out: &mut Vec<String>) -> Result<()> {
+    for entry in std::fs::read_dir(current).with_path(current)? {
+        let entry = entry.with_path(current)?;
+        let path = entry.path();
+        let ft = entry.file_type().with_path(&path)?;
+        if ft.is_dir() {
+            collect_dir_entries(base, &path, out)?;
+        } else if ft.is_file() {
+            let rel = path.strip_prefix(base).unwrap_or(&path);
+            let rel_str = rel.to_string_lossy().replace('\\', "/");
+            if !rel_str.is_empty() {
+                out.push(rel_str);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// 一个待导入的包归档:`.zip`/`.mrpack` 文件,或**未解压**的实例目录。统一引擎管线两种来源,
+/// 使「拖入 zip」与「指向 Prism 实例目录」走同一条 detect → 解压子树 → plan 流程。
+pub enum PackArchive {
+    /// 单文件归档(zip / mrpack)。
+    Zip(ZipArchiveIndex),
+    /// 目录形态的包(未解压的实例目录)。
+    Dir(DirArchiveIndex),
+}
+
+impl PackArchive {
+    /// 按 `path` 是目录还是文件择后端:目录 → [`DirArchiveIndex`],否则当 zip 开。
+    pub fn open(path: &Path) -> Result<Self> {
+        if path.is_dir() {
+            Ok(Self::Dir(DirArchiveIndex::open(path)?))
+        } else {
+            Ok(Self::Zip(ZipArchiveIndex::open(path)?))
+        }
+    }
+
+    /// 所有文件条目的相对路径。
+    fn entries_ref(&self) -> &[String] {
+        match self {
+            Self::Zip(z) => &z.entries,
+            Self::Dir(d) => &d.entries,
+        }
+    }
+
+    /// 读取一个小条目的字节(zip 需 `&mut`,目录只读;统一取 `&mut self`)。
+    fn read_entry(&mut self, name: &str) -> Option<Vec<u8>> {
+        match self {
+            Self::Zip(z) => z.read_entry(name),
+            Self::Dir(d) => d.read_entry(name),
+        }
+    }
+
+    /// 转成**带内容缓存**的只读视图:预读 `prefetch` 列出的小文件内容,使
+    /// [`super::ArchiveIndex::read_small`] 在 `&self` 下也能命中(CF vs MCBBS 判别)。
     pub fn into_prepared(mut self, prefetch: &[&str]) -> PreparedIndex {
         let mut cache: Vec<(String, Vec<u8>)> = Vec::new();
         for name in prefetch {
@@ -168,7 +268,16 @@ impl ZipArchiveIndex {
                 cache.push((name.to_string(), bytes));
             }
         }
-        PreparedIndex { entries: std::mem::take(&mut self.entries), cache, inner: self }
+        let entries = self.entries_ref().to_vec();
+        PreparedIndex { entries, cache, inner: self }
+    }
+
+    /// 把 `archive_root` 指定的子树落地到 `staging`(zip 解压 / 目录拷贝)。
+    pub fn extract_subtree(&mut self, archive_root: &str, staging: &Path) -> Result<()> {
+        match self {
+            Self::Zip(z) => z.extract_subtree(archive_root, staging),
+            Self::Dir(d) => d.extract_subtree(archive_root, staging),
+        }
     }
 }
 
@@ -180,12 +289,12 @@ impl ZipArchiveIndex {
 pub struct PreparedIndex {
     entries: Vec<String>,
     cache: Vec<(String, Vec<u8>)>,
-    inner: ZipArchiveIndex,
+    inner: PackArchive,
 }
 
 impl PreparedIndex {
     /// 取回底层归档(detect 完成后用于解压子树)。
-    pub fn into_inner(self) -> ZipArchiveIndex {
+    pub fn into_inner(self) -> PackArchive {
         self.inner
     }
 }
@@ -405,18 +514,62 @@ mod tests {
         let t = Tmp::new("prep");
         let zp = t.dir.join("p.zip");
         write_zip(&zp, &[("manifest.json", br#"{"addons":[]}"#), ("overrides/a.txt", b"x")]);
-        let idx = ZipArchiveIndex::open(&zp).unwrap();
-        let prepared = idx.into_prepared(&["manifest.json"]);
+        let prepared = PackArchive::open(&zp).unwrap().into_prepared(&["manifest.json"]);
         use super::super::ArchiveIndex;
         assert_eq!(prepared.read_small("manifest.json").unwrap(), br#"{"addons":[]}"#.to_vec());
         // 未预取的条目读不到(返回 None,而非读盘)。
         assert!(prepared.read_small("overrides/a.txt").is_none());
-        // 取回 inner 仍可解压。
+        // 取回 inner 仍可解压子树。
         let mut inner = prepared.into_inner();
         let s = t.dir.join("s");
         std::fs::create_dir_all(&s).unwrap();
-        inner.extract_prefix("overrides/", &s).unwrap();
+        inner.extract_subtree("overrides", &s).unwrap();
         assert_eq!(std::fs::read(s.join("a.txt")).unwrap(), b"x");
+    }
+
+    #[test]
+    fn dir_archive_indexes_files_and_extracts_subtree() {
+        // 未解压的 Prism 实例目录:DirArchiveIndex 应能列条目、读 manifest、按子树拷贝。
+        let t = Tmp::new("dir");
+        let inst = t.dir.join("MyInstance");
+        std::fs::create_dir_all(inst.join(".minecraft/mods")).unwrap();
+        std::fs::write(inst.join("mmc-pack.json"), br#"{"formatVersion":1,"components":[]}"#).unwrap();
+        std::fs::write(inst.join("instance.cfg"), b"name=X\n").unwrap();
+        std::fs::write(inst.join(".minecraft/mods/a.jar"), b"J").unwrap();
+
+        let idx = DirArchiveIndex::open(&inst).unwrap();
+        let entries = &idx.entries;
+        assert!(entries.contains(&"mmc-pack.json".to_string()));
+        assert!(entries.contains(&".minecraft/mods/a.jar".to_string()));
+        assert_eq!(idx.read_entry("instance.cfg").unwrap(), b"name=X\n".to_vec());
+
+        // 经统一 PackArchive::open(目录) → prepared → extract_subtree。
+        let mut inner = PackArchive::open(&inst).unwrap().into_prepared(&["mmc-pack.json"]).into_inner();
+        let staging = t.dir.join("staging");
+        std::fs::create_dir_all(&staging).unwrap();
+        inner.extract_subtree("", &staging).unwrap();
+        assert_eq!(std::fs::read(staging.join("mmc-pack.json")).unwrap(), br#"{"formatVersion":1,"components":[]}"#.to_vec());
+        assert_eq!(std::fs::read(staging.join(".minecraft/mods/a.jar")).unwrap(), b"J");
+    }
+
+    #[test]
+    fn dir_archive_extract_subtree_with_root_strips_prefix() {
+        // 目录里包根嵌套一层(Prism 导出常见):extract_subtree 按包根剥前缀。
+        let t = Tmp::new("dirroot");
+        let base = t.dir.join("export");
+        std::fs::create_dir_all(base.join("MyInstance/.minecraft")).unwrap();
+        std::fs::write(base.join("MyInstance/mmc-pack.json"), b"M").unwrap();
+        std::fs::write(base.join("MyInstance/.minecraft/options.txt"), b"O").unwrap();
+        std::fs::write(base.join("sibling.txt"), b"S").unwrap();
+
+        let idx = DirArchiveIndex::open(&base).unwrap();
+        let staging = t.dir.join("s");
+        std::fs::create_dir_all(&staging).unwrap();
+        idx.extract_subtree("MyInstance", &staging).unwrap();
+        assert_eq!(std::fs::read(staging.join("mmc-pack.json")).unwrap(), b"M");
+        assert_eq!(std::fs::read(staging.join(".minecraft/options.txt")).unwrap(), b"O");
+        // 包根之外的文件不在子树内。
+        assert!(!staging.join("sibling.txt").exists());
     }
 
     #[test]

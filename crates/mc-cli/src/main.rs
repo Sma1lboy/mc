@@ -1117,12 +1117,13 @@ async fn cmd_project(id: &str) -> Result<()> {
 }
 
 fn cmd_modpack_detect(file: &Path) -> Result<()> {
-    use mc_core::modpack::import::archive::ZipArchiveIndex;
+    use mc_core::modpack::import::archive::PackArchive;
     use mc_core::modpack::import::ImportEngine;
     use mc_core::modplatform::provider::ProviderRegistry;
 
     // PreparedIndex 预取 manifest 字节,使 detect() 的内容判别(CF vs MCBBS)可用。
-    let idx = ZipArchiveIndex::open(file)?.into_prepared(&["manifest.json", "mcbbs.packmeta"]);
+    // PackArchive 同时支持 zip 文件与未解压的实例目录。
+    let idx = PackArchive::open(file)?.into_prepared(&["manifest.json", "mcbbs.packmeta"]);
     let engine = ImportEngine::with_defaults(Downloader::new(4)?, ProviderRegistry::with_defaults());
     match engine.dispatch(&idx) {
         Some((_, m)) => println!(

@@ -42,6 +42,7 @@ export const ImportModpackDialog: Component<{
     { ext: FORMAT_EXT.zip, label: t("components.import.fmtCurseforge") },
     { ext: FORMAT_EXT.zip, label: t("components.import.fmtMultimc") },
     { ext: FORMAT_EXT.zip, label: t("components.import.fmtMcbbs") },
+    { ext: "/", label: t("components.import.fmtDir") },
   ];
   const tips = () => [
     t("components.import.tipFormats"),
@@ -76,6 +77,13 @@ export const ImportModpackDialog: Component<{
       multiple: false,
       filters: [{ name: t("components.import.filter"), extensions: ["mrpack", "zip"] }],
     });
+    if (typeof picked === "string") void runImport(picked);
+  }
+
+  // 选未解压的 MultiMC/Prism 实例目录(磁盘上 Prism 实例本就是目录)。引擎按目录后端导入。
+  async function pickFolder() {
+    if (importing()) return;
+    const picked = await openDialog({ directory: true, multiple: false });
     if (typeof picked === "string") void runImport(picked);
   }
 
@@ -179,6 +187,9 @@ export const ImportModpackDialog: Component<{
         <div class="flex justify-end gap-[10px]">
           <Button variant="ghost" disabled={importing()} onClick={() => props.onClose()}>
             {t("components.import.close")}
+          </Button>
+          <Button variant="ghost" disabled={importing()} onClick={() => void pickFolder()}>
+            {t("components.import.chooseFolder")}
           </Button>
           <Button variant="primary" disabled={importing()} onClick={() => void pick()}>
             {t("components.import.choose")}
