@@ -338,27 +338,15 @@ impl MainAgentRuntime {
                     Ok(()) => execution_verification_completed_manifest(&run, &output_path),
                     Err(err) => execution_verification_failed_manifest(&err.to_string()),
                 };
-                let status = manifest
-                    .get("status")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("unknown")
-                    .to_string();
-                let input = serde_json::json!({
-                    "output_path": output_path.to_string_lossy().to_string(),
-                });
-                let output = serde_json::json!({ "manifest": manifest.clone() });
-                let dispatch_phase = run.phase.clone();
-                let mut next = continue_after_execution_manifest_result(run, manifest)?;
-                next.push_tool_trace(
+                let next = continue_execution_manifest_with_trace(
+                    run,
+                    manifest,
+                    &output_path,
                     "deterministic verification dispatched",
-                    dispatch_phase,
-                    dispatch_iteration,
                     "verify_mrpack_artifact",
-                    input,
-                    output,
-                    started.elapsed().as_millis(),
-                    status,
-                );
+                    dispatch_iteration,
+                    started,
+                )?;
                 dispatch_iteration += 1;
                 retry_count = 0;
                 run = next;
@@ -366,27 +354,15 @@ impl MainAgentRuntime {
             }
             let started = Instant::now();
             let manifest = executor(approved, output_path.clone()).await?;
-            let status = manifest
-                .get("status")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown")
-                .to_string();
-            let input = serde_json::json!({
-                "output_path": output_path.to_string_lossy().to_string(),
-            });
-            let output = serde_json::json!({ "manifest": manifest.clone() });
-            let dispatch_phase = run.phase.clone();
-            let mut next = continue_after_execution_manifest_result(run, manifest)?;
-            next.push_tool_trace(
+            let next = continue_execution_manifest_with_trace(
+                run,
+                manifest,
+                &output_path,
                 "deterministic execution tool dispatched",
-                dispatch_phase,
-                dispatch_iteration,
                 BUILD_MRPACK_ARTIFACT_TOOL,
-                input,
-                output,
-                started.elapsed().as_millis(),
-                status,
-            );
+                dispatch_iteration,
+                started,
+            )?;
             dispatch_iteration += 1;
 
             if next.execution.as_ref().map(|execution| &execution.status)
@@ -454,6 +430,43 @@ impl MainAgentRuntime {
             .await?;
         output.into_route(approval)
     }
+}
+
+fn continue_execution_manifest_with_trace(
+    run: AgentRunSnapshot,
+    manifest: serde_json::Value,
+    output_path: &Path,
+    event: &str,
+    tool: &str,
+    iteration: u32,
+    started: Instant,
+) -> Result<AgentRunSnapshot> {
+    let status = manifest_status(&manifest);
+    let input = serde_json::json!({
+        "output_path": output_path.to_string_lossy().to_string(),
+    });
+    let output = serde_json::json!({ "manifest": manifest.clone() });
+    let dispatch_phase = run.phase.clone();
+    let mut next = continue_after_execution_manifest_result(run, manifest)?;
+    next.push_tool_trace(
+        event,
+        dispatch_phase,
+        iteration,
+        tool,
+        input,
+        output,
+        started.elapsed().as_millis(),
+        status,
+    );
+    Ok(next)
+}
+
+fn manifest_status(manifest: &serde_json::Value) -> String {
+    manifest
+        .get("status")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string()
 }
 
 fn clarify_pending_approval_input(
