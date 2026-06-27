@@ -1663,6 +1663,34 @@ pub async fn kobemc_logout(
     client.logout().await.map_err(err)
 }
 
+/// Persist kobeMC login credentials (remember password / auto-login) in the OS
+/// keyring. When the keyring is unavailable nothing is written (no plaintext on disk).
+#[tauri::command]
+#[specta::specta]
+pub fn kobe_save_credentials(email: String, password: String, auto_login: bool) -> CmdResult<()> {
+    mc_core::auth::kobe_creds::save(&mc_core::auth::kobe_creds::KobeCredentials {
+        email,
+        password,
+        auto_login,
+    });
+    Ok(())
+}
+
+/// The remembered kobeMC credentials, or `None` if nothing was saved.
+#[tauri::command]
+#[specta::specta]
+pub fn kobe_load_credentials() -> CmdResult<Option<mc_core::auth::kobe_creds::KobeCredentials>> {
+    Ok(mc_core::auth::kobe_creds::load())
+}
+
+/// Forget the remembered kobeMC credentials.
+#[tauri::command]
+#[specta::specta]
+pub fn kobe_clear_credentials() -> CmdResult<()> {
+    mc_core::auth::kobe_creds::clear();
+    Ok(())
+}
+
 // --- private realms (临时领域) + the syncer ----------------------------------
 // Thin glue over mc_core::realm: realm CRUD on the held kobeMC ServerClient, and
 // the syncer that reconciles an instance's mods/ to a realm manifest. Building a

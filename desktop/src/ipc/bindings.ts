@@ -298,6 +298,19 @@ export const commands = {
 } | null, string>(__TAURI_INVOKE("kobemc_session")),
 	/**  Log out of the kobeMC account (clears the server session). */
 	kobemcLogout: () => typedError<null, string>(__TAURI_INVOKE("kobemc_logout")),
+	/**
+	 *  Persist kobeMC login credentials (remember password / auto-login) in the OS
+	 *  keyring. When the keyring is unavailable nothing is written (no plaintext on disk).
+	 */
+	kobeSaveCredentials: (email: string, password: string, autoLogin: boolean) => typedError<null, string>(__TAURI_INVOKE("kobe_save_credentials", { email, password, autoLogin })),
+	/**  The remembered kobeMC credentials, or `None` if nothing was saved. */
+	kobeLoadCredentials: () => typedError<{
+	email: string,
+	password: string,
+	auto_login?: boolean,
+} | null, string>(__TAURI_INVOKE("kobe_load_credentials")),
+	/**  Forget the remembered kobeMC credentials. */
+	kobeClearCredentials: () => typedError<null, string>(__TAURI_INVOKE("kobe_clear_credentials")),
 	/**  Realms the logged-in user belongs to. */
 	realmList: () => typedError<RealmSummary[], string>(__TAURI_INVOKE("realm_list")),
 	/**  A single realm's summary. */
@@ -723,9 +736,13 @@ export type InstanceSummary = {
 export type InstanceUpdateInfo = {
 	/**  实例 id。 */
 	instance_id: string,
-	/**  可更新的已启用 mod 数量(`check_mod_updates` 结果的长度)。 */
+	/**
+	 *  可更新的已启用 mod 数量(`check_mod_updates` 结果的长度)。
+	 *  **仅对非整合包实例(散装 / 手动装 mod)统计**;整合包实例恒为 0——它的 mod
+	 *  跟随整合包版本走,由「整合包更新」统一驱动,不在这里单独报。
+	 */
 	mod_updates: number,
-	/**  该实例(由 Modrinth 整合包安装)是否有比当前来源版本更新的整合包版本。 */
+	/**  该实例(由整合包安装)是否有比当前来源版本更新的整合包版本(仅 Modrinth 来源可判定)。 */
 	modpack_update: boolean,
 };
 
@@ -738,6 +755,13 @@ export type JavaDto = {
 	version: string,
 	is_64bit: boolean,
 	source: string,
+};
+
+/**  记住的 kobeMC 登录凭据。`auto_login` 为真时启动会用它自动登录。 */
+export type KobeCredentials = {
+	email: string,
+	password: string,
+	auto_login?: boolean,
 };
 
 /**  Mod loader families. */

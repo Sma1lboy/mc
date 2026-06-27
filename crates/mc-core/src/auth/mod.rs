@@ -10,6 +10,7 @@
 //! 外置登录(Yggdrasil / authlib-injector)与离线/微软共用同一个
 //! [`store::AccountStore`] 出口;其认证客户端可后续在 `yggdrasil` 子模块补充。
 
+pub mod kobe_creds;
 pub mod msa;
 pub mod offline;
 mod secret;
