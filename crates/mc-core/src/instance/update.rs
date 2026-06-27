@@ -119,8 +119,10 @@ pub struct InstanceUpdateInfo {
     /// 实例 id。
     pub instance_id: String,
     /// 可更新的已启用 mod 数量(`check_mod_updates` 结果的长度)。
+    /// **仅对非整合包实例(散装 / 手动装 mod)统计**;整合包实例恒为 0——它的 mod
+    /// 跟随整合包版本走,由「整合包更新」统一驱动,不在这里单独报。
     pub mod_updates: u32,
-    /// 该实例(由 Modrinth 整合包安装)是否有比当前来源版本更新的整合包版本。
+    /// 该实例(由整合包安装)是否有比当前来源版本更新的整合包版本(仅 Modrinth 来源可判定)。
     pub modpack_update: bool,
 }
 
@@ -154,7 +156,12 @@ pub async fn check_all_updates(api: &ModrinthApi, paths: &GamePaths) -> Vec<Inst
         .await
 }
 
-/// 单实例检查:mod 更新数 + 整合包是否有新版。任一网络步骤失败即整体 `Err`(由调用方吞掉)。
+/// 单实例检查。按**实例来源**分流:
+/// - **整合包实例**(`config.source` 存在):mod 跟随整合包,不单独查 mod 更新(`mod_updates = 0`),
+///   只判定整合包本身有没有新版本(仅 Modrinth 来源可判定;CurseForge 等暂记作无)。
+/// - **非整合包实例**(无来源,散装 / 手动装 mod):逐个查启用 mod 的更新,`modpack_update = false`。
+///
+/// 任一网络步骤失败即整体 `Err`(由调用方吞掉)。
 async fn check_one(
     api: &ModrinthApi,
     paths: &GamePaths,
@@ -162,16 +169,24 @@ async fn check_one(
 ) -> Result<InstanceUpdateInfo> {
     let inst = Instance::new(&summary.id, paths.root().to_path_buf());
 
-    let mod_updates =
-        check_mod_updates(api, &inst, &summary.mc_version, summary.loader.as_str()).await?.len() as u32;
-
-    // 整合包更新:仅对「Modrinth 整合包来源」的实例有意义,其余直接视作无整合包更新。
-    let modpack_update = match inst.load_config()?.source {
-        Some(src) if src.provider == "modrinth" => {
-            let all = api.version_details(&src.project_id).await?;
-            !crate::modpack::update::newer_versions(all, src.version_id.as_deref()).is_empty()
+    let (mod_updates, modpack_update) = match inst.load_config()?.source {
+        // 整合包来源:mod 跟着整合包走 → 只看整合包新版本。
+        Some(src) => {
+            let modpack_update = if src.provider == "modrinth" {
+                let all = api.version_details(&src.project_id).await?;
+                !crate::modpack::update::newer_versions(all, src.version_id.as_deref()).is_empty()
+            } else {
+                false
+            };
+            (0, modpack_update)
         }
-        _ => false,
+        // 无整合包来源:散装实例,逐个查 mod 更新。
+        None => {
+            let n = check_mod_updates(api, &inst, &summary.mc_version, summary.loader.as_str())
+                .await?
+                .len() as u32;
+            (n, false)
+        }
     };
 
     Ok(InstanceUpdateInfo { instance_id: summary.id.clone(), mod_updates, modpack_update })
