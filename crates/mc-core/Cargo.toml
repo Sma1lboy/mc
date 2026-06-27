@@ -30,5 +30,25 @@ tracing = { workspace = true }
 dirs = { workspace = true }
 specta = { version = "=2.0.0-rc.25", features = ["derive"] }
 
+# 账号敏感 token 存入系统原生 keyring(默认开启 `keyring` feature)。
+# `--no-default-features` 时整个依赖被剔除,回退到明文存储,便于 headless/裁剪构建。
+# 各平台选用各自的原生后端:
+#   macOS  → apple-native(Keychain)
+#   Windows→ windows-native(Credential Manager)
+#   其它    → linux-native(keyutils,纯 syscall,无需 dbus/系统库,CI 友好)
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", optional = true, features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", optional = true, features = ["windows-native"] }
+
+[target.'cfg(not(any(target_os = "macos", target_os = "windows")))'.dependencies]
+keyring = { version = "3", optional = true, features = ["linux-native"] }
+
+[features]
+default = ["keyring"]
+# 把账号 token 存入系统 keyring;关掉则纯明文存储(见 auth::store)。
+keyring = ["dep:keyring"]
+
 [dev-dependencies]
 tokio = { workspace = true }
