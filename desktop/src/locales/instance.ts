@@ -24,6 +24,10 @@ const dict = {
     serversError: "读取服务器列表失败",
     serverJoin: "进入游戏",
     serverJoinHint: "启动并直接连接 {{ address }}",
+    serverNamePlaceholder: "名称(可空)",
+    serverAddressPlaceholder: "服务器地址,如 mc.hypixel.net",
+    serverAdd: "添加",
+    serverAddFailed: "添加服务器失败:{{ error }}",
 
     // 截图面板
     screenshots: "截图",
@@ -232,6 +236,10 @@ const dict = {
     serversError: "Failed to read the server list",
     serverJoin: "Join",
     serverJoinHint: "Launch and connect directly to {{ address }}",
+    serverNamePlaceholder: "Name (optional)",
+    serverAddressPlaceholder: "Server address, e.g. mc.hypixel.net",
+    serverAdd: "Add",
+    serverAddFailed: "Failed to add server: {{ error }}",
 
     screenshots: "Screenshots",
     reload: "Reload",

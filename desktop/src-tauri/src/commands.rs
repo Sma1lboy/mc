@@ -805,6 +805,14 @@ pub fn instance_servers(root: String, id: String) -> CmdResult<Vec<mc_core::inst
     mc_core::instance::read_servers(&inst.game_dir()).map_err(err)
 }
 
+/// 向某实例的 servers.dat 追加一条多人服务器(name 可空,address 必填)。
+#[tauri::command]
+#[specta::specta]
+pub fn add_instance_server(root: String, id: String, name: String, address: String) -> CmdResult<()> {
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    mc_core::instance::add_server(&inst.game_dir(), &name, &address).map_err(err)
+}
+
 /// 删除一个存档世界(移入系统回收站,可找回)。
 #[tauri::command]
 #[specta::specta]
