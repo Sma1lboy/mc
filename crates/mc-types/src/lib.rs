@@ -198,6 +198,9 @@ pub struct InstanceSummary {
     /// The realm this instance belongs to, if any (host = `owner`).
     #[serde(default)]
     pub realm: Option<RealmRef>,
+    /// Free-form user tags for grouping / filtering in the Library.
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 fn default_true() -> bool {

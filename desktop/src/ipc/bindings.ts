@@ -48,6 +48,11 @@ export const commands = {
 	/**  写某实例的配置(原子写入 instance.json)。 */
 	setInstanceConfig: (root: string, id: string, config: InstanceConfig_Deserialize) => typedError<null, string>(__TAURI_INVOKE("set_instance_config", { root, id, config })),
 	/**
+	 *  设置某实例的标签:加载配置 → 规范化(去空白、去空项、去重、保序)→ 写回。
+	 *  自由格式标签,供库页分组 / 按标签筛选用。
+	 */
+	setInstanceTags: (root: string, id: string, tags: string[]) => typedError<null, string>(__TAURI_INVOKE("set_instance_tags", { root, id, tags })),
+	/**
 	 *  把任意图片设为实例图标(拷贝到 `versions/<id>/icon.png`)。source 为本地文件绝对路径。
 	 *  之后 list_instances 会把它探测为 data URL 回传前端。
 	 */
@@ -605,6 +610,11 @@ export type InstanceConfig_Deserialize = {
 	 *  「加入即建薄存根」模型下,realm 实例可能尚未装核心(见 list_instances 的 pending 分支)。
 	 */
 	realm?: RealmRef | null,
+	/**
+	 *  用户给该实例打的自由格式标签(可多个),用于库分组 / 按标签筛选。
+	 *  空列表不写盘(`skip_serializing_if`),保持 `instance.json` 简洁。
+	 */
+	tags?: string[],
 };
 
 /**
@@ -640,6 +650,11 @@ export type InstanceConfig_Serialize = {
 	 *  「加入即建薄存根」模型下,realm 实例可能尚未装核心(见 list_instances 的 pending 分支)。
 	 */
 	realm?: RealmRef | null,
+	/**
+	 *  用户给该实例打的自由格式标签(可多个),用于库分组 / 按标签筛选。
+	 *  空列表不写盘(`skip_serializing_if`),保持 `instance.json` 简洁。
+	 */
+	tags?: string[],
 };
 
 /**  实例的整合包来源溯源:它从哪个平台的哪个项目/版本安装而来。 */
@@ -674,6 +689,8 @@ export type InstanceSummary = {
 	installed?: boolean,
 	/**  The realm this instance belongs to, if any (host = `owner`). */
 	realm?: RealmRef | null,
+	/**  Free-form user tags for grouping / filtering in the Library. */
+	tags?: string[],
 };
 
 /**

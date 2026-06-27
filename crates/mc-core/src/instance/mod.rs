@@ -391,6 +391,7 @@ pub fn list_instances(paths: &GamePaths) -> Vec<InstanceSummary> {
             running: false, // 运行态由上层进程管理器维护,列表层不感知。
             installed: true,
             realm: config.realm.clone(),
+            tags: config.tags.clone(),
         });
     }
 
@@ -426,6 +427,7 @@ pub fn list_instances(paths: &GamePaths) -> Vec<InstanceSummary> {
                 running: false,
                 installed: false,
                 realm: Some(realm),
+                tags: config.tags.clone(),
             });
         }
     }

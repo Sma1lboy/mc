@@ -316,6 +316,22 @@ pub fn set_instance_config(
     inst.save_config(&config).map_err(err)
 }
 
+/// 设置某实例的标签:加载配置 → 规范化(去空白、去空项、去重、保序)→ 写回。
+/// 自由格式标签,供库页分组 / 按标签筛选用。
+#[tauri::command]
+#[specta::specta]
+pub fn set_instance_tags(root: String, id: String, tags: Vec<String>) -> CmdResult<()> {
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let mut config = inst.load_config().map_err(err)?;
+    let mut seen = std::collections::HashSet::new();
+    config.tags = tags
+        .into_iter()
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty() && seen.insert(t.clone()))
+        .collect();
+    inst.save_config(&config).map_err(err)
+}
+
 /// 把任意图片设为实例图标(拷贝到 `versions/<id>/icon.png`)。source 为本地文件绝对路径。
 /// 之后 list_instances 会把它探测为 data URL 回传前端。
 #[tauri::command]

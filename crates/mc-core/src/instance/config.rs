@@ -42,6 +42,10 @@ pub struct InstanceConfig {
     /// 「加入即建薄存根」模型下,realm 实例可能尚未装核心(见 list_instances 的 pending 分支)。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub realm: Option<crate::types::RealmRef>,
+    /// 用户给该实例打的自由格式标签(可多个),用于库分组 / 按标签筛选。
+    /// 空列表不写盘(`skip_serializing_if`),保持 `instance.json` 简洁。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
 }
 
 /// 实例的整合包来源溯源:它从哪个平台的哪个项目/版本安装而来。
@@ -70,6 +74,7 @@ impl Default for InstanceConfig {
             server: None,
             source: None,
             realm: None,
+            tags: Vec::new(),
         }
     }
 }

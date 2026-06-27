@@ -1,4 +1,4 @@
-import { JSX, Show, createSignal } from "solid-js";
+import { JSX, Show, For, createSignal } from "solid-js";
 import { PlayButton } from "./PlayButton";
 import { InstanceIcon } from "./InstanceIcon";
 import { Dialog } from "./Dialog";
@@ -27,6 +27,8 @@ export interface InstanceRowData {
   realmRole?: string;
   /** 是否已装核心。领域薄存根(加入但未「开始同步」)为 false。 */
   installed?: boolean;
+  /** 用户给该实例打的自由格式标签(库页分组/筛选)。 */
+  tags?: string[];
 }
 
 // InstanceRow —— "Jump back in" 横行卡。
@@ -147,6 +149,12 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
               <span class="opacity-50">·</span>
               <span>{playedLabel()}</span>
             </div>
+            {/* 用户标签:小芯片,低调展示在元信息下方。 */}
+            <Show when={(inst().tags?.length ?? 0) > 0}>
+              <div class="flex flex-wrap items-center gap-[4px] mt-[1px]">
+                <For each={inst().tags}>{(tag) => <Tag>{tag}</Tag>}</For>
+              </div>
+            </Show>
           </div>
         </button>
 
