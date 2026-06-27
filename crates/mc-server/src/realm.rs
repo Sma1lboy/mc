@@ -601,6 +601,7 @@ mod tests {
                 url: Some("https://cdn/sodium.jar".into()),
                 source: Some("modrinth".into()),
             }],
+            overrides: None,
             version: 0,
         };
         assert!(store.push_manifest(&realm.id, "t-realm-friend", &m).await.unwrap().is_none());

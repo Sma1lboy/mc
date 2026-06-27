@@ -5,8 +5,8 @@ import { t } from "./i18n";
 import type { ProjectKind } from "./ipc/types";
 import type { AuthUser } from "./ipc/bindings";
 
-// 页面标识。home/library/discover/realm/settings + 实例详情。
-export type Page = "home" | "library" | "discover" | "realm" | "settings" | "instance";
+// 页面标识。home/library/discover/settings + 实例详情。
+export type Page = "home" | "library" | "discover" | "settings" | "instance";
 
 /**
  * 全局轻量状态:模块级 createSignal,任何组件 import 即读写,无需 Context。
@@ -195,6 +195,12 @@ export async function playInstance(id: string, server?: string): Promise<void> {
     return;
   }
   if (isLaunching(id)) return; // 防重复启动
+  // 领域薄存根(加入但未「开始同步」装核心)不可启动:引导去实例里点开始同步。
+  const summary = (instances() ?? []).find((x) => x.id === id);
+  if (summary && !summary.installed) {
+    toast({ type: "info", message: t("store.launch.pendingRealm") });
+    return;
+  }
   markLaunching(id, true);
   try {
     // 用当前选中账号启动(此前硬编码 "Player"/offline,会无视已登录账号)。
