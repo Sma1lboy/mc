@@ -12,6 +12,7 @@
 
 pub mod msa;
 pub mod offline;
+mod secret;
 pub mod store;
 pub mod yggdrasil;
 

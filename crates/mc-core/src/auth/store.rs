@@ -4,23 +4,23 @@
 //! 外置)都归一到 [`StoredAccount`],并能导出统一的 [`AuthSession`] 给启动阶段
 //! ——启动代码无需关心账号是哪种类型。
 //!
-//! # 安全(TODO)
+//! # 安全
 //!
-//! 当前实现把 `access_token` / `refresh_token` **明文**写入磁盘。生产环境必须
-//! 改为平台原生的安全存储:
-//! - macOS:Keychain
-//! - Windows:DPAPI / Credential Manager
-//! - Linux:Secret Service (libsecret)
+//! 敏感 token(`access_token` / `refresh_token` / `client_token`)默认存进**系统原生
+//! keyring**(macOS Keychain / Windows Credential Manager / Linux keyutils),`accounts.json`
+//! 里只留非敏感元数据 + 一个「token 在 keyring」的标记。详见 [`super::secret`]。
 //!
-//! 应通过系统 keyring 保存敏感 token,文件里只留非敏感元数据(uuid / 用户名 /
-//! 所有权)。这需要引入 `keyring` 之类的依赖,本 crate 暂未引入,故先明文存储。
-//! **切勿在生产中以明文形式分发此文件。**
+//! 这一切对调用方透明:加载后仍能直接从 [`StoredAccount`] 上读到 token。
+//! - 旧版明文文件在加载时会**自动迁移**:把 token 写进 keyring,并改写文件清除明文。
+//! - keyring 不可用(`keyring` feature 关闭、或运行期报错)时**优雅回退**到明文存储,
+//!   绝不因此报错把用户锁在门外;此时文件仍含明文 token,故在 Unix 上把权限收紧到 `0600`。
 
 use std::path::{Path, PathBuf};
 
 use mc_types::{AccountKind, AccountSummary, AuthSession};
 use serde::{Deserialize, Serialize};
 
+use super::secret;
 use crate::error::{CoreError, IoResultExt, Result};
 use crate::paths::ensure_dir;
 
@@ -32,7 +32,8 @@ pub struct StoredAccount {
     pub uuid: String,
     /// 游戏可用的 access token(离线为占位 "0")。
     ///
-    /// 安全提示:见模块文档,生产应改为系统 keyring 存储。
+    /// 安全提示:落盘时此字段(及下面的 refresh/client token)默认移入系统 keyring,
+    /// 文件里只留标记;见模块文档与 [`super::secret`]。
     pub access_token: String,
     /// 微软账号的刷新令牌,用于免浏览器续期;其他类型为 `None`。
     #[serde(default)]
@@ -107,10 +108,65 @@ pub fn now_unix() -> i64 {
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct StoreFile {
     #[serde(default)]
-    accounts: Vec<StoredAccount>,
+    accounts: Vec<OnDiskAccount>,
     /// 当前选中账号的 uuid。
     #[serde(default)]
     selected: Option<String>,
+}
+
+/// 账号的磁盘表示:[`StoredAccount`] 的全部字段(`flatten` 内联),外加一个标记位——
+/// 标记位为真时,敏感 token 存在系统 keyring,内联的 token 字段已被清空。
+///
+/// 用独立的 on-disk 结构(而非给 `StoredAccount` 加字段)是为了让公开的
+/// `StoredAccount` 形状保持不变,`mc-cli` / `launch` 等调用方无需改动。
+#[derive(Debug, Serialize, Deserialize)]
+struct OnDiskAccount {
+    #[serde(flatten)]
+    account: StoredAccount,
+    /// 敏感 token 是否存放在系统 keyring(为真时 JSON 内对应字段已清空)。
+    #[serde(default, skip_serializing_if = "is_false")]
+    secrets_in_keyring: bool,
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde skip_serializing_if 要求 &bool
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+/// 该账号是否带「真正的」敏感 token,值得放进 keyring。离线账号的占位 `"0"`(或空)
+/// 不算秘密,继续留在明文文件里即可,避免给钥匙串塞无意义条目。
+fn has_real_secrets(a: &StoredAccount) -> bool {
+    a.refresh_token.is_some()
+        || a.client_token.is_some()
+        || (!a.access_token.is_empty() && a.access_token != "0")
+}
+
+/// 把内存账号转成磁盘表示:有真实 token 且 keyring 写入成功 → 清空内联 token、置标记;
+/// 否则(无敏感 token,或 keyring 不可用/失败)→ 原样明文存储。
+fn to_on_disk(a: &StoredAccount) -> OnDiskAccount {
+    if has_real_secrets(a) {
+        let secrets = secret::Secrets {
+            access_token: a.access_token.clone(),
+            refresh_token: a.refresh_token.clone(),
+            client_token: a.client_token.clone(),
+        };
+        if secret::write(&a.uuid, &secrets) {
+            let mut redacted = a.clone();
+            redacted.access_token = String::new();
+            redacted.refresh_token = None;
+            redacted.client_token = None;
+            return OnDiskAccount {
+                account: redacted,
+                secrets_in_keyring: true,
+            };
+        }
+        // keyring 不可用/写入失败:回退明文,绝不丢 token。
+        tracing::warn!(uuid = %a.uuid, "keyring 写入失败,账号 token 回退明文存储");
+    }
+    OnDiskAccount {
+        account: a.clone(),
+        secrets_in_keyring: false,
+    }
 }
 
 /// 账号存储。内存中保存账号列表与选中项,[`save`](Self::save) 落盘。
@@ -149,13 +205,40 @@ impl AccountStore {
             source: e,
         })?;
 
+        // 把磁盘表示还原成内存账号:keyring 里的 token 取回填上;旧版明文(标记为假但带真实
+        // token)记下来,稍后整体迁移进 keyring 并改写文件。
+        let mut needs_migration = false;
+        let mut accounts = Vec::with_capacity(file.accounts.len());
+        for od in file.accounts {
+            let mut acct = od.account;
+            if od.secrets_in_keyring {
+                if let Some(s) = secret::read(&acct.uuid) {
+                    acct.access_token = s.access_token;
+                    acct.refresh_token = s.refresh_token;
+                    acct.client_token = s.client_token;
+                }
+                // 取不到(条目被删等):保留已清空的字段,best-effort 不报错。
+            } else if secret::available() && has_real_secrets(&acct) {
+                needs_migration = true;
+            }
+            accounts.push(acct);
+        }
+
         let mut store = Self {
             path,
-            accounts: file.accounts,
+            accounts,
             selected: file.selected,
         };
         // 修正选中项:若选中的 uuid 已不存在则清空,避免悬空引用。
         store.normalize_selected();
+
+        // 旧版明文文件:把 token 迁入 keyring 并改写文件清除明文(save 自带回退,失败则保持明文)。
+        if needs_migration {
+            match store.save() {
+                Ok(()) => tracing::info!("已把账号明文 token 迁移进系统 keyring"),
+                Err(e) => tracing::warn!(error = %e, "迁移账号 token 进 keyring 失败,暂留明文"),
+            }
+        }
         Ok(store)
     }
 
@@ -164,8 +247,9 @@ impl AccountStore {
         if let Some(parent) = self.path.parent() {
             ensure_dir(parent)?;
         }
+        // 敏感 token 写入 keyring(成功则文件里清空),只把元数据 + 标记落盘。
         let file = StoreFile {
-            accounts: self.accounts.clone(),
+            accounts: self.accounts.iter().map(to_on_disk).collect(),
             selected: self.selected.clone(),
         };
         let text = serde_json::to_string_pretty(&file).map_err(|e| CoreError::Parse {
@@ -173,8 +257,8 @@ impl AccountStore {
             source: e,
         })?;
         crate::fs::write_atomic(&self.path, text.as_bytes())?;
-        // 账号库含明文 token(见模块文档的安全 TODO:后续应迁到系统 keyring)。在 Unix 上
-        // 至少把权限收紧到「仅属主可读写」(0600),防止同机其它用户读到 token。
+        // token 优先存 keyring;但 keyring 不可用时会回退明文,且文件始终可能含离线占位等
+        // 元数据,故在 Unix 上仍把权限收紧到「仅属主可读写」(0600)。
         restrict_to_owner(&self.path);
         Ok(())
     }
@@ -199,8 +283,12 @@ impl AccountStore {
         let before = self.accounts.len();
         self.accounts.retain(|a| a.uuid != uuid);
         let removed = self.accounts.len() != before;
-        if removed && self.selected.as_deref() == Some(uuid) {
-            self.selected = self.accounts.first().map(|a| a.uuid.clone());
+        if removed {
+            // 账号没了就清掉它在 keyring 里的 token 条目(best-effort)。
+            secret::delete(uuid);
+            if self.selected.as_deref() == Some(uuid) {
+                self.selected = self.accounts.first().map(|a| a.uuid.clone());
+            }
         }
         removed
     }
@@ -266,6 +354,10 @@ impl AccountStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `cfg(test)` 下 [`secret`] 后端自动换成进程内内存 store(见该模块),测试绝不触碰真实
+    /// 钥匙串。此处保留一个显式的 no-op,标注「这个测试会走 keyring 路径」。
+    fn init_mock_keyring() {}
 
     #[test]
     fn is_expired_respects_margin_and_unknown() {
@@ -339,6 +431,7 @@ mod tests {
 
     #[test]
     fn remove_selected_falls_back_to_first() {
+        init_mock_keyring();
         let mut s = empty_store();
         s.add(offline("alice", "uuid-a"));
         s.add(offline("bob", "uuid-b"));
@@ -350,6 +443,7 @@ mod tests {
 
     #[test]
     fn remove_nonexistent_returns_false() {
+        init_mock_keyring();
         let mut s = empty_store();
         s.add(offline("alice", "uuid-a"));
         assert!(!s.remove("ghost"));
@@ -379,6 +473,7 @@ mod tests {
 
     #[test]
     fn save_then_load_roundtrips() {
+        init_mock_keyring();
         let p = std::env::temp_dir().join(format!(
             "mc-core-auth-store-roundtrip-{}.json",
             std::process::id()
@@ -402,6 +497,17 @@ mod tests {
         });
         s.select("uuid-ms").unwrap();
         s.save().unwrap();
+
+        // 开启 keyring(mock)时:磁盘上不应再出现明文 token,而是带 keyring 标记。
+        #[cfg(feature = "keyring")]
+        {
+            let on_disk = std::fs::read_to_string(&p).unwrap();
+            assert!(
+                !on_disk.contains("mctoken") && !on_disk.contains("\"refresh\""),
+                "敏感 token 不应明文落盘:{on_disk}"
+            );
+            assert!(on_disk.contains("secrets_in_keyring"));
+        }
 
         let loaded = AccountStore::load(&p).unwrap();
         assert_eq!(loaded.accounts().len(), 2);
@@ -446,6 +552,73 @@ mod tests {
         std::fs::write(&p, json).unwrap();
         let s = AccountStore::load(&p).unwrap();
         assert_eq!(s.selected.as_deref(), Some("uuid-a"));
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// 离线账号的占位 token("0")不算秘密:始终留在明文文件里,不进 keyring,
+    /// 加载/保存照常往返。feature 开关都成立。
+    #[test]
+    fn offline_token_stays_plaintext() {
+        init_mock_keyring();
+        let p = std::env::temp_dir().join(format!(
+            "mc-core-auth-store-offline-{}.json",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&p);
+
+        let mut s = AccountStore::load(&p).unwrap();
+        s.add(offline("alice", "uuid-off"));
+        s.save().unwrap();
+
+        let on_disk = std::fs::read_to_string(&p).unwrap();
+        assert!(on_disk.contains("\"access_token\": \"0\""));
+        assert!(!on_disk.contains("secrets_in_keyring"));
+
+        let loaded = AccountStore::load(&p).unwrap();
+        assert_eq!(loaded.selected_session().unwrap().access_token, "0");
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// 旧版明文文件(token 在 JSON 里、无 keyring 标记)在加载时应自动迁移:token 进 keyring,
+    /// 文件被改写清除明文;之后重新加载仍能从 keyring 取回 token。仅在 keyring feature 开启时成立。
+    #[cfg(feature = "keyring")]
+    #[test]
+    fn legacy_plaintext_migrates_into_keyring() {
+        init_mock_keyring();
+        let p = std::env::temp_dir().join(format!(
+            "mc-core-auth-store-migrate-{}.json",
+            std::process::id()
+        ));
+        let json = r#"{
+            "accounts": [
+                {"kind":"microsoft","username":"legacy","uuid":"uuid-legacy",
+                 "access_token":"plain-access","refresh_token":"plain-refresh",
+                 "xuid":"x1","user_type":"msa","owns_game":true}
+            ],
+            "selected": "uuid-legacy"
+        }"#;
+        std::fs::write(&p, json).unwrap();
+
+        // 加载触发迁移:内存里 token 仍正确。
+        let loaded = AccountStore::load(&p).unwrap();
+        let acc = loaded.selected_account().unwrap();
+        assert_eq!(acc.access_token, "plain-access");
+        assert_eq!(acc.refresh_token.as_deref(), Some("plain-refresh"));
+
+        // 文件已被改写:不再含明文 token,改为 keyring 标记。
+        let on_disk = std::fs::read_to_string(&p).unwrap();
+        assert!(
+            !on_disk.contains("plain-access") && !on_disk.contains("plain-refresh"),
+            "迁移后明文 token 不应残留:{on_disk}"
+        );
+        assert!(on_disk.contains("secrets_in_keyring"));
+
+        // 全新加载:token 从 keyring 取回。
+        let reloaded = AccountStore::load(&p).unwrap();
+        let acc = reloaded.selected_account().unwrap();
+        assert_eq!(acc.access_token, "plain-access");
+        assert_eq!(acc.refresh_token.as_deref(), Some("plain-refresh"));
+
         let _ = std::fs::remove_file(&p);
     }
 }
