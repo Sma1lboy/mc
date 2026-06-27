@@ -146,7 +146,32 @@ pub struct ManifestVersion {
     pub release_time: String,
 }
 
-/// A summary of an installed instance for list views.
+/// The realm an instance belongs to (临时领域), stored on the instance and
+/// surfaced for badges + the in-instance realm panel. An instance maps to at
+/// most one realm (1:1). For a freshly-joined instance the core isn't installed
+/// yet — [`InstanceSummary::installed`] is false until the user hits "begin".
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
+pub struct RealmRef {
+    pub realm_id: String,
+    /// Join code (for display / re-share).
+    #[serde(default)]
+    pub code: Option<String>,
+    /// This client's role in the realm: `owner` | `admin` | `member`.
+    pub role: String,
+    /// Realm display name (cached for offline display).
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Target Minecraft version (so a pending instance can install on "begin").
+    #[serde(default)]
+    pub mc_version: Option<String>,
+    /// Target loader (`fabric` etc.) for the pending install.
+    #[serde(default)]
+    pub loader: Option<String>,
+    #[serde(default)]
+    pub loader_version: Option<String>,
+}
+
+/// A summary of an instance for list views.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, specta::Type)]
 pub struct InstanceSummary {
     pub id: String,
@@ -166,6 +191,17 @@ pub struct InstanceSummary {
     /// Whether the instance is currently running.
     #[serde(default)]
     pub running: bool,
+    /// Whether the core (version + loader) is installed. A realm instance that's
+    /// been joined but not yet synced is `false` — it can't launch until "begin".
+    #[serde(default = "default_true")]
+    pub installed: bool,
+    /// The realm this instance belongs to, if any (host = `owner`).
+    #[serde(default)]
+    pub realm: Option<RealmRef>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// UI theme preference.

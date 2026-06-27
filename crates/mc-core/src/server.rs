@@ -115,7 +115,7 @@ impl ServerClient {
         &self.base
     }
 
-    async fn get_json<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T> {
+    pub(crate) async fn get_json<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T> {
         let url = format!("{}{}", self.base, path);
         let resp = self.http.get(&url).send().await?;
         if !resp.status().is_success() {
@@ -124,6 +124,96 @@ impl ServerClient {
         let bytes = resp.bytes().await?;
         serde_json::from_slice(&bytes)
             .map_err(|e| CoreError::Parse { what: format!("server {path}"), source: e })
+    }
+
+    /// POST a JSON body and parse the JSON response; errors on non-2xx.
+    pub(crate) async fn post_json<B: serde::Serialize + ?Sized, T: serde::de::DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<T> {
+        let url = format!("{}{}", self.base, path);
+        let resp = self.http.post(&url).json(body).send().await?;
+        if !resp.status().is_success() {
+            return Err(CoreError::other(format!("server {} returned {}", path, resp.status())));
+        }
+        let bytes = resp.bytes().await?;
+        serde_json::from_slice(&bytes)
+            .map_err(|e| CoreError::Parse { what: format!("server {path}"), source: e })
+    }
+
+    /// POST expecting a JSON body, but treat **404** as a clean `None`
+    /// (used where the resource may legitimately not exist, e.g. a bad join code).
+    pub(crate) async fn post_optional_json<
+        B: serde::Serialize + ?Sized,
+        T: serde::de::DeserializeOwned,
+    >(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<Option<T>> {
+        let url = format!("{}{}", self.base, path);
+        let resp = self.http.post(&url).json(body).send().await?;
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        if !resp.status().is_success() {
+            return Err(CoreError::other(format!("server {} returned {}", path, resp.status())));
+        }
+        let bytes = resp.bytes().await?;
+        serde_json::from_slice(&bytes)
+            .map(Some)
+            .map_err(|e| CoreError::Parse { what: format!("server {path}"), source: e })
+    }
+
+    /// POST a JSON body, discarding the (empty) response; errors on non-2xx.
+    pub(crate) async fn post_no_content<B: serde::Serialize + ?Sized>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<()> {
+        let url = format!("{}{}", self.base, path);
+        let resp = self.http.post(&url).json(body).send().await?;
+        if !resp.status().is_success() {
+            return Err(CoreError::other(format!("server {} returned {}", path, resp.status())));
+        }
+        Ok(())
+    }
+
+    /// DELETE a resource, discarding the (empty) response; errors on non-2xx.
+    pub(crate) async fn delete_no_content(&self, path: &str) -> Result<()> {
+        let url = format!("{}{}", self.base, path);
+        let resp = self.http.delete(&url).send().await?;
+        if !resp.status().is_success() {
+            return Err(CoreError::other(format!("server {} returned {}", path, resp.status())));
+        }
+        Ok(())
+    }
+
+    /// POST a raw binary body (e.g. the realm overrides zip); errors on non-2xx.
+    pub(crate) async fn post_bytes(&self, path: &str, body: Vec<u8>) -> Result<()> {
+        let url = format!("{}{}", self.base, path);
+        let resp = self
+            .http
+            .post(&url)
+            .header(reqwest::header::CONTENT_TYPE, "application/zip")
+            .body(body)
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            return Err(CoreError::other(format!("server {} returned {}", path, resp.status())));
+        }
+        Ok(())
+    }
+
+    /// GET a raw binary body (e.g. the realm overrides zip); errors on non-2xx.
+    pub(crate) async fn get_bytes(&self, path: &str) -> Result<Vec<u8>> {
+        let url = format!("{}{}", self.base, path);
+        let resp = self.http.get(&url).send().await?;
+        if !resp.status().is_success() {
+            return Err(CoreError::other(format!("server {} returned {}", path, resp.status())));
+        }
+        Ok(resp.bytes().await?.to_vec())
     }
 
     /// Liveness check; returns the raw status json.

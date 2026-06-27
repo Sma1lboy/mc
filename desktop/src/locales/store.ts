@@ -2,6 +2,7 @@
 const dict = {
   zh: {
     "launch.starting": "正在启动…",
+    "launch.pendingRealm": "该实例尚未同步,请先在「领域」里点开始同步。",
     "launch.exited": "游戏已退出",
     "launch.launchFailed": "启动失败:{{ error }}",
     "launch.stopFailed": "停止失败:{{ error }}",
@@ -32,6 +33,7 @@ const dict = {
   } as Record<string, string>,
   en: {
     "launch.starting": "Starting…",
+    "launch.pendingRealm": "This instance isn't synced yet — hit Begin sync in its Realm section first.",
     "launch.exited": "Game exited",
     "launch.launchFailed": "Launch failed: {{ error }}",
     "launch.stopFailed": "Stop failed: {{ error }}",

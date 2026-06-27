@@ -18,6 +18,7 @@ pub mod meta;
 pub mod modpack;
 pub mod modplatform;
 pub mod paths;
+pub mod realm;
 pub mod server;
 pub mod settings;
 pub mod version;

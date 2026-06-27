@@ -38,6 +38,10 @@ pub struct InstanceConfig {
     /// 仅在由 provider 发起、已知确切项目 id 的安装时写入;URL/裸 zip 导入留 `None`。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<InstanceSource>,
+    /// 该实例所属的临时领域(host 为 owner)。加入领域时写入,退出/解散时清除。
+    /// 「加入即建薄存根」模型下,realm 实例可能尚未装核心(见 list_instances 的 pending 分支)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub realm: Option<crate::types::RealmRef>,
 }
 
 /// 实例的整合包来源溯源:它从哪个平台的哪个项目/版本安装而来。
@@ -65,6 +69,7 @@ impl Default for InstanceConfig {
             fullscreen: false,
             server: None,
             source: None,
+            realm: None,
         }
     }
 }

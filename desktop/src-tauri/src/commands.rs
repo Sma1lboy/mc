@@ -1537,6 +1537,319 @@ pub async fn kobemc_logout(
     client.logout().await.map_err(err)
 }
 
+// --- private realms (临时领域) + the syncer ----------------------------------
+// Thin glue over mc_core::realm: realm CRUD on the held kobeMC ServerClient, and
+// the syncer that reconciles an instance's mods/ to a realm manifest. Building a
+// manifest from an instance resolves local mod jars to download urls by hash
+// (Modrinth provider); the reconcile downloads missing/changed files and can drop
+// mods the manifest no longer carries.
+
+use mc_core::realm::{CreateRealmReq, RealmManifest, RealmMember, RealmSummary, SyncPlan, SyncReport};
+use mc_core::types::RealmRef;
+
+/// Resolve an instance from a game root + id.
+fn instance_of(root: &str, id: &str) -> Instance {
+    Instance::new(id, root_paths(root).root().to_path_buf())
+}
+
+/// Build the local realm binding (stored on the instance) from a server summary.
+/// `loader_version` is filled later from the manifest on "begin" — the summary
+/// doesn't carry it.
+fn realm_ref(s: &RealmSummary, role: &str) -> RealmRef {
+    RealmRef {
+        realm_id: s.id.clone(),
+        code: Some(s.code.clone()),
+        role: role.to_string(),
+        name: Some(s.name.clone()),
+        mc_version: s.mc_version.clone(),
+        loader: s.loader.clone(),
+        loader_version: None,
+    }
+}
+
+/// Build a full snapshot (manifest + optional overrides zip) from a host's
+/// instance via the Modrinth provider (always available — no API key needed).
+async fn snapshot_of_instance(
+    root: &str,
+    id: &str,
+    mc_version: &str,
+    loader: &str,
+    loader_version: Option<String>,
+) -> CmdResult<(RealmManifest, Option<Vec<u8>>)> {
+    let inst = instance_of(root, id);
+    let reg = make_registry();
+    let provider = provider_or_err(&reg, mc_core::modplatform::ProviderId::Modrinth)?;
+    mc_core::realm::build_snapshot(&inst, provider.as_ref(), mc_version, loader, loader_version)
+        .await
+        .map_err(err)
+}
+
+/// Download + extract the realm's overrides blob into `inst` when the manifest
+/// carries one. Best-effort: a missing/failed blob doesn't fail the whole sync.
+/// Extraction runs on a blocking thread (blobs can be large).
+async fn apply_overrides_if_any(
+    client: &mc_core::server::ServerClient,
+    realm_id: &str,
+    inst: &Instance,
+    manifest: &RealmManifest,
+) {
+    if manifest.overrides.is_none() {
+        return;
+    }
+    if let Ok(zip) = client.download_overrides(realm_id).await {
+        let inst = inst.clone();
+        let _ = tokio::task::spawn_blocking(move || mc_core::realm::apply_overrides(&inst, &zip)).await;
+    }
+}
+
+/// Realms the logged-in user belongs to.
+#[tauri::command]
+#[specta::specta]
+pub async fn realm_list(
+    client: State<'_, mc_core::server::ServerClient>,
+) -> CmdResult<Vec<RealmSummary>> {
+    client.list_realms().await.map_err(err)
+}
+
+/// A single realm's summary.
+#[tauri::command]
+#[specta::specta]
+pub async fn realm_get(
+    client: State<'_, mc_core::server::ServerClient>,
+    realm_id: String,
+) -> CmdResult<RealmSummary> {
+    client.get_realm(&realm_id).await.map_err(err)
+}
+
+/// Share an instance as a realm: create it from the instance's current mods, then
+/// stamp the realm binding onto that instance (host = owner). Returns the summary.
+#[tauri::command]
+#[specta::specta]
+#[allow(clippy::too_many_arguments)]
+pub async fn realm_create(
+    client: State<'_, mc_core::server::ServerClient>,
+    root: String,
+    instance_id: String,
+    name: String,
+    mc_version: String,
+    loader: String,
+    loader_version: Option<String>,
+    expires_in_secs: Option<i64>,
+) -> CmdResult<RealmSummary> {
+    let (manifest, overrides) =
+        snapshot_of_instance(&root, &instance_id, &mc_version, &loader, loader_version).await?;
+    let summary = client
+        .create_realm(&CreateRealmReq { name, expires_in_secs, manifest })
+        .await
+        .map_err(err)?;
+    if let Some(zip) = overrides {
+        client.upload_overrides(&summary.id, zip).await.map_err(err)?;
+    }
+    let paths = root_paths(&root);
+    let _ = mc_core::instance::lifecycle::set_instance_realm(
+        &paths,
+        &instance_id,
+        Some(realm_ref(&summary, "owner")),
+    );
+    Ok(summary)
+}
+
+/// Join a realm by code and create a **pending** local instance bound to it (no
+/// core installed yet — that's "begin"). Returns the new instance id, or `None`
+/// if the code is unknown/expired.
+#[tauri::command]
+#[specta::specta]
+pub async fn realm_join(
+    client: State<'_, mc_core::server::ServerClient>,
+    root: String,
+    code: String,
+) -> CmdResult<Option<String>> {
+    let Some(summary) = client.join_realm(code.trim()).await.map_err(err)? else {
+        return Ok(None);
+    };
+    let paths = root_paths(&root);
+    let g = settings_global();
+    let id = mc_core::instance::lifecycle::create_realm_shell(
+        &paths,
+        &summary.name,
+        realm_ref(&summary, &summary.role),
+        g.default_memory_mb,
+        g.java_path.clone(),
+    )
+    .map_err(err)?;
+    Ok(Some(id))
+}
+
+/// "Begin": for a freshly-joined (pending) instance, install the core (version +
+/// loader from the manifest) then download the realm's mods. Idempotent on the
+/// core. Progress streams over `realm://sync-progress`.
+#[tauri::command]
+#[specta::specta]
+pub async fn realm_begin(
+    app: AppHandle,
+    client: State<'_, mc_core::server::ServerClient>,
+    realm_id: String,
+    root: String,
+    instance_id: String,
+) -> CmdResult<SyncReport> {
+    let paths = root_paths(&root);
+    let inst = instance_of(&root, &instance_id);
+    let manifest = client.realm_manifest(&realm_id).await.map_err(err)?;
+    let dl = make_downloader()?;
+    let (tx, rx) = watch::channel(Progress::new("准备"));
+    forward_progress(app, "realm://sync-progress", rx);
+
+    // 1) install the core (version + loader) — idempotent.
+    let mc_version = manifest.mc_version.clone().unwrap_or_default();
+    let loader_opt = match parse_loader_kind(manifest.loader.as_deref().unwrap_or("")) {
+        None | Some(mc_core::types::LoaderKind::Vanilla) => None,
+        Some(kind) => Some((kind, manifest.loader_version.clone().unwrap_or_default())),
+    };
+    mc_core::instance::lifecycle::materialize_core(&dl, &paths, &instance_id, &mc_version, loader_opt, Some(tx.clone()))
+        .await
+        .map_err(err)?;
+
+    // 2) download the realm's mods.
+    let plan = mc_core::realm::plan_sync(&inst, &manifest);
+    let report = mc_core::realm::apply_sync(&inst, &dl, &plan, false, Some(tx)).await.map_err(err)?;
+
+    // 3) extract the overrides blob (config/scripts/non-CDN content), if any.
+    apply_overrides_if_any(&client, &realm_id, &inst, &manifest).await;
+
+    let _ = client.mark_realm_synced(&realm_id, report.version).await;
+    Ok(report)
+}
+
+/// Member list (with synced-version progress).
+#[tauri::command]
+#[specta::specta]
+pub async fn realm_members(
+    client: State<'_, mc_core::server::ServerClient>,
+    realm_id: String,
+) -> CmdResult<Vec<RealmMember>> {
+    client.realm_members(&realm_id).await.map_err(err)
+}
+
+/// Owner/admin republishes the manifest from an instance; returns new version.
+#[tauri::command]
+#[specta::specta]
+pub async fn realm_push_manifest(
+    client: State<'_, mc_core::server::ServerClient>,
+    realm_id: String,
+    root: String,
+    instance_id: String,
+    mc_version: String,
+    loader: String,
+    loader_version: Option<String>,
+) -> CmdResult<i32> {
+    let (manifest, overrides) =
+        snapshot_of_instance(&root, &instance_id, &mc_version, &loader, loader_version).await?;
+    let version = client.push_realm_manifest(&realm_id, &manifest).await.map_err(err)?;
+    if let Some(zip) = overrides {
+        client.upload_overrides(&realm_id, zip).await.map_err(err)?;
+    }
+    Ok(version)
+}
+
+/// Dry-run: what syncing `instance_id` to the realm's manifest would change.
+#[tauri::command]
+#[specta::specta]
+pub async fn realm_plan_sync(
+    client: State<'_, mc_core::server::ServerClient>,
+    realm_id: String,
+    root: String,
+    instance_id: String,
+) -> CmdResult<SyncPlan> {
+    let manifest = client.realm_manifest(&realm_id).await.map_err(err)?;
+    Ok(mc_core::realm::plan_sync(&instance_of(&root, &instance_id), &manifest))
+}
+
+/// Reconcile `instance_id` to the realm manifest: download missing/changed mods,
+/// optionally drop the ones the manifest no longer carries, then report progress
+/// to the server. Progress streams over a dedicated `realm://sync-progress` event
+/// (kept off `install://progress` so it can't collide with a concurrent install).
+#[tauri::command]
+#[specta::specta]
+pub async fn realm_sync(
+    app: AppHandle,
+    client: State<'_, mc_core::server::ServerClient>,
+    realm_id: String,
+    root: String,
+    instance_id: String,
+    remove_extras: bool,
+) -> CmdResult<SyncReport> {
+    let inst = instance_of(&root, &instance_id);
+    let manifest = client.realm_manifest(&realm_id).await.map_err(err)?;
+    let plan = mc_core::realm::plan_sync(&inst, &manifest);
+
+    let dl = make_downloader()?;
+    let (tx, rx) = watch::channel(Progress::new("同步领域"));
+    forward_progress(app, "realm://sync-progress", rx);
+    let report = mc_core::realm::apply_sync(&inst, &dl, &plan, remove_extras, Some(tx)).await.map_err(err)?;
+
+    // Extract the overrides blob (config/scripts/non-CDN content), if any.
+    apply_overrides_if_any(&client, &realm_id, &inst, &manifest).await;
+
+    // Best-effort: record how far this member has synced (don't fail the sync).
+    let _ = client.mark_realm_synced(&realm_id, report.version).await;
+    Ok(report)
+}
+
+/// Owner sets a member's role (`admin`/`member`).
+#[tauri::command]
+#[specta::specta]
+pub async fn realm_set_role(
+    client: State<'_, mc_core::server::ServerClient>,
+    realm_id: String,
+    user_id: String,
+    role: String,
+) -> CmdResult<()> {
+    client.set_member_role(&realm_id, &user_id, &role).await.map_err(err)
+}
+
+/// Owner removes another member (their own client clears its binding locally).
+#[tauri::command]
+#[specta::specta]
+pub async fn realm_remove_member(
+    client: State<'_, mc_core::server::ServerClient>,
+    realm_id: String,
+    user_id: String,
+) -> CmdResult<()> {
+    client.remove_member(&realm_id, &user_id).await.map_err(err)
+}
+
+/// Self-leave a realm and unbind it from the local instance (the instance stays;
+/// if it was never synced it's just an empty shell that drops out of the list).
+#[tauri::command]
+#[specta::specta]
+pub async fn realm_leave(
+    client: State<'_, mc_core::server::ServerClient>,
+    realm_id: String,
+    user_id: String,
+    root: String,
+    instance_id: String,
+) -> CmdResult<()> {
+    client.remove_member(&realm_id, &user_id).await.map_err(err)?;
+    let paths = root_paths(&root);
+    let _ = mc_core::instance::lifecycle::set_instance_realm(&paths, &instance_id, None);
+    Ok(())
+}
+
+/// Owner disbands the realm and unbinds it from the local instance.
+#[tauri::command]
+#[specta::specta]
+pub async fn realm_disband(
+    client: State<'_, mc_core::server::ServerClient>,
+    realm_id: String,
+    root: String,
+    instance_id: String,
+) -> CmdResult<()> {
+    client.disband_realm(&realm_id).await.map_err(err)?;
+    let paths = root_paths(&root);
+    let _ = mc_core::instance::lifecycle::set_instance_realm(&paths, &instance_id, None);
+    Ok(())
+}
+
 // --- modpack import / export (thin glue over mc_core::modpack) ---------------
 
 /// 一个 blocked 文件(CurseForge 作者禁第三方分发)的 UI 视图:需用户手动下载。

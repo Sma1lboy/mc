@@ -5,6 +5,7 @@ import { Dialog } from "./Dialog";
 import { Menu } from "./Menu";
 import { Button } from "./Button";
 import { Icon } from "./Icon";
+import { Tag } from "./Tag";
 import { formatRelativeTime } from "./format";
 import { loaderLabel as fmtLoader } from "../util/loaders";
 import { isRunning, isLaunching } from "../store";
@@ -22,6 +23,10 @@ export interface InstanceRowData {
   icon?: string;
   last_played: number; // epoch ms
   running: boolean;
+  /** 领域角色:owner/admin/member;无 = 普通实例(非领域包)。 */
+  realmRole?: string;
+  /** 是否已装核心。领域薄存根(加入但未「开始同步」)为 false。 */
+  installed?: boolean;
 }
 
 // InstanceRow —— "Jump back in" 横行卡。
@@ -120,11 +125,22 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
 
           {/* 中: 名称 + 元信息。 */}
           <div class="flex-1 min-w-0 flex flex-col gap-[4px]">
-            <div
-              class="text-[length:var(--fs-base)] font-semibold text-fg whitespace-nowrap overflow-hidden text-ellipsis"
-              title={inst().name}
-            >
-              {inst().name}
+            <div class="flex items-center gap-[6px] min-w-0">
+              <span
+                class="text-[length:var(--fs-base)] font-semibold text-fg whitespace-nowrap overflow-hidden text-ellipsis"
+                title={inst().name}
+              >
+                {inst().name}
+              </span>
+              {/* 领域包角标:主办 / 领域 + 未同步(pending)状态。 */}
+              <Show when={inst().realmRole}>
+                <Tag class="shrink-0">
+                  {inst().realmRole === "owner" ? t("realm.badgeHost") : t("realm.badgeMember")}
+                </Tag>
+                <Show when={inst().installed === false}>
+                  <Tag class="shrink-0 text-accent">{t("realm.badgePending")}</Tag>
+                </Show>
+              </Show>
             </div>
             <div class="text-[12px] text-muted whitespace-nowrap overflow-hidden text-ellipsis flex items-center gap-[6px]">
               <span>{loaderLabel()}</span>
@@ -136,7 +152,11 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
 
         {/* 右: Play + ⋮ 菜单(Ark Menu:键盘可达 + 点外部/Esc 关闭)。 */}
         <div class="relative z-[1] shrink-0 flex items-center gap-[8px]">
-          <PlayButton running={running()} disabled={isLaunching(inst().id)} onClick={() => props.onPlay?.(inst().id)} />
+          <PlayButton
+            running={running()}
+            disabled={isLaunching(inst().id) || inst().installed === false}
+            onClick={() => props.onPlay?.(inst().id)}
+          />
           <Menu.Root positioning={{ placement: "bottom-end" }} onSelect={(d: { value: string }) => onSelectAction(d.value)}>
             <Menu.Trigger
               class="inline-flex items-center justify-center w-[36px] h-[36px] border-none rounded-none bg-panel-3 text-sub shadow-raised cursor-pointer transition-[filter,color] duration-[var(--dur)] ease-app hover:brightness-110 hover:text-fg active:shadow-pressed data-[state=open]:shadow-pressed data-[state=open]:text-fg"

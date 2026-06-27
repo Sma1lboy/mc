@@ -1,6 +1,7 @@
 import { Component, createEffect, createResource, createSignal, onCleanup, onMount, For, Show } from "solid-js";
 import { InstanceManageDialog, InstanceIcon, Dialog, ExportModpackDialog, toast, Button, Heading, PixelLabel, Tag, type InstanceRowData } from "../components";
 import { PlayButton } from "../components/PlayButton";
+import { RealmPanel } from "../components/RealmPanel";
 import { Menu } from "../components/Menu";
 import { formatRelativeTime } from "../components/format";
 import { api, onInstallProgress } from "../ipc/api";
@@ -151,6 +152,8 @@ const InstanceDetail: Component = () => {
       icon: i.icon || undefined,
       last_played: i.last_played ?? 0,
       running: isRunning(i.id),
+      realmRole: i.realm?.role,
+      installed: i.installed,
     };
   };
 
@@ -273,7 +276,11 @@ const InstanceDetail: Component = () => {
                   </button>
                 </Show>
               </div>
-              <PlayButton running={isRunning(i().id)} disabled={isLaunching(i().id)} onClick={() => void playInstance(i().id)} />
+              <PlayButton
+                running={isRunning(i().id)}
+                disabled={isLaunching(i().id) || !i().installed}
+                onClick={() => void playInstance(i().id)}
+              />
               <Menu.Root positioning={{ placement: "bottom-end" }} onSelect={(d: { value: string }) => void onMenuAction(d.value)}>
                 <Menu.Trigger
                   class="inline-flex items-center justify-center w-[38px] h-[38px] border-none bg-panel-3 text-sub rounded-none shadow-raised cursor-pointer transition-[filter,color] duration-[var(--dur)] ease-app hover:brightness-110 hover:text-fg active:shadow-pressed data-[state=open]:shadow-pressed data-[state=open]:text-fg"
@@ -299,6 +306,15 @@ const InstanceDetail: Component = () => {
           )}
         </Show>
       </div>
+      </Show>
+
+      {/* 领域段:分享为领域 / 开始同步(pending)/ 管理(成员·同步·清单)。 */}
+      <Show when={!browsing() && inst()}>
+        {(i) => (
+          <div class="shrink-0 border-b border-titlebar overflow-y-auto max-h-[55vh]">
+            <RealmPanel instance={i()} onChanged={() => void refetch()} />
+          </div>
+        )}
       </Show>
 
       {/* tabs + 内容(复用管理面板的 embedded 模式) */}
