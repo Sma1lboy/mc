@@ -18,6 +18,16 @@ const INPUT =
 
 const label = (u: UserBrief) => u.username || u.id.slice(0, 8);
 
+// 头像方块瓦片:取名字首字 + 由名字哈希定一个方块色调(草绿 / 泥土 / 石青 / 棕 / 灰紫)。
+const AVATAR_TONES = ["#6f9b4e", "#8a6f3f", "#5b7f86", "#7a5b3a", "#5e5b6e"];
+const avatarTone = (u: UserBrief) => {
+  const s = label(u);
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return AVATAR_TONES[h % AVATAR_TONES.length];
+};
+const initial = (u: UserBrief) => label(u).slice(0, 1).toUpperCase();
+
 /**
  * FriendsButton —— 顶栏好友入口(从账号 chip 拆出的独立按钮)。
  * 人像 chip + 好友数,点开保持挂载的下拉:搜索加好友 + 好友列表(在线点 + 活动行)。
@@ -28,6 +38,7 @@ export const FriendsButton: Component = () => {
   const [open, setOpen] = createSignal(false);
   const hasUsername = () => !!kobeUser()?.username;
   const count = () => (friends() ?? []).length;
+  const onlineCount = () => (friends() ?? []).filter((u) => u.online).length;
   let rootEl: HTMLDivElement | undefined;
 
   onMount(() => {
@@ -61,7 +72,14 @@ export const FriendsButton: Component = () => {
         class="absolute right-0 top-[calc(100%+6px)] w-[300px] bg-panel border border-titlebar shadow-raised rounded-none z-[200] p-[16px]"
         classList={{ hidden: !open() }}
       >
-        <div class="text-[13px] text-strong font-display mb-[8px]">{t("friend.title")}</div>
+        <div class="flex items-center justify-between mb-[10px]">
+          <span class="text-[13px] text-strong font-display">{t("friend.title")}</span>
+          <Show when={hasUsername() && onlineCount() > 0}>
+            <span class="text-[11px] text-accent bg-accent/15 px-[7px] py-[1px] tabular-nums">
+              {t("friend.onlineCount", { n: onlineCount() })}
+            </span>
+          </Show>
+        </div>
         <Show when={hasUsername()} fallback={<SetUsername />}>
           <Friends />
         </Show>
@@ -148,8 +166,34 @@ const Friends: Component = () => {
       void refreshFriends();
     });
 
+  // 状态分段:全部 / 在线(只在线时一眼看谁能一起玩)。
+  const [tab, setTab] = createSignal<"all" | "online">("all");
+  const all = () => friends() ?? [];
+  const onlineList = () => all().filter((u) => u.online);
+  const shown = () => (tab() === "online" ? onlineList() : all());
+
   return (
     <div class="flex flex-col gap-[10px]">
+      {/* 状态分段控件 */}
+      <div class="flex bg-panel-2 shadow-input p-[2px]">
+        <button
+          type="button"
+          class="flex-1 h-[24px] border-none cursor-pointer text-[12px] tabular-nums transition-[background-color,color] duration-[var(--dur)] ease-app"
+          classList={{ "bg-accent text-accent-text shadow-raised font-medium": tab() === "all", "bg-transparent text-muted hover:text-fg": tab() !== "all" }}
+          onClick={() => setTab("all")}
+        >
+          {t("friend.all")} {all().length}
+        </button>
+        <button
+          type="button"
+          class="flex-1 h-[24px] border-none cursor-pointer text-[12px] tabular-nums transition-[background-color,color] duration-[var(--dur)] ease-app"
+          classList={{ "bg-accent text-accent-text shadow-raised font-medium": tab() === "online", "bg-transparent text-muted hover:text-fg": tab() !== "online" }}
+          onClick={() => setTab("online")}
+        >
+          {t("friend.online")} {onlineList().length}
+        </button>
+      </div>
+
       {/* 加好友:搜索用户名 */}
       <div class="flex flex-col gap-[6px]">
         <input
@@ -184,42 +228,68 @@ const Friends: Component = () => {
         </Show>
       </div>
 
-      {/* 好友列表 */}
-      <div class="flex flex-col gap-[4px]">
+      {/* 好友列表(头像方块瓦片 + 角落状态 pip;在线行实色、离线行灰)。 */}
+      <Show
+        when={all().length > 0}
+        fallback={
+          <div class="flex flex-col items-center gap-[8px] py-[18px] text-center">
+            <span class="w-[34px] h-[34px] grid grid-rows-[11px_1fr] shadow-input overflow-hidden" aria-hidden="true">
+              <span class="bg-accent" />
+              <span class="bg-[#7a5b3a]" />
+            </span>
+            <p class="text-[12px] text-faint leading-[1.6] max-w-[200px]">{t("friend.noFriends")}</p>
+          </div>
+        }
+      >
         <Show
-          when={(friends() ?? []).length > 0}
-          fallback={<p class="text-[12px] text-faint">{t("friend.noFriends")}</p>}
+          when={shown().length > 0}
+          fallback={<p class="text-[12px] text-faint px-[2px] py-[6px]">{t("friend.noneOnline")}</p>}
         >
-          <For each={friends()}>
-            {(u) => (
-              <div class="flex items-center gap-[8px] px-[2px] py-[3px] group">
-                <span
-                  class={`w-[6px] h-[6px] shrink-0 ${u.online ? "bg-accent" : "bg-faint"}`}
-                  aria-hidden="true"
-                  title={u.online ? t("friend.online") : t("friend.offline")}
-                />
-                <div class="flex flex-col min-w-0 flex-1">
-                  <span class="text-[13px] text-fg truncate">{label(u)}</span>
-                  <span class="text-[11px] text-faint truncate">
-                    {u.online
-                      ? u.activity
-                        ? t("friend.playing", { name: u.activity })
-                        : t("friend.idle")
-                      : t("friend.offline")}
+          <div class="flex flex-col gap-[1px] max-h-[300px] overflow-y-auto">
+            <For each={shown()}>
+              {(u) => (
+                <div class="flex items-center gap-[9px] px-[6px] py-[5px] group hover:bg-panel-2 transition-[background-color] duration-[var(--dur)] ease-app">
+                  <span
+                    class="relative w-[24px] h-[24px] shrink-0 grid place-items-center shadow-raised font-display text-[12px] text-[#1a1b12]"
+                    classList={{ "grayscale brightness-75": !u.online }}
+                    style={{ "background-color": avatarTone(u) }}
+                    aria-hidden="true"
+                  >
+                    {initial(u)}
+                    <span
+                      class="absolute -right-[2px] -bottom-[2px] w-[8px] h-[8px] shadow-[0_0_0_2px_var(--color-panel)]"
+                      classList={{ "bg-accent": u.online, "bg-faint": !u.online }}
+                    />
                   </span>
+                  <div class="flex flex-col min-w-0 flex-1">
+                    <span class="text-[13px] truncate" classList={{ "text-fg": u.online, "text-muted": !u.online }}>
+                      {label(u)}
+                    </span>
+                    <span
+                      class="text-[11px] truncate"
+                      classList={{ "text-accent": u.online && !!u.activity, "text-faint": !(u.online && u.activity) }}
+                    >
+                      {u.online
+                        ? u.activity
+                          ? t("friend.playing", { name: u.activity })
+                          : t("friend.idle")
+                        : t("friend.offline")}
+                    </span>
+                  </div>
+                  <button
+                    class="text-[11px] text-danger-text hover:underline bg-transparent border-none cursor-pointer opacity-0 group-hover:opacity-100 disabled:opacity-50"
+                    disabled={busy()}
+                    onClick={() => void remove(u)}
+                    title={t("friend.remove")}
+                  >
+                    {t("friend.remove")}
+                  </button>
                 </div>
-                <button
-                  class="text-[11px] text-danger-text hover:underline bg-transparent border-none cursor-pointer opacity-0 group-hover:opacity-100 disabled:opacity-50"
-                  disabled={busy()}
-                  onClick={() => void remove(u)}
-                >
-                  {t("friend.remove")}
-                </button>
-              </div>
-            )}
-          </For>
+              )}
+            </For>
+          </div>
         </Show>
-      </div>
+      </Show>
     </div>
   );
 };
