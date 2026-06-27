@@ -100,5 +100,8 @@ export type { FacetSidebarProps, FacetSelection } from "./FacetSidebar";
 export { toast, ToastContainer } from "./Toast";
 export type { ToastType, ToastOptions } from "./Toast";
 
+// 键盘快捷键速查浮层
+export { ShortcutsHelp } from "./ShortcutsHelp";
+
 // 格式化工具
 export { formatRelativeTime, formatCount } from "./format";

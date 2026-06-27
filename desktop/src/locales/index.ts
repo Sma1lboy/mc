@@ -17,6 +17,7 @@ import friend from "./friend";
 import link from "./link";
 import skin from "./skin";
 import tags from "./tags";
+import shortcuts from "./shortcuts";
 
 export const dictionaries = {
   zh: {
@@ -38,6 +39,7 @@ export const dictionaries = {
     link: link.zh,
     skin: skin.zh,
     tags: tags.zh,
+    shortcuts: shortcuts.zh,
   },
   en: {
     settings: settings.en,
@@ -58,5 +60,6 @@ export const dictionaries = {
     link: link.en,
     skin: skin.en,
     tags: tags.en,
+    shortcuts: shortcuts.en,
   },
 };

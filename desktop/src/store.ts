@@ -15,6 +15,10 @@ export type Page = "home" | "library" | "discover" | "settings" | "instance";
 // 当前页面,默认 home。
 export const [currentPage, setCurrentPage] = createSignal<Page>("home");
 
+// 键盘快捷键帮助浮层是否打开(由 `?` 切换,Esc 关闭)。挂在 store 里,
+// 让全局 keydown 处理器(util/shortcuts.ts)与 AppShell 里的 ShortcutsHelp 共享同一状态。
+export const [shortcutsHelpOpen, setShortcutsHelpOpen] = createSignal<boolean>(false);
+
 // Discover 内容类型:提到 store,让顶栏 TopBar 的类型标签与 Discover 页共享同一状态
 //(标签上提到顶栏后,Discover 下方就纯粹是筛选 + 内容)。默认整合包。
 export const [discoverKind, setDiscoverKind] = createSignal<ProjectKind>("modpack");
