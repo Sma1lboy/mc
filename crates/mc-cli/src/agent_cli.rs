@@ -644,6 +644,45 @@ fn print_customization_summary(snapshot: &AgentRunSnapshot) {
     if mods.len() > 10 {
         println!("  ... {} more", mods.len() - 10);
     }
+    let unresolved = customization_unresolved_request_lines(payload);
+    if !unresolved.is_empty() {
+        println!("unresolved requests:");
+        for line in unresolved {
+            println!("  - {line}");
+        }
+    }
+}
+
+fn customization_unresolved_request_lines(payload: &serde_json::Value) -> Vec<String> {
+    payload
+        .get("validation")
+        .and_then(|v| v.get("unresolved_goals"))
+        .and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let label = item
+                .get("label")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())?;
+            let diagnosis = item
+                .get("diagnosis")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or("No compatible candidate was selected.");
+            let next_step = item
+                .get("next_step")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            Some(match next_step {
+                Some(next_step) => format!("{label}: {diagnosis} Next: {next_step}"),
+                None => format!("{label}: {diagnosis}"),
+            })
+        })
+        .collect()
 }
 
 fn print_execution_summary(snapshot: &AgentRunSnapshot) {
@@ -1370,6 +1409,26 @@ mod tests {
             latest_approval_clarification_message(&snapshot),
             Some("Choose an available option, describe a change, or cancel.")
         );
+    }
+
+    #[test]
+    fn customization_unresolved_requests_are_rendered_from_validation_payload() {
+        let payload = serde_json::json!({
+            "validation": {
+                "unresolved_goals": [{
+                    "label": "Add Advent of Ascension 3",
+                    "diagnosis": "No compatible Fabric 1.20.1 candidates were available.",
+                    "next_step": "Revise the request, keep the current plan, or change the target and replan."
+                }]
+            }
+        });
+
+        let lines = customization_unresolved_request_lines(&payload);
+
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].contains("Add Advent of Ascension 3"));
+        assert!(lines[0].contains("No compatible Fabric 1.20.1 candidates"));
+        assert!(lines[0].contains("change the target"));
     }
 
     #[tokio::test]

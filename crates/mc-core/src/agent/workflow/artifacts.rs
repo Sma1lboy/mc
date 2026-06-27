@@ -37,6 +37,36 @@ pub(super) fn candidate_option(candidate: &BasePackCandidate) -> ApprovalOption 
     }
 }
 
+pub(super) fn scratch_base_pack_option() -> ApprovalOption {
+    ApprovalOption {
+        id: "scratch:fallback".to_string(),
+        label: "Start from scratch".to_string(),
+        description: Some(
+            "Build from an empty mod set using the confirmed Minecraft version and loader."
+                .to_string(),
+        ),
+        payload: Some(scratch_base_pack_payload()),
+    }
+}
+
+pub(super) fn scratch_base_pack_payload() -> serde_json::Value {
+    serde_json::json!({
+        "provider": "scratch",
+        "project_id": "scratch",
+        "slug": "scratch",
+        "title": "Start from scratch",
+        "description": "Empty base set",
+        "describe": "Empty base set | selected by user",
+        "source_ref": {
+            "kind": "empty_base",
+            "provider": "scratch",
+            "project_id": "scratch",
+            "title": "Start from scratch",
+            "modlist_strategy": "empty_modlist",
+        },
+    })
+}
+
 pub(super) fn attach_base_pack_resolution(
     base_pack_payload: &mut serde_json::Value,
     base: &SelectedBasePack,
@@ -135,7 +165,6 @@ pub(super) fn resolved_mod_payload(resolved: &ResolvedModCandidate) -> serde_jso
     })
 }
 
-#[cfg(test)]
 pub(super) fn mod_payload(candidate: &ModCandidate) -> serde_json::Value {
     let provider = provider_slug(candidate.provider);
     let hit = &candidate.hit;
@@ -237,9 +266,20 @@ fn execution_recipe_payload(
     target: &TargetCompatibility,
     extra_mods: &[serde_json::Value],
 ) -> serde_json::Value {
+    let from_scratch = optional_json_string(base_pack, "provider").as_deref() == Some("scratch");
+    let kind = if from_scratch {
+        "mrpack_from_scratch"
+    } else {
+        "mrpack_from_base_modpack"
+    };
+    let compile_input = if from_scratch {
+        "start from an empty mrpack index and append compatible extra_mod_refs"
+    } else {
+        "download base_pack_ref.source_ref.archive_file, parse its modrinth.index.json and preserve base archive overrides"
+    };
     serde_json::json!({
         "schema_version": 1,
-        "kind": "mrpack_from_base_modpack",
+        "kind": kind,
         "format": "mrpack",
         "compile_phase": "exec.compile_execution_manifest",
         "target": {
@@ -269,7 +309,7 @@ fn execution_recipe_payload(
             }))
             .collect::<Vec<_>>(),
         "compile_contract": {
-            "input": "download base_pack_ref.source_ref.archive_file, parse its modrinth.index.json and preserve base archive overrides",
+            "input": compile_input,
             "merge": "append compatible extra_mod_refs to the parsed base modlist; remote-eligible files go to modrinth.index.json, non-whitelisted downloadable files go to overrides",
             "dedupe": "dedupe exact output paths first; executor may add provider/project_id dedupe after parsing richer base metadata",
             "output": "execution.metadata.manifest, not the approved plan payload"
@@ -473,19 +513,22 @@ pub(super) fn json_str_or<'a>(
         .unwrap_or(fallback)
 }
 
-pub(super) fn scratch_fallback_unavailable_plan(user_prompt: &str) -> ModpackAgentPlan {
+pub(super) fn scratch_build_plan(user_prompt: &str) -> ModpackAgentPlan {
     ModpackAgentPlan {
         objective: user_prompt.to_string(),
         summary_markdown:
-            "The scratch-build branch is not implemented yet. Change the base-pack search requirements and search again from the base-pack gate.".to_string(),
-        risks: vec!["The current workflow can continue planning only from an existing base pack."
-            .to_string()],
+            "The workflow will build from an empty base set using deterministic mod resolution."
+                .to_string(),
+        risks: vec![
+            "Scratch builds rely on compatible individual mods and required dependency closure."
+                .to_string(),
+        ],
         planned_actions: vec![PlannedAction {
-            id: "revise-base-pack-search".to_string(),
-            label: "User revises base pack search requirements".to_string(),
+            id: "plan-scratch-mod-set".to_string(),
+            label: "Plan a compatible mod set from scratch".to_string(),
             tool: "approval_gate".to_string(),
-            args: serde_json::json!({ "kind": "choose_base_pack", "scratch_fallback_unavailable": true }),
-            requires_approval: true,
+            args: serde_json::json!({ "kind": "confirm_customization", "base_set": "scratch" }),
+            requires_approval: false,
         }],
         migration_notes: vec![],
     }

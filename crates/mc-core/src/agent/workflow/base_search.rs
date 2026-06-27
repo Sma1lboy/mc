@@ -5,8 +5,8 @@ pub(super) async fn continue_after_base_pack_choice(
     mut run: AgentRunSnapshot,
     selected: ApprovalOption,
 ) -> Result<AgentRunSnapshot> {
-    if selected.id == "scratch:fallback" {
-        return Ok(recover_unimplemented_scratch_fallback(run));
+    if selected.id == "scratch:fallback" || selected.id == "confirm:scratch_fallback" {
+        return continue_after_scratch_base_choice(llm, run).await;
     }
 
     let base = parse_selected_base_pack(&selected)?;
@@ -105,30 +105,90 @@ pub(super) async fn continue_after_base_pack_choice(
     Ok(run)
 }
 
-pub(super) fn recover_unimplemented_scratch_fallback(
+async fn continue_after_scratch_base_choice(
+    llm: &AgentLlmClient,
     mut run: AgentRunSnapshot,
-) -> AgentRunSnapshot {
-    let plan = scratch_fallback_unavailable_plan(&run.user_prompt);
+) -> Result<AgentRunSnapshot> {
+    let from_phase = run.phase.clone();
     run.push_message(
-        AgentMessageKind::Assistant,
-        "The scratch-build branch is not implemented yet. Change the base-pack requirements and search again.",
+        AgentMessageKind::User,
+        "Selected base modpack: Start from scratch",
+    );
+    run.phase = AgentPhase::CustomizationPlanning;
+    run.pending_approval = None;
+    run.plan = Some(scratch_build_plan(&run.user_prompt));
+    run.push_trace("selected scratch base set");
+    invalidate_downstream(
+        &mut run,
+        ChangedField::BasePack,
+        "selected scratch base set",
+        from_phase,
+        None,
+    );
+
+    let requested = requested_compatibility_from_restrictions(run.restrictions.as_ref());
+    let compatibility = TargetCompatibility {
+        minecraft_version: requested.minecraft_version.clone(),
+        loader: requested.loader.clone(),
+        version_id: None,
+        version_name: None,
+        version_number: None,
+        game_versions: requested.minecraft_version.iter().cloned().collect(),
+        loaders: requested.loader.iter().cloned().collect(),
+        primary_file: None,
+        dependencies: Vec::new(),
+    };
+    let base = SelectedBasePack {
+        provider: ProviderId::Modrinth,
+        project_id: "scratch".to_string(),
+        slug: "scratch".to_string(),
+        title: "Start from scratch".to_string(),
+        description: Some("Empty base set".to_string()),
+    };
+    let base_pack_payload = scratch_base_pack_payload();
+    let base_modlist = BaseModlistCache {
+        refs: Vec::new(),
+        source_format: "scratch_empty".to_string(),
+        fetch_count: 0,
+    };
+    let planning_input = planning_context_input(&run);
+    let result = run_customization_planning_loop(
+        llm,
+        &mut run,
+        &planning_input,
+        &base,
+        &compatibility,
+        &[],
+        &base_modlist,
+    )
+    .await?;
+    let validated = match result {
+        CustomizationPlanningResult::Validated(validated) => validated,
+        CustomizationPlanningResult::Blocked(blocked) => {
+            return Ok(block_customization_planning(run, blocked));
+        }
+    };
+    run.push_message(
+        AgentMessageKind::Tool,
+        format!(
+            "scratch mod planning produced {} validated installable files",
+            validated.extra_mods.len()
+        ),
+    );
+    let (plan, approval) = customization_approval_with_validation(
+        &planning_input,
+        &base,
+        &compatibility,
+        base_pack_payload,
+        validated.extra_mods,
+        Some(validated.validation),
     );
     run.status = AgentStatus::WaitingForUser;
-    run.phase = AgentPhase::ChooseBasePackApproval;
-    run.pending_approval = Some(ApprovalRequest {
-        id: crate::agent::state::new_id("approval"),
-        kind: ApprovalKind::ChooseBasePack,
-        title: "Scratch build is not available yet".to_string(),
-        message: "The scratch-build branch does not have an execution path yet. Change the base-pack search requirements and search again, or cancel this run."
-            .to_string(),
-        options: Vec::new(),
-        available_decisions: revise_cancel_decisions("Search base packs again"),
-        tools: vec![update_build_restrictions_tool_spec()],
-        plan: Some(plan.clone()),
-    });
+    run.phase = AgentPhase::ConfirmCustomizationApproval;
+    run.pending_approval = Some(approval);
     run.plan = Some(plan);
-    run.push_trace("scratch fallback unavailable; returned to base-pack HITL gate");
-    run
+    run.push_trace("paused at scratch customization confirmation gate");
+    Ok(run)
 }
 
 pub(super) fn block_base_pack_planning(

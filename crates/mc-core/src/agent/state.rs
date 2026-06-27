@@ -9,6 +9,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::modplatform::{Dependency, VersionFile};
+
 pub const AGENT_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
 const MAX_AGENT_MESSAGES: usize = 300;
 const MAX_AGENT_TRACE_EVENTS: usize = 300;
@@ -177,6 +179,8 @@ pub struct AgentRunSnapshot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub restrictions: Option<BuildRestrictions>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mod_plan: Option<ModPlanState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approved_build: Option<ApprovedModpackBuild>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub execution: Option<AgentExecutionMetadata>,
@@ -201,6 +205,7 @@ impl AgentRunSnapshot {
             tools: Vec::new(),
             plan: None,
             restrictions: None,
+            mod_plan: None,
             approved_build: None,
             execution: None,
             replans: Vec::new(),
@@ -358,7 +363,7 @@ pub struct PlannedAction {
     pub requires_approval: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct BuildRestrictions {
     pub revision: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -375,7 +380,7 @@ pub struct BuildRestrictions {
     pub history: Vec<BuildRestrictionChange>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct BuildRestrictionsLlmView {
     pub revision: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -437,7 +442,7 @@ pub struct UpdateBuildRestrictionsInput {
     pub patch: BuildRestrictionPatch,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct UpdateBuildRestrictionsOutput {
     pub restrictions: BuildRestrictions,
     #[serde(default)]
@@ -446,7 +451,7 @@ pub struct UpdateBuildRestrictionsOutput {
     pub warnings: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct BuildRestrictionChange {
     pub revision: u64,
     pub source: BuildRestrictionChangeSource,
@@ -454,12 +459,111 @@ pub struct BuildRestrictionChange {
     pub summary: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum BuildRestrictionChangeSource {
     InitialPrompt,
     UserRevise,
     UiEdit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TargetCompatibility {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minecraft_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loader: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version_number: Option<String>,
+    #[serde(default)]
+    pub game_versions: Vec<String>,
+    #[serde(default)]
+    pub loaders: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub primary_file: Option<VersionFile>,
+    #[serde(default)]
+    pub dependencies: Vec<Dependency>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModPlanState {
+    pub target: TargetCompatibility,
+    #[serde(default)]
+    pub base_set: Vec<ResolvedMod>,
+    #[serde(default)]
+    pub goals: Vec<Goal>,
+    #[serde(default)]
+    pub additions: Vec<ResolvedMod>,
+    #[serde(default)]
+    pub removals: Vec<String>,
+    #[serde(default)]
+    pub round: u32,
+    #[serde(default)]
+    pub pending_queries: Vec<GoalQuery>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedMod {
+    pub provider: String,
+    pub project_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slug: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filename: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_ref: Option<Value>,
+    #[serde(default)]
+    pub payload: Value,
+    pub provenance: ModProvenance,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModProvenance {
+    BaseSet,
+    Baseline,
+    Selected,
+    Dependency,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Goal {
+    pub id: String,
+    pub label: String,
+    pub kind: GoalKind,
+    pub status: GoalStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GoalKind {
+    Baseline,
+    Theme,
+    Dependency,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GoalStatus {
+    Open,
+    Covered,
+    Dropped,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct GoalQuery {
+    pub goal_id: String,
+    pub query: String,
 }
 
 /// The structured plan approved by a human at the end of

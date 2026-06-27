@@ -233,21 +233,17 @@ pub(super) fn base_pack_selection_approval(
         id: crate::agent::state::new_id("approval"),
         kind: ApprovalKind::ChooseBasePack,
         title: if candidates.is_empty() {
-            "No suitable base pack found".to_string()
+            "Choose a base modpack or start from scratch".to_string()
         } else {
-            "Choose a base modpack".to_string()
+            "Choose a base modpack or start from scratch".to_string()
         },
         message: if candidates.is_empty() {
-            "The current search returned no candidates. Change the version, loader, or requirement tags and search again.".to_string()
+            "The current search returned no existing base-pack candidates. Start from scratch, or change the version, loader, or requirement tags and search again.".to_string()
         } else {
-            "Choose an existing modpack as the base. The next step searches for additional mods using its version and loader.".to_string()
+            "Choose an existing modpack as the base, or start from scratch with an empty mod set. The next step plans compatible mods for the confirmed target.".to_string()
         },
         options: approval_options(candidates),
-        available_decisions: if candidates.is_empty() {
-            revise_cancel_decisions("Search base packs again")
-        } else {
-            approval_decisions("Choose this base pack", "Search base packs again")
-        },
+        available_decisions: approval_decisions("Choose this option", "Search base packs again"),
         tools: vec![update_build_restrictions_tool_spec()],
         plan: Some(plan),
     }
@@ -279,25 +275,10 @@ pub(super) fn approval_decisions(
     ]
 }
 
-pub(super) fn revise_cancel_decisions(revise_label: &str) -> Vec<ApprovalDecisionSpec> {
-    vec![
-        ApprovalDecisionSpec {
-            kind: UserDecisionKind::Revise,
-            label: revise_label.to_string(),
-            requires_selected_option: false,
-            requires_message: true,
-        },
-        ApprovalDecisionSpec {
-            kind: UserDecisionKind::Cancel,
-            label: "Cancel".to_string(),
-            requires_selected_option: false,
-            requires_message: false,
-        },
-    ]
-}
-
 fn approval_options(candidates: &[BasePackCandidate]) -> Vec<ApprovalOption> {
-    candidates.iter().map(candidate_option).collect::<Vec<_>>()
+    let mut options = candidates.iter().map(candidate_option).collect::<Vec<_>>();
+    options.push(scratch_base_pack_option());
+    options
 }
 
 pub(super) fn approved_build_from_payload(
