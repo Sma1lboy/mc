@@ -1,7 +1,7 @@
 use super::*;
 
 pub(super) async fn generate_restriction_update(
-    openai: &OpenAiClient,
+    llm: &AgentLlmClient,
     original_user_prompt: &str,
     current: &BuildRestrictions,
     user_message: &str,
@@ -16,20 +16,20 @@ pub(super) async fn generate_restriction_update(
         None,
     )
     .to_string();
-    let response = openai
-        .complete(&OpenAiTextRequest {
-            instructions: vec![
-                MAIN_AGENT_SYSTEM_PROMPT.to_string(),
-                REQUIREMENT_NORMALIZATION_PROMPT.to_string(),
-            ],
+    let response = llm
+        .prompt_typed::<UpdateBuildRestrictionsInput>(
+            &[MAIN_AGENT_SYSTEM_PROMPT, REQUIREMENT_NORMALIZATION_PROMPT],
             input,
-            max_output_tokens: Some(260),
-            temperature: Some(0.0),
-            text_format: Some(requirement_text_format()),
-        })
+            260,
+            0.0,
+        )
         .await?;
-    let mut model = response.model.clone();
-    let input = match parse_restriction_update_response(&response.text) {
+    let mut model = llm.model().to_string();
+    let response_text = serde_json::to_string(&response).map_err(|source| CoreError::Parse {
+        what: "restriction tool schema output".into(),
+        source,
+    })?;
+    let input = match parse_restriction_update_response(&response_text) {
         Ok(input) => input,
         Err(first_err) => {
             let retry_input = restriction_update_request_payload(
@@ -38,24 +38,27 @@ pub(super) async fn generate_restriction_update(
                 user_message,
                 source,
                 Some(first_err.to_string()),
-                Some(response.text.clone()),
+                Some(response_text),
             )
             .to_string();
-            let retry = openai
-                .complete(&OpenAiTextRequest {
-                    instructions: vec![
-                        MAIN_AGENT_SYSTEM_PROMPT.to_string(),
-                        REQUIREMENT_NORMALIZATION_PROMPT.to_string(),
-                        REQUIREMENT_NORMALIZATION_RETRY_PROMPT.to_string(),
+            let retry = llm
+                .prompt_typed::<UpdateBuildRestrictionsInput>(
+                    &[
+                        MAIN_AGENT_SYSTEM_PROMPT,
+                        REQUIREMENT_NORMALIZATION_PROMPT,
+                        REQUIREMENT_NORMALIZATION_RETRY_PROMPT,
                     ],
-                    input: retry_input,
-                    max_output_tokens: Some(260),
-                    temperature: Some(0.0),
-                    text_format: Some(requirement_text_format()),
-                })
+                    retry_input,
+                    260,
+                    0.0,
+                )
                 .await?;
-            model = retry.model.clone();
-            parse_restriction_update_response(&retry.text).map_err(|second_err| {
+            model = llm.model().to_string();
+            let retry_text = serde_json::to_string(&retry).map_err(|source| CoreError::Parse {
+                what: "restriction tool schema retry output".into(),
+                source,
+            })?;
+            parse_restriction_update_response(&retry_text).map_err(|second_err| {
                 CoreError::other(format!(
                     "could not parse restriction tool schema output after retry: {second_err}; first error: {first_err}"
                 ))
@@ -375,7 +378,9 @@ pub(super) fn invalidation_rule_for_changed_field(
 }
 
 fn invalidates_for_changed_field(changed: ChangedField) -> Vec<PlanArtifact> {
-    invalidation_rule_for_changed_field(changed).invalidates.to_vec()
+    invalidation_rule_for_changed_field(changed)
+        .invalidates
+        .to_vec()
 }
 
 pub(super) fn target_phase_for_changed_field(
@@ -461,14 +466,14 @@ pub(super) fn apply_requirements_replan(
     run.plan = Some(requirements_plan(&run.user_prompt, &output));
     run.push_message(
         AgentMessageKind::Assistant,
-        format!("需求规格需要重新确认: {reason}"),
+        format!("Requirements need confirmation again: {reason}"),
     );
     run.push_trace("plan replan requested; invalidated downstream artifacts");
     run
 }
 
 pub(super) async fn continue_after_requirements_confirmation(
-    openai: &OpenAiClient,
+    llm: &AgentLlmClient,
     mut run: AgentRunSnapshot,
     selected: ApprovalOption,
 ) -> Result<AgentRunSnapshot> {
@@ -485,31 +490,34 @@ pub(super) async fn continue_after_requirements_confirmation(
 
     run.push_message(
         AgentMessageKind::User,
-        format!("确认整合包规格: {}", requirement_label(&restrictions)),
+        format!(
+            "Confirmed modpack requirements: {}",
+            requirement_label(&restrictions)
+        ),
     );
     run.restrictions = Some(restrictions);
     run.approved_build = None;
     run.execution = None;
     run.pending_approval = None;
     run.push_trace("approved normalized build requirements");
-    continue_to_base_pack_search(openai, run).await
+    continue_to_base_pack_search(llm, run).await
 }
 
 pub(super) async fn continue_after_requirements_feedback(
-    openai: &OpenAiClient,
+    llm: &AgentLlmClient,
     mut run: AgentRunSnapshot,
     feedback: &str,
 ) -> Result<AgentRunSnapshot> {
     run.push_message(
         AgentMessageKind::User,
-        format!("修改整合包规格: {feedback}"),
+        format!("Changed modpack requirements: {feedback}"),
     );
     run.pending_approval = None;
     run.push_trace("received build requirement feedback; updating restrictions");
 
     let current = run.restrictions.clone().unwrap_or_default();
     let generated = generate_restriction_update(
-        openai,
+        llm,
         &run.user_prompt,
         &current,
         feedback,
@@ -555,13 +563,13 @@ pub(super) async fn continue_after_requirements_feedback(
 }
 
 pub(super) async fn maybe_replan_requirements_from_feedback(
-    openai: &OpenAiClient,
+    llm: &AgentLlmClient,
     mut run: AgentRunSnapshot,
     feedback: &str,
 ) -> Result<Option<AgentRunSnapshot>> {
     let current = run.restrictions.clone().unwrap_or_default();
     let generated = generate_restriction_update(
-        openai,
+        llm,
         &run.user_prompt,
         &current,
         feedback,
@@ -579,11 +587,14 @@ pub(super) async fn maybe_replan_requirements_from_feedback(
     }
 
     let from_phase = run.phase.clone();
-    run.push_message(AgentMessageKind::User, format!("修改定制需求: {feedback}"));
+    run.push_message(
+        AgentMessageKind::User,
+        format!("Changed customization requirements: {feedback}"),
+    );
     let mut replanned = apply_requirements_replan(
         run,
         output,
-        format!("用户在定制阶段修改了 version/loader: {feedback}"),
+        format!("user changed version/loader during customization: {feedback}"),
         from_phase,
     );
     replanned.push_trace(format!(

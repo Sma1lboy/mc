@@ -35,15 +35,18 @@ fn customization_planning_blocked_approval(
     ApprovalRequest {
         id: crate::agent::state::new_id("approval"),
         kind: ApprovalKind::ConfirmCustomization,
-        title: "定制规划受阻，需要修改".to_string(),
+        title: "Customization planning is blocked".to_string(),
         message: format!(
-            "无法产出已验证兼容的补充 mod 方案: {}。请修改补充需求，或返回重选底包。",
+            "Could not produce a verified compatible extra-mod plan: {}. Change the extra-mod requirements or return to base-pack selection.",
             blocked.reason
         ),
         options: vec![ApprovalOption {
             id: "back:choose_base_pack".to_string(),
-            label: "返回重选底包".to_string(),
-            description: Some("当前底包或需求组合无法验证，回到底包选择。".to_string()),
+            label: "Back to base-pack selection".to_string(),
+            description: Some(
+                "The current base pack or requirement combination could not be verified; return to base-pack selection."
+                    .to_string(),
+            ),
             payload: Some(serde_json::json!({
                 "action": "back_to_base_pack",
                 "planning_blocked": {
@@ -55,13 +58,13 @@ fn customization_planning_blocked_approval(
         available_decisions: vec![
             ApprovalDecisionSpec {
                 kind: UserDecisionKind::Approve,
-                label: "返回重选底包".to_string(),
+                label: "Back to base-pack selection".to_string(),
                 requires_selected_option: true,
                 requires_message: false,
             },
             ApprovalDecisionSpec {
                 kind: UserDecisionKind::Cancel,
-                label: "取消".to_string(),
+                label: "Cancel".to_string(),
                 requires_selected_option: false,
                 requires_message: false,
             },
@@ -69,8 +72,10 @@ fn customization_planning_blocked_approval(
         tools: Vec::new(),
         plan: Some(ModpackAgentPlan {
             objective: run.user_prompt.clone(),
-            summary_markdown: format!("定制规划受阻: {}", blocked.reason),
-            risks: vec!["不会把未验证兼容的 mod 方案推进到执行阶段。".to_string()],
+            summary_markdown: format!("Customization planning is blocked: {}", blocked.reason),
+            risks: vec![
+                "Unverified incompatible mod plans are never advanced to execution.".to_string(),
+            ],
             planned_actions: vec![PlannedAction {
                 id: "revise-customization".to_string(),
                 label: "User revises customization after validation block".to_string(),
@@ -105,10 +110,10 @@ pub(super) fn continue_after_customization_confirmation(
         .ok_or_else(|| CoreError::other("confirmed customization option has no payload"))?;
     let build = approved_build_from_payload(payload)?;
 
-    run.push_message(AgentMessageKind::User, "确认推荐方案");
+    run.push_message(AgentMessageKind::User, "Confirmed recommended plan");
     run.push_message(
         AgentMessageKind::Assistant,
-        "方案已确认。下一步由确定性执行器编译执行清单；如执行清单受阻，将显式回到对应审核 gate。",
+        "The plan is confirmed. The deterministic executor can compile the execution manifest next; any execution block returns to the matching approval gate.",
     );
     run.approved_build = Some(build);
     run.status = AgentStatus::Running;
@@ -125,13 +130,13 @@ pub(super) fn continue_after_customization_confirmation(
 }
 
 pub(super) async fn continue_after_customization_feedback(
-    openai: &OpenAiClient,
+    llm: &AgentLlmClient,
     mut run: AgentRunSnapshot,
     approval: ApprovalRequest,
     feedback: &str,
 ) -> Result<AgentRunSnapshot> {
     if let Some(replanned) =
-        maybe_replan_requirements_from_feedback(openai, run.clone(), feedback).await?
+        maybe_replan_requirements_from_feedback(llm, run.clone(), feedback).await?
     {
         return Ok(replanned);
     }
@@ -166,7 +171,10 @@ pub(super) async fn continue_after_customization_feedback(
         .map(|items| items.to_vec())
         .unwrap_or_default();
 
-    run.push_message(AgentMessageKind::User, format!("修改定制需求: {feedback}"));
+    run.push_message(
+        AgentMessageKind::User,
+        format!("Changed customization requirements: {feedback}"),
+    );
     run.phase = AgentPhase::CustomizationPlanning;
     run.pending_approval = None;
     run.push_trace("received customization feedback; replanning extra mods");
@@ -182,12 +190,12 @@ pub(super) async fn continue_after_customization_feedback(
             return Ok(block_base_pack_planning(
                 run,
                 base_pack,
-                format!("无法读取底包 modlist: {err}"),
+                format!("Could not read the base-pack modlist: {err}"),
             ));
         }
     };
     let result = run_customization_planning_loop(
-        openai,
+        llm,
         &mut run,
         &revised_prompt,
         &base,
@@ -337,19 +345,16 @@ pub(super) async fn infer_base_pack_compatibility(
 }
 
 async fn generate_customization_queries(
-    openai: &OpenAiClient,
+    llm: &AgentLlmClient,
     user_prompt: &str,
     base: &SelectedBasePack,
     target: &TargetCompatibility,
     existing_mods: &[serde_json::Value],
 ) -> Result<GeneratedModSearchPlan> {
-    let response = openai
-        .complete(&OpenAiTextRequest {
-            instructions: vec![
-                MAIN_AGENT_SYSTEM_PROMPT.to_string(),
-                CUSTOMIZATION_QUERY_PROMPT.to_string(),
-            ],
-            input: serde_json::json!({
+    let output = llm
+        .prompt_typed::<ModQueryOutput>(
+            &[MAIN_AGENT_SYSTEM_PROMPT, CUSTOMIZATION_QUERY_PROMPT],
+            serde_json::json!({
                 "user_prompt": user_prompt,
                 "selected_base_pack": {
                     "provider": provider_slug(base.provider),
@@ -367,14 +372,13 @@ async fn generate_customization_queries(
                 "existing_extra_mods": existing_mod_summaries(existing_mods),
             })
             .to_string(),
-            max_output_tokens: Some(360),
-            temperature: Some(0.1),
-            text_format: Some(mod_query_text_format()),
-        })
+            360,
+            0.1,
+        )
         .await?;
-    let plan = parse_mod_query_response(&response.text)?;
+    let plan = output.into_plan()?;
     Ok(GeneratedModSearchPlan {
-        model: response.model,
+        model: llm.model().to_string(),
         queries: plan.queries,
         retain_existing_mods: plan.retain_existing_mods,
         remove_existing_mod_ids: plan.remove_existing_mod_ids,
@@ -382,20 +386,17 @@ async fn generate_customization_queries(
 }
 
 async fn generate_customization_self_critique(
-    openai: &OpenAiClient,
+    llm: &AgentLlmClient,
     user_prompt: &str,
     base: &SelectedBasePack,
     target: &TargetCompatibility,
     extra_mods: &[serde_json::Value],
     validation: &serde_json::Value,
 ) -> Result<GeneratedCustomizationCritique> {
-    let response = openai
-        .complete(&OpenAiTextRequest {
-            instructions: vec![
-                MAIN_AGENT_SYSTEM_PROMPT.to_string(),
-                CUSTOMIZATION_SELF_CRITIQUE_PROMPT.to_string(),
-            ],
-            input: serde_json::json!({
+    let output = llm
+        .prompt_typed::<CustomizationCritiqueOutput>(
+            &[MAIN_AGENT_SYSTEM_PROMPT, CUSTOMIZATION_SELF_CRITIQUE_PROMPT],
+            serde_json::json!({
                 "user_prompt": user_prompt,
                 "selected_base_pack": {
                     "provider": provider_slug(base.provider),
@@ -414,14 +415,13 @@ async fn generate_customization_self_critique(
                 "validation": validation,
             })
             .to_string(),
-            max_output_tokens: Some(360),
-            temperature: Some(0.0),
-            text_format: Some(customization_critique_text_format()),
-        })
+            360,
+            0.0,
+        )
         .await?;
-    let critique = parse_customization_critique_response(&response.text)?;
+    let critique = output.into_critique()?;
     Ok(GeneratedCustomizationCritique {
-        model: response.model,
+        model: llm.model().to_string(),
         verdict: critique.verdict,
         remove_project_ids: critique.remove_project_ids,
         additional_queries: critique.additional_queries,
@@ -430,7 +430,7 @@ async fn generate_customization_self_critique(
 }
 
 pub(super) async fn run_customization_planning_loop(
-    openai: &OpenAiClient,
+    llm: &AgentLlmClient,
     run: &mut AgentRunSnapshot,
     planning_input: &str,
     base: &SelectedBasePack,
@@ -482,8 +482,7 @@ pub(super) async fn run_customization_planning_loop(
             )
         };
         let generated_plan =
-            generate_customization_queries(openai, &loop_prompt, base, target, existing_mods)
-                .await?;
+            generate_customization_queries(llm, &loop_prompt, base, target, existing_mods).await?;
         run.push_trace(format!(
             "llm generated customization search plan via {}",
             generated_plan.model
@@ -608,7 +607,7 @@ pub(super) async fn run_customization_planning_loop(
 
         let started = Instant::now();
         let critique = generate_customization_self_critique(
-            openai,
+            llm,
             planning_input,
             base,
             target,

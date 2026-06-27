@@ -5,6 +5,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -416,7 +417,7 @@ impl Default for BuildRestrictions {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct BuildRestrictionPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub minecraft_version: Option<String>,
@@ -430,7 +431,7 @@ pub struct BuildRestrictionPatch {
     pub notes: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct UpdateBuildRestrictionsInput {
     pub base_revision: u64,
     pub patch: BuildRestrictionPatch,

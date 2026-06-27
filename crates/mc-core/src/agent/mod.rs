@@ -6,12 +6,12 @@
 //! tools/subworkflows under the main agent facade, not folded into a single
 //! monolithic loop.
 
-pub mod openai;
+pub mod llm;
 pub mod session;
 pub mod state;
 pub mod workflow;
 
-pub use openai::{OpenAiClient, OpenAiConfig};
+pub use llm::{AgentLlmClient, AgentLlmConfig};
 pub use session::{AgentSessionStore, AgentSessionSummary};
 pub use state::{
     AgentExecutionMetadata, AgentExecutionStatus, AgentIntent, AgentIntentKind, AgentMessage,
