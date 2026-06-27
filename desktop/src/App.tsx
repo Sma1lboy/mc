@@ -2,10 +2,11 @@ import { onCleanup, onMount, type Component } from "solid-js";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { initTheme } from "./theme/theme";
 import AppShell from "./layout/AppShell";
-import { ToastContainer } from "./components";
+import { ToastContainer, ShortcutsHelp } from "./components";
 import { api } from "./ipc/api";
 import { currentRoot, setCurrentRoot } from "./store";
 import { maybeRunGallery } from "./gallery/runner";
+import { registerGlobalShortcuts } from "./util/shortcuts";
 
 /**
  * 应用根组件。
@@ -50,6 +51,10 @@ const App: Component = () => {
     document.addEventListener("click", onDocClick);
     onCleanup(() => document.removeEventListener("click", onDocClick));
 
+    // 全局键盘快捷键(导航 / 快速启动 / 帮助浮层)。一处注册,卸载时解除。
+    const unregisterShortcuts = registerGlobalShortcuts();
+    onCleanup(unregisterShortcuts);
+
     // 画廊模式(MC_GALLERY=1):挂载后自动逐页截图并生成 index.html。非画廊模式零开销。
     void maybeRunGallery();
   });
@@ -59,6 +64,8 @@ const App: Component = () => {
       <AppShell />
       {/* 全局 Toast 容器:左下角滑入提示,挂在根部一次即可。 */}
       <ToastContainer />
+      {/* 键盘快捷键速查浮层:由 `?` 切换,挂根部一次即可。 */}
+      <ShortcutsHelp />
     </>
   );
 };
