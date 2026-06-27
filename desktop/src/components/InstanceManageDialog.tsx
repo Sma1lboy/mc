@@ -929,6 +929,9 @@ export const InstanceManageDialog: Component<{
   const [internalTab, setInternalTab] = createSignal<InstanceManageTab>("settings");
   const [cfg, setCfg] = createSignal<InstanceConfig | null>(null);
   const [copying, setCopying] = createSignal(false);
+  // 内存设置辅助:本机物理内存总量(MiB,一次即可)与按本实例 mod 数推荐的最大堆(MiB)。
+  const [sysTotalMb, setSysTotalMb] = createSignal<number | null>(null);
+  const [suggestedMb, setSuggestedMb] = createSignal<number | null>(null);
   // 「浏览/添加」模式:任一内容标签点「+ 添加」即进入,占满内容区(复用探索页)。
   // 切换标签时复位;变化时通知外层(详情页隐藏头部 + 本组件隐藏 tab 条)。
   const [browsing, setBrowsing] = createSignal(false);
@@ -980,6 +983,7 @@ export const InstanceManageDialog: Component<{
     setUpdates(null); // 切换实例/开关时清掉上一个实例的更新检查结果。
     if (active() && inst) {
       setCfg(null);
+      setSuggestedMb(null);
       api
         .getInstanceConfig(activeRoot(), inst.id)
         .then((c) => {
@@ -989,6 +993,10 @@ export const InstanceManageDialog: Component<{
             setInternalTab(c.source?.provider === "modrinth" ? "overview" : "settings");
         })
         .catch((e) => toast({ type: "error", message: t("instance.readConfigFailed", { err: String(e) }) }));
+      // 系统内存只取一次;推荐值按本实例 mod 数计算,随实例变化。
+      if (sysTotalMb() === null)
+        api.systemMemory().then((m) => setSysTotalMb(m.total_mb)).catch(() => {});
+      api.suggestInstanceMemory(activeRoot(), inst.id).then(setSuggestedMb).catch(() => {});
     } else if (!active()) {
       setCfg(null);
       setTab("settings");
@@ -1190,6 +1198,19 @@ export const InstanceManageDialog: Component<{
       .catch((e) => toast({ type: "error", message: t("instance.saveFailed", { err: String(e) }) }));
   }
 
+  // MiB → 友好的 GB 文本(整数不带小数,否则保留一位)。
+  const memGb = (mb: number): string => {
+    const v = mb / 1024;
+    return Number.isInteger(v) ? `${v}` : v.toFixed(1);
+  };
+
+  // 把内存滑块设为后端按系统内存 + mod 数推荐的值。
+  function applyRecommendedMemory() {
+    const mb = suggestedMb();
+    if (mb == null) return;
+    patch({ memory_mb: mb });
+  }
+
   async function pickIcon() {
     const inst = props.instance;
     if (!inst) return;
@@ -1315,7 +1336,26 @@ export const InstanceManageDialog: Component<{
                   </label>
 
                   <div class="flex flex-col gap-[5px]">
-                    <span class={LABEL}>{t("instance.maxMemory", { mb: c().memory_mb ?? 0 })}</span>
+                    <div class="flex items-center justify-between gap-[8px]">
+                      <span class={LABEL}>{t("instance.maxMemory", { mb: c().memory_mb ?? 0 })}</span>
+                      <div class="flex items-center gap-[8px]">
+                        <Show when={sysTotalMb() !== null}>
+                          <span class="text-muted text-[11px]">
+                            {t("instance.systemMemory", { gb: memGb(sysTotalMb()!) })}
+                          </span>
+                        </Show>
+                        <Show when={suggestedMb() !== null}>
+                          <button
+                            type="button"
+                            class="h-[22px] px-[8px] rounded-none bg-panel-3 text-fg text-[11px] cursor-pointer shadow-raised hover:brightness-110 active:shadow-pressed transition-[box-shadow,filter] duration-[var(--dur)] ease-app"
+                            title={t("instance.recommendMemoryHint")}
+                            onClick={applyRecommendedMemory}
+                          >
+                            {t("instance.recommendMemory", { gb: memGb(suggestedMb()!) })}
+                          </button>
+                        </Show>
+                      </div>
+                    </div>
                     <input
                       class="kb-range"
                       type="range"

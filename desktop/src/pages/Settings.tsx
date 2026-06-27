@@ -49,6 +49,12 @@ const Settings: Component = () => {
   // 全局设置(下载源/并发/默认内存/Java)—— 全部来自后端 daemon。
   const [settings, setSettings] = createSignal<GlobalSettings | null>(null);
   const [settingsError, setSettingsError] = createSignal(false);
+  // 本机物理内存总量(MiB),用于在默认内存滑块旁提示「系统内存 X GB」。
+  const [sysTotalMb, setSysTotalMb] = createSignal<number | null>(null);
+  const memGb = (mb: number): string => {
+    const v = mb / 1024;
+    return Number.isInteger(v) ? `${v}` : v.toFixed(1);
+  };
 
   // 加载全局设置(可重试):失败置错误态,区分「加载中」与「加载失败」。
   async function loadSettings() {
@@ -81,6 +87,7 @@ const Settings: Component = () => {
       setLocalTheme(DEFAULT_THEME);
     }
     void loadSettings();
+    void api.systemMemory().then((m) => setSysTotalMb(m.total_mb)).catch(() => {});
   });
 
   // 改一项全局设置并立即持久化到后端。
@@ -431,7 +438,16 @@ const Settings: Component = () => {
 
                 <Slider
                   class="mb-[16px]"
-                  label={t("settings.defaultMemory")}
+                  label={
+                    <span class="flex items-center gap-[6px]">
+                      {t("settings.defaultMemory")}
+                      <Show when={sysTotalMb() !== null}>
+                        <span class="text-muted text-[11px]">
+                          {t("settings.systemMemory", { gb: memGb(sysTotalMb()!) })}
+                        </span>
+                      </Show>
+                    </span>
+                  }
                   display={formatMem}
                   min={512}
                   max={16384}

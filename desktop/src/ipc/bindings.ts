@@ -47,6 +47,13 @@ export const commands = {
 	getInstanceConfig: (root: string, id: string) => typedError<InstanceConfig_Serialize, string>(__TAURI_INVOKE("get_instance_config", { root, id })),
 	/**  写某实例的配置(原子写入 instance.json)。 */
 	setInstanceConfig: (root: string, id: string, config: InstanceConfig_Deserialize) => typedError<null, string>(__TAURI_INVOKE("set_instance_config", { root, id, config })),
+	/**  读取本机物理内存总量(MiB)。纯探测,不读实例。 */
+	systemMemory: () => typedError<SystemMemory, string>(__TAURI_INVOKE("system_memory")),
+	/**
+	 *  为某实例推荐一个最大堆内存(MiB):综合本机物理内存与该实例已装 mod 数量。
+	 *  纯启发式(见 [`mc_core::system::suggest_memory_mb`]),按需读取一次 mod 列表 + 系统内存。
+	 */
+	suggestInstanceMemory: (root: string, id: string) => typedError<number, string>(__TAURI_INVOKE("suggest_instance_memory", { root, id })),
 	/**
 	 *  设置某实例的标签:加载配置 → 规范化(去空白、去空项、去重、保序)→ 写回。
 	 *  自由格式标签,供库页分组 / 按标签筛选用。
@@ -1054,6 +1061,12 @@ export type SyncReport = {
 	manual: RealmFile[],
 	/**  The manifest version that was applied. */
 	version: number,
+};
+
+/**  本机内存信息(供 UI 在内存滑块旁展示「系统内存 X GB」)。 */
+export type SystemMemory = {
+	/**  物理内存总量(MiB)。探测失败时为 0。 */
+	total_mb: number,
 };
 
 /**  UI theme preference. */
