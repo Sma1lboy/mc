@@ -8,7 +8,7 @@ import { Icon } from "./Icon";
 import { Tag } from "./Tag";
 import { formatRelativeTime } from "./format";
 import { loaderLabel as fmtLoader } from "../util/loaders";
-import { isRunning, isLaunching, socialEnabled } from "../store";
+import { isRunning, isLaunching, socialEnabled, instanceHasUpdate } from "../store";
 import { t } from "../i18n";
 
 // InstanceRow 接收的实例形状。与后端 InstanceSummary 字段对齐
@@ -142,6 +142,10 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
                 <Show when={inst().installed === false}>
                   <Tag class="shrink-0 text-accent">{t("realm.badgePending")}</Tag>
                 </Show>
+              </Show>
+              {/* 「有更新」角标:批量检查后,该实例有 mod/整合包更新时点亮(accent 强调)。 */}
+              <Show when={instanceHasUpdate(inst().id)}>
+                <Tag class="shrink-0 text-accent">{t("instance.updateBadge")}</Tag>
               </Show>
             </div>
             <div class="text-[12px] text-muted whitespace-nowrap overflow-hidden text-ellipsis flex items-center gap-[6px]">

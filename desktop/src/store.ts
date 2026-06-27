@@ -68,6 +68,57 @@ const [instances, { refetch: refreshInstances }] = createRoot(() =>
 );
 export { instances, refreshInstances };
 
+// ===== 批量更新检查(按需,绝不自动跑)=====
+// 「检查更新」按钮一次性问 Modrinth:每个实例有几个 mod 可更新、整合包是否有新版。
+// 结果存这里(只含至少有一项更新的实例),库页卡片据此点亮「有更新」角标。
+// 网络密集 → 仅用户点按钮时触发,启动时不跑。
+export type InstanceUpdateState = { mods: number; modpack: boolean };
+const [updatesByInstance, setUpdatesByInstance] = createSignal<Record<string, InstanceUpdateState>>({});
+export { updatesByInstance };
+
+// 检查进行中(按钮转圈 / 禁用)。
+const [checkingUpdates, setCheckingUpdates] = createSignal(false);
+export { checkingUpdates };
+
+/** 某实例是否有可用更新(供卡片读取点亮角标)。 */
+export function instanceHasUpdate(id: string): boolean {
+  return id in updatesByInstance();
+}
+
+/** 当前有更新的实例数量(供库页头部摘要)。 */
+export function updatedInstanceCount(): number {
+  return Object.keys(updatesByInstance()).length;
+}
+
+/**
+ * 一次性检查当前根目录下所有实例的更新,填充 updatesByInstance。
+ * 按需调用(用户点「检查更新」),不在启动时自动运行。后端内部有界并发推进、
+ * 单实例失败被跳过;这里只负责触发 + 落结果 + 维护 busy 态。
+ */
+export async function checkAllUpdates(): Promise<void> {
+  if (checkingUpdates()) return;
+  setCheckingUpdates(true);
+  try {
+    const list = await api.checkAllUpdates(activeRoot());
+    const next: Record<string, InstanceUpdateState> = {};
+    for (const u of list) {
+      next[u.instance_id] = { mods: u.mod_updates, modpack: u.modpack_update };
+    }
+    setUpdatesByInstance(next);
+    toast({
+      type: list.length > 0 ? "info" : "success",
+      message:
+        list.length > 0
+          ? t("library.updatesFound", { n: list.length })
+          : t("library.updatesNone"),
+    });
+  } catch (e) {
+    toast({ type: "error", message: t("library.updatesCheckFailed", { err: String(e) }) });
+  } finally {
+    setCheckingUpdates(false);
+  }
+}
+
 // ===== 实例详情页 =====
 // 点击实例进入详情页(currentPage="instance"),记住来源页用于返回。
 export const [currentInstanceId, setCurrentInstanceId] = createSignal<string | null>(null);

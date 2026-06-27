@@ -11,14 +11,16 @@
 
 use std::collections::HashMap;
 
+use futures::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
 
 use crate::download::checksum::sha1_file;
 use crate::download::{DownloadItem, Downloader};
 use crate::error::Result;
-use crate::instance::{list_mods, Instance, ModInfo};
+use crate::instance::{list_instances, list_mods, Instance, ModInfo};
 use crate::modplatform::modrinth::ModrinthApi;
 use crate::modplatform::{ProjectVersion, VersionFile};
+use crate::paths::GamePaths;
 
 /// 一个可用的 mod 更新。携带应用更新所需的全部信息(下载地址 / 校验 / 目标文件名),
 /// 这样 UI 拿到后无需再查一次即可直接调用 [`apply_mod_update`]。
@@ -109,6 +111,70 @@ pub async fn check_mod_updates(
 
     out.sort_by_key(|a| a.name.to_ascii_lowercase());
     Ok(out)
+}
+
+/// 批量更新检查里**单个实例**的结果:有多少个 mod 可更新、整合包本身是否有新版本。
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+pub struct InstanceUpdateInfo {
+    /// 实例 id。
+    pub instance_id: String,
+    /// 可更新的已启用 mod 数量(`check_mod_updates` 结果的长度)。
+    pub mod_updates: u32,
+    /// 该实例(由 Modrinth 整合包安装)是否有比当前来源版本更新的整合包版本。
+    pub modpack_update: bool,
+}
+
+/// 一次性检查 `root` 下**所有实例**的可用更新(每实例:已启用 mod 的更新数 + 整合包是否有新版)。
+///
+/// 网络密集(逐实例打 Modrinth),因此**只应按需调用**,不要在启动时自动跑。每个实例的检查相互
+/// 独立并以**有界并发**(`CONCURRENCY`)推进,避免 N 个实例串行;**单实例失败被吞掉**(记 warn 并
+/// 跳过,不影响其它实例),所以返回的列表可能短于实例总数。
+///
+/// 只返回**至少有一项更新**的实例(`mod_updates > 0` 或 `modpack_update`);无更新的实例不在结果里,
+/// 前端据此点亮卡片角标即可。
+pub async fn check_all_updates(api: &ModrinthApi, paths: &GamePaths) -> Vec<InstanceUpdateInfo> {
+    /// 同时在飞的实例检查数上限:既跑满 Modrinth 的吞吐,又不至于一次性打爆它。
+    const CONCURRENCY: usize = 6;
+
+    let instances = list_instances(paths);
+    stream::iter(instances)
+        .map(|summary| async move {
+            match check_one(api, paths, &summary).await {
+                Ok(info) if info.mod_updates > 0 || info.modpack_update => Some(info),
+                Ok(_) => None,
+                Err(e) => {
+                    tracing::warn!(instance = %summary.id, error = %e, "批量更新检查:跳过该实例");
+                    None
+                }
+            }
+        })
+        .buffer_unordered(CONCURRENCY)
+        .filter_map(|x| async move { x })
+        .collect()
+        .await
+}
+
+/// 单实例检查:mod 更新数 + 整合包是否有新版。任一网络步骤失败即整体 `Err`(由调用方吞掉)。
+async fn check_one(
+    api: &ModrinthApi,
+    paths: &GamePaths,
+    summary: &mc_types::InstanceSummary,
+) -> Result<InstanceUpdateInfo> {
+    let inst = Instance::new(&summary.id, paths.root().to_path_buf());
+
+    let mod_updates =
+        check_mod_updates(api, &inst, &summary.mc_version, summary.loader.as_str()).await?.len() as u32;
+
+    // 整合包更新:仅对「Modrinth 整合包来源」的实例有意义,其余直接视作无整合包更新。
+    let modpack_update = match inst.load_config()?.source {
+        Some(src) if src.provider == "modrinth" => {
+            let all = api.version_details(&src.project_id).await?;
+            !crate::modpack::update::newer_versions(all, src.version_id.as_deref()).is_empty()
+        }
+        _ => false,
+    };
+
+    Ok(InstanceUpdateInfo { instance_id: summary.id.clone(), mod_updates, modpack_update })
 }
 
 /// 应用一个更新:把新版本文件下载进 `mods/`,再删掉旧文件(文件名不同才需删,

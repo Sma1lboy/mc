@@ -158,6 +158,7 @@ const dict = {
     // mods 面板
     checking: "检查中…",
     checkUpdates: "检查更新",
+    updateBadge: "有更新",
     updatesAvailable: "{{ n }} 个可更新",
     updateAll: "全部更新",
     currentVersion: "当前",
@@ -362,6 +363,7 @@ const dict = {
 
     checking: "Checking…",
     checkUpdates: "Check Updates",
+    updateBadge: "Update",
     updatesAvailable: "{{ n }} update(s) available",
     updateAll: "Update All",
     currentVersion: "current",

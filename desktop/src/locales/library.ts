@@ -39,6 +39,12 @@ const dict = {
     bulkDeleted: "已删除 {{ count }} 个实例",
     bulkDeleteRunningSkipped: "{{ count }} 个正在运行,已跳过",
     bulkDeleteFailed: "{{ count }} 个删除失败",
+    checkUpdates: "检查更新",
+    checkingUpdates: "检查更新中…",
+    updatesFound: "{{ n }} 个实例有更新",
+    updatesNone: "所有实例都已是最新",
+    updatesCheckFailed: "检查更新失败:{{ err }}",
+    updatesSummary: "{{ n }} 个实例有更新",
   } as Record<string, string>,
   en: {
     title: "Library",
@@ -79,6 +85,12 @@ const dict = {
     bulkDeleted: "Deleted {{ count }} instances",
     bulkDeleteRunningSkipped: "{{ count }} running — skipped",
     bulkDeleteFailed: "{{ count }} failed to delete",
+    checkUpdates: "Check updates",
+    checkingUpdates: "Checking…",
+    updatesFound: "{{ n }} instance(s) have updates",
+    updatesNone: "All instances are up to date",
+    updatesCheckFailed: "Update check failed: {{ err }}",
+    updatesSummary: "{{ n }} with updates",
   } as Record<string, string>,
 };
 

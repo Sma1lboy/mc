@@ -21,7 +21,18 @@ import {
 import { JoinRealmDialog } from "../components/JoinRealmDialog";
 import { useModpackDrop } from "../util/useModpackDrop";
 import { api, onInstallProgress } from "../ipc/api";
-import { activeRoot, openInstance, playInstance, isRunning, instances, refreshInstances, socialEnabled } from "../store";
+import {
+  activeRoot,
+  openInstance,
+  playInstance,
+  isRunning,
+  instances,
+  refreshInstances,
+  socialEnabled,
+  checkAllUpdates,
+  checkingUpdates,
+  updatedInstanceCount,
+} from "../store";
 import { openInstanceDir, deleteInstance } from "../util/instanceActions";
 import { sortByRecent } from "../util/instances";
 import { t } from "../i18n";
@@ -237,6 +248,21 @@ const Library: Component = () => {
             </Button>
           </Show>
           <Show when={!selectMode()}>
+            {/* 一键检查所有实例的更新(按需触发,绝不自动跑);完成后用 N 摘要 + 卡片角标提示。 */}
+            <Show when={(instances() ?? []).length > 0}>
+              <Show when={!checkingUpdates() && updatedInstanceCount() > 0}>
+                <span class="text-[12px] text-accent">
+                  {t("library.updatesSummary", { n: updatedInstanceCount() })}
+                </span>
+              </Show>
+              <Button variant="ghost" disabled={checkingUpdates()} onClick={() => void checkAllUpdates()}>
+                <Show when={checkingUpdates()} fallback={t("library.checkUpdates")}>
+                  <span class="flex items-center gap-[6px]">
+                    <Spinner /> {t("library.checkingUpdates")}
+                  </span>
+                </Show>
+              </Button>
+            </Show>
             <Show when={socialEnabled()}>
               <Button variant="ghost" onClick={() => setJoinOpen(true)}>
                 {t("realm.joinAction")}

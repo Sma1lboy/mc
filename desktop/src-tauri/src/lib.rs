@@ -134,6 +134,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::account_unlink,
             commands::check_modpack_updates,
             commands::apply_modpack_update,
+            commands::check_all_updates,
             gallery::gallery_enabled,
             gallery::gallery_capture,
             gallery::gallery_build,

@@ -386,6 +386,12 @@ export const commands = {
 	 *  再清理新版移除的受管理文件(移入回收站)。存档 / 实例配置 / 用户自行添加的 mod 均保留。
 	 */
 	applyModpackUpdate: (root: string, id: string, versionId: string) => typedError<ModpackUpdateDto, string>(__TAURI_INVOKE("apply_modpack_update", { root, id, versionId })),
+	/**
+	 *  一次性检查 `root` 下所有实例的可用更新(每实例:mod 更新数 + 整合包是否有新版)。
+	 *  网络密集,前端仅按需调用;内部有界并发推进,单实例失败被跳过不影响整批。
+	 *  只返回**至少有一项更新**的实例,前端据此点亮卡片角标。
+	 */
+	checkAllUpdates: (root: string) => typedError<InstanceUpdateInfo[], string>(__TAURI_INVOKE("check_all_updates", { root })),
 	/**  是否处于画廊模式(环境变量 `MC_GALLERY` 非空且非 "0")。前端据此决定是否自动跑截图流程。 */
 	galleryEnabled: () => typedError<boolean, string>(__TAURI_INVOKE("gallery_enabled")),
 	/**  抓「main」窗口当前画面到 `<data_dir>/gallery/<name>.png`,返回文件绝对路径。 */
@@ -705,6 +711,16 @@ export type InstanceSummary = {
 	realm?: RealmRef | null,
 	/**  Free-form user tags for grouping / filtering in the Library. */
 	tags?: string[],
+};
+
+/**  批量更新检查里**单个实例**的结果:有多少个 mod 可更新、整合包本身是否有新版本。 */
+export type InstanceUpdateInfo = {
+	/**  实例 id。 */
+	instance_id: string,
+	/**  可更新的已启用 mod 数量(`check_mod_updates` 结果的长度)。 */
+	mod_updates: number,
+	/**  该实例(由 Modrinth 整合包安装)是否有比当前来源版本更新的整合包版本。 */
+	modpack_update: boolean,
 };
 
 /**

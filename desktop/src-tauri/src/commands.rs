@@ -2393,6 +2393,17 @@ pub async fn check_modpack_updates(
     Ok(mc_core::modpack::update::newer_versions(all, src.version_id.as_deref()))
 }
 
+/// 一次性检查 `root` 下所有实例的可用更新(每实例:mod 更新数 + 整合包是否有新版)。
+/// 网络密集,前端仅按需调用;内部有界并发推进,单实例失败被跳过不影响整批。
+/// 只返回**至少有一项更新**的实例,前端据此点亮卡片角标。
+#[tauri::command]
+#[specta::specta]
+pub async fn check_all_updates(root: String) -> CmdResult<Vec<mc_core::instance::InstanceUpdateInfo>> {
+    let paths = root_paths(&root);
+    let api = ModrinthApi::new();
+    Ok(mc_core::instance::check_all_updates(&api, &paths).await)
+}
+
 /// 整合包就地更新的返回:实例 id + 被清理的旧包文件 + 仍需手动下载 / 跳过的文件。
 #[derive(Serialize, specta::Type)]
 pub struct ModpackUpdateDto {
