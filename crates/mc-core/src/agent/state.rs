@@ -501,7 +501,11 @@ pub struct ModPlanState {
     #[serde(default)]
     pub removals: Vec<String>,
     #[serde(default)]
+    pub blocked: Vec<String>,
+    #[serde(default)]
     pub round: u32,
+    #[serde(default)]
+    pub empty_candidate_rounds: u32,
     #[serde(default)]
     pub pending_queries: Vec<GoalQuery>,
 }

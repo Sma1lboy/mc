@@ -3,9 +3,11 @@ use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 
 use crate::download::Downloader;
+use crate::loader::clean_loader_version;
 use crate::modpack::formats::mrpack::{MrpackDependencies, MrpackIndex};
 use crate::modplatform::provider::ProviderRegistry;
 use crate::modplatform::{HashAlgo, ProjectSideSupport, ProviderId};
+use mc_types::LoaderKind;
 
 use super::*;
 
@@ -233,15 +235,15 @@ fn scratch_base_index(approved: &ApprovedModpackBuild) -> MrpackIndex {
     let minecraft = optional_json_string(&approved.target, "minecraft_version");
     let loader = optional_json_string(&approved.target, "loader");
     let mut dependencies = MrpackDependencies {
-        minecraft,
+        minecraft: minecraft.clone(),
         ..Default::default()
     };
-    match loader.as_deref() {
-        Some("fabric") => dependencies.fabric_loader = Some(default_loader_dependency("fabric")),
-        Some("quilt") => dependencies.quilt_loader = Some(default_loader_dependency("quilt")),
-        Some("forge") => dependencies.forge = Some(default_loader_dependency("forge")),
-        Some("neoforge") => dependencies.neoforge = Some(default_loader_dependency("neoforge")),
-        _ => {}
+    if let Some(loader) = loader.as_deref() {
+        set_loader_dependency(
+            &mut dependencies,
+            loader,
+            scratch_loader_dependency(loader, minecraft.as_deref(), &approved.target),
+        );
     }
     MrpackIndex {
         format_version: 1,
@@ -255,14 +257,72 @@ fn scratch_base_index(approved: &ApprovedModpackBuild) -> MrpackIndex {
     }
 }
 
-fn default_loader_dependency(loader: &str) -> String {
+fn set_loader_dependency(
+    dependencies: &mut MrpackDependencies,
+    loader: &str,
+    version: Option<String>,
+) {
     match loader {
-        "fabric" => "0.16.14",
-        "quilt" => "0.26.4",
-        "forge" | "neoforge" => "latest",
-        _ => "latest",
+        "fabric" => dependencies.fabric_loader = version,
+        "quilt" => dependencies.quilt_loader = version,
+        "forge" => dependencies.forge = version,
+        "neoforge" => dependencies.neoforge = version,
+        _ => {}
     }
-    .to_string()
+}
+
+fn scratch_loader_dependency(
+    loader: &str,
+    mc_version: Option<&str>,
+    target: &serde_json::Value,
+) -> Option<String> {
+    target_loader_dependency(loader, mc_version, target)
+        .or_else(|| known_scratch_loader_dependency(loader, mc_version).map(str::to_string))
+}
+
+fn target_loader_dependency(
+    loader: &str,
+    mc_version: Option<&str>,
+    target: &serde_json::Value,
+) -> Option<String> {
+    let loader = loader.trim().to_ascii_lowercase();
+    let mc_version = mc_version.unwrap_or_default();
+    let kind = loader_kind(&loader)?;
+    ["loader_version", "version_id"]
+        .into_iter()
+        .filter_map(|field| optional_json_string(target, field))
+        .map(|version| clean_loader_version(&version, kind, mc_version))
+        .find(|version| concrete_loader_dependency(version))
+}
+
+fn loader_kind(loader: &str) -> Option<LoaderKind> {
+    match loader {
+        "fabric" => Some(LoaderKind::Fabric),
+        "quilt" => Some(LoaderKind::Quilt),
+        "forge" => Some(LoaderKind::Forge),
+        "neoforge" => Some(LoaderKind::NeoForge),
+        _ => None,
+    }
+}
+
+fn concrete_loader_dependency(version: &str) -> bool {
+    let trimmed = version.trim();
+    !trimmed.is_empty()
+        && !trimmed.eq_ignore_ascii_case("latest")
+        && trimmed.chars().any(|c| c.is_ascii_digit())
+}
+
+fn known_scratch_loader_dependency(loader: &str, mc_version: Option<&str>) -> Option<&'static str> {
+    match (loader.trim().to_ascii_lowercase().as_str(), mc_version?) {
+        ("fabric", _) => Some("0.16.14"),
+        ("quilt", _) => Some("0.26.4"),
+        ("forge", "1.20.1") => Some("47.2.0"),
+        ("forge", "1.20.2") => Some("48.1.0"),
+        ("forge", "1.20.4") => Some("49.0.31"),
+        ("neoforge", "1.20.1") => Some("47.1.106"),
+        ("neoforge", "1.20.4") => Some("20.4.237"),
+        _ => None,
+    }
 }
 
 fn scratch_base_archive_bytes(index: &MrpackIndex) -> Result<Vec<u8>> {
