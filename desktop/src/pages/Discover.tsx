@@ -155,30 +155,36 @@ const Discover: Component = () => {
   });
 
   return (
-    <div class="px-[28px] py-[24px] overflow-y-auto h-full">
+    <div class="h-full overflow-hidden">
+      {/* 详情态(ProjectInstallDetail / ModpackDetail)按需挂载/卸载,自带滚动容器,盖在浏览器之上。
+          项目/版本走 cached() 故重挂无代价。 */}
       <Show when={selected()}>
         {(project) => (
-          <Show
-            when={project().kind === "modpack"}
-            fallback={
-              <ProjectInstallDetail
-                hit={project().hit}
-                kind={project().kind as Exclude<ProjectKind, "modpack">}
-                provider={project().provider}
-                onBack={() => setSelected(null)}
-              />
-            }
-          >
-            <ModpackDetail hit={project().hit} provider={project().provider} onBack={() => setSelected(null)} />
-          </Show>
+          <div class="h-full overflow-y-auto px-[28px] py-[24px]">
+            <Show
+              when={project().kind === "modpack"}
+              fallback={
+                <ProjectInstallDetail
+                  hit={project().hit}
+                  kind={project().kind as Exclude<ProjectKind, "modpack">}
+                  provider={project().provider}
+                  onBack={() => setSelected(null)}
+                />
+              }
+            >
+              <ModpackDetail hit={project().hit} provider={project().provider} onBack={() => setSelected(null)} />
+            </Show>
+          </div>
         )}
       </Show>
 
-      <Show when={!selected()}>
-        {/* 顶部工具栏:页面标题 + 内容类型 Chips 行(选中橙;接 discoverKind/DISCOVER_KINDS)。
-            源切换(Modrinth/CurseForge)、搜索、排序、可移除筛选芯片与「更多筛选」弹层都在
-            <ContentBrowser> 内。切类型时内容区整栏重挂(清空搜索词/分页,facet 在 kind 副作用里重置)。
-            Discover 不绑定实例:mcVersion="" + loader=null。 */}
+      {/* 浏览器子树常驻挂载:打开详情时仅以 display:none 隐藏(不卸载),返回即原样恢复
+          搜索词 / 结果 / 分页 / 排序 / 源 / 滚动位置(独立滚动容器,scrollTop 被 display:none 保留)。
+          顶部工具栏:页面标题 + 内容类型 Chips 行(选中橙;接 discoverKind/DISCOVER_KINDS)。
+          源切换(Modrinth/CurseForge)、搜索、排序、可移除筛选芯片与「更多筛选」弹层都在
+          <ContentBrowser> 内。切类型时内容区整栏重挂(清空搜索词/分页,facet 在 kind 副作用里重置)。
+          Discover 不绑定实例:mcVersion="" + loader=null。 */}
+      <div class="h-full overflow-y-auto px-[28px] py-[24px]" classList={{ hidden: !!selected() }}>
         <div class="flex flex-col gap-[16px]">
           <Heading size="section" as="h1">
             {t("discover.pageTitle")}
@@ -238,7 +244,7 @@ const Discover: Component = () => {
             )}
           </Show>
         </div>
-      </Show>
+      </div>
 
       {/* 整合包从列表直接安装时,若有需手动下载 / 被跳过的文件,弹窗摊开。 */}
       <Show when={outcome()}>
