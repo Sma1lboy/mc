@@ -4,8 +4,8 @@ use anyhow::{Context, Result};
 use clap::{Subcommand, ValueEnum};
 
 use mc_core::agent::{
-    AgentIntentKind, AgentPhase, AgentRunSnapshot, AgentSessionSummary, AgentStatus, ApprovalKind,
-    ApprovalRequest, BuildRestrictions,
+    AgentIntentKind, AgentMessageKind, AgentPhase, AgentRunSnapshot, AgentSessionSummary,
+    AgentStatus, ApprovalKind, ApprovalRequest, BuildRestrictions,
 };
 
 use crate::data_dir;
@@ -159,7 +159,7 @@ async fn cmd_agent_start(
         println!("OpenAI key lookup order:");
         println!("  1. OPENAI_API_KEY");
         println!("  2. nearest .env files:");
-        for path in mc_core::agent::OpenAiConfig::local_env_paths(&dir) {
+        for path in mc_core::agent::AgentLlmConfig::local_env_paths(&dir) {
             if path.exists() {
                 println!("     - {}", path.display());
             }
@@ -182,15 +182,15 @@ fn local_agent_runtime(
     dir: &Path,
     model: Option<String>,
 ) -> Result<mc_core::agent::MainAgentRuntime> {
-    let mut cfg = mc_core::agent::OpenAiConfig::from_local(dir).with_context(|| {
-        "读取 OpenAI API key 失败;设置 OPENAI_API_KEY 或写入 desktop/src-tauri/.env"
+    let mut cfg = mc_core::agent::AgentLlmConfig::from_local(dir).with_context(|| {
+        "Failed to read the OpenAI API key; set OPENAI_API_KEY or write it to desktop/src-tauri/.env"
     })?;
     if let Some(model) = model.filter(|s| !s.trim().is_empty()) {
         cfg.model = model;
     }
 
-    let openai = mc_core::agent::OpenAiClient::new(cfg)?;
-    Ok(mc_core::agent::MainAgentRuntime::new(openai))
+    let llm = mc_core::agent::AgentLlmClient::new(cfg)?;
+    Ok(mc_core::agent::MainAgentRuntime::new(llm))
 }
 
 fn cmd_agent_show(session_id: &str, json: bool) -> Result<()> {
@@ -221,6 +221,7 @@ async fn cmd_agent_continue(session_id: &str, message: &str, json: bool) -> Resu
         .map(|_| ())
 }
 
+#[cfg(test)]
 async fn cmd_agent_continue_with_runtime(
     dir: &Path,
     agent: &mc_core::agent::MainAgentRuntime,
@@ -291,7 +292,9 @@ fn load_agent_snapshot(
         Err(mc_core::CoreError::Io { source, .. })
             if source.kind() == std::io::ErrorKind::NotFound =>
         {
-            anyhow::bail!("找不到会话 '{session_id}'。用 `mc agent list` 查看现有会话。")
+            anyhow::bail!(
+                "Session '{session_id}' was not found. Run `mc agent list` to see existing sessions."
+            )
         }
         Err(err) => Err(err.into()),
     }
@@ -299,11 +302,12 @@ fn load_agent_snapshot(
 
 fn ensure_session_can_continue(snapshot: &AgentRunSnapshot) -> Result<()> {
     if snapshot.status == AgentStatus::Completed || snapshot.phase == AgentPhase::Completed {
-        anyhow::bail!("该会话已结束(completed)，无法继续。");
+        anyhow::bail!("This session is completed and cannot be continued.");
     }
     Ok(())
 }
 
+#[cfg(test)]
 fn default_agent_output_path(data_dir: &Path, session_id: &str) -> PathBuf {
     data_dir
         .join("agent")
@@ -321,7 +325,9 @@ fn ensure_session_is_executable(snapshot: &AgentRunSnapshot) -> Result<()> {
     {
         return Ok(());
     }
-    anyhow::bail!("当前会话还没有可执行的已批准方案，请先完成审核。")
+    anyhow::bail!(
+        "This session does not have an approved executable plan yet. Complete the approval gates first."
+    )
 }
 
 fn execution_completed(snapshot: &AgentRunSnapshot) -> bool {
@@ -336,22 +342,24 @@ fn copy_completed_artifact_to_output(
     mut snapshot: AgentRunSnapshot,
     output: &Path,
 ) -> Result<AgentRunSnapshot> {
-    let source = completed_artifact_path(&snapshot)
-        .ok_or_else(|| anyhow::anyhow!("该会话已结束(completed)，但没有记录可复制的产物位置。"))?;
+    let source = completed_artifact_path(&snapshot).ok_or_else(|| {
+        anyhow::anyhow!("This session is completed, but no copyable artifact path was recorded.")
+    })?;
     if !source.exists() {
         anyhow::bail!(
-            "该会话已结束(completed)，记录的产物位置不存在: {}",
+            "This session is completed, but the recorded artifact path does not exist: {}",
             source.display()
         );
     }
     if source != output {
         if let Some(parent) = output.parent().filter(|p| !p.as_os_str().is_empty()) {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("创建输出目录失败: {}", parent.display()))?;
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create output directory: {}", parent.display())
+            })?;
         }
         std::fs::copy(&source, output).with_context(|| {
             format!(
-                "复制已完成产物失败: {} -> {}",
+                "Failed to copy completed artifact: {} -> {}",
                 source.display(),
                 output.display()
             )
@@ -389,16 +397,16 @@ fn update_completed_manifest_output(snapshot: &mut AgentRunSnapshot, output: &Pa
         serde_json::json!(output.to_string_lossy().to_string()),
     );
     let size = std::fs::metadata(output)
-        .with_context(|| format!("读取输出文件信息失败: {}", output.display()))?
+        .with_context(|| format!("Failed to read output file metadata: {}", output.display()))?
         .len();
     obj.insert("output_size".to_string(), serde_json::json!(size));
     Ok(())
 }
 
 fn deterministic_agent_runtime() -> Result<mc_core::agent::MainAgentRuntime> {
-    let cfg = mc_core::agent::OpenAiConfig::new("deterministic-execution");
-    let openai = mc_core::agent::OpenAiClient::new(cfg)?;
-    Ok(mc_core::agent::MainAgentRuntime::new(openai))
+    let cfg = mc_core::agent::AgentLlmConfig::new("deterministic-execution");
+    let llm = mc_core::agent::AgentLlmClient::new(cfg)?;
+    Ok(mc_core::agent::MainAgentRuntime::new(llm))
 }
 
 fn cmd_agent_exec_smoke(
@@ -484,7 +492,32 @@ fn print_agent_snapshot_summary(snapshot: &AgentRunSnapshot) {
         }
     }
 
+    if let Some(message) = latest_approval_clarification_message(snapshot) {
+        println!("message: {message}");
+    }
+
     print_pending_approval_next_steps(snapshot);
+}
+
+fn latest_approval_clarification_message(snapshot: &AgentRunSnapshot) -> Option<&str> {
+    let was_clarification = snapshot
+        .trace
+        .iter()
+        .rev()
+        .find(|event| event.event != "saved local agent session")
+        .is_some_and(|event| {
+            event
+                .event
+                .starts_with("approval message needed clarification")
+        });
+    if !was_clarification {
+        return None;
+    }
+    snapshot
+        .messages
+        .last()
+        .filter(|message| message.kind == AgentMessageKind::Assistant)
+        .map(|message| message.text.as_str())
 }
 
 fn print_requirements_summary(snapshot: &AgentRunSnapshot) {
@@ -655,37 +688,37 @@ fn print_pending_approval_next_steps(snapshot: &AgentRunSnapshot) {
     match approval.kind {
         ApprovalKind::ConfigureRequirements => {
             println!(
-                "  mc agent continue --session-id {} --message \"确认继续\"",
+                "  mc agent continue --session-id {} --message \"Confirm and continue\"",
                 snapshot.id
             );
             println!(
-                "  mc agent continue --session-id {} --message \"改成 Fabric 1.20.1，更偏探索和 RPG\"",
+                "  mc agent continue --session-id {} --message \"Change it to Fabric 1.20.1 with more exploration and RPG content\"",
                 snapshot.id
             );
         }
         ApprovalKind::ChooseBasePack | ApprovalKind::ConfirmScratchFallback => {
             println!(
-                "  mc agent continue --session-id {} --message \"就选第一个\"",
+                "  mc agent continue --session-id {} --message \"Choose the first option\"",
                 snapshot.id
             );
             println!(
-                "  mc agent continue --session-id {} --message \"换一批，更偏冒险探索，少一点纯机械\"",
+                "  mc agent continue --session-id {} --message \"Search again with more adventure and exploration, less machinery\"",
                 snapshot.id
             );
         }
         ApprovalKind::ConfirmCustomization => {
             println!(
-                "  mc agent continue --session-id {} --message \"确认这个 mod 方案，继续\"",
+                "  mc agent continue --session-id {} --message \"Confirm this mod plan and continue\"",
                 snapshot.id
             );
             println!(
-                "  mc agent continue --session-id {} --message \"去掉偏科技和机械的 mod，多加地牢、结构、探索、地图和 QoL\"",
+                "  mc agent continue --session-id {} --message \"Remove tech and machinery mods; add more dungeons, structures, exploration, maps, and QoL\"",
                 snapshot.id
             );
         }
         ApprovalKind::ReviewDraftPlan => {
             println!(
-                "  mc agent continue --session-id {} --message \"确认继续\"",
+                "  mc agent continue --session-id {} --message \"Confirm and continue\"",
                 snapshot.id
             );
         }
@@ -974,16 +1007,41 @@ mod tests {
     }
 
     fn approval_route_runtime(decision: serde_json::Value) -> mc_core::agent::MainAgentRuntime {
-        let body = serde_json::json!({
-            "output_text": decision.to_string(),
+        let body = openai_response_body(decision.to_string());
+        let base_url = one_response_server(200, "application/json", body);
+        let mut cfg = mc_core::agent::AgentLlmConfig::new("test-key");
+        cfg.base_url = base_url;
+        let llm = mc_core::agent::AgentLlmClient::new(cfg).unwrap();
+        mc_core::agent::MainAgentRuntime::new(llm)
+    }
+
+    fn openai_response_body(output_text: String) -> Vec<u8> {
+        serde_json::json!({
+            "id": "resp_test",
+            "object": "response",
+            "created_at": 0,
+            "status": "completed",
+            "model": "gpt-test",
+            "output": [{
+                "type": "message",
+                "id": "msg_test",
+                "status": "completed",
+                "role": "assistant",
+                "content": [{
+                    "type": "output_text",
+                    "annotations": [],
+                    "text": output_text
+                }]
+            }],
+            "usage": {
+                "input_tokens": 1,
+                "output_tokens": 1,
+                "total_tokens": 2
+            },
+            "tools": []
         })
         .to_string()
-        .into_bytes();
-        let base_url = one_response_server(200, "application/json", body);
-        let mut cfg = mc_core::agent::OpenAiConfig::new("test-key");
-        cfg.base_url = base_url;
-        let openai = mc_core::agent::OpenAiClient::new(cfg).unwrap();
-        mc_core::agent::MainAgentRuntime::new(openai)
+        .into_bytes()
     }
 
     fn archive_file_payload(url: &str, size: usize) -> serde_json::Value {
@@ -1049,11 +1107,11 @@ mod tests {
         run.pending_approval = Some(ApprovalRequest {
             id: "approval-test".to_string(),
             kind: ApprovalKind::ConfirmCustomization,
-            title: "确认定制方案".to_string(),
-            message: "确认后可执行".to_string(),
+            title: "Confirm customization plan".to_string(),
+            message: "Ready to execute after confirmation".to_string(),
             options: vec![ApprovalOption {
                 id: "confirm:recommended_customization".to_string(),
-                label: "确认推荐方案".to_string(),
+                label: "Confirm recommended plan".to_string(),
                 description: None,
                 payload: Some(serde_json::json!({
                     "base_pack": {
@@ -1081,13 +1139,13 @@ mod tests {
             available_decisions: vec![
                 ApprovalDecisionSpec {
                     kind: UserDecisionKind::Approve,
-                    label: "确认推荐方案".to_string(),
+                    label: "Confirm recommended plan".to_string(),
                     requires_selected_option: true,
                     requires_message: false,
                 },
                 ApprovalDecisionSpec {
                     kind: UserDecisionKind::Revise,
-                    label: "修改补充 mods".to_string(),
+                    label: "Change extra mods".to_string(),
                     requires_selected_option: false,
                     requires_message: true,
                 },
@@ -1122,7 +1180,7 @@ mod tests {
             .expect_err("missing session should be user-facing");
         let text = err.to_string();
 
-        assert!(text.contains("找不到会话 'missing-session'"));
+        assert!(text.contains("Session 'missing-session' was not found"));
         assert!(text.contains("mc agent list"));
         assert!(!text.contains("snapshot.json"));
         assert!(!text.contains(data_dir.to_string_lossy().as_ref()));
@@ -1134,13 +1192,18 @@ mod tests {
         let data_dir = temp_data_dir("missing-continue");
         let runtime = deterministic_agent_runtime().unwrap();
 
-        let err =
-            cmd_agent_continue_with_runtime(&data_dir, &runtime, "missing-session", "继续", true)
-                .await
-                .expect_err("missing session should be user-facing");
+        let err = cmd_agent_continue_with_runtime(
+            &data_dir,
+            &runtime,
+            "missing-session",
+            "Continue",
+            true,
+        )
+        .await
+        .expect_err("missing session should be user-facing");
         let text = err.to_string();
 
-        assert!(text.contains("找不到会话 'missing-session'"));
+        assert!(text.contains("Session 'missing-session' was not found"));
         assert!(text.contains("mc agent list"));
         assert!(!text.contains("snapshot.json"));
         assert!(!text.contains(data_dir.to_string_lossy().as_ref()));
@@ -1160,12 +1223,13 @@ mod tests {
             .unwrap();
         let runtime = deterministic_agent_runtime().unwrap();
 
-        let err = cmd_agent_continue_with_runtime(&data_dir, &runtime, session_id, "继续", true)
-            .await
-            .expect_err("completed session should not continue");
+        let err =
+            cmd_agent_continue_with_runtime(&data_dir, &runtime, session_id, "Continue", true)
+                .await
+                .expect_err("completed session should not continue");
         let text = err.to_string();
 
-        assert!(text.contains("该会话已结束(completed)，无法继续。"));
+        assert!(text.contains("This session is completed and cannot be continued."));
         assert!(!text.contains("pending approval"));
         let _ = std::fs::remove_dir_all(data_dir);
     }
@@ -1208,7 +1272,7 @@ mod tests {
         }));
 
         let next =
-            cmd_agent_continue_with_runtime(&data_dir, &runtime, session_id, "确认方案", true)
+            cmd_agent_continue_with_runtime(&data_dir, &runtime, session_id, "Confirm plan", true)
                 .await
                 .expect("continue should reach execution-ready without executing");
 
@@ -1222,6 +1286,90 @@ mod tests {
             Some("mc agent execute --session-id continue-ready-session --output <path>")
         );
         let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    #[tokio::test]
+    async fn continue_with_unrelated_approval_message_stays_at_gate_without_artifact() {
+        let data_dir = temp_data_dir("continue-unrelated");
+        let session_id = "continue-unrelated-session";
+        let base_archive = base_archive_for_cli_execute();
+        let base_server =
+            one_response_server(200, "application/octet-stream", base_archive.clone());
+        let run = customization_approval_snapshot(
+            session_id,
+            &format!("{base_server}/base.mrpack"),
+            base_archive.len(),
+        );
+        let store = mc_core::agent::AgentSessionStore::new(&data_dir);
+        store.save_snapshot(&run).unwrap();
+        let output = default_agent_output_path(&data_dir, session_id);
+        let runtime = approval_route_runtime(serde_json::json!({
+            "decision": "needs_clarification",
+            "selected_option_id": null,
+            "message": null,
+            "rationale": "user message is unrelated to the current approval gate"
+        }));
+
+        let next = cmd_agent_continue_with_runtime(
+            &data_dir,
+            &runtime,
+            session_id,
+            "I want to go to the beach for coffee.",
+            true,
+        )
+        .await
+        .expect("continue should save a clarification snapshot instead of failing");
+
+        assert_eq!(next.status, AgentStatus::WaitingForUser);
+        assert_eq!(next.phase, AgentPhase::ConfirmCustomizationApproval);
+        assert!(next.approved_build.is_none());
+        assert!(next.execution.is_none());
+        assert!(
+            !output.exists(),
+            "invalid continue input must not write artifacts"
+        );
+        let saved = store.load_snapshot(session_id).unwrap();
+        assert_eq!(saved.phase, AgentPhase::ConfirmCustomizationApproval);
+        assert_eq!(
+            saved
+                .pending_approval
+                .as_ref()
+                .map(|approval| &approval.kind),
+            Some(&ApprovalKind::ConfirmCustomization)
+        );
+        let last = saved
+            .messages
+            .last()
+            .expect("clarification should be saved in the snapshot");
+        assert_eq!(last.kind, mc_core::agent::AgentMessageKind::Assistant);
+        assert!(
+            last.text.contains("does not match") && last.text.contains("state was left unchanged"),
+            "unexpected clarification: {}",
+            last.text
+        );
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    #[test]
+    fn clarification_message_is_shown_after_save_trace() {
+        let mut snapshot = customization_approval_snapshot(
+            "clarification-display-session",
+            "https://example.invalid/base.mrpack",
+            1024,
+        );
+        snapshot.push_message(
+            AgentMessageKind::Assistant,
+            "Choose an available option, describe a change, or cancel.",
+        );
+        snapshot.push_trace(
+            "approval message needed clarification at customization approval: unrelated input",
+        );
+        snapshot.push_trace("saved local agent session");
+
+        assert_eq!(
+            latest_approval_clarification_message(&snapshot),
+            Some("Choose an available option, describe a change, or cancel.")
+        );
     }
 
     #[tokio::test]
@@ -1276,7 +1424,8 @@ mod tests {
             .expect_err("execute before approval should fail");
 
         assert!(
-            err.to_string().contains("当前会话还没有可执行的已批准方案"),
+            err.to_string()
+                .contains("does not have an approved executable plan"),
             "unexpected error: {err}"
         );
         assert!(!output.exists());

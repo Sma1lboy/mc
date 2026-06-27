@@ -475,7 +475,10 @@ fn verify_written_mrpack_index(index: &MrpackIndex, approved: &ApprovedModpackBu
     Ok(())
 }
 
-fn verify_written_mrpack_target(index: &MrpackIndex, approved: &ApprovedModpackBuild) -> Result<()> {
+fn verify_written_mrpack_target(
+    index: &MrpackIndex,
+    approved: &ApprovedModpackBuild,
+) -> Result<()> {
     let expected_mc = optional_json_string(&approved.target, "minecraft_version");
     if let Some(expected_mc) = expected_mc {
         if index.dependencies.minecraft.as_deref() != Some(expected_mc.as_str()) {
@@ -956,7 +959,10 @@ pub fn continue_after_execution_manifest_result(
                 manifest: Some(manifest),
                 blocked: None,
             });
-            run.push_message(AgentMessageKind::Tool, "execution artifact written; verifying");
+            run.push_message(
+                AgentMessageKind::Tool,
+                "execution artifact written; verifying",
+            );
             run.push_trace("execution artifact written; entering verifying phase");
             Ok(run)
         }
@@ -1246,9 +1252,9 @@ fn customization_execution_blocked_approval(
         approved.base_pack.clone(),
         approved.extra_mods.clone(),
     );
-    approval.title = "执行清单受阻，需要调整定制方案".to_string();
+    approval.title = "Execution manifest is blocked; adjust customization".to_string();
     approval.message =
-        format!("执行器在编译 mrpack 清单时受阻: {reason}。请修改补充 mods，或返回重选底包。");
+        format!("The executor was blocked while compiling the mrpack manifest: {reason}. Change the extra mods or return to base-pack selection.");
     if let Some(option) = approval
         .options
         .iter_mut()
@@ -1279,7 +1285,9 @@ fn base_pack_execution_blocked_approval(
     let options = vec![ApprovalOption {
         id: format!("{provider}:{}", base.project_id),
         label: base.title.clone(),
-        description: Some(format!("当前底包执行受阻: {reason}")),
+        description: Some(format!(
+            "Current base pack is blocked during execution: {reason}"
+        )),
         payload: Some({
             let mut payload = approved.base_pack.clone();
             if let Some(obj) = payload.as_object_mut() {
@@ -1291,17 +1299,18 @@ fn base_pack_execution_blocked_approval(
     Ok(ApprovalRequest {
         id: crate::agent::state::new_id("approval"),
         kind: ApprovalKind::ChooseBasePack,
-        title: "执行清单受阻，需要重选底包".to_string(),
+        title: "Execution manifest is blocked; choose a base pack".to_string(),
         message: format!(
-            "执行器在处理底包时受阻: {reason}。可以重新搜索底包，或保留当前底包重试。"
+            "The executor was blocked while processing the base pack: {reason}. Search for another base pack, or keep the current base pack and retry."
         ),
         options,
-        available_decisions: approval_decisions("保留当前底包", "重新搜索底包"),
+        available_decisions: approval_decisions("Keep this base pack", "Search base packs again"),
         tools: vec![update_build_restrictions_tool_spec()],
         plan: Some(ModpackAgentPlan {
             objective: run.user_prompt.clone(),
-            summary_markdown: format!("底包执行受阻: {reason}"),
-            risks: vec!["继续使用当前底包可能再次触发相同执行阻塞。".to_string()],
+            summary_markdown: format!("Base-pack execution is blocked: {reason}"),
+            risks: vec!["Continuing with the current base pack may hit the same execution block again."
+                .to_string()],
             planned_actions: vec![PlannedAction {
                 id: "replan-base-pack".to_string(),
                 label: "User revises base pack after execution block".to_string(),
@@ -1321,12 +1330,12 @@ fn requirements_execution_blocked_approval(
     let restrictions = run.restrictions.clone().unwrap_or_default();
     let output = UpdateBuildRestrictionsOutput {
         missing_fields: missing_restriction_fields(&restrictions),
-        warnings: vec![format!("执行清单受阻: {reason}")],
+        warnings: vec![format!("Execution manifest is blocked: {reason}")],
         restrictions,
     };
     let mut approval = requirements_approval(&run.user_prompt, &output);
-    approval.title = "执行清单受阻，需要调整规格".to_string();
+    approval.title = "Execution manifest is blocked; adjust requirements".to_string();
     approval.message =
-        format!("执行器发现当前 version/loader/需求规格无法继续: {reason}。请修改规格后再继续。");
+        format!("The executor cannot continue with the current version/loader/requirements: {reason}. Change the requirements before continuing.");
     Ok(approval)
 }

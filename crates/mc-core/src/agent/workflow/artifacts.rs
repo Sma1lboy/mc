@@ -290,12 +290,12 @@ pub(super) fn selection_plan(
         .join("\n");
     let summary_markdown = if candidates.is_empty() {
         format!(
-            "没有找到底包候选。\n\n搜索词:\n- {}\n\n请修改版本、loader 或需求 tags 后重新搜索。",
+            "No base-pack candidates were found.\n\nQueries:\n- {}\n\nChange the version, loader, or requirement tags and search again.",
             queries.join("\n- ")
         )
     } else {
         format!(
-            "用户需求: {user_prompt}\n\n已优先搜索现成整合包作为底座。\n\n搜索词:\n- {}\n\n候选预览:\n{}",
+            "User request: {user_prompt}\n\nExisting modpacks were searched first as base candidates.\n\nQueries:\n- {}\n\nCandidate preview:\n{}",
             queries.join("\n- "),
             top
         )
@@ -305,8 +305,8 @@ pub(super) fn selection_plan(
         objective: user_prompt.to_string(),
         summary_markdown,
         risks: vec![
-            "候选仍需在下一步检查 Minecraft 版本、loader 和补充 mods 兼容性。".to_string(),
-            "选底包是 HITL gate；未确认前不会 import/install/write。".to_string(),
+            "Candidates still need Minecraft version, loader, and extra-mod compatibility checks in the next step.".to_string(),
+            "Base-pack selection is a HITL gate; import/install/write does not run before confirmation.".to_string(),
         ],
         planned_actions: vec![
             PlannedAction {
@@ -355,14 +355,14 @@ pub(super) fn customization_approval_with_validation(
     let approval = ApprovalRequest {
         id: crate::agent::state::new_id("approval"),
         kind: ApprovalKind::ConfirmCustomization,
-        title: "确认定制方案".to_string(),
-        message: "确认后，daemon 才会进入安装/写入阶段。当前只生成方案，不安装。".to_string(),
+        title: "Confirm customization plan".to_string(),
+        message: "After confirmation, deterministic execution can write the artifact. This step only prepares the plan.".to_string(),
         options: vec![
             ApprovalOption {
                 id: "confirm:recommended_customization".to_string(),
-                label: "确认推荐方案".to_string(),
+                label: "Confirm recommended plan".to_string(),
                 description: Some(format!(
-                    "底包: {}；补充 mods: {} 个",
+                    "Base pack: {}; extra mods: {}",
                     base.title,
                     extra_mods.len()
                 )),
@@ -385,12 +385,15 @@ pub(super) fn customization_approval_with_validation(
             },
             ApprovalOption {
                 id: "back:choose_base_pack".to_string(),
-                label: "返回重选底包".to_string(),
-                description: Some("当前候选不合适，回到基础整合包选择。".to_string()),
+                label: "Back to base-pack selection".to_string(),
+                description: Some(
+                    "The current candidate is not suitable; return to base-pack selection."
+                        .to_string(),
+                ),
                 payload: Some(serde_json::json!({ "action": "back_to_base_pack" })),
             },
         ],
-        available_decisions: approval_decisions("确认推荐方案", "修改补充 mods"),
+        available_decisions: approval_decisions("Confirm recommended plan", "Change extra mods"),
         tools: Vec::new(),
         plan: Some(plan.clone()),
     };
@@ -410,7 +413,7 @@ fn customization_plan(
         (None, None) => "unknown compatibility target".to_string(),
     };
     let mods_text = if mods.is_empty() {
-        "- 暂无兼容补充 mod 候选".to_string()
+        "- No compatible extra mod candidates yet".to_string()
     } else {
         mods.iter()
             .take(6)
@@ -428,12 +431,12 @@ fn customization_plan(
     ModpackAgentPlan {
         objective: user_prompt.to_string(),
         summary_markdown: format!(
-            "已选择底包: {} ({})\n\n兼容目标: {}\n\n推荐补充 mods:\n{}",
+            "Selected base pack: {} ({})\n\nCompatibility target: {}\n\nRecommended extra mods:\n{}",
             base.title, base.slug, target_text, mods_text
         ),
         risks: vec![
-            "补充 mods 来自平台搜索结果，安装前仍需按实际版本文件做最终解析。".to_string(),
-            "确认定制方案前不会 import/install/write。".to_string(),
+            "Extra mods come from provider search results and still need final version-file resolution before execution.".to_string(),
+            "Import/install/write does not run before the customization plan is confirmed.".to_string(),
         ],
         planned_actions: vec![
             PlannedAction {
@@ -474,8 +477,9 @@ pub(super) fn scratch_fallback_unavailable_plan(user_prompt: &str) -> ModpackAge
     ModpackAgentPlan {
         objective: user_prompt.to_string(),
         summary_markdown:
-            "从零搭建分支暂未实现。需要修改底包搜索需求，回到底包选择 gate 重新搜索。".to_string(),
-        risks: vec!["当前 workflow 只能基于现成底包继续规划。".to_string()],
+            "The scratch-build branch is not implemented yet. Change the base-pack search requirements and search again from the base-pack gate.".to_string(),
+        risks: vec!["The current workflow can continue planning only from an existing base pack."
+            .to_string()],
         planned_actions: vec![PlannedAction {
             id: "revise-base-pack-search".to_string(),
             label: "User revises base pack search requirements".to_string(),

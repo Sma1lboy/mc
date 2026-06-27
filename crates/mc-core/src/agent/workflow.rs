@@ -20,7 +20,7 @@ use crate::modplatform::{
     SortMethod, VersionFile,
 };
 
-use super::openai::{OpenAiClient, OpenAiTextFormat, OpenAiTextRequest};
+use super::llm::AgentLlmClient;
 use super::state::{
     AgentExecutionMetadata, AgentExecutionStatus, AgentIntent, AgentIntentKind, AgentMessageKind,
     AgentPhase, AgentRunSnapshot, AgentStatus, AgentToolSpec, AgentWorkflowKind,
@@ -71,13 +71,14 @@ use customization::{
     continue_after_customization_feedback, infer_base_pack_compatibility,
     run_customization_planning_loop,
 };
+#[cfg(test)]
+use llm_io::parse_approval_decision_response;
 use llm_io::{
-    approval_decision_text_format, customization_critique_text_format, dedupe_queries,
-    intent_text_format, mod_query_text_format, parse_approval_decision_response,
-    parse_customization_critique_response, parse_intent_response, parse_mod_query_response,
-    requirement_text_format, search_queries, search_query_text_format,
-    update_build_restrictions_tool_spec,
+    dedupe_queries, update_build_restrictions_tool_spec, AgentIntentOutput, ApprovalRoute,
+    ApprovalRouteOutput, CustomizationCritiqueOutput, ModQueryOutput, SearchQueryOutput,
 };
+#[cfg(test)]
+use llm_io::{parse_intent_response, parse_mod_query_response, search_queries};
 #[cfg(test)]
 use requirements::{
     apply_requirements_replan, invalidation_rule_for_changed_field,
@@ -95,12 +96,12 @@ use base_modlist::{
     base_modlist_cache_from_archive_bytes, ensure_base_archive_size, parse_base_modlist,
 };
 
+use execution::verify_written_mrpack;
 pub use execution::{
     build_mrpack_from_base_archive_bytes, compile_mrpack_execution_metadata,
     continue_after_execution_manifest_result, execute_mrpack_build_to_path, MrpackExecutionBuild,
     MrpackOverrideFile,
 };
-use execution::verify_written_mrpack;
 
 const UPDATE_BUILD_RESTRICTIONS_TOOL: &str = "update_build_restrictions";
 const BUILD_MRPACK_ARTIFACT_TOOL: &str = "build_mrpack_artifact";
@@ -196,15 +197,15 @@ Return an object matching the provided schema."#;
 /// capabilities should be added here as routed subworkflows/tools instead of
 /// expanding one large "agent loop".
 pub struct MainAgentRuntime {
-    openai: OpenAiClient,
+    llm: AgentLlmClient,
     modpack_build: ModpackBuildWorkflow,
 }
 
 impl MainAgentRuntime {
-    pub fn new(openai: OpenAiClient) -> Self {
+    pub fn new(llm: AgentLlmClient) -> Self {
         Self {
-            modpack_build: ModpackBuildWorkflow::new(openai.clone()),
-            openai,
+            modpack_build: ModpackBuildWorkflow::new(llm.clone()),
+            llm,
         }
     }
 
@@ -250,12 +251,22 @@ impl MainAgentRuntime {
         user_message: &str,
     ) -> Result<AgentRunSnapshot> {
         let approval = pending_approval(&run)?;
-        let decision = self
+        let route = self
             .route_approval_decision(&approval, user_message)
             .await?;
-        let mut next = self.continue_modpack_build(run, decision).await?;
-        next.push_trace("main agent routed natural-language approval message");
-        Ok(next)
+        match route {
+            ApprovalRoute::Decision(decision) => {
+                let mut next = self.continue_modpack_build(run, decision).await?;
+                next.push_trace("main agent routed natural-language approval message");
+                Ok(next)
+            }
+            ApprovalRoute::NeedsClarification { reason } => Ok(clarify_pending_approval_input(
+                run,
+                &approval,
+                user_message,
+                &reason,
+            )),
+        }
     }
 
     /// Drive deterministic runtime work after planning has reached an execution
@@ -403,50 +414,74 @@ impl MainAgentRuntime {
     }
 
     async fn classify_intent(&self, user_prompt: &str) -> Result<AgentIntent> {
-        let response = self
-            .openai
-            .complete(&OpenAiTextRequest {
-                instructions: vec![
-                    MAIN_AGENT_SYSTEM_PROMPT.to_string(),
-                    INTENT_ROUTING_PROMPT.to_string(),
-                ],
-                input: user_prompt.to_string(),
-                max_output_tokens: Some(180),
-                temperature: Some(0.0),
-                text_format: Some(intent_text_format()),
-            })
+        let output = self
+            .llm
+            .prompt_typed::<AgentIntentOutput>(
+                &[MAIN_AGENT_SYSTEM_PROMPT, INTENT_ROUTING_PROMPT],
+                user_prompt.to_string(),
+                180,
+                0.0,
+            )
             .await?;
-        parse_intent_response(&response.text).ok_or_else(|| {
-            CoreError::other(format!(
-                "could not classify user intent from model output: {}",
-                response.text
-            ))
-        })
+        Ok(output.into_agent_intent())
     }
 
     async fn route_approval_decision(
         &self,
         approval: &ApprovalRequest,
         user_message: &str,
-    ) -> Result<UserDecision> {
-        let response = self
-            .openai
-            .complete(&OpenAiTextRequest {
-                instructions: vec![
-                    MAIN_AGENT_SYSTEM_PROMPT.to_string(),
-                    APPROVAL_DECISION_ROUTING_PROMPT.to_string(),
-                ],
-                input: serde_json::json!({
+    ) -> Result<ApprovalRoute> {
+        let output = self
+            .llm
+            .prompt_typed::<ApprovalRouteOutput>(
+                &[MAIN_AGENT_SYSTEM_PROMPT, APPROVAL_DECISION_ROUTING_PROMPT],
+                serde_json::json!({
                     "pending_approval": approval,
                     "latest_user_message": user_message,
                 })
                 .to_string(),
-                max_output_tokens: Some(260),
-                temperature: Some(0.0),
-                text_format: Some(approval_decision_text_format()),
-            })
+                260,
+                0.0,
+            )
             .await?;
-        parse_approval_decision_response(&response.text, approval)
+        output.into_route(approval)
+    }
+}
+
+fn clarify_pending_approval_input(
+    mut run: AgentRunSnapshot,
+    approval: &ApprovalRequest,
+    user_message: &str,
+    reason: &str,
+) -> AgentRunSnapshot {
+    run.status = AgentStatus::WaitingForUser;
+    run.push_message(AgentMessageKind::User, user_message.trim());
+    run.push_message(
+        AgentMessageKind::Assistant,
+        approval_clarification_message(approval),
+    );
+    run.push_trace(format!(
+        "approval message needed clarification at {}: {}",
+        approval_kind_context_label(&approval.kind),
+        reason.trim()
+    ));
+    run
+}
+
+fn approval_clarification_message(approval: &ApprovalRequest) -> String {
+    format!(
+        "That reply does not match the current {} approval gate. The session state was left unchanged. Choose or confirm an available option, describe the change you want, or cancel.",
+        approval_kind_context_label(&approval.kind)
+    )
+}
+
+fn approval_kind_context_label(kind: &ApprovalKind) -> &'static str {
+    match kind {
+        ApprovalKind::ConfigureRequirements => "requirements confirmation",
+        ApprovalKind::ChooseBasePack => "base pack selection",
+        ApprovalKind::ConfirmCustomization => "customization confirmation",
+        ApprovalKind::ConfirmScratchFallback => "scratch build confirmation",
+        ApprovalKind::ReviewDraftPlan => "draft plan review",
     }
 }
 
@@ -558,12 +593,12 @@ pub(super) fn build_mrpack_artifact_tool_spec() -> AgentToolSpec {
 /// Interruptible subworkflow for building a modpack from a natural-language
 /// request. It owns planning and HITL gates, not final import/install/export.
 pub struct ModpackBuildWorkflow {
-    openai: OpenAiClient,
+    llm: AgentLlmClient,
 }
 
 impl ModpackBuildWorkflow {
-    pub fn new(openai: OpenAiClient) -> Self {
-        Self { openai }
+    pub fn new(llm: AgentLlmClient) -> Self {
+        Self { llm }
     }
 
     pub async fn start(&self, user_prompt: &str) -> Result<AgentRunSnapshot> {
@@ -579,7 +614,7 @@ impl ModpackBuildWorkflow {
 
         let current = BuildRestrictions::default();
         let generated = generate_restriction_update(
-            &self.openai,
+            &self.llm,
             user_prompt,
             &current,
             user_prompt,
@@ -618,7 +653,7 @@ impl ModpackBuildWorkflow {
         run.push_message(AgentMessageKind::User, user_prompt);
         run.push_trace("created run");
 
-        continue_to_base_pack_search(&self.openai, run).await
+        continue_to_base_pack_search(&self.llm, run).await
     }
 
     /// Continue from a saved waiting snapshot.
@@ -647,7 +682,7 @@ impl ModpackBuildWorkflow {
                         .ok_or_else(|| {
                             CoreError::other("revise decision requires a feedback message")
                         })?;
-                    return continue_after_requirements_feedback(&self.openai, run, feedback).await;
+                    return continue_after_requirements_feedback(&self.llm, run, feedback).await;
                 }
                 if decision.kind != UserDecisionKind::Approve {
                     return Err(CoreError::other(
@@ -656,7 +691,7 @@ impl ModpackBuildWorkflow {
                 }
                 let selected =
                     selected_approval_option(&approval, &decision, "configure_requirements")?;
-                continue_after_requirements_confirmation(&self.openai, run, selected).await
+                continue_after_requirements_confirmation(&self.llm, run, selected).await
             }
             ApprovalKind::ChooseBasePack | ApprovalKind::ConfirmScratchFallback => {
                 if decision.kind == UserDecisionKind::Revise {
@@ -668,7 +703,7 @@ impl ModpackBuildWorkflow {
                         .ok_or_else(|| {
                             CoreError::other("revise decision requires a feedback message")
                         })?;
-                    return continue_after_base_pack_feedback(&self.openai, run, feedback).await;
+                    return continue_after_base_pack_feedback(&self.llm, run, feedback).await;
                 }
                 if decision.kind != UserDecisionKind::Approve {
                     return Err(CoreError::other(
@@ -677,7 +712,7 @@ impl ModpackBuildWorkflow {
                 }
                 let selected =
                     selected_approval_option(&approval, &decision, "base-pack approval")?;
-                continue_after_base_pack_choice(&self.openai, run, selected).await
+                continue_after_base_pack_choice(&self.llm, run, selected).await
             }
             ApprovalKind::ConfirmCustomization => {
                 if decision.kind == UserDecisionKind::Revise {
@@ -690,10 +725,7 @@ impl ModpackBuildWorkflow {
                             CoreError::other("revise decision requires a feedback message")
                         })?;
                     return continue_after_customization_feedback(
-                        &self.openai,
-                        run,
-                        approval,
-                        feedback,
+                        &self.llm, run, approval, feedback,
                     )
                     .await;
                 }
@@ -706,9 +738,9 @@ impl ModpackBuildWorkflow {
                     selected_approval_option(&approval, &decision, "confirm_customization")?;
                 if selected.id == "back:choose_base_pack" {
                     return continue_after_base_pack_feedback(
-                        &self.openai,
+                        &self.llm,
                         run,
-                        "当前底包不合适，返回重选底包",
+                        "The current base pack is not suitable; return to base-pack selection",
                     )
                     .await;
                 }
@@ -866,7 +898,7 @@ fn unsupported_intent_snapshot(user_prompt: &str, intent: AgentIntent) -> AgentR
     run.push_message(
         AgentMessageKind::Assistant,
         format!(
-            "当前主 agent 识别到 intent={:?}，但这个能力还没有接入 workflow。",
+            "The main agent classified intent={:?}, but that capability is not wired into the workflow yet.",
             intent.kind
         ),
     );

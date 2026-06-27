@@ -1,5 +1,36 @@
 use super::*;
 
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum AgentIntentOutputKind {
+    BuildModpack,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub(super) struct AgentIntentOutput {
+    pub intent: AgentIntentOutputKind,
+    pub confidence: f32,
+    pub rationale: String,
+}
+
+impl AgentIntentOutput {
+    pub(super) fn into_agent_intent(self) -> AgentIntent {
+        AgentIntent {
+            kind: match self.intent {
+                AgentIntentOutputKind::BuildModpack => AgentIntentKind::BuildModpack,
+                AgentIntentOutputKind::Unknown => AgentIntentKind::Unknown,
+            },
+            confidence: self.confidence.clamp(0.0, 1.0),
+            rationale: (!self.rationale.trim().is_empty()).then_some(self.rationale),
+        }
+    }
+}
+
+#[cfg(test)]
 pub(super) fn parse_intent_response(text: &str) -> Option<AgentIntent> {
     let value = parse_first_json_object(text)?;
     let raw = value.get("intent")?.as_str()?;
@@ -58,6 +89,7 @@ pub(super) fn parse_first_json_object(text: &str) -> Option<serde_json::Value> {
     None
 }
 
+#[cfg(test)]
 fn intent_kind(value: &str) -> AgentIntentKind {
     match value.trim().to_ascii_lowercase().as_str() {
         "build_modpack" | "modpack_build" | "create_modpack" => AgentIntentKind::BuildModpack,
@@ -65,10 +97,43 @@ fn intent_kind(value: &str) -> AgentIntentKind {
     }
 }
 
-pub(super) fn parse_approval_decision_response(
+#[derive(Debug, Clone)]
+pub(super) enum ApprovalRoute {
+    Decision(UserDecision),
+    NeedsClarification { reason: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum ApprovalDecisionOutputKind {
+    Approve,
+    Revise,
+    Cancel,
+    NeedsClarification,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub(super) struct ApprovalRouteOutput {
+    pub decision: ApprovalDecisionOutputKind,
+    pub selected_option_id: Option<String>,
+    pub message: Option<String>,
+    pub rationale: String,
+}
+
+impl ApprovalRouteOutput {
+    pub(super) fn into_route(self, approval: &ApprovalRequest) -> Result<ApprovalRoute> {
+        let text = serde_json::to_string(&self).map_err(|source| CoreError::Parse {
+            what: "approval route output".into(),
+            source,
+        })?;
+        parse_approval_route_response(&text, approval)
+    }
+}
+
+pub(super) fn parse_approval_route_response(
     text: &str,
     approval: &ApprovalRequest,
-) -> Result<UserDecision> {
+) -> Result<ApprovalRoute> {
     let value = parse_first_json_object(text).ok_or_else(|| {
         CoreError::other(format!(
             "could not parse approval decision JSON from model output: {text}"
@@ -80,32 +145,32 @@ pub(super) fn parse_approval_decision_response(
         .map(str::trim)
         .unwrap_or_default()
         .to_ascii_lowercase();
-    let selected_option_id = value
+    let raw_selected_option_id = value
         .get("selected_option_id")
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(ToOwned::to_owned);
-    let message = value
+    let raw_message = value
         .get("message")
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(ToOwned::to_owned);
 
-    let kind = match decision.as_str() {
-        "approve" => UserDecisionKind::Approve,
-        "revise" => UserDecisionKind::Revise,
-        "cancel" => UserDecisionKind::Cancel,
+    let (kind, selected_option_id, message) = match decision.as_str() {
+        "approve" => (UserDecisionKind::Approve, raw_selected_option_id, None),
+        "revise" => (UserDecisionKind::Revise, None, raw_message),
+        "cancel" => (UserDecisionKind::Cancel, None, None),
         "needs_clarification" => {
             let rationale = value
                 .get("rationale")
                 .and_then(|v| v.as_str())
                 .filter(|s| !s.trim().is_empty())
                 .unwrap_or("approval decision needs clarification");
-            return Err(CoreError::other(format!(
-                "approval decision needs clarification: {rationale}"
-            )));
+            return Ok(ApprovalRoute::NeedsClarification {
+                reason: rationale.trim().to_string(),
+            });
         }
         other => {
             return Err(CoreError::other(format!(
@@ -129,164 +194,19 @@ pub(super) fn parse_approval_decision_response(
             )));
         }
     }
-    Ok(decision)
+    Ok(ApprovalRoute::Decision(decision))
 }
 
-pub(super) fn intent_text_format() -> OpenAiTextFormat {
-    OpenAiTextFormat::JsonSchema {
-        name: "agent_intent".to_string(),
-        description: Some("Classifies one Minecraft launcher user request.".to_string()),
-        strict: true,
-        schema: serde_json::json!({
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-                "intent": {
-                    "type": "string",
-                    "enum": [
-                        "build_modpack",
-                        "unknown"
-                    ]
-                },
-                "confidence": {
-                    "type": "number"
-                },
-                "rationale": {
-                    "type": "string"
-                }
-            },
-            "required": ["intent", "confidence", "rationale"]
-        }),
-    }
-}
-
-pub(super) fn approval_decision_text_format() -> OpenAiTextFormat {
-    OpenAiTextFormat::JsonSchema {
-        name: "approval_decision".to_string(),
-        description: Some("Routes a user message to a current HITL approval decision.".to_string()),
-        strict: true,
-        schema: serde_json::json!({
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-                "decision": {
-                    "type": "string",
-                    "enum": ["approve", "revise", "cancel", "needs_clarification"]
-                },
-                "selected_option_id": {
-                    "type": ["string", "null"]
-                },
-                "message": {
-                    "type": ["string", "null"]
-                },
-                "rationale": {
-                    "type": "string"
-                }
-            },
-            "required": ["decision", "selected_option_id", "message", "rationale"]
-        }),
-    }
-}
-
-pub(super) fn requirement_text_format() -> OpenAiTextFormat {
-    OpenAiTextFormat::JsonSchema {
-        name: UPDATE_BUILD_RESTRICTIONS_TOOL.to_string(),
-        description: Some("Tool input for updating typed modpack build restrictions.".to_string()),
-        strict: true,
-        schema: update_build_restrictions_input_schema(),
-    }
-}
-
-pub(super) fn search_query_text_format() -> OpenAiTextFormat {
-    OpenAiTextFormat::JsonSchema {
-        name: "base_modpack_search_queries".to_string(),
-        description: Some(
-            "Search queries for finding existing Minecraft base modpacks.".to_string(),
-        ),
-        strict: true,
-        schema: serde_json::json!({
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-                "queries": {
-                    "type": "array",
-                    "minItems": 2,
-                    "maxItems": 4,
-                    "items": {
-                        "type": "string"
-                    }
-                }
-            },
-            "required": ["queries"]
-        }),
-    }
-}
-
-pub(super) fn mod_query_text_format() -> OpenAiTextFormat {
-    OpenAiTextFormat::JsonSchema {
-        name: "extra_mod_search_queries".to_string(),
-        description: Some(
-            "Search queries for finding existing Minecraft mods to add to a base modpack."
-                .to_string(),
-        ),
-        strict: true,
-        schema: serde_json::json!({
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-                "queries": {
-                    "type": "array",
-                    "minItems": 0,
-                    "maxItems": 4,
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "retain_existing_mods": {
-                    "type": "boolean"
-                },
-                "remove_existing_mod_ids": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                }
-            },
-            "required": ["queries", "retain_existing_mods", "remove_existing_mod_ids"]
-        }),
-    }
-}
-
-pub(super) fn customization_critique_text_format() -> OpenAiTextFormat {
-    OpenAiTextFormat::JsonSchema {
-        name: "customization_self_critique".to_string(),
-        description: Some(
-            "Quality critique for an already tool-validated Minecraft extra-mod plan.".to_string(),
-        ),
-        strict: true,
-        schema: serde_json::json!({
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-                "verdict": {
-                    "type": "string",
-                    "enum": ["pass", "revise"]
-                },
-                "remove_project_ids": {
-                    "type": "array",
-                    "items": { "type": "string" }
-                },
-                "additional_queries": {
-                    "type": "array",
-                    "maxItems": 3,
-                    "items": { "type": "string" }
-                },
-                "rationale": {
-                    "type": "string"
-                }
-            },
-            "required": ["verdict", "remove_project_ids", "additional_queries", "rationale"]
-        }),
+#[cfg(test)]
+pub(super) fn parse_approval_decision_response(
+    text: &str,
+    approval: &ApprovalRequest,
+) -> Result<UserDecision> {
+    match parse_approval_route_response(text, approval)? {
+        ApprovalRoute::Decision(decision) => Ok(decision),
+        ApprovalRoute::NeedsClarification { reason } => Err(CoreError::other(format!(
+            "approval decision needs clarification: {reason}"
+        ))),
     }
 }
 
@@ -386,9 +306,25 @@ fn update_build_restrictions_output_schema() -> serde_json::Value {
     })
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub(super) struct SearchQueryOutput {
+    pub queries: Vec<String>,
+}
+
+#[cfg(test)]
 pub(super) fn search_queries(model_text: &str) -> Result<Vec<String>> {
     let queries = parse_search_query_response(model_text, "base modpack search")?;
     Ok(dedupe_queries(queries).into_iter().take(6).collect())
+}
+
+impl SearchQueryOutput {
+    pub(super) fn into_queries(self, context: &str) -> Result<Vec<String>> {
+        let text = serde_json::to_string(&self).map_err(|source| CoreError::Parse {
+            what: "search query output".into(),
+            source,
+        })?;
+        parse_search_query_response(&text, context)
+    }
 }
 
 fn parse_search_query_response(model_text: &str, context: &str) -> Result<Vec<String>> {
@@ -416,6 +352,23 @@ fn parse_search_query_response(model_text: &str, context: &str) -> Result<Vec<St
     }
 
     Ok(dedupe_queries(queries))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub(super) struct ModQueryOutput {
+    pub queries: Vec<String>,
+    pub retain_existing_mods: bool,
+    pub remove_existing_mod_ids: Vec<String>,
+}
+
+impl ModQueryOutput {
+    pub(super) fn into_plan(self) -> Result<GeneratedModSearchPlan> {
+        let text = serde_json::to_string(&self).map_err(|source| CoreError::Parse {
+            what: "extra mod query output".into(),
+            source,
+        })?;
+        parse_mod_query_response(&text)
+    }
 }
 
 pub(super) fn parse_mod_query_response(model_text: &str) -> Result<GeneratedModSearchPlan> {
@@ -460,6 +413,31 @@ pub(super) fn parse_mod_query_response(model_text: &str) -> Result<GeneratedModS
         retain_existing_mods,
         remove_existing_mod_ids,
     })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum CustomizationCritiqueVerdictOutput {
+    Pass,
+    Revise,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub(super) struct CustomizationCritiqueOutput {
+    pub verdict: CustomizationCritiqueVerdictOutput,
+    pub remove_project_ids: Vec<String>,
+    pub additional_queries: Vec<String>,
+    pub rationale: String,
+}
+
+impl CustomizationCritiqueOutput {
+    pub(super) fn into_critique(self) -> Result<GeneratedCustomizationCritique> {
+        let text = serde_json::to_string(&self).map_err(|source| CoreError::Parse {
+            what: "customization critique output".into(),
+            source,
+        })?;
+        parse_customization_critique_response(&text)
+    }
 }
 
 pub(super) fn parse_customization_critique_response(

@@ -33,10 +33,10 @@ fn one_response_server(body: Vec<u8>) -> String {
     let addr = listener.local_addr().unwrap();
     std::thread::spawn(move || {
         if let Ok((mut stream, _)) = listener.accept() {
-            let mut buf = [0_u8; 1024];
+            let mut buf = [0_u8; 16384];
             let _ = stream.read(&mut buf);
             let headers = format!(
-                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                 body.len()
             );
             let _ = stream.write_all(headers.as_bytes());
@@ -58,9 +58,47 @@ fn temp_mrpack_path(tag: &str) -> std::path::PathBuf {
 }
 
 fn test_main_runtime() -> MainAgentRuntime {
-    let cfg = crate::agent::OpenAiConfig::new("test-api-key");
-    let openai = crate::agent::OpenAiClient::new(cfg).unwrap();
-    MainAgentRuntime::new(openai)
+    let cfg = crate::agent::AgentLlmConfig::new("test-api-key");
+    let llm = crate::agent::AgentLlmClient::new(cfg).unwrap();
+    MainAgentRuntime::new(llm)
+}
+
+fn approval_route_runtime(decision: serde_json::Value) -> MainAgentRuntime {
+    let body = openai_response_body(decision.to_string());
+    let base_url = one_response_server(body);
+    let mut cfg = crate::agent::AgentLlmConfig::new("test-api-key");
+    cfg.base_url = base_url;
+    let llm = crate::agent::AgentLlmClient::new(cfg).unwrap();
+    MainAgentRuntime::new(llm)
+}
+
+fn openai_response_body(output_text: String) -> Vec<u8> {
+    serde_json::json!({
+        "id": "resp_test",
+        "object": "response",
+        "created_at": 0,
+        "status": "completed",
+        "model": "gpt-test",
+        "output": [{
+            "type": "message",
+            "id": "msg_test",
+            "status": "completed",
+            "role": "assistant",
+            "content": [{
+                "type": "output_text",
+                "annotations": [],
+                "text": output_text
+            }]
+        }],
+        "usage": {
+            "input_tokens": 1,
+            "output_tokens": 1,
+            "total_tokens": 2
+        },
+        "tools": []
+    })
+    .to_string()
+    .into_bytes()
 }
 
 fn base_archive_for_advance() -> Vec<u8> {
@@ -96,7 +134,7 @@ fn execution_ready_run(base_archive_url: &str, base_archive_size: u64) -> AgentR
     };
     let option = ApprovalOption {
         id: "confirm:recommended_customization".to_string(),
-        label: "确认推荐方案".to_string(),
+        label: "Confirm recommended plan".to_string(),
         description: None,
         payload: Some(serde_json::json!({
             "base_pack": {
@@ -130,8 +168,8 @@ fn test_approval() -> ApprovalRequest {
     ApprovalRequest {
         id: "approval-test".to_string(),
         kind: ApprovalKind::ChooseBasePack,
-        title: "选择基础整合包".to_string(),
-        message: "选择一个底包".to_string(),
+        title: "Choose a base modpack".to_string(),
+        message: "Choose one base pack".to_string(),
         options: vec![
             ApprovalOption {
                 id: "modrinth:first".to_string(),
@@ -146,10 +184,57 @@ fn test_approval() -> ApprovalRequest {
                 payload: Some(serde_json::json!({ "provider": "modrinth" })),
             },
         ],
-        available_decisions: approval_decisions("选择该底包", "重新搜索底包"),
+        available_decisions: approval_decisions("Choose this base pack", "Search base packs again"),
         tools: vec![update_build_restrictions_tool_spec()],
         plan: None,
     }
+}
+
+fn requirements_approval_run() -> AgentRunSnapshot {
+    let restrictions = BuildRestrictions {
+        revision: 1,
+        minecraft_version: Some("1.20.1".to_string()),
+        loader: Some("fabric".to_string()),
+        feature_tags: vec!["performance".to_string()],
+        ..Default::default()
+    };
+    let output = UpdateBuildRestrictionsOutput {
+        restrictions: restrictions.clone(),
+        missing_fields: Vec::new(),
+        warnings: Vec::new(),
+    };
+    let mut run = AgentRunSnapshot::new("make a Fabric performance pack");
+    run.status = AgentStatus::WaitingForUser;
+    run.phase = AgentPhase::ConfigureRequirementsApproval;
+    run.restrictions = Some(restrictions);
+    run.pending_approval = Some(requirements_approval(&run.user_prompt, &output));
+    run
+}
+
+fn base_pack_approval_run() -> AgentRunSnapshot {
+    let mut run = AgentRunSnapshot::new("make a pack");
+    run.status = AgentStatus::WaitingForUser;
+    run.phase = AgentPhase::ChooseBasePackApproval;
+    run.plan = Some(test_plan());
+    run.pending_approval = Some(test_approval());
+    run
+}
+
+fn customization_approval_run() -> AgentRunSnapshot {
+    let mut run = AgentRunSnapshot::new("make a pack");
+    run.status = AgentStatus::WaitingForUser;
+    run.phase = AgentPhase::ConfirmCustomizationApproval;
+    run.pending_approval = Some(ApprovalRequest {
+        id: "approval-test".to_string(),
+        kind: ApprovalKind::ConfirmCustomization,
+        title: "Confirm customization plan".to_string(),
+        message: "Ready to execute after confirmation".to_string(),
+        options: vec![recommended_customization_option(1)],
+        available_decisions: approval_decisions("Confirm recommended plan", "Change extra mods"),
+        tools: Vec::new(),
+        plan: Some(test_plan()),
+    });
+    run
 }
 
 fn test_plan() -> ModpackAgentPlan {
@@ -175,7 +260,7 @@ fn test_base_pack_payload(cycle: usize) -> serde_json::Value {
 fn recommended_customization_option(cycle: usize) -> ApprovalOption {
     ApprovalOption {
         id: "confirm:recommended_customization".to_string(),
-        label: "确认推荐方案".to_string(),
+        label: "Confirm recommended plan".to_string(),
         description: None,
         payload: Some(serde_json::json!({
             "base_pack": test_base_pack_payload(cycle),
@@ -663,15 +748,15 @@ fn legacy_scratch_fallback_choice_recovers_to_base_pack_gate() {
     run.pending_approval = Some(ApprovalRequest {
         id: "approval-test".to_string(),
         kind: ApprovalKind::ConfirmScratchFallback,
-        title: "确认从零搭建".to_string(),
+        title: "Confirm scratch build".to_string(),
         message: "legacy scratch fallback".to_string(),
         options: vec![ApprovalOption {
             id: "confirm:scratch_fallback".to_string(),
-            label: "确认从零搭建".to_string(),
+            label: "Confirm scratch build".to_string(),
             description: None,
             payload: Some(serde_json::json!({ "mode": "scratch_fallback" })),
         }],
-        available_decisions: approval_decisions("确认从零搭建", "重新搜索底包"),
+        available_decisions: approval_decisions("Confirm scratch build", "Search base packs again"),
         tools: Vec::new(),
         plan: None,
     });
@@ -1073,13 +1158,33 @@ fn approval_decision_rejects_unknown_option() {
 fn parses_approval_decision_revise() {
     let approval = test_approval();
     let decision = parse_approval_decision_response(
-            r#"{"decision":"revise","selected_option_id":null,"message":"换一批，更偏冒险探索","rationale":"user asked to search again"}"#,
+            r#"{"decision":"revise","selected_option_id":null,"message":"Search again with more adventure and exploration","rationale":"user asked to search again"}"#,
             &approval,
         )
         .expect("revise decision should parse");
 
     assert_eq!(decision.kind, UserDecisionKind::Revise);
-    assert_eq!(decision.message.as_deref(), Some("换一批，更偏冒险探索"));
+    assert_eq!(
+        decision.message.as_deref(),
+        Some("Search again with more adventure and exploration")
+    );
+}
+
+#[test]
+fn approval_decision_revise_ignores_spurious_selected_option() {
+    let approval = test_approval();
+    let decision = parse_approval_decision_response(
+            r#"{"decision":"revise","selected_option_id":"modrinth:first","message":"Search explicitly for Fabulously Optimized","rationale":"user asked to search again"}"#,
+            &approval,
+        )
+        .expect("revise decision should ignore selected_option_id emitted by the router");
+
+    assert_eq!(decision.kind, UserDecisionKind::Revise);
+    assert_eq!(decision.selected_option_id, None);
+    assert_eq!(
+        decision.message.as_deref(),
+        Some("Search explicitly for Fabulously Optimized")
+    );
 }
 
 #[test]
@@ -1092,6 +1197,85 @@ fn approval_decision_needs_clarification_does_not_advance() {
         .expect_err("needs_clarification should not produce a workflow decision");
 
     assert!(err.to_string().contains("needs clarification"));
+}
+
+#[tokio::test]
+async fn unrelated_approval_messages_stay_at_current_gate_without_side_effects() {
+    let cases = vec![
+        (
+            "requirements",
+            requirements_approval_run(),
+            AgentPhase::ConfigureRequirementsApproval,
+            ApprovalKind::ConfigureRequirements,
+        ),
+        (
+            "base pack",
+            base_pack_approval_run(),
+            AgentPhase::ChooseBasePackApproval,
+            ApprovalKind::ChooseBasePack,
+        ),
+        (
+            "customization",
+            customization_approval_run(),
+            AgentPhase::ConfirmCustomizationApproval,
+            ApprovalKind::ConfirmCustomization,
+        ),
+    ];
+
+    for (name, run, expected_phase, expected_kind) in cases {
+        let original_approval_id = run
+            .pending_approval
+            .as_ref()
+            .expect("case should start at an approval gate")
+            .id
+            .clone();
+        let runtime = approval_route_runtime(serde_json::json!({
+            "decision": "needs_clarification",
+            "selected_option_id": null,
+            "message": null,
+            "rationale": "user message is unrelated to the current approval gate"
+        }));
+
+        let next = runtime
+            .continue_from_user_message(run, "I want to go to the beach for coffee.")
+            .await
+            .unwrap_or_else(|err| {
+                panic!("{name} gate should return a clarification snapshot: {err}")
+            });
+
+        assert_eq!(next.status, AgentStatus::WaitingForUser, "{name}");
+        assert_eq!(next.phase, expected_phase, "{name}");
+        assert_eq!(
+            next.pending_approval
+                .as_ref()
+                .map(|approval| &approval.kind),
+            Some(&expected_kind),
+            "{name}"
+        );
+        assert_eq!(
+            next.pending_approval.as_ref().map(|approval| &approval.id),
+            Some(&original_approval_id),
+            "{name}"
+        );
+        assert!(
+            next.approved_build.is_none(),
+            "{name} gate must not create an approved build"
+        );
+        assert!(
+            next.execution.is_none(),
+            "{name} gate must not start execution metadata"
+        );
+        let last = next
+            .messages
+            .last()
+            .expect("clarification should be recorded as a user-visible message");
+        assert_eq!(last.kind, AgentMessageKind::Assistant, "{name}");
+        assert!(
+            last.text.contains("does not match") && last.text.contains("state was left unchanged"),
+            "{name} clarification message should explain the invalid input: {}",
+            last.text
+        );
+    }
 }
 
 #[test]
@@ -1183,7 +1367,7 @@ fn restriction_update_llm_payload_omits_restriction_history() {
     let payload = restriction_update_request_payload(
         "make a pack",
         &restrictions,
-        "改成偏探索",
+        "Change it toward exploration",
         BuildRestrictionChangeSource::UserRevise,
         None,
         None,
@@ -1300,7 +1484,7 @@ fn requirement_summary_does_not_echo_invalid_version_as_accepted_target() {
     let summary = requirement_summary_message(&output);
     assert!(!summary.contains("99.99"), "unexpected summary: {summary}");
     assert!(
-        summary.contains("缺少: Minecraft version"),
+        summary.contains("missing: Minecraft version"),
         "unexpected summary: {summary}"
     );
 }
@@ -1355,7 +1539,7 @@ fn restriction_update_replaces_older_target() {
         Some(first.restrictions),
         revised,
         BuildRestrictionChangeSource::UserRevise,
-        "改成 Forge 1.19.2，更偏冒险探索",
+        "Change it to Forge 1.19.2 with more adventure and exploration",
     )
     .expect("revised restriction update should apply");
     let target = requested_compatibility_from_restrictions(Some(&second.restrictions));
@@ -2263,11 +2447,11 @@ fn final_customization_approval_can_continue_without_model() {
     run.pending_approval = Some(ApprovalRequest {
         id: "approval-test".to_string(),
         kind: ApprovalKind::ConfirmCustomization,
-        title: "确认定制方案".to_string(),
-        message: "确认后执行".to_string(),
+        title: "Confirm customization plan".to_string(),
+        message: "Execute after confirmation".to_string(),
         options: vec![ApprovalOption {
             id: "confirm:recommended_customization".to_string(),
-            label: "确认推荐方案".to_string(),
+            label: "Confirm recommended plan".to_string(),
             description: None,
             payload: Some(serde_json::json!({
                 "base_pack": { "title": "Base Pack" },
@@ -2279,7 +2463,7 @@ fn final_customization_approval_can_continue_without_model() {
                 }
             })),
         }],
-        available_decisions: approval_decisions("确认推荐方案", "修改补充 mods"),
+        available_decisions: approval_decisions("Confirm recommended plan", "Change extra mods"),
         tools: Vec::new(),
         plan: None,
     });
@@ -2507,7 +2691,12 @@ fn verify_written_mrpack_rejects_deep_invalid_artifacts() {
     no_env.files[0].env = None;
 
     let cases = vec![
-        ("no-downloads", no_downloads, Vec::new(), "missing downloads"),
+        (
+            "no-downloads",
+            no_downloads,
+            Vec::new(),
+            "missing downloads",
+        ),
         ("no-env", no_env, Vec::new(), "missing env"),
         (
             "override-conflict",
