@@ -487,6 +487,8 @@ const RealmManage: Component<{ instance: InstanceSummary; onChanged?: () => void
               when={!(p().download.length === 0 && p().remove.length === 0)}
               fallback={<p class="text-[13px] text-accent">{t("realm.planUpToDate")}</p>}
             >
+              {/* 一句话状态:领域有更新,点下面同步。 */}
+              <p class="text-[13px] text-strong">{t("realm.syncPending")}</p>
               <div class="flex flex-wrap gap-[8px] text-[12px]">
                 <Show when={p().download.length}>
                   <span class="bg-window shadow-input px-[8px] py-[3px]">{t("realm.planDownload", { count: p().download.length })}</span>
@@ -498,6 +500,7 @@ const RealmManage: Component<{ instance: InstanceSummary; onChanged?: () => void
                   <span class="bg-window shadow-input px-[8px] py-[3px]">{t("realm.planManual", { count: p().manual.length })}</span>
                 </Show>
               </div>
+              {/* 移除开关:仅当有「领域之外的 mod」可移除时出现。 */}
               <Show when={p().remove.length > 0}>
                 <div class="flex items-center justify-between text-[13px] text-fg mt-[4px]">
                   <div class="flex flex-col gap-[2px] min-w-0 pr-[12px]">
@@ -506,10 +509,11 @@ const RealmManage: Component<{ instance: InstanceSummary; onChanged?: () => void
                   </div>
                   <Toggle checked={removeExtras()} onChange={setRemoveExtras} disabled={busy()} />
                 </div>
-                <Button variant="primary" class="self-start mt-[4px]" disabled={busy()} onClick={() => void runSync(removeExtras())}>
-                  {t("realm.applyChanges")}
-                </Button>
               </Show>
+              {/* 同步按钮:只要有待同步项就显示(不再只在有移除时出现)。 */}
+              <Button variant="primary" class="self-start mt-[4px]" disabled={busy()} onClick={() => void runSync(removeExtras())}>
+                {t("realm.applyChanges")}
+              </Button>
               <Show when={p().manual.length > 0}>
                 <div class="text-[12px] text-muted mt-[4px]">
                   <div class="mb-[4px]">{t("realm.manualList")}</div>
