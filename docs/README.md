@@ -33,6 +33,7 @@
 | [modules/modpack-formats.md](./modules/modpack-formats.md) | **格式参考**:.mrpack/CurseForge/MultiMC/MCBBS/packwiz/ATL/Technic 的精确 Rust 结构 + 安全清单 |
 | [modules/modpack-export.md](./modules/modpack-export.md) | **整合包导出**:resolvable-vs-override 分类 + trait ExportTarget;让别人能下载你的包 |
 | [modules/content-providers.md](./modules/content-providers.md) | **平台 Provider 抽象**:trait ResourceProvider + registry + 反查 + 依赖解析(导入/导出/浏览共用) |
+| [modules/agent-tauri-contract.md](./modules/agent-tauri-contract.md) | **Agent / Tauri 对接协议**:snapshot、approval、结构化 action、UI response renderer、执行导出边界 |
 | [modules/instance-and-components.md](./modules/instance-and-components.md) | **从零建实例 + 多组件版本模型 + 加载器核心**(from scratch + 下载不同的核心) |
 | [modules/instance.md](./modules/instance.md) | 实例管理:版本隔离、目录结构、世界/资源管理 |
 | [modules/ui-animation.md](./modules/ui-animation.md) | **GUI 动画层**:把参考动画系统抽象到 Web(rAF 引擎 vs CSS/WAAPI 切分、动机令牌、缓动库、手感预设、SolidJS API) |
