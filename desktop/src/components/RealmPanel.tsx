@@ -288,9 +288,8 @@ const RealmManage: Component<{ instance: InstanceSummary; onChanged?: () => void
   const [progress, setProgress] = createSignal<{ current: number; total: number } | null>(null);
   const [confirmKind, setConfirmKind] = createSignal<"leave" | "disband" | null>(null);
 
-  // 折叠态:成员默认展开,邀请默认折叠(展开后只放一个搜索框,输入才出名字)。
+  // 成员可折叠(默认展开);邀请不折叠,直接一个搜索框,输入才出名字。
   const [membersOpen, setMembersOpen] = createSignal(true);
-  const [inviteOpen, setInviteOpen] = createSignal(false);
   const [inviteQuery, setInviteQuery] = createSignal("");
   // 邀请:在自己的好友里按用户名过滤(空输入不出名单),在线优先。
   const inviteMatches = () => {
@@ -549,6 +548,29 @@ const RealmManage: Component<{ instance: InstanceSummary; onChanged?: () => void
           <Caret open={membersOpen()} />
           <span class="text-[12px] text-sub font-display tracking-[0.5px]">{t("realm.members")}</span>
           <span class="text-[11px] text-faint tabular-nums">{(members() ?? []).length}</span>
+          {/* 折叠时:在标题行右侧叠展成员头像(peek)。 */}
+          <Show when={!membersOpen()}>
+            <span class="flex-1" />
+            <span class="flex items-center -space-x-[6px] pr-[2px]">
+              <For each={(members() ?? []).slice(0, 6)}>
+                {(m) => {
+                  const nm = m.username || m.user_id.slice(0, 8);
+                  return (
+                    <span
+                      class="w-[20px] h-[20px] grid place-items-center shadow-raised font-display text-[10px] text-[#1a1b12] ring-2 ring-panel"
+                      style={{ "background-color": avatarTone(nm) }}
+                      aria-hidden="true"
+                    >
+                      {avatarInitial(nm)}
+                    </span>
+                  );
+                }}
+              </For>
+              <Show when={(members() ?? []).length > 6}>
+                <span class="text-[11px] text-faint pl-[10px] tabular-nums">+{(members() ?? []).length - 6}</span>
+              </Show>
+            </span>
+          </Show>
         </button>
         <Show when={membersOpen()}>
           <div class="px-[8px] pb-[10px]">
@@ -601,68 +623,57 @@ const RealmManage: Component<{ instance: InstanceSummary; onChanged?: () => void
         </Show>
       </Panel>
 
-      {/* 邀请好友(owner/admin · 社交开启时;可折叠,展开后搜索自己的好友邀请,输入才出名字) */}
+      {/* 邀请好友(owner/admin · 社交开启时):不折叠,直接一个搜索框,输入才出名字 */}
       <Show when={canPush() && socialEnabled() && isKobeSignedIn()}>
-        <Panel variant="sunken" class="p-0 overflow-hidden">
-          <button
-            type="button"
-            class="w-full flex items-center gap-[8px] px-[16px] py-[12px] bg-transparent border-none cursor-pointer text-left hover:bg-panel-2 transition-[background-color] duration-[var(--dur)] ease-app"
-            onClick={() => setInviteOpen((o) => !o)}
-          >
-            <Caret open={inviteOpen()} />
-            <span class="text-[12px] text-sub font-display tracking-[0.5px]">{t("realm.inviteTitle")}</span>
-          </button>
-          <Show when={inviteOpen()}>
-            <div class="px-[16px] pb-[12px] flex flex-col gap-[8px]">
-              <input
-                class="h-[32px] px-[10px] rounded-none text-[13px] text-fg bg-sidebar shadow-input w-full placeholder:text-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                type="text"
-                placeholder={t("realm.inviteSearchPlaceholder")}
-                value={inviteQuery()}
-                onInput={(e) => setInviteQuery(e.currentTarget.value)}
-              />
-              <Show when={inviteQuery().trim().length > 0}>
-                <Show
-                  when={inviteMatches().length > 0}
-                  fallback={<p class="text-[12px] text-faint px-[2px]">{t("friend.noResults")}</p>}
-                >
-                  <div class="flex flex-col gap-[2px] max-h-[200px] overflow-y-auto">
-                    <For each={inviteMatches()}>
-                      {(f) => {
-                        const nm = f.username || f.id.slice(0, 8);
-                        return (
-                          <div class="flex items-center gap-[10px] px-[8px] py-[6px]" classList={{ "opacity-70": !f.online }}>
-                            <PersonTile name={nm} online={f.online} pip />
-                            <div class="flex flex-col min-w-0 flex-1">
-                              <span class="text-[13px] text-fg truncate">{nm}</span>
-                              <span class="text-[11px] text-faint truncate">
-                                {f.online
-                                  ? f.activity
-                                    ? t("friend.playing", { name: f.activity })
-                                    : t("friend.idle")
-                                  : t("friend.offline")}
-                              </span>
-                            </div>
-                            <Show
-                              when={!memberIds().has(f.id)}
-                              fallback={<span class="text-[12px] text-faint">{t("realm.invited")}</span>}
-                            >
-                              <button
-                                class="text-[12px] text-accent hover:underline bg-transparent border-none cursor-pointer disabled:opacity-50"
-                                disabled={busy()}
-                                onClick={() => void invite(f.id)}
-                              >
-                                {t("realm.invite")}
-                              </button>
-                            </Show>
-                          </div>
-                        );
-                      }}
-                    </For>
-                  </div>
-                </Show>
-              </Show>
-            </div>
+        <Panel variant="sunken" class="p-[16px] flex flex-col gap-[8px]">
+          <span class="text-[12px] text-sub font-display tracking-[0.5px]">{t("realm.inviteTitle")}</span>
+          <input
+            class="h-[32px] px-[10px] rounded-none text-[13px] text-fg bg-sidebar shadow-input w-full placeholder:text-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            type="text"
+            placeholder={t("realm.inviteSearchPlaceholder")}
+            value={inviteQuery()}
+            onInput={(e) => setInviteQuery(e.currentTarget.value)}
+          />
+          <Show when={inviteQuery().trim().length > 0}>
+            <Show
+              when={inviteMatches().length > 0}
+              fallback={<p class="text-[12px] text-faint px-[2px]">{t("friend.noResults")}</p>}
+            >
+              <div class="flex flex-col gap-[2px] max-h-[200px] overflow-y-auto">
+                <For each={inviteMatches()}>
+                  {(f) => {
+                    const nm = f.username || f.id.slice(0, 8);
+                    return (
+                      <div class="flex items-center gap-[10px] px-[8px] py-[6px]" classList={{ "opacity-70": !f.online }}>
+                        <PersonTile name={nm} online={f.online} pip />
+                        <div class="flex flex-col min-w-0 flex-1">
+                          <span class="text-[13px] text-fg truncate">{nm}</span>
+                          <span class="text-[11px] text-faint truncate">
+                            {f.online
+                              ? f.activity
+                                ? t("friend.playing", { name: f.activity })
+                                : t("friend.idle")
+                              : t("friend.offline")}
+                          </span>
+                        </div>
+                        <Show
+                          when={!memberIds().has(f.id)}
+                          fallback={<span class="text-[12px] text-faint">{t("realm.invited")}</span>}
+                        >
+                          <button
+                            class="text-[12px] text-accent hover:underline bg-transparent border-none cursor-pointer disabled:opacity-50"
+                            disabled={busy()}
+                            onClick={() => void invite(f.id)}
+                          >
+                            {t("realm.invite")}
+                          </button>
+                        </Show>
+                      </div>
+                    );
+                  }}
+                </For>
+              </div>
+            </Show>
           </Show>
         </Panel>
       </Show>
