@@ -89,6 +89,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::modrinth_project,
             commands::get_settings,
             commands::set_settings,
+            commands::social_enabled,
             commands::log_boot,
             commands::client_log,
             commands::open_logs_dir,

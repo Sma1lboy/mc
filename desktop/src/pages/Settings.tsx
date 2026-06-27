@@ -11,8 +11,8 @@ import {
   Slider,
   Heading,
   Tag,
+  Toggle,
 } from "../components";
-import { KobeAccountPanel } from "../components/KobeAccountPanel";
 import { Check, Info, RotateCcw } from "lucide-solid";
 import {
   applyThemeColor,
@@ -29,6 +29,8 @@ import {
   setVeilStrength,
   currentRoot,
   setCurrentRoot,
+  socialEnabled,
+  setSocialEnabled,
 } from "../store";
 import { t, locale, setLocale, type Locale } from "../i18n";
 import type { ThemeConfig, ThemeMode, GlobalSettings } from "../ipc/types";
@@ -365,7 +367,18 @@ const Settings: Component = () => {
           </div>
 
           <div class="settings-page__side">
-            <KobeAccountPanel />
+            <Panel variant="sunken" class={sectionClass}>
+              <Heading size="sub" as="h2" class="mb-[14px]">
+                {t("settings.sectionSocial")}
+              </Heading>
+              <div class="flex items-center justify-between text-fg text-[14px]">
+                <div class="flex flex-col gap-[2px] min-w-0 pr-[12px]">
+                  <span>{t("settings.socialEnabled")}</span>
+                  <span class="text-[12px] text-muted">{t("settings.socialEnabledDesc")}</span>
+                </div>
+                <Toggle checked={socialEnabled()} onChange={(v) => void setSocialEnabled(v)} />
+              </div>
+            </Panel>
 
             <Panel variant="sunken" class={sectionClass}>
               <Heading size="sub" as="h2" class="mb-[14px]">

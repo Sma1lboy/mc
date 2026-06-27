@@ -20,7 +20,7 @@ import {
 import { JoinRealmDialog } from "../components/JoinRealmDialog";
 import { useModpackDrop } from "../util/useModpackDrop";
 import { api, onInstallProgress } from "../ipc/api";
-import { activeRoot, openInstance, playInstance, isRunning, instances, refreshInstances } from "../store";
+import { activeRoot, openInstance, playInstance, isRunning, instances, refreshInstances, socialEnabled } from "../store";
 import { openInstanceDir, deleteInstance } from "../util/instanceActions";
 import { sortByRecent } from "../util/instances";
 import { t } from "../i18n";
@@ -214,9 +214,11 @@ const Library: Component = () => {
             </Button>
           </Show>
           <Show when={!selectMode()}>
-            <Button variant="ghost" onClick={() => setJoinOpen(true)}>
-              {t("realm.joinAction")}
-            </Button>
+            <Show when={socialEnabled()}>
+              <Button variant="ghost" onClick={() => setJoinOpen(true)}>
+                {t("realm.joinAction")}
+              </Button>
+            </Show>
             <Button variant="ghost" onClick={() => setImportOpen(true)}>
               {t("library.importModpack")}
             </Button>

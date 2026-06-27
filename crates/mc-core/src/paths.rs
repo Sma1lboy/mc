@@ -116,6 +116,14 @@ pub fn discover_roots(exe_dir: &Path, data_dir: &Path, custom: &[PathBuf]) -> Ve
     roots
 }
 
+/// True when the launcher is deployed **portably / alongside an instance** — a
+/// game root sits next to the exe (`detect_game_root`). Used to default the
+/// social UI (kobeMC account / realms / friends) **off** for bundled single-
+/// instance distributions, and **on** for a standalone desktop install.
+pub fn is_portable_deployment(exe_dir: &Path) -> bool {
+    detect_game_root(exe_dir).is_some()
+}
+
 /// Filesystem layout of a single game root. All instance paths derive from here.
 #[derive(Debug, Clone)]
 pub struct GamePaths {

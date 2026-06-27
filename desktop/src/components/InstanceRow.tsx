@@ -8,7 +8,7 @@ import { Icon } from "./Icon";
 import { Tag } from "./Tag";
 import { formatRelativeTime } from "./format";
 import { loaderLabel as fmtLoader } from "../util/loaders";
-import { isRunning, isLaunching } from "../store";
+import { isRunning, isLaunching, socialEnabled } from "../store";
 import { t } from "../i18n";
 
 // InstanceRow 接收的实例形状。与后端 InstanceSummary 字段对齐
@@ -133,7 +133,7 @@ export function InstanceRow(props: InstanceRowProps): JSX.Element {
                 {inst().name}
               </span>
               {/* 领域包角标:主办 / 领域 + 未同步(pending)状态。 */}
-              <Show when={inst().realmRole}>
+              <Show when={socialEnabled() && inst().realmRole}>
                 <Tag class="shrink-0">
                   {inst().realmRole === "owner" ? t("realm.badgeHost") : t("realm.badgeMember")}
                 </Tag>

@@ -75,6 +75,12 @@ pub struct GlobalSettings {
     /// 仍无则不注册 CurseForge provider。**secret**,勿打日志。
     #[serde(default)]
     pub cf_api_key: Option<String>,
+
+    /// 是否显示 kobeMC 社交相关 UI(账号 / 领域 / 好友)。`None` = 按部署场景取默认
+    /// (便携·和实例同级 → 关;桌面独立版 → 开,见 [`crate::paths::is_portable_deployment`]);
+    /// `Some(_)` = 用户在设置里的显式覆盖。
+    #[serde(default)]
+    pub social_enabled: Option<bool>,
 }
 
 fn default_download_source() -> String {
@@ -102,6 +108,7 @@ impl Default for GlobalSettings {
             server_url: None,
             custom_roots: Vec::new(),
             cf_api_key: None,
+            social_enabled: None,
         }
     }
 }
@@ -217,6 +224,7 @@ mod tests {
             server_url: Some("https://example.com".to_string()),
             custom_roots: vec!["/games/a".to_string(), "/games/b".to_string()],
             cf_api_key: Some("cf-secret-key".to_string()),
+            social_enabled: Some(false),
         };
 
         // 目录尚不存在,save 必须自动创建。

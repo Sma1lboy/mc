@@ -242,6 +242,11 @@ export const commands = {
 	getSettings: () => typedError<GlobalSettings, string>(__TAURI_INVOKE("get_settings")),
 	/**  持久化全局设置(原子写 settings.json)。下载相关项下次构造下载器即生效。 */
 	setSettings: (settings: GlobalSettings) => typedError<null, string>(__TAURI_INVOKE("set_settings", { settings })),
+	/**
+	 *  当前生效的「显示社交 UI」(kobeMC 账号 / 领域 / 好友)开关:用户显式设置优先,
+	 *  否则按部署场景默认(便携·和实例同级 → 关;桌面独立版 → 开)。
+	 */
+	socialEnabled: () => typedError<boolean, string>(__TAURI_INVOKE("social_enabled")),
 	/**  前端 webview 把启动/错误信息报到这里;经全局 tracing 落进统一日志(`[client]` 前缀)。 */
 	logBoot: (msg: string) => __TAURI_INVOKE<void>("log_boot", { msg }),
 	/**
@@ -485,6 +490,12 @@ export type GlobalSettings = {
 	 *  仍无则不注册 CurseForge provider。**secret**,勿打日志。
 	 */
 	cf_api_key?: string | null,
+	/**
+	 *  是否显示 kobeMC 社交相关 UI(账号 / 领域 / 好友)。`None` = 按部署场景取默认
+	 *  (便携·和实例同级 → 关;桌面独立版 → 开,见 [`crate::paths::is_portable_deployment`]);
+	 *  `Some(_)` = 用户在设置里的显式覆盖。
+	 */
+	social_enabled?: boolean | null,
 };
 
 /**  `import_modpack` 的返回:建好的实例 id + 需手动处理的 blocked 文件 + 跳过的可选文件。 */

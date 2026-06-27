@@ -7,7 +7,7 @@ import { formatRelativeTime } from "../components/format";
 import { api, onInstallProgress } from "../ipc/api";
 import { openInstanceDir, deleteInstance } from "../util/instanceActions";
 import { loaderLabel as fmtLoader } from "../util/loaders";
-import { activeRoot, isRunning, isLaunching, playInstance, currentInstanceId, closeInstance, openInstance, refreshInstances } from "../store";
+import { activeRoot, isRunning, isLaunching, playInstance, currentInstanceId, closeInstance, openInstance, refreshInstances, socialEnabled } from "../store";
 import { renderMarkdown } from "../util/markdown";
 import { t } from "../i18n";
 import "./ModpackDetail.css"; // .md 样式(整合包更新日志渲染)
@@ -308,8 +308,8 @@ const InstanceDetail: Component = () => {
       </div>
       </Show>
 
-      {/* 领域段:分享为领域 / 开始同步(pending)/ 管理(成员·同步·清单)。 */}
-      <Show when={!browsing() && inst()}>
+      {/* 领域段:分享为领域 / 开始同步(pending)/ 管理(成员·同步·清单)。社交关闭时隐藏。 */}
+      <Show when={socialEnabled() && !browsing() && inst()}>
         {(i) => (
           <div class="shrink-0 border-b border-titlebar overflow-y-auto max-h-[55vh]">
             <RealmPanel instance={i()} onChanged={() => void refetch()} />

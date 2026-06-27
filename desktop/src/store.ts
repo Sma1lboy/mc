@@ -296,3 +296,27 @@ if (typeof window !== "undefined") {
     })
     .catch(() => {});
 }
+
+// ===== 社交 UI 可见性(kobeMC 账号 / 领域 / 好友) =====
+// 默认按部署场景(便携·和实例同级 → 关;桌面独立版 → 开),设置里可手动覆盖。
+// 启动时从后端取生效值;关闭后顶栏账号 chip、领域、好友等社交入口全部隐藏。
+const [socialEnabled, setSocialEnabledSig] = createSignal<boolean>(true);
+export { socialEnabled };
+
+if (typeof window !== "undefined") {
+  void api
+    .socialEnabled()
+    .then(setSocialEnabledSig)
+    .catch(() => {});
+}
+
+/** 设置社交 UI 可见性并持久化(写 social_enabled 显式覆盖)。 */
+export async function setSocialEnabled(on: boolean): Promise<void> {
+  setSocialEnabledSig(on);
+  try {
+    const s = await api.getSettings();
+    await api.setSettings({ ...s, social_enabled: on });
+  } catch {
+    /* 持久化失败不影响本次会话的显示状态 */
+  }
+}

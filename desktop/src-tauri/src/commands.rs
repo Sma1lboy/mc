@@ -2390,3 +2390,13 @@ pub fn get_settings() -> CmdResult<mc_core::settings::GlobalSettings> {
 pub fn set_settings(settings: mc_core::settings::GlobalSettings) -> CmdResult<()> {
     settings.save(&data_dir()).map_err(err)
 }
+
+/// 当前生效的「显示社交 UI」(kobeMC 账号 / 领域 / 好友)开关:用户显式设置优先,
+/// 否则按部署场景默认(便携·和实例同级 → 关;桌面独立版 → 开)。
+#[tauri::command]
+#[specta::specta]
+pub fn social_enabled() -> CmdResult<bool> {
+    Ok(settings_global()
+        .social_enabled
+        .unwrap_or_else(|| !mc_core::paths::is_portable_deployment(&exe_dir())))
+}

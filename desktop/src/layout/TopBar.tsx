@@ -1,7 +1,8 @@
 import { Component, Show } from "solid-js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { runningIds } from "../store";
+import { runningIds, socialEnabled } from "../store";
 import { DownloadQueue } from "../components/DownloadQueue";
+import { KobeAccountChip } from "../components/KobeAccountChip";
 import { PixelLabel } from "../components";
 import { t } from "../i18n";
 
@@ -75,6 +76,11 @@ const TopBar: Component = () => {
             <span class="text-[12px] text-fg whitespace-nowrap">{t("layout.running", { n: runningCount() })}</span>
           </Show>
         </div>
+
+        {/* kobeMC 账号入口(社交开关关闭时整体隐藏)。 */}
+        <Show when={socialEnabled()}>
+          <KobeAccountChip />
+        </Show>
 
         {/* 品牌名:点阵沙金短词,落在右上角。 */}
         <PixelLabel
