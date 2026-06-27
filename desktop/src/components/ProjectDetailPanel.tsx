@@ -1,5 +1,6 @@
 import { Component, createResource, createSignal, For, Show } from "solid-js";
 import { api } from "../ipc/api";
+import { cached } from "../ipc/cache";
 import { activeRoot } from "../store";
 import { toast } from "./Toast";
 import { Spinner } from "./Spinner";
@@ -39,11 +40,14 @@ export const ProjectDetailPanel: Component<{
 }> = (props) => {
   const [project] = createResource(
     () => props.projectId,
-    (id) => api.modrinthProject(id),
+    (id) => cached(`project|${props.provider ?? "modrinth"}|${id}`, () => api.modrinthProject(id)),
   );
   const [versions] = createResource(
     () => props.projectId,
-    (id) => api.modrinthVersions(id, props.provider ?? "modrinth"),
+    (id) =>
+      cached(`versions|${props.provider ?? "modrinth"}|${id}`, () =>
+        api.modrinthVersions(id, props.provider ?? "modrinth"),
+      ),
   );
   const [installing, setInstalling] = createSignal<string | null>(null);
   const [showAll, setShowAll] = createSignal(false);

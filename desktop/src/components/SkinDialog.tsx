@@ -8,6 +8,7 @@ import { Button } from "./Button";
 import { Heading } from "./Typography";
 import { toast } from "./Toast";
 import { api } from "../ipc/api";
+import { cached, invalidate } from "../ipc/cache";
 import { t } from "../i18n";
 import type { ProfileSkins, CapeInfo } from "../ipc/types";
 
@@ -23,7 +24,9 @@ export const SkinDialog: Component<{
   username: string;
   onClose: () => void;
 }> = (props) => {
-  const [profile, { mutate, refetch }] = createResource<ProfileSkins>(() => api.skinProfile(props.uuid));
+  const [profile, { mutate, refetch }] = createResource<ProfileSkins>(() =>
+    cached(`skinProfile|${props.uuid}`, () => api.skinProfile(props.uuid)),
+  );
   const [busy, setBusy] = createSignal(false);
   const [variant, setVariant] = createSignal<"classic" | "slim">("classic");
 
@@ -65,6 +68,7 @@ export const SkinDialog: Component<{
       const updated = await api.skinUpload(props.uuid, path, variant());
       if (closed) return;
       mutate(updated);
+      invalidate(`skinProfile|${props.uuid}`); // 皮肤已变,丢弃旧缓存,重开取最新
       toast({ type: "success", message: t("skin.uploaded") });
     } catch (e) {
       if (closed) return;
@@ -82,6 +86,7 @@ export const SkinDialog: Component<{
       const updated = await api.skinSetCape(props.uuid, capeId);
       if (closed) return;
       mutate(updated);
+      invalidate(`skinProfile|${props.uuid}`); // 披风已变,丢弃旧缓存,重开取最新
       toast({ type: "success", message: t("skin.capeUpdated") });
     } catch (e) {
       if (closed) return;

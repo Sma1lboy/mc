@@ -5,6 +5,7 @@ import { RealmPanel } from "../components/RealmPanel";
 import { Menu } from "../components/Menu";
 import { formatRelativeTime } from "../components/format";
 import { api, onInstallProgress } from "../ipc/api";
+import { cached } from "../ipc/cache";
 import { openInstanceDir, deleteInstance } from "../util/instanceActions";
 import { loaderLabel as fmtLoader } from "../util/loaders";
 import { activeRoot, isRunning, isLaunching, playInstance, currentInstanceId, closeInstance, openInstance, refreshInstances, socialEnabled } from "../store";
@@ -44,7 +45,7 @@ const InstanceDetail: Component = () => {
       const s = cfg()?.source;
       return s && s.provider === "modrinth" ? s.project_id : null;
     },
-    (id) => api.modrinthProject(id).catch(() => null),
+    (id) => cached(`project|modrinth|${id}`, () => api.modrinthProject(id)).catch(() => null),
   );
   // 早于「安装即存图标」的整合包实例本地没 icon.png:发现缺失且项目有 logo 时补齐一次,
   // 刷新后侧栏/首页/详情都用上真实 logo(而非默认像素占位)。每实例只尝试一次。
