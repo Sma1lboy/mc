@@ -1,0 +1,43 @@
+// "friend" 命名空间词条:kobeMC 好友(用户名搜索 + 请求/接受)。zh 真相源;en 回退中文。
+const dict = {
+  zh: {
+    title: "好友",
+    setUsernameHint: "先设置一个用户名,好友才能搜到你。",
+    usernamePlaceholder: "用户名(3-24 位,字母数字 _ -)",
+    saveUsername: "保存用户名",
+    usernameSaved: "用户名已设置",
+    usernameError: "用户名无效或已被占用",
+    addPlaceholder: "搜索用户名加好友",
+    add: "加好友",
+    requestSent: "好友请求已发送",
+    requests: "好友请求",
+    accept: "接受",
+    decline: "拒绝",
+    remove: "删除",
+    noFriends: "还没有好友。搜索用户名加一个吧。",
+    noResults: "没有匹配的用户",
+    searching: "搜索中…",
+    opError: "操作失败:{{ err }}",
+  } as Record<string, string>,
+  en: {
+    title: "Friends",
+    setUsernameHint: "Set a username first so friends can find you.",
+    usernamePlaceholder: "Username (3–24, A–Z 0–9 _ -)",
+    saveUsername: "Save username",
+    usernameSaved: "Username set",
+    usernameError: "Username is invalid or taken",
+    addPlaceholder: "Search a username to add",
+    add: "Add",
+    requestSent: "Friend request sent",
+    requests: "Friend requests",
+    accept: "Accept",
+    decline: "Decline",
+    remove: "Remove",
+    noFriends: "No friends yet — search a username to add one.",
+    noResults: "No matching users",
+    searching: "Searching…",
+    opError: "Failed: {{ err }}",
+  } as Record<string, string>,
+};
+
+export default dict;

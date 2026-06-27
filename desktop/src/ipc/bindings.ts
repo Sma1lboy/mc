@@ -322,6 +322,22 @@ export const commands = {
 	realmLeave: (realmId: string, userId: string, root: string, instanceId: string) => typedError<null, string>(__TAURI_INVOKE("realm_leave", { realmId, userId, root, instanceId })),
 	/**  Owner disbands the realm and unbinds it from the local instance. */
 	realmDisband: (realmId: string, root: string, instanceId: string) => typedError<null, string>(__TAURI_INVOKE("realm_disband", { realmId, root, instanceId })),
+	/**  Set the current user's username (required before friend search works). */
+	friendSetUsername: (username: string) => typedError<null, string>(__TAURI_INVOKE("friend_set_username", { username })),
+	/**  Search users by username prefix. */
+	friendSearch: (q: string) => typedError<UserBrief[], string>(__TAURI_INVOKE("friend_search", { q })),
+	/**  Send a friend request by user id. */
+	friendRequest: (userId: string) => typedError<null, string>(__TAURI_INVOKE("friend_request", { userId })),
+	/**  Accepted friends. */
+	friendList: () => typedError<UserBrief[], string>(__TAURI_INVOKE("friend_list")),
+	/**  Incoming pending friend requests. */
+	friendRequests: () => typedError<UserBrief[], string>(__TAURI_INVOKE("friend_requests")),
+	/**  Accept a pending request from `user_id`. */
+	friendAccept: (userId: string) => typedError<null, string>(__TAURI_INVOKE("friend_accept", { userId })),
+	/**  Decline a pending request from `user_id`. */
+	friendDecline: (userId: string) => typedError<null, string>(__TAURI_INVOKE("friend_decline", { userId })),
+	/**  Remove a friend. */
+	friendRemove: (userId: string) => typedError<null, string>(__TAURI_INVOKE("friend_remove", { userId })),
 	/**
 	 *  检查某实例(由 Modrinth 整合包安装)是否有更新:返回比当前来源版本更新的版本列表。
 	 *  非整合包来源 / 非 modrinth / 缺 project_id 时返回空(前端据此不显示更新提示)。
@@ -978,6 +994,12 @@ export type ThemeConfig = {
 	saturation: number | null,
 	/**  Accent lightness 0-100. */
 	lightness: number | null,
+};
+
+/**  A minimal public view of a user (search result / friend / pending request). */
+export type UserBrief = {
+	id: string,
+	username?: string | null,
 };
 
 /**

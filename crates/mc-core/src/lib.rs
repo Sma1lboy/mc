@@ -9,6 +9,7 @@ pub mod auth;
 pub mod diagnostics;
 pub mod download;
 pub mod error;
+pub mod friend;
 pub mod fs;
 pub mod instance;
 pub mod java;

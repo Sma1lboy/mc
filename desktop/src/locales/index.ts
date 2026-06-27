@@ -13,6 +13,7 @@ import home from "./home";
 import projectDetail from "./projectDetail";
 import kobe from "./kobe";
 import realm from "./realm";
+import friend from "./friend";
 
 export const dictionaries = {
   zh: {
@@ -30,6 +31,7 @@ export const dictionaries = {
     projectDetail: projectDetail.zh,
     kobe: kobe.zh,
     realm: realm.zh,
+    friend: friend.zh,
   },
   en: {
     settings: settings.en,
@@ -46,5 +48,6 @@ export const dictionaries = {
     projectDetail: projectDetail.en,
     kobe: kobe.en,
     realm: realm.en,
+    friend: friend.en,
   },
 };

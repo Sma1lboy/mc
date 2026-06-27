@@ -126,6 +126,22 @@ impl ServerClient {
             .map_err(|e| CoreError::Parse { what: format!("server {path}"), source: e })
     }
 
+    /// GET with query params and parse the JSON response; errors on non-2xx.
+    pub(crate) async fn get_json_query<T: serde::de::DeserializeOwned>(
+        &self,
+        path: &str,
+        query: &[(&str, &str)],
+    ) -> Result<T> {
+        let url = format!("{}{}", self.base, path);
+        let resp = self.http.get(&url).query(query).send().await?;
+        if !resp.status().is_success() {
+            return Err(CoreError::other(format!("server {} returned {}", path, resp.status())));
+        }
+        let bytes = resp.bytes().await?;
+        serde_json::from_slice(&bytes)
+            .map_err(|e| CoreError::Parse { what: format!("server {path}"), source: e })
+    }
+
     /// POST a JSON body and parse the JSON response; errors on non-2xx.
     pub(crate) async fn post_json<B: serde::Serialize + ?Sized, T: serde::de::DeserializeOwned>(
         &self,

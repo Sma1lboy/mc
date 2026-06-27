@@ -320,3 +320,12 @@ export async function setSocialEnabled(on: boolean): Promise<void> {
     /* 持久化失败不影响本次会话的显示状态 */
   }
 }
+
+/** 重新拉取后端会话用户(设用户名/资料变更后刷新 kobeUser)。 */
+export async function refreshKobeUser(): Promise<void> {
+  try {
+    setKobeUser((await api.kobemcSession()) ?? null);
+  } catch {
+    /* 会话探测失败不影响现有登录态 */
+  }
+}

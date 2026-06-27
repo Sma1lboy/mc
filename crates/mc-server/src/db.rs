@@ -112,6 +112,21 @@ CREATE INDEX IF NOT EXISTS idx_realms_code ON realms(code);
 CREATE INDEX IF NOT EXISTS idx_realm_members_user ON realm_members(user_id);
 "#;
 
+/// Friendships — one **directed** row per request: `(requester, addressee, status)`.
+/// A→B request inserts `(A,B,'pending')`; B accepting flips it to `'accepted'`.
+/// Friends = any `accepted` row where the user is on either side; incoming
+/// requests = `pending` rows addressed to the user.
+const FRIENDS_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS friendships (
+    requester_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    addressee_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status       TEXT NOT NULL DEFAULT 'pending',
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (requester_id, addressee_id)
+);
+CREATE INDEX IF NOT EXISTS idx_friendships_addressee ON friendships(addressee_id);
+"#;
+
 /// Connect to Postgres and ensure both schemas exist.
 pub async fn connect() -> anyhow::Result<PgPool> {
     let url = std::env::var("DATABASE_URL")
@@ -127,6 +142,7 @@ pub async fn connect() -> anyhow::Result<PgPool> {
     sqlx::raw_sql(BETTER_AUTH_CORE_SQL).execute(&pool).await.context("建 better-auth 表")?;
     sqlx::raw_sql(SHARES_SQL).execute(&pool).await.context("建 shares 表")?;
     sqlx::raw_sql(REALMS_SQL).execute(&pool).await.context("建 realms 表")?;
+    sqlx::raw_sql(FRIENDS_SQL).execute(&pool).await.context("建 friendships 表")?;
     Ok(pool)
 }
 

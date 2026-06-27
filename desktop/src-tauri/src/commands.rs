@@ -1850,6 +1850,88 @@ pub async fn realm_disband(
     Ok(())
 }
 
+// --- friends (username search + request/accept over the held kobeMC client) ---
+
+use mc_core::friend::UserBrief;
+
+/// Set the current user's username (required before friend search works).
+#[tauri::command]
+#[specta::specta]
+pub async fn friend_set_username(
+    client: State<'_, mc_core::server::ServerClient>,
+    username: String,
+) -> CmdResult<()> {
+    client.set_username(username.trim()).await.map_err(err)
+}
+
+/// Search users by username prefix.
+#[tauri::command]
+#[specta::specta]
+pub async fn friend_search(
+    client: State<'_, mc_core::server::ServerClient>,
+    q: String,
+) -> CmdResult<Vec<UserBrief>> {
+    client.search_users(q.trim()).await.map_err(err)
+}
+
+/// Send a friend request by user id.
+#[tauri::command]
+#[specta::specta]
+pub async fn friend_request(
+    client: State<'_, mc_core::server::ServerClient>,
+    user_id: String,
+) -> CmdResult<()> {
+    client.friend_request(&user_id).await.map_err(err)
+}
+
+/// Accepted friends.
+#[tauri::command]
+#[specta::specta]
+pub async fn friend_list(
+    client: State<'_, mc_core::server::ServerClient>,
+) -> CmdResult<Vec<UserBrief>> {
+    client.friends().await.map_err(err)
+}
+
+/// Incoming pending friend requests.
+#[tauri::command]
+#[specta::specta]
+pub async fn friend_requests(
+    client: State<'_, mc_core::server::ServerClient>,
+) -> CmdResult<Vec<UserBrief>> {
+    client.friend_requests().await.map_err(err)
+}
+
+/// Accept a pending request from `user_id`.
+#[tauri::command]
+#[specta::specta]
+pub async fn friend_accept(
+    client: State<'_, mc_core::server::ServerClient>,
+    user_id: String,
+) -> CmdResult<()> {
+    client.friend_accept(&user_id).await.map_err(err)
+}
+
+/// Decline a pending request from `user_id`.
+#[tauri::command]
+#[specta::specta]
+pub async fn friend_decline(
+    client: State<'_, mc_core::server::ServerClient>,
+    user_id: String,
+) -> CmdResult<()> {
+    client.friend_decline(&user_id).await.map_err(err)
+}
+
+/// Remove a friend.
+#[tauri::command]
+#[specta::specta]
+pub async fn friend_remove(
+    client: State<'_, mc_core::server::ServerClient>,
+    user_id: String,
+) -> CmdResult<()> {
+    client.friend_remove(&user_id).await.map_err(err)
+}
+
 // --- modpack import / export (thin glue over mc_core::modpack) ---------------
 
 /// 一个 blocked 文件(CurseForge 作者禁第三方分发)的 UI 视图:需用户手动下载。

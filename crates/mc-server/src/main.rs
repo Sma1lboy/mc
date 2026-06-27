@@ -7,6 +7,7 @@
 mod account;
 mod auth;
 mod db;
+mod friend;
 mod meta;
 mod news;
 mod realm;
@@ -21,6 +22,7 @@ use better_auth::handlers::AxumIntegration;
 use sqlx::PgPool;
 use tower_http::cors::CorsLayer;
 
+use friend::FriendStore;
 use realm::RealmStore;
 use share::{ShareStore, SharedInstance};
 
@@ -32,6 +34,7 @@ struct AppState {
     pool: PgPool,
     shares: ShareStore,
     realms: RealmStore,
+    friends: FriendStore,
     /// Directory holding per-realm overrides zip blobs (a mounted volume in prod,
     /// `BLOB_DIR`; defaults to `./blobs` for local dev).
     blob_dir: std::path::PathBuf,
@@ -58,7 +61,8 @@ async fn main() {
             .expect("build http client"),
         pool: pool.clone(),
         shares: ShareStore::new(pool.clone()),
-        realms: RealmStore::new(pool),
+        realms: RealmStore::new(pool.clone()),
+        friends: FriendStore::new(pool),
         blob_dir: std::env::var("BLOB_DIR").unwrap_or_else(|_| "blobs".to_string()).into(),
     };
 
@@ -89,6 +93,15 @@ async fn main() {
         .route("/v1/realms/{id}/members/{uid}", delete(realm::remove_member))
         .route("/v1/realms/{id}/synced", post(realm::mark_synced))
         .route("/v1/realms/{id}/overrides", get(realm::get_overrides).post(realm::upload_overrides))
+        // Friends (username search + request/accept; authed).
+        .route("/v1/account/username", post(friend::set_username))
+        .route("/v1/users/search", get(friend::search))
+        .route("/v1/friends", get(friend::list))
+        .route("/v1/friends/request", post(friend::request))
+        .route("/v1/friends/requests", get(friend::requests))
+        .route("/v1/friends/accept", post(friend::accept))
+        .route("/v1/friends/decline", post(friend::decline))
+        .route("/v1/friends/{user_id}", delete(friend::remove))
         .with_state(state);
 
     let app = Router::new()
