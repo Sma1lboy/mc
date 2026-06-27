@@ -16,8 +16,8 @@ use crate::modpack::export::modrinth::host_in_whitelist;
 use crate::modplatform::dependency::{resolve_dependencies, ModRef};
 use crate::modplatform::provider::ProviderRegistry;
 use crate::modplatform::{
-    Dependency, ProjectSideSupport, ProviderId, ResolvedFile, ResourceKind, SearchHit, SearchQuery,
-    SortMethod, VersionFile,
+    ProjectSideSupport, ProviderId, ResolvedFile, ResourceKind, SearchHit, SearchQuery, SortMethod,
+    VersionFile,
 };
 
 use super::llm::AgentLlmClient;
@@ -26,8 +26,10 @@ use super::state::{
     AgentPhase, AgentRunSnapshot, AgentStatus, AgentToolSpec, AgentWorkflowKind,
     ApprovalDecisionSpec, ApprovalKind, ApprovalOption, ApprovalRequest, ApprovedModpackBuild,
     BuildRestrictionChange, BuildRestrictionChangeSource, BuildRestrictionPatch, BuildRestrictions,
-    ExecutionBlocked, ModpackAgentPlan, PlanArtifact, PlanReplanRequest, PlannedAction,
-    UpdateBuildRestrictionsInput, UpdateBuildRestrictionsOutput, UserDecision, UserDecisionKind,
+    ExecutionBlocked, Goal, GoalKind, GoalQuery, GoalStatus, ModPlanState, ModProvenance,
+    ModpackAgentPlan, PlanArtifact, PlanReplanRequest, PlannedAction, ResolvedMod,
+    TargetCompatibility, UpdateBuildRestrictionsInput, UpdateBuildRestrictionsOutput, UserDecision,
+    UserDecisionKind,
 };
 
 mod approvals;
@@ -41,9 +43,10 @@ mod requirements;
 
 use artifacts::{
     attach_base_pack_resolution, candidate_option, customization_approval,
-    customization_approval_with_validation, json_str_or, mrpack_file_payload_with_filename,
-    project_url, provider_label, provider_slug, safe_provider_filename,
-    scratch_fallback_unavailable_plan, selection_plan, source_ref_payload, version_file_payload,
+    customization_approval_with_validation, json_str_or, mod_payload,
+    mrpack_file_payload_with_filename, project_url, provider_label, provider_slug,
+    safe_provider_filename, scratch_base_pack_option, scratch_base_pack_payload,
+    scratch_build_plan, selection_plan, source_ref_payload, version_file_payload,
     version_file_with_project_side,
 };
 
@@ -51,21 +54,26 @@ use approvals::{
     approval_decisions, approved_build_from_payload, base_pack_selection_approval,
     missing_restriction_fields, requirement_label, requirement_summary_message,
     requirements_approval, requirements_plan, restrictions_from_requirement_payload,
-    revise_cancel_decisions,
 };
 #[cfg(test)]
-use artifacts::{mod_payload, mrpack_file_payload, resolved_mod_payload};
+use artifacts::{mrpack_file_payload, resolved_mod_payload};
 use base_modlist::{fetch_base_modlist_cache, mod_ref_payloads};
 #[cfg(test)]
 use base_search::{base_search_has_acceptable_count, next_base_search_mode};
 use base_search::{
     block_base_pack_planning, continue_after_base_pack_choice, continue_after_base_pack_feedback,
-    continue_to_base_pack_search, recover_unimplemented_scratch_fallback,
+    continue_to_base_pack_search,
 };
 #[cfg(test)]
 use customization::customization_blockers;
 #[cfg(test)]
 use customization::remove_existing_mod_payloads;
+#[cfg(test)]
+use customization::{
+    append_dependency_resolution, apply_mod_plan_step, baseline_mod_refs,
+    fallback_mod_search_queries, initialize_mod_plan_state, merge_feedback_into_mod_plan,
+    prefilter_mod_candidates, unresolved_mod_plan_goals,
+};
 use customization::{
     block_customization_planning, continue_after_customization_confirmation,
     continue_after_customization_feedback, infer_base_pack_compatibility,
@@ -73,17 +81,27 @@ use customization::{
 };
 #[cfg(test)]
 use llm_io::parse_approval_decision_response;
+#[cfg(test)]
+use llm_io::ApprovalDecisionOutputKind;
+#[cfg(test)]
+use llm_io::CustomizationCritiqueOutput;
+#[cfg(test)]
+use llm_io::CustomizationCritiqueVerdictOutput;
+#[cfg(test)]
+use llm_io::ModSelection;
 use llm_io::{
-    dedupe_queries, update_build_restrictions_tool_spec, AgentIntentOutput, ApprovalRoute,
-    ApprovalRouteOutput, CustomizationCritiqueOutput, ModQueryOutput, SearchQueryOutput,
+    dedupe_queries, normalize_mod_search_query, update_build_restrictions_tool_spec,
+    AgentIntentOutput, ApprovalRoute, ApprovalRouteOutput, ModPlanControl, ModPlanStep,
+    SearchQueryOutput,
 };
 #[cfg(test)]
 use llm_io::{parse_intent_response, parse_mod_query_response, search_queries};
 #[cfg(test)]
 use requirements::{
     apply_requirements_replan, invalidation_rule_for_changed_field,
-    parse_restriction_update_response, restriction_update_request_payload,
-    target_phase_for_changed_field, ALL_CHANGED_FIELDS,
+    normalize_restriction_update_input, parse_restriction_update_response,
+    restriction_update_request_payload, target_phase_for_changed_field,
+    validate_restriction_update_retry, ALL_CHANGED_FIELDS,
 };
 use requirements::{
     changed_restriction_field, continue_after_requirements_confirmation,
@@ -109,7 +127,7 @@ const BASE_SEARCH_MAX_ITERATIONS: u32 = 4;
 const BASE_SEARCH_MIN_CANDIDATES: usize = 3;
 const BASE_SEARCH_MAX_CANDIDATES: usize = 12;
 const BASE_SEARCH_APPROVAL_LIMIT: usize = 6;
-const CUSTOMIZATION_MAX_ITERATIONS: u32 = 5;
+const MOD_PLAN_ROUND_CAP: u32 = 6;
 const BASE_ARCHIVE_FETCH_TIMEOUT: Duration = Duration::from_secs(25);
 const MAX_BASE_ARCHIVE_BYTES: usize = 128 * 1024 * 1024;
 const MAX_BASE_MANIFEST_BYTES: u64 = 4 * 1024 * 1024;
@@ -170,25 +188,15 @@ Do not include generic words like "Minecraft", "modpack", "base pack", or "pack"
 Prefer mature base modpacks. Build-from-scratch is not available in this workflow yet.
 Return an object matching the provided schema."#;
 
-const CUSTOMIZATION_QUERY_PROMPT: &str = r#"You are planning the extra-mod search step for a Minecraft modpack build workflow.
-Return short English search queries for existing Minecraft mods to add on top of the selected base modpack.
-Focus on user-requested features that are missing or underrepresented in the base modpack.
-Use the selected base pack title and description to avoid searching for features already covered by the base pack.
-Return canonical project names or short feature phrases.
-Prefer names users and mod platforms would actually use in project titles.
-Do not include Minecraft versions, loader names, provider names, or generic words like "Minecraft" and "mod"; compatibility is applied by tool filters.
-Do not search for base modpacks.
-Use retain_existing_mods=true when the user is adding or refining requirements and existing suggested mods should remain.
-Use retain_existing_mods=false when the user asks to replace, restart, remove all, or otherwise discard the current suggested mods.
-When the user asks to remove specific existing mods, keep retain_existing_mods=true and put those existing project ids in remove_existing_mod_ids.
-Return an object matching the provided schema."#;
-
-const CUSTOMIZATION_SELF_CRITIQUE_PROMPT: &str = r#"Review the already tool-validated extra-mod plan.
-The deterministic tools have already checked Minecraft version, loader, dependency resolution, and hard conflicts.
-You may only judge quality fit and obvious overreach against the user's requirements.
-Return pass when the plan is coherent enough for human approval.
-Return revise only when a candidate should be removed or another short search query should be tried.
-Do not claim compatibility facts that are not in the input.
+const MOD_PLAN_STEP_PROMPT: &str = r#"You are planning a compatible Minecraft mod set.
+The runtime has already searched provider candidates and filtered obvious duplicates.
+Select only project_id values from the provided candidate pool. Do not invent URLs, version ids, filenames, hashes, or environment metadata.
+Use selections to cover open goals, removals to drop unwanted current additions, next_queries for the next deterministic search round, and control=done only when the current set is coherent enough for the final human approval gate.
+When candidate_pool is empty or insufficient, next_queries must be short provider search terms: canonical mod/project names or 2-5 keyword phrases.
+Do not put Minecraft versions, loader names, the selected base-pack name, "compatible with", "Modrinth", or sentence-style requirements in next_queries.query; those constraints are already applied by deterministic filters.
+Prefer "Immersive Portals" over "Immersive Portals Fabric 1.20.1 compatibility with SpaceCraft Pluto".
+Use multiple short queries instead of one long query that combines compatibility and theme constraints.
+When no candidates are available for an open goal after short searches, explain the likely unresolved reason in rationale so it can be shown to the user; do not silently mark that goal covered.
 Return an object matching the provided schema."#;
 
 /// Thin top-level agent facade.
@@ -790,11 +798,8 @@ pub fn continue_modpack_build_without_model(
                 return Ok(None);
             }
             let selected = selected_approval_option(&approval, &decision, "base-pack approval")?;
-            if selected.id == "scratch:fallback" {
-                return Ok(Some(recover_unimplemented_scratch_fallback(run)));
-            }
-            if selected.id == "confirm:scratch_fallback" {
-                return Ok(Some(recover_unimplemented_scratch_fallback(run)));
+            if selected.id == "scratch:fallback" || selected.id == "confirm:scratch_fallback" {
+                return Ok(None);
             }
             Ok(None)
         }
@@ -939,19 +944,6 @@ struct ResolvedModCandidate {
 }
 
 #[derive(Debug, Clone)]
-struct TargetCompatibility {
-    minecraft_version: Option<String>,
-    loader: Option<String>,
-    version_id: Option<String>,
-    version_name: Option<String>,
-    version_number: Option<String>,
-    game_versions: Vec<String>,
-    loaders: Vec<String>,
-    primary_file: Option<VersionFile>,
-    dependencies: Vec<Dependency>,
-}
-
-#[derive(Debug, Clone)]
 struct RequestedCompatibility {
     minecraft_version: Option<String>,
     loader: Option<String>,
@@ -963,23 +955,24 @@ struct GeneratedRestrictionUpdate {
     input: UpdateBuildRestrictionsInput,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone)]
 struct GeneratedModSearchPlan {
-    model: String,
     queries: Vec<String>,
     retain_existing_mods: bool,
     remove_existing_mod_ids: Vec<String>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone)]
 struct GeneratedCustomizationCritique {
-    model: String,
     verdict: CustomizationCritiqueVerdict,
     remove_project_ids: Vec<String>,
     additional_queries: Vec<String>,
     rationale: String,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum CustomizationCritiqueVerdict {
     Pass,
@@ -1124,6 +1117,15 @@ fn parse_selected_base_pack(option: &ApprovalOption) -> Result<SelectedBasePack>
     let provider = match payload.get("provider").and_then(|v| v.as_str()) {
         Some("modrinth") => ProviderId::Modrinth,
         Some("curseforge") => ProviderId::CurseForge,
+        Some("scratch") => {
+            return Ok(SelectedBasePack {
+                provider: ProviderId::Modrinth,
+                project_id: "scratch".to_string(),
+                slug: "scratch".to_string(),
+                title: json_string(payload, "title").unwrap_or_else(|_| option.label.clone()),
+                description: optional_json_string(payload, "description"),
+            });
+        }
         other => {
             return Err(CoreError::other(format!(
                 "unsupported base pack provider: {other:?}"

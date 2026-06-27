@@ -25,11 +25,8 @@ pub(super) async fn generate_restriction_update(
         )
         .await?;
     let mut model = llm.model().to_string();
-    let response_text = serde_json::to_string(&response).map_err(|source| CoreError::Parse {
-        what: "restriction tool schema output".into(),
-        source,
-    })?;
-    let input = match parse_restriction_update_response(&response_text) {
+    let previous_output = format!("{response:?}");
+    let input = match validate_restriction_update_input(response) {
         Ok(input) => input,
         Err(first_err) => {
             let retry_input = restriction_update_request_payload(
@@ -38,7 +35,7 @@ pub(super) async fn generate_restriction_update(
                 user_message,
                 source,
                 Some(first_err.to_string()),
-                Some(response_text),
+                Some(previous_output),
             )
             .to_string();
             let retry = llm
@@ -54,15 +51,7 @@ pub(super) async fn generate_restriction_update(
                 )
                 .await?;
             model = llm.model().to_string();
-            let retry_text = serde_json::to_string(&retry).map_err(|source| CoreError::Parse {
-                what: "restriction tool schema retry output".into(),
-                source,
-            })?;
-            parse_restriction_update_response(&retry_text).map_err(|second_err| {
-                CoreError::other(format!(
-                    "could not parse restriction tool schema output after retry: {second_err}; first error: {first_err}"
-                ))
-            })?
+            validate_restriction_update_retry(retry, &first_err)?
         }
     };
     Ok(GeneratedRestrictionUpdate { model, input })
@@ -101,6 +90,7 @@ pub(super) fn restriction_update_request_payload(
     payload
 }
 
+#[cfg(test)]
 pub(super) fn parse_restriction_update_response(
     text: &str,
 ) -> Result<UpdateBuildRestrictionsInput> {
@@ -120,19 +110,17 @@ pub(super) fn parse_restriction_update_response(
         .get("minecraft_version")
         .and_then(|v| v.as_str())
         .map(str::trim)
-        .filter(|s| is_minecraft_version(s))
         .map(ToOwned::to_owned);
     let minecraft_version_requirement = patch_value
         .get("minecraft_version_requirement")
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .map(ToOwned::to_owned)
-        .or_else(|| minecraft_version.clone());
+        .map(ToOwned::to_owned);
     let loader = patch_value
         .get("loader")
         .and_then(|v| v.as_str())
-        .and_then(normalize_loader);
+        .map(ToOwned::to_owned);
     let feature_tags = patch_value
         .get("feature_tags")
         .and_then(|v| v.as_array())
@@ -140,9 +128,6 @@ pub(super) fn parse_restriction_update_response(
             items
                 .iter()
                 .filter_map(|v| v.as_str())
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .take(8)
                 .map(ToOwned::to_owned)
                 .collect::<Vec<_>>()
         })
@@ -153,8 +138,74 @@ pub(super) fn parse_restriction_update_response(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(ToOwned::to_owned);
-    Ok(UpdateBuildRestrictionsInput {
-        base_revision,
+    Ok(normalize_restriction_update_input(
+        UpdateBuildRestrictionsInput {
+            base_revision,
+            patch: BuildRestrictionPatch {
+                minecraft_version,
+                minecraft_version_requirement,
+                loader,
+                feature_tags,
+                notes,
+            },
+        },
+    ))
+}
+
+fn validate_restriction_update_input(
+    input: UpdateBuildRestrictionsInput,
+) -> Result<UpdateBuildRestrictionsInput> {
+    Ok(normalize_restriction_update_input(input))
+}
+
+pub(super) fn validate_restriction_update_retry(
+    input: UpdateBuildRestrictionsInput,
+    first_err: &CoreError,
+) -> Result<UpdateBuildRestrictionsInput> {
+    validate_restriction_update_input(input).map_err(|second_err| {
+        CoreError::other(format!(
+            "could not parse restriction tool schema output after retry: {second_err}; first error: {first_err}"
+        ))
+    })
+}
+
+pub(super) fn normalize_restriction_update_input(
+    input: UpdateBuildRestrictionsInput,
+) -> UpdateBuildRestrictionsInput {
+    let minecraft_version = input
+        .patch
+        .minecraft_version
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| is_minecraft_version(s))
+        .map(ToOwned::to_owned);
+    let minecraft_version_requirement = input
+        .patch
+        .minecraft_version_requirement
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| minecraft_version.clone());
+    let loader = input.patch.loader.as_deref().and_then(normalize_loader);
+    let feature_tags = input
+        .patch
+        .feature_tags
+        .into_iter()
+        .map(|tag| tag.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .take(8)
+        .collect::<Vec<_>>();
+    let notes = input
+        .patch
+        .notes
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToOwned::to_owned);
+
+    UpdateBuildRestrictionsInput {
+        base_revision: input.base_revision,
         patch: BuildRestrictionPatch {
             minecraft_version,
             minecraft_version_requirement,
@@ -162,7 +213,7 @@ pub(super) fn parse_restriction_update_response(
             feature_tags: dedupe_queries(feature_tags),
             notes,
         },
-    })
+    }
 }
 
 pub(super) fn update_build_restrictions(
@@ -257,9 +308,13 @@ pub(super) fn restriction_target_changed(
     before: &BuildRestrictions,
     after: &BuildRestrictions,
 ) -> bool {
-    before.minecraft_version != after.minecraft_version
-        || before.minecraft_version_requirement != after.minecraft_version_requirement
-        || before.loader != after.loader
+    if before.minecraft_version != after.minecraft_version || before.loader != after.loader {
+        return true;
+    }
+    if before.minecraft_version.is_some() && after.minecraft_version.is_some() {
+        return false;
+    }
+    before.minecraft_version_requirement != after.minecraft_version_requirement
 }
 
 pub(super) fn changed_restriction_field(
@@ -460,15 +515,17 @@ pub(super) fn apply_requirements_replan(
         from_phase,
         restriction_patch,
     );
-    run.status = AgentStatus::WaitingForUser;
-    run.phase = AgentPhase::ConfigureRequirementsApproval;
-    run.pending_approval = Some(requirements_approval(&run.user_prompt, &output));
-    run.plan = Some(requirements_plan(&run.user_prompt, &output));
+    run.status = AgentStatus::Running;
+    run.phase = AgentPhase::BasePackSearch;
+    run.pending_approval = None;
+    run.plan = None;
     run.push_message(
         AgentMessageKind::Assistant,
-        format!("Requirements need confirmation again: {reason}"),
+        format!("Requirements updated; searching again: {reason}"),
     );
-    run.push_trace("plan replan requested; invalidated downstream artifacts");
+    run.push_trace(
+        "plan replan requested; invalidated downstream artifacts; continuing to base-pack search",
+    );
     run
 }
 
@@ -530,20 +587,6 @@ pub(super) async fn continue_after_requirements_feedback(
         BuildRestrictionChangeSource::UserRevise,
         feedback,
     )?;
-    if let Some(changed) = changed_restriction_field(&current, &output.restrictions) {
-        let patch = output
-            .restrictions
-            .history
-            .last()
-            .map(|change| change.patch.clone());
-        invalidate_downstream(
-            &mut run,
-            changed,
-            format!("requirements revised: {feedback}"),
-            AgentPhase::ConfigureRequirementsApproval,
-            patch,
-        );
-    }
     run.push_trace(format!(
         "llm generated build restriction update via {}",
         generated.model
@@ -552,14 +595,13 @@ pub(super) async fn continue_after_requirements_feedback(
         AgentMessageKind::Assistant,
         requirement_summary_message(&output),
     );
-    let approval = requirements_approval(&run.user_prompt, &output);
-    run.status = AgentStatus::WaitingForUser;
-    run.phase = AgentPhase::ConfigureRequirementsApproval;
-    run.restrictions = Some(output.restrictions.clone());
-    run.pending_approval = Some(approval);
-    run.plan = Some(requirements_plan(&run.user_prompt, &output));
-    run.push_trace("paused at updated build requirements approval gate");
-    Ok(run)
+    let run = apply_requirements_replan(
+        run,
+        output,
+        format!("requirements revised: {feedback}"),
+        AgentPhase::ConfigureRequirementsApproval,
+    );
+    continue_to_base_pack_search(llm, run).await
 }
 
 pub(super) async fn maybe_replan_requirements_from_feedback(
@@ -601,5 +643,5 @@ pub(super) async fn maybe_replan_requirements_from_feedback(
         "llm generated build restriction replan via {}",
         generated.model
     ));
-    Ok(Some(replanned))
+    Ok(Some(continue_to_base_pack_search(llm, replanned).await?))
 }

@@ -3,7 +3,7 @@ use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 
 use crate::download::Downloader;
-use crate::modpack::formats::mrpack::MrpackIndex;
+use crate::modpack::formats::mrpack::{MrpackDependencies, MrpackIndex};
 use crate::modplatform::provider::ProviderRegistry;
 use crate::modplatform::{HashAlgo, ProjectSideSupport, ProviderId};
 
@@ -110,6 +110,9 @@ pub async fn execute_mrpack_build_to_path(
     output_path: &Path,
 ) -> Result<serde_json::Value> {
     if let Some(provider) = optional_json_string(&approved.base_pack, "provider") {
+        if provider == "scratch" {
+            return execute_scratch_mrpack_build_to_path(approved, output_path).await;
+        }
         if provider != "modrinth" {
             return Ok(blocked_manifest(
                 "choose_base_pack_approval",
@@ -184,6 +187,101 @@ pub async fn execute_mrpack_build_to_path(
         serde_json::json!(built.archive_bytes.len()),
     );
     Ok(manifest)
+}
+
+async fn execute_scratch_mrpack_build_to_path(
+    approved: &ApprovedModpackBuild,
+    output_path: &Path,
+) -> Result<serde_json::Value> {
+    let base_index = scratch_base_index(approved);
+    let base_archive_bytes = scratch_base_archive_bytes(&base_index)?;
+    let downloader = Downloader::new(4)?;
+    let preflight = compile_mrpack_execution_metadata(approved, &base_index, &HashMap::new())?;
+    if preflight.get("status").and_then(|v| v.as_str()) != Some("ready") {
+        return Ok(preflight);
+    }
+
+    let override_files = download_extra_override_files(&downloader, &preflight).await?;
+    let built = build_mrpack_from_base_archive_bytes_with_env_overrides(
+        approved,
+        &base_archive_bytes,
+        &override_files,
+        &HashMap::new(),
+    )?;
+    if built.manifest.get("status").and_then(|v| v.as_str()) != Some("completed") {
+        return Ok(built.manifest);
+    }
+
+    crate::fs::write_atomic(output_path, &built.archive_bytes)?;
+
+    let mut manifest = built.manifest;
+    set_json_field(&mut manifest, "status", serde_json::json!("verifying"));
+    set_json_field(
+        &mut manifest,
+        "output_path",
+        serde_json::json!(output_path.to_string_lossy().to_string()),
+    );
+    set_json_field(
+        &mut manifest,
+        "output_size",
+        serde_json::json!(built.archive_bytes.len()),
+    );
+    Ok(manifest)
+}
+
+fn scratch_base_index(approved: &ApprovedModpackBuild) -> MrpackIndex {
+    let minecraft = optional_json_string(&approved.target, "minecraft_version");
+    let loader = optional_json_string(&approved.target, "loader");
+    let mut dependencies = MrpackDependencies {
+        minecraft,
+        ..Default::default()
+    };
+    match loader.as_deref() {
+        Some("fabric") => dependencies.fabric_loader = Some(default_loader_dependency("fabric")),
+        Some("quilt") => dependencies.quilt_loader = Some(default_loader_dependency("quilt")),
+        Some("forge") => dependencies.forge = Some(default_loader_dependency("forge")),
+        Some("neoforge") => dependencies.neoforge = Some(default_loader_dependency("neoforge")),
+        _ => {}
+    }
+    MrpackIndex {
+        format_version: 1,
+        game: "minecraft".to_string(),
+        version_id: "agent-scratch".to_string(),
+        name: optional_json_string(&approved.base_pack, "title")
+            .unwrap_or_else(|| "Agent scratch modpack".to_string()),
+        summary: Some("Generated from an empty base set by the local agent".to_string()),
+        dependencies,
+        files: Vec::new(),
+    }
+}
+
+fn default_loader_dependency(loader: &str) -> String {
+    match loader {
+        "fabric" => "0.16.14",
+        "quilt" => "0.26.4",
+        "forge" | "neoforge" => "latest",
+        _ => "latest",
+    }
+    .to_string()
+}
+
+fn scratch_base_archive_bytes(index: &MrpackIndex) -> Result<Vec<u8>> {
+    let index_bytes = serde_json::to_vec_pretty(index).map_err(|source| CoreError::Parse {
+        what: "scratch modrinth.index.json".to_string(),
+        source,
+    })?;
+    let mut output = Cursor::new(Vec::new());
+    let mut writer = zip::ZipWriter::new(&mut output);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    writer
+        .start_file("modrinth.index.json", options)
+        .map_err(|e| CoreError::Zip(e.to_string()))?;
+    writer
+        .write_all(&index_bytes)
+        .map_err(|e| CoreError::Zip(e.to_string()))?;
+    writer.finish().map_err(|e| CoreError::Zip(e.to_string()))?;
+    Ok(output.into_inner())
 }
 
 async fn infer_base_file_env_overrides(
