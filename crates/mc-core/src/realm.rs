@@ -77,6 +77,18 @@ pub struct RealmOverrides {
     pub size: u64,
 }
 
+/// The modpack identity behind the realm (when the host's instance was installed
+/// from a provider modpack). Carried so members' synced instances keep the
+/// modpack source — their instance detail can then show the modpack overview,
+/// not just a bare instance. Mirrors [`crate::instance::config::InstanceSource`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+pub struct RealmSource {
+    pub provider: String,
+    pub project_id: String,
+    #[serde(default)]
+    pub version_id: Option<String>,
+}
+
 /// The versioned sync target. `version` is server-managed (set on read).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]
 pub struct RealmManifest {
@@ -91,6 +103,10 @@ pub struct RealmManifest {
     /// The overrides blob descriptor, if the snapshot has non-CDN files.
     #[serde(default)]
     pub overrides: Option<RealmOverrides>,
+    /// The modpack identity (if the host's instance came from a provider modpack),
+    /// so members keep the source on their synced instance (icon rides the blob).
+    #[serde(default)]
+    pub source: Option<RealmSource>,
     #[serde(default)]
     pub version: i32,
 }
@@ -479,10 +495,24 @@ pub async fn build_snapshot(
         }
     }
 
+    // Instance icon (`icon.png` at the instance root) rides the overrides blob so
+    // members' synced instances keep the modpack icon instead of the placeholder.
+    if inst.icon_path().exists() {
+        override_paths.push("icon.png".to_string());
+    }
+
     let zip = build_overrides_zip(inst, &override_paths)?;
     let overrides = zip
         .as_ref()
         .map(|b| RealmOverrides { sha1: crate::download::checksum::sha1_bytes(b), size: b.len() as u64 });
+
+    // Carry the modpack identity (if this instance was installed from one) so
+    // members keep the source on their synced instance → modpack detail works.
+    let source = inst.load_config().ok().and_then(|c| c.source).map(|s| RealmSource {
+        provider: s.provider,
+        project_id: s.project_id,
+        version_id: s.version_id,
+    });
 
     Ok((
         RealmManifest {
@@ -491,6 +521,7 @@ pub async fn build_snapshot(
             loader_version,
             files,
             overrides,
+            source,
             version: 0,
         },
         zip,
@@ -621,6 +652,7 @@ mod tests {
             loader: Some("fabric".into()),
             loader_version: None,
             overrides: None,
+            source: None,
             version: 7,
             files: vec![
                 url_file("mods/present.jar", Some(have_sha1)), // matches → skip

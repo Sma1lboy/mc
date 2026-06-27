@@ -1765,6 +1765,24 @@ async fn apply_overrides_if_any(
     }
 }
 
+/// Carry the realm's modpack identity onto the member's instance config (best-effort)
+/// so its detail page shows the modpack overview instead of a bare instance. The
+/// icon rides the overrides blob, so it's already restored by `apply_overrides_if_any`.
+fn apply_manifest_source(inst: &Instance, manifest: &RealmManifest) {
+    let Some(src) = manifest.source.as_ref() else { return };
+    let Ok(mut config) = inst.load_config() else { return };
+    let want = mc_core::instance::config::InstanceSource {
+        provider: src.provider.clone(),
+        project_id: src.project_id.clone(),
+        version_id: src.version_id.clone(),
+    };
+    if config.source.as_ref() == Some(&want) {
+        return;
+    }
+    config.source = Some(want);
+    let _ = inst.save_config(&config);
+}
+
 /// Realms the logged-in user belongs to.
 #[tauri::command]
 #[specta::specta]
@@ -1876,8 +1894,10 @@ pub async fn realm_begin(
     let plan = mc_core::realm::plan_sync(&inst, &manifest);
     let report = mc_core::realm::apply_sync(&inst, &dl, &plan, false, Some(tx)).await.map_err(err)?;
 
-    // 3) extract the overrides blob (config/scripts/non-CDN content), if any.
+    // 3) extract the overrides blob (config/scripts/icon/non-CDN content), if any.
     apply_overrides_if_any(&client, &realm_id, &inst, &manifest).await;
+    // 4) keep the modpack source so this member's instance detail shows the overview.
+    apply_manifest_source(&inst, &manifest);
 
     let _ = client.mark_realm_synced(&realm_id, report.version).await;
     Ok(report)
@@ -1950,8 +1970,10 @@ pub async fn realm_sync(
     forward_progress(app, "realm://sync-progress", rx);
     let report = mc_core::realm::apply_sync(&inst, &dl, &plan, remove_extras, Some(tx)).await.map_err(err)?;
 
-    // Extract the overrides blob (config/scripts/non-CDN content), if any.
+    // Extract the overrides blob (config/scripts/icon/non-CDN content), if any.
     apply_overrides_if_any(&client, &realm_id, &inst, &manifest).await;
+    // Keep the modpack source so this member's instance detail shows the overview.
+    apply_manifest_source(&inst, &manifest);
 
     // Best-effort: record how far this member has synced (don't fail the sync).
     let _ = client.mark_realm_synced(&realm_id, report.version).await;

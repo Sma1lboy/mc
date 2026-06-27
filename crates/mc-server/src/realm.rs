@@ -48,6 +48,16 @@ pub struct RealmOverrides {
     pub size: u64,
 }
 
+/// The modpack identity behind the realm (mirrors mc-core's `RealmSource`).
+/// Stored verbatim in the manifest jsonb so members keep the modpack source.
+#[derive(Serialize, Deserialize, Clone)]
+pub struct RealmSource {
+    pub provider: String,
+    pub project_id: String,
+    #[serde(default)]
+    pub version_id: Option<String>,
+}
+
 /// The versioned sync target an owner/admin publishes. `version` is
 /// server-managed (ignored on submit, set on read).
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -62,6 +72,8 @@ pub struct RealmManifest {
     pub files: Vec<RealmFile>,
     #[serde(default)]
     pub overrides: Option<RealmOverrides>,
+    #[serde(default)]
+    pub source: Option<RealmSource>,
     #[serde(default)]
     pub version: i32,
 }
@@ -638,6 +650,7 @@ mod tests {
                 source: Some("modrinth".into()),
             }],
             overrides: None,
+            source: None,
             version: 0,
         };
         assert!(store.push_manifest(&realm.id, "t-realm-friend", &m).await.unwrap().is_none());
