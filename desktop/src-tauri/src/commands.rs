@@ -2040,7 +2040,8 @@ pub struct ImportOutcomeDto {
 }
 
 /// 导入一个整合包(`.mrpack` / CurseForge zip / MultiMC / MCBBS,自动识别格式),
-/// 建好实例并返回其 id。`blocked` 列出需用户手动下载的 CurseForge 文件。
+/// 建好实例并返回其 id。`path` 可为归档文件,**或**未解压的 MultiMC/Prism 实例目录。
+/// `blocked` 列出需用户手动下载的 CurseForge 文件。
 #[tauri::command]
 #[specta::specta]
 pub async fn import_modpack(
