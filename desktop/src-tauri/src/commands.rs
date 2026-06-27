@@ -316,6 +316,31 @@ pub fn set_instance_config(
     inst.save_config(&config).map_err(err)
 }
 
+/// 本机内存信息(供 UI 在内存滑块旁展示「系统内存 X GB」)。
+#[derive(Serialize, specta::Type)]
+pub struct SystemMemory {
+    /// 物理内存总量(MiB)。探测失败时为 0。
+    pub total_mb: u64,
+}
+
+/// 读取本机物理内存总量(MiB)。纯探测,不读实例。
+#[tauri::command]
+#[specta::specta]
+pub fn system_memory() -> CmdResult<SystemMemory> {
+    Ok(SystemMemory { total_mb: mc_core::system::system_total_mem_mb() })
+}
+
+/// 为某实例推荐一个最大堆内存(MiB):综合本机物理内存与该实例已装 mod 数量。
+/// 纯启发式(见 [`mc_core::system::suggest_memory_mb`]),按需读取一次 mod 列表 + 系统内存。
+#[tauri::command]
+#[specta::specta]
+pub fn suggest_instance_memory(root: String, id: String) -> CmdResult<u32> {
+    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let mod_count = mc_core::instance::list_mods(&inst).len();
+    let total = mc_core::system::system_total_mem_mb();
+    Ok(mc_core::system::suggest_memory_mb(total, mod_count))
+}
+
 /// 设置某实例的标签:加载配置 → 规范化(去空白、去空项、去重、保序)→ 写回。
 /// 自由格式标签,供库页分组 / 按标签筛选用。
 #[tauri::command]

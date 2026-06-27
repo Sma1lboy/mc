@@ -24,6 +24,7 @@ pub mod realm;
 pub mod server;
 pub mod settings;
 pub mod skin;
+pub mod system;
 pub mod version;
 
 pub use error::{CoreError, Result};

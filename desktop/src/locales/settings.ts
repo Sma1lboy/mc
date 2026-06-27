@@ -41,6 +41,7 @@ const dict = {
     sourceMirror: "国内镜像",
     concurrency: "下载并发",
     defaultMemory: "默认内存",
+    systemMemory: "系统内存 {{ gb }} GB",
     java: "Java",
     autoDetect: "自动检测",
     // content source
@@ -108,6 +109,7 @@ const dict = {
     sourceMirror: "Mirror (China)",
     concurrency: "Download concurrency",
     defaultMemory: "Default memory",
+    systemMemory: "System RAM {{ gb }} GB",
     java: "Java",
     autoDetect: "Auto-detect",
     cfApiKey: "CurseForge API Key",
