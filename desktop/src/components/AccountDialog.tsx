@@ -3,6 +3,7 @@ import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { Spinner } from "./Spinner";
 import { ErrorState } from "./ErrorState";
 import { Dialog } from "./Dialog";
+import { SkinDialog } from "./SkinDialog";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { Button } from "./Button";
@@ -48,6 +49,8 @@ export const AccountDialog: Component<{
   const accountList = () => accounts() ?? [];
   // 正在切换/移除的账号 uuid:列表常驻可见,异步期间禁用该行防重复触发。
   const [pendingAcc, setPendingAcc] = createSignal<string | null>(null);
+  // 打开了皮肤管理弹窗的微软账号(仅微软账号有皮肤 API)。
+  const [skinFor, setSkinFor] = createSignal<AccountSummary | null>(null);
 
   async function selectExisting(acc: AccountSummary) {
     if (acc.selected) {
@@ -221,6 +224,18 @@ export const AccountDialog: Component<{
                     </span>
                     <Show when={acc.selected}>
                       <Icon name="check" size={15} class="text-accent" />
+                    </Show>
+                    <Show when={acc.kind === "microsoft"}>
+                      <button
+                        class="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150 text-[12px] text-accent px-[6px] py-[3px] rounded-none hover:bg-panel-2"
+                        title={t("skin.manage")}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSkinFor(acc);
+                        }}
+                      >
+                        {t("skin.manage")}
+                      </button>
                     </Show>
                     <button
                       class="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150 text-[12px] text-danger-text px-[6px] py-[3px] rounded-none hover:bg-danger-soft"
@@ -402,6 +417,14 @@ export const AccountDialog: Component<{
             </div>
           </Show>
         </div>
+      </Show>
+
+      <Show when={skinFor()}>
+        <SkinDialog
+          uuid={skinFor()!.uuid}
+          username={skinFor()!.username}
+          onClose={() => setSkinFor(null)}
+        />
       </Show>
     </Dialog>
   );

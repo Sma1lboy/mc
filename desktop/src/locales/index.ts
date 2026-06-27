@@ -15,6 +15,7 @@ import kobe from "./kobe";
 import realm from "./realm";
 import friend from "./friend";
 import link from "./link";
+import skin from "./skin";
 
 export const dictionaries = {
   zh: {
@@ -34,6 +35,7 @@ export const dictionaries = {
     realm: realm.zh,
     friend: friend.zh,
     link: link.zh,
+    skin: skin.zh,
   },
   en: {
     settings: settings.en,
@@ -52,5 +54,6 @@ export const dictionaries = {
     realm: realm.en,
     friend: friend.en,
     link: link.en,
+    skin: skin.en,
   },
 };
