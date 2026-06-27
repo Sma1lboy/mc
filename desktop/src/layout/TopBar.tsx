@@ -5,7 +5,6 @@ import { DownloadQueue } from "../components/DownloadQueue";
 import { KobeAccountChip } from "../components/KobeAccountChip";
 import { NotificationCenter } from "../components/NotificationCenter";
 import { FriendsButton } from "../components/FriendsButton";
-import { PixelLabel } from "../components";
 import { t } from "../i18n";
 
 /**
@@ -53,13 +52,20 @@ const TopBar: Component = () => {
       class="[grid-area:topbar] h-[48px] flex items-center justify-between bg-titlebar border-b border-titlebar pl-[12px] pr-[8px] box-border select-none"
       data-tauri-drag-region
     >
-      {/* 左侧:空拖拽区(占位,把右侧控件推到右上角)。 */}
-      <div class="flex-1 h-full" data-tauri-drag-region />
+      {/* 左侧:品牌(挪到左上,清开 macOS 交通灯)+ 余下空拖拽区。 */}
+      <div class="flex-1 h-full flex items-center pl-[64px]" data-tauri-drag-region>
+        <span class="flex items-center gap-[8px]" data-tauri-drag-region>
+          {/* 品牌方块标:草方块(上草绿、下泥土)。 */}
+          <span class="w-[18px] h-[18px] shrink-0 grid grid-rows-[6px_1fr] shadow-input overflow-hidden" aria-hidden="true">
+            <span class="bg-accent" />
+            <span class="bg-[#7a5b3a]" />
+          </span>
+          <span class="text-[13px] text-fg font-display tracking-[0.5px] whitespace-nowrap">kobeMC</span>
+        </span>
+      </div>
 
-      {/* 右侧:下载队列 + 运行状态(凹陷方块药丸)+ 品牌名 + 窗口控制 */}
-      <div class="flex items-center gap-[10px]">
-        <DownloadQueue />
-
+      {/* 右侧(按推荐顺序):运行状态 → 下载 → 通知 → 好友 → 账号。 */}
+      <div class="flex items-center gap-[6px]">
         {/* 运行状态:凹陷方块药丸,直角倒角。 */}
         <div
           class="inline-flex items-center gap-[7px] h-[26px] px-[10px] bg-panel-2 shadow-sunken"
@@ -79,6 +85,8 @@ const TopBar: Component = () => {
           </Show>
         </div>
 
+        <DownloadQueue />
+
         {/* 社交入口(社交开关关闭时整体隐藏)。已登录时:通知中心(铃铛)+ 好友 + 账号 chip;
             未登录时只剩账号 chip(它本身就是登录入口)。 */}
         <Show when={socialEnabled()}>
@@ -88,14 +96,6 @@ const TopBar: Component = () => {
           </Show>
           <KobeAccountChip />
         </Show>
-
-        {/* 品牌名:点阵沙金短词,落在右上角。 */}
-        <PixelLabel
-          class="text-[11px] text-tag tracking-[0.5px] whitespace-nowrap"
-          data-tauri-drag-region
-        >
-          kobeMC
-        </PixelLabel>
 
         {/* 窗口控制:no-drag,调 Tauri window API。原生交通灯按钮已提供,这里隐藏自绘控制以免重复。 */}
         <div class="hidden items-center gap-[2px] [-webkit-app-region:no-drag]">

@@ -42,15 +42,16 @@ export const FriendsButton: Component = () => {
     <div ref={rootEl} class="relative">
       <button
         type="button"
-        class="inline-flex items-center gap-[7px] h-[26px] px-[10px] bg-panel-2 shadow-sunken text-[12px] text-fg cursor-pointer hover:brightness-110 transition-[filter] duration-150"
+        class="inline-flex items-center gap-[4px] h-[30px] px-[7px] rounded-none border-none bg-transparent text-dim text-[12px] cursor-pointer transition-[background-color,color] duration-[var(--dur)] ease-app hover:bg-panel-2 hover:text-fg data-[state=open]:bg-panel-2 data-[state=open]:text-fg [-webkit-app-region:no-drag]"
+        data-state={open() ? "open" : "closed"}
         onClick={() => setOpen((o) => !o)}
         title={t("friend.title")}
       >
-        <span class="grid place-items-center w-[16px] h-[16px] text-accent shrink-0">
-          <Icon name="users" size={14} />
+        <span class="grid place-items-center w-[16px] h-[16px] shrink-0">
+          <Icon name="users" size={16} />
         </span>
         <Show when={count() > 0}>
-          <span class="min-w-[14px] text-center tabular-nums">{count()}</span>
+          <span class="min-w-[12px] text-center tabular-nums leading-none">{count()}</span>
         </Show>
       </button>
 

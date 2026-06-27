@@ -84,12 +84,13 @@ export const NotificationCenter: Component = () => {
     <div ref={rootEl} class="relative">
       <button
         type="button"
-        class="relative inline-flex items-center justify-center h-[26px] w-[30px] bg-panel-2 shadow-sunken text-fg cursor-pointer hover:brightness-110 transition-[filter] duration-150"
+        class="relative inline-flex items-center justify-center w-[30px] h-[30px] rounded-none border-none bg-transparent text-dim cursor-pointer transition-[background-color,color] duration-[var(--dur)] ease-app hover:bg-panel-2 hover:text-fg data-[state=open]:bg-panel-2 data-[state=open]:text-fg [-webkit-app-region:no-drag]"
+        data-state={open() ? "open" : "closed"}
         onClick={toggle}
         title={t("notification.title")}
       >
-        <span class="grid place-items-center text-accent">
-          <Icon name="bell" size={14} />
+        <span class="grid place-items-center">
+          <Icon name="bell" size={16} />
         </span>
         {/* 未读角标:未读通知数;为 0 时隐藏。 */}
         <Show when={unread() > 0}>

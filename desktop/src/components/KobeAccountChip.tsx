@@ -36,16 +36,25 @@ export const KobeAccountChip: Component = () => {
     <div ref={rootEl} class="relative">
       <button
         type="button"
-        class="inline-flex items-center gap-[7px] h-[26px] px-[10px] bg-panel-2 shadow-sunken text-[12px] text-fg cursor-pointer hover:brightness-110 transition-[filter] duration-150"
+        class="inline-flex items-center gap-[7px] h-[30px] pl-[6px] pr-[8px] border border-titlebar bg-panel-2 text-[12px] text-fg cursor-pointer transition-[background-color] duration-[var(--dur)] ease-app hover:bg-panel-3 [-webkit-app-region:no-drag]"
         onClick={() => setOpen((o) => !o)}
         title={t("kobe.title")}
       >
-        <span class="grid place-items-center w-[16px] h-[16px] text-accent shrink-0">
-          <Icon name="user" size={14} />
+        {/* 头像色块:草方块标(登录态实色,未登录灰)。 */}
+        <span
+          class="w-[18px] h-[18px] shrink-0 grid grid-rows-[6px_1fr] shadow-input overflow-hidden"
+          aria-hidden="true"
+        >
+          <span class={kobeUser() ? "bg-accent" : "bg-faint"} />
+          <span class={kobeUser() ? "bg-[#7a5b3a]" : "bg-panel-3"} />
         </span>
         <span class="max-w-[120px] truncate">
           {kobeUser() ? kobeDisplayName(kobeUser()!) : t("kobe.loginAction")}
         </span>
+        {/* 下拉指示 caret */}
+        <svg class="w-[10px] h-[10px] shrink-0 text-muted" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+          <path d="M3 4.5 6 7.5 9 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
       </button>
 
       {/* 下拉体保持挂载、用 hidden 切换显隐(不再 <Show when={open()}> 销毁重建):
