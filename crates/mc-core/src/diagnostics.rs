@@ -9,9 +9,60 @@
 
 use serde::Serialize;
 
+/// 崩溃类别：粗粒度归类，供上层 UI 做本地化标签与分组。
+///
+/// 这是「机器可读」的归类（`reason` 是给人看的一句话），上层据 [`slug`](CrashCategory::slug)
+/// 映射到本地化的类别名。优先级与 [`RULES`] 的排序一致——环境根因在前。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum CrashCategory {
+    /// 内存不足（OutOfMemoryError）。
+    OutOfMemory,
+    /// 内存设置/位数问题（无法预留空间、堆大小无效）。
+    Memory,
+    /// Java 版本过低。
+    JavaVersion,
+    /// 加载器（Fabric / Forge）未正确安装。
+    LoaderMissing,
+    /// 缺少前置 mod / 依赖解析失败。
+    MissingDependency,
+    /// 重复 mod。
+    DuplicateMod,
+    /// mod 之间或与 MC 版本不兼容。
+    IncompatibleMod,
+    /// Mixin 注入失败。
+    Mixin,
+    /// 显卡 / OpenGL / 窗口创建问题。
+    Graphics,
+    /// mod 与 MC 版本不匹配（NoSuchMethod/Field）。
+    VersionMismatch,
+    /// 未命中具体规则的泛型异常退出。
+    Unknown,
+}
+
+impl CrashCategory {
+    /// 稳定的小写下划线 slug，作为前端本地化类别标签的键（`crash.cat.<slug>`）。
+    pub fn slug(self) -> &'static str {
+        match self {
+            CrashCategory::OutOfMemory => "out_of_memory",
+            CrashCategory::Memory => "memory",
+            CrashCategory::JavaVersion => "java_version",
+            CrashCategory::LoaderMissing => "loader_missing",
+            CrashCategory::MissingDependency => "missing_dependency",
+            CrashCategory::DuplicateMod => "duplicate_mod",
+            CrashCategory::IncompatibleMod => "incompatible_mod",
+            CrashCategory::Mixin => "mixin",
+            CrashCategory::Graphics => "graphics",
+            CrashCategory::VersionMismatch => "version_mismatch",
+            CrashCategory::Unknown => "unknown",
+        }
+    }
+}
+
 /// 一次崩溃分析的结论。
 #[derive(Debug, Clone, Serialize)]
 pub struct CrashAnalysis {
+    /// 机器可读的崩溃类别（供 UI 本地化标签 / 分组）。
+    pub category: CrashCategory,
     /// 人话原因（一句话说明发生了什么）。
     pub reason: String,
     /// 给用户的可执行建议，按重要程度排序。
@@ -26,6 +77,8 @@ struct Rule {
     all: &'static [&'static str],
     /// 至少出现其一的关键词；为空切片表示不施加该约束。
     any: &'static [&'static str],
+    /// 该规则所属的崩溃类别。
+    category: CrashCategory,
     /// 人话原因。
     reason: &'static str,
     /// 建议列表。
@@ -42,6 +95,7 @@ const RULES: &[Rule] = &[
     Rule {
         all: &["OutOfMemoryError"],
         any: &[],
+        category: CrashCategory::OutOfMemory,
         reason: "内存不足：游戏申请的内存超出了已分配的上限。",
         suggestions: &[
             "调大最大内存（-Xmx），例如把分配内存提高到 4G 或更多。",
@@ -55,6 +109,7 @@ const RULES: &[Rule] = &[
     Rule {
         all: &["Could not reserve enough space"],
         any: &[],
+        category: CrashCategory::Memory,
         reason: "无法预留足够内存空间：通常是使用了 32 位 Java，或最大内存设置得过大。",
         suggestions: &[
             "改用 64 位 Java（32 位 Java 单进程最多只能用约 1.5G 内存）。",
@@ -64,6 +119,7 @@ const RULES: &[Rule] = &[
     Rule {
         all: &["Invalid maximum heap size"],
         any: &[],
+        category: CrashCategory::Memory,
         reason: "最大堆大小无效：内存设置过大或 Java 位数不支持该值。",
         suggestions: &[
             "改用 64 位 Java 以支持更大的内存设置。",
@@ -74,6 +130,7 @@ const RULES: &[Rule] = &[
     Rule {
         all: &["UnsupportedClassVersionError"],
         any: &[],
+        category: CrashCategory::JavaVersion,
         reason: "Java 版本过低：当前 Java 无法运行为更高版本编译的代码。",
         suggestions: &[
             "更换为更高版本的 Java（如新版 MC 需要 Java 17 或 21）。",
@@ -83,6 +140,7 @@ const RULES: &[Rule] = &[
     Rule {
         all: &["has been compiled by a more recent version of the Java Runtime"],
         any: &[],
+        category: CrashCategory::JavaVersion,
         reason: "Java 版本过低：有类是用更高版本的 Java 编译的，当前运行时不支持。",
         suggestions: &[
             "更换为更高版本的 Java（如新版 MC 需要 Java 17 或 21）。",
@@ -93,6 +151,7 @@ const RULES: &[Rule] = &[
     Rule {
         all: &["ClassNotFoundException", "net.fabricmc"],
         any: &[],
+        category: CrashCategory::LoaderMissing,
         reason: "Fabric 加载器未正确安装：找不到 Fabric 的核心类。",
         suggestions: &[
             "重新安装 Fabric 加载器，并确认版本与 MC 匹配。",
@@ -102,6 +161,7 @@ const RULES: &[Rule] = &[
     Rule {
         all: &["ClassNotFoundException", "net.minecraftforge"],
         any: &[],
+        category: CrashCategory::LoaderMissing,
         reason: "Forge 加载器未正确安装：找不到 Forge 的核心类。",
         suggestions: &[
             "重新安装 Forge，并确认版本与 MC 匹配。",
@@ -113,6 +173,7 @@ const RULES: &[Rule] = &[
     Rule {
         all: &["requires", "which is missing"],
         any: &[],
+        category: CrashCategory::MissingDependency,
         reason: "缺少前置 mod：某个 mod 依赖另一个尚未安装的 mod。",
         suggestions: &[
             "根据日志里 “requires …” 的提示，安装缺少的前置 mod。",
@@ -122,6 +183,7 @@ const RULES: &[Rule] = &[
     Rule {
         all: &["ModResolutionException"],
         any: &[],
+        category: CrashCategory::MissingDependency,
         reason: "mod 依赖解析失败：缺少前置或版本不满足。",
         suggestions: &[
             "按日志提示补齐缺失的前置 mod。",
@@ -131,6 +193,7 @@ const RULES: &[Rule] = &[
     Rule {
         all: &["Mod resolution"],
         any: &[],
+        category: CrashCategory::MissingDependency,
         reason: "mod 依赖解析失败：缺少前置或版本不满足。",
         suggestions: &[
             "按日志提示补齐缺失的前置 mod。",
@@ -141,6 +204,7 @@ const RULES: &[Rule] = &[
     Rule {
         all: &["DuplicateModsFoundException"],
         any: &[],
+        category: CrashCategory::DuplicateMod,
         reason: "存在重复的 mod：同一个 mod 安装了多个版本。",
         suggestions: &[
             "在 mods 文件夹里删除重复或多余版本的 mod，只保留一个。",
@@ -150,6 +214,7 @@ const RULES: &[Rule] = &[
     Rule {
         all: &["Found a duplicate mod"],
         any: &[],
+        category: CrashCategory::DuplicateMod,
         reason: "存在重复的 mod：同一个 mod 安装了多个版本。",
         suggestions: &[
             "在 mods 文件夹里删除重复或多余版本的 mod，只保留一个。",
@@ -160,6 +225,7 @@ const RULES: &[Rule] = &[
     Rule {
         all: &["Incompatible mod set"],
         any: &[],
+        category: CrashCategory::IncompatibleMod,
         reason: "mod 集合不兼容：部分 mod 与当前 MC 或加载器版本冲突。",
         suggestions: &[
             "根据日志找出冲突的 mod，移除或更换为兼容版本。",
@@ -169,6 +235,7 @@ const RULES: &[Rule] = &[
     Rule {
         all: &["incompatible with"],
         any: &[],
+        category: CrashCategory::IncompatibleMod,
         reason: "mod 不兼容：某个 mod 声明与当前 MC 或其他 mod 不兼容。",
         suggestions: &[
             "根据日志找出冲突的 mod，移除或更换为兼容版本。",
@@ -183,6 +250,7 @@ const RULES: &[Rule] = &[
             "FailedException",
             "InvalidMixinException",
         ],
+        category: CrashCategory::Mixin,
         reason: "Mixin 注入失败：某个 mod 的 Mixin 与其他 mod 或 MC 版本冲突。",
         suggestions: &[
             "逐个排查并移除可疑 mod，定位引发 Mixin 冲突的那一个。",
@@ -194,6 +262,7 @@ const RULES: &[Rule] = &[
     Rule {
         all: &["Pixel format not accelerated"],
         any: &[],
+        category: CrashCategory::Graphics,
         reason: "显卡未启用硬件加速：OpenGL 无法使用加速的像素格式。",
         suggestions: &[
             "更新显卡驱动到最新版本。",
@@ -203,6 +272,7 @@ const RULES: &[Rule] = &[
     Rule {
         all: &["GLFW error"],
         any: &[],
+        category: CrashCategory::Graphics,
         reason: "窗口/图形初始化失败（GLFW 错误）：通常是显卡驱动或 OpenGL 问题。",
         suggestions: &[
             "更新显卡驱动到最新版本。",
@@ -212,6 +282,7 @@ const RULES: &[Rule] = &[
     Rule {
         all: &["Failed to create window"],
         any: &[],
+        category: CrashCategory::Graphics,
         reason: "无法创建游戏窗口：多为显卡驱动或 OpenGL 支持不足。",
         suggestions: &[
             "更新显卡驱动到最新版本。",
@@ -221,6 +292,7 @@ const RULES: &[Rule] = &[
     Rule {
         all: &["OpenGL"],
         any: &[],
+        category: CrashCategory::Graphics,
         reason: "OpenGL 相关错误：显卡驱动或 OpenGL 支持存在问题。",
         suggestions: &[
             "更新显卡驱动到最新版本。",
@@ -231,6 +303,7 @@ const RULES: &[Rule] = &[
     Rule {
         all: &["NoSuchMethodError"],
         any: &[],
+        category: CrashCategory::VersionMismatch,
         reason: "方法不存在（NoSuchMethodError）：通常是 mod 与 MC 版本不匹配。",
         suggestions: &[
             "把出错的 mod 更换为与当前 MC 版本对应的版本。",
@@ -240,6 +313,7 @@ const RULES: &[Rule] = &[
     Rule {
         all: &["NoSuchFieldError"],
         any: &[],
+        category: CrashCategory::VersionMismatch,
         reason: "字段不存在（NoSuchFieldError）：通常是 mod 与 MC 版本不匹配。",
         suggestions: &[
             "把出错的 mod 更换为与当前 MC 版本对应的版本。",
@@ -292,6 +366,7 @@ pub fn analyze(log: &str) -> Option<CrashAnalysis> {
         if let Some(needle) = rule_matches(rule, log) {
             let matched = find_line_containing(log, needle).map(truncate_line);
             return Some(CrashAnalysis {
+                category: rule.category,
                 reason: rule.reason.to_string(),
                 suggestions: rule.suggestions.iter().map(|s| s.to_string()).collect(),
                 matched,
@@ -314,6 +389,7 @@ pub fn analyze_exit(exit_code: i32, log: &str) -> Option<CrashAnalysis> {
         return Some(found);
     }
     Some(CrashAnalysis {
+        category: CrashCategory::Unknown,
         reason: format!("游戏异常退出（代码 {exit_code}），请查看日志。"),
         suggestions: vec![
             "打开游戏日志（latest.log 或崩溃报告）查找具体报错。".to_string(),
@@ -332,8 +408,25 @@ mod tests {
         let log = "Exception in thread \"main\" java.lang.OutOfMemoryError: Java heap space";
         let a = analyze(log).expect("应命中内存不足");
         assert!(a.reason.contains("内存不足"));
+        assert_eq!(a.category, CrashCategory::OutOfMemory);
+        assert_eq!(a.category.slug(), "out_of_memory");
         assert!(!a.suggestions.is_empty());
         assert!(a.matched.unwrap().contains("OutOfMemoryError"));
+    }
+
+    #[test]
+    fn generic_fallback_is_unknown_category() {
+        let a = analyze_exit(-1, "nothing interesting").expect("应有泛型结论");
+        assert_eq!(a.category, CrashCategory::Unknown);
+        assert_eq!(a.category.slug(), "unknown");
+    }
+
+    #[test]
+    fn category_serializes() {
+        let a = analyze("java.lang.NoSuchMethodError: foo").expect("应命中");
+        assert_eq!(a.category, CrashCategory::VersionMismatch);
+        let json = serde_json::to_string(&a).expect("应可序列化");
+        assert!(json.contains("category"));
     }
 
     #[test]

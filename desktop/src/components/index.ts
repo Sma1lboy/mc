@@ -102,6 +102,7 @@ export type { ToastType, ToastOptions } from "./Toast";
 
 // 键盘快捷键速查浮层
 export { ShortcutsHelp } from "./ShortcutsHelp";
+export { CrashDialog } from "./CrashDialog";
 
 // 格式化工具
 export { formatRelativeTime, formatCount } from "./format";

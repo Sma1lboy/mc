@@ -500,6 +500,12 @@ export type GameExit = {
 	reason: string | null,
 	/**  崩溃诊断给出的可执行建议(可能为空)。 */
 	suggestions: string[],
+	/**  崩溃类别 slug(前端据此本地化类别标签,如 `out_of_memory`);诊断命中才有。 */
+	category: string | null,
+	/**  命中的关键日志行(截断到 200 字符),作为崩溃证据展示。 */
+	matched: string | null,
+	/**  异常退出时保留的日志尾部(最近若干行,换行连接),供折叠查看与「复制诊断」;正常退出为空。 */
+	log_tail: string,
 };
 
 export type GameLog = {

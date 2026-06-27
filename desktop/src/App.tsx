@@ -2,7 +2,7 @@ import { onCleanup, onMount, type Component } from "solid-js";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { initTheme } from "./theme/theme";
 import AppShell from "./layout/AppShell";
-import { ToastContainer, ShortcutsHelp } from "./components";
+import { ToastContainer, ShortcutsHelp, CrashDialog } from "./components";
 import { api } from "./ipc/api";
 import { currentRoot, setCurrentRoot } from "./store";
 import { maybeRunGallery } from "./gallery/runner";
@@ -66,6 +66,8 @@ const App: Component = () => {
       <ToastContainer />
       {/* 键盘快捷键速查浮层:由 `?` 切换,挂根部一次即可。 */}
       <ShortcutsHelp />
+      {/* 崩溃报告弹窗:游戏异常退出时由 store.crashReport 驱动弹出,挂根部一次即可。 */}
+      <CrashDialog />
     </>
   );
 };
