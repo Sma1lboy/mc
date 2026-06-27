@@ -147,6 +147,10 @@ struct RoleBody {
 struct SyncedBody {
     version: i32,
 }
+#[derive(Serialize)]
+struct InviteBody {
+    user_id: String,
+}
 #[derive(Deserialize)]
 struct VersionResp {
     version: i32,
@@ -189,6 +193,16 @@ impl ServerClient {
     /// Member list (only if the current user is a member).
     pub async fn realm_members(&self, id: &str) -> Result<Vec<RealmMember>> {
         self.get_json(&format!("/v1/realms/{id}/members")).await
+    }
+
+    /// Invite an accepted friend straight into the realm (owner/admin only; no
+    /// join code needed). The target is added as a plain member.
+    pub async fn realm_invite(&self, realm_id: &str, user_id: &str) -> Result<()> {
+        self.post_no_content(
+            &format!("/v1/realms/{realm_id}/invite"),
+            &InviteBody { user_id: user_id.to_string() },
+        )
+        .await
     }
 
     /// Owner sets another member's role (`admin`/`member`).

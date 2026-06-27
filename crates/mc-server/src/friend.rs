@@ -143,6 +143,19 @@ impl FriendStore {
         Ok(rows.into_iter().map(|(id, username)| UserBrief { id, username }).collect())
     }
 
+    /// Whether `a` and `b` are accepted friends (either direction).
+    pub async fn are_friends(&self, a: &str, b: &str) -> anyhow::Result<bool> {
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT requester_id FROM friendships WHERE status='accepted' AND \
+             ((requester_id=$1 AND addressee_id=$2) OR (requester_id=$2 AND addressee_id=$1)) LIMIT 1",
+        )
+        .bind(a)
+        .bind(b)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.is_some())
+    }
+
     /// Incoming pending requests (requester info).
     pub async fn incoming(&self, me: &str) -> anyhow::Result<Vec<UserBrief>> {
         let rows: Vec<(String, Option<String>)> = sqlx::query_as(

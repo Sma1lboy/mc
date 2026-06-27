@@ -17,7 +17,7 @@ import { Tag } from "./Tag";
 import { Toggle } from "./Toggle";
 import { toast } from "./Toast";
 import { api, onRealmSyncProgress } from "../ipc/api";
-import { activeRoot, refreshInstances, kobeUser, isKobeSignedIn, setCurrentPage } from "../store";
+import { activeRoot, refreshInstances, kobeUser, isKobeSignedIn, setCurrentPage, socialEnabled } from "../store";
 import { t } from "../i18n";
 import type { InstanceSummary, RealmMember, SyncReport } from "../ipc/bindings";
 
@@ -228,6 +228,14 @@ const RealmManage: Component<{ instance: InstanceSummary; onChanged?: () => void
   const isOwner = () => role() === "owner";
   const canPush = () => role() === "owner" || role() === "admin";
 
+  // 好友列表(仅在社交开启 + 已登录时拉取):用于「邀请好友」与成员的好友标记。
+  const [friends] = createResource(
+    () => (socialEnabled() && isKobeSignedIn() ? rid() : null),
+    () => api.friendList(),
+  );
+  const memberIds = () => new Set((members() ?? []).map((m) => m.user_id));
+  const friendIds = () => new Set((friends() ?? []).map((f) => f.id));
+
   const [removeExtras, setRemoveExtras] = createSignal(false);
   const [busy, setBusy] = createSignal(false);
   const [progress, setProgress] = createSignal<{ current: number; total: number } | null>(null);
@@ -336,6 +344,20 @@ const RealmManage: Component<{ instance: InstanceSummary; onChanged?: () => void
     try {
       await api.realmRemoveMember(rid(), uid);
       await refetchMembers();
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function invite(uid: string) {
+    if (busy()) return;
+    setBusy(true);
+    try {
+      await api.realmInvite(rid(), uid);
+      await refetchMembers();
+      toast({ type: "success", message: t("realm.inviteDone") });
     } catch (e) {
       fail(e);
     } finally {
@@ -459,6 +481,44 @@ const RealmManage: Component<{ instance: InstanceSummary; onChanged?: () => void
         </Show>
       </Panel>
 
+      {/* 邀请好友(owner/admin · 社交开启时) */}
+      <Show when={canPush() && socialEnabled() && isKobeSignedIn()}>
+        <Panel variant="sunken" class="p-[16px]">
+          <Heading size="sub" as="h3" class="m-0 text-[14px] mb-[4px]">
+            {t("realm.inviteTitle")}
+          </Heading>
+          <p class="text-[12px] text-muted leading-[1.6] mb-[10px]">{t("realm.inviteHint")}</p>
+          <Show when={!friends.loading} fallback={<div class="flex justify-center p-[8px]"><Spinner /></div>}>
+            <Show
+              when={(friends() ?? []).length > 0}
+              fallback={<p class="text-[12px] text-faint">{t("realm.inviteNoFriends")}</p>}
+            >
+              <div class="flex flex-col gap-[6px]">
+                <For each={friends() ?? []}>
+                  {(f) => (
+                    <Panel variant="raised" class="flex items-center gap-[10px] px-[12px] py-[7px]">
+                      <span class="text-[13px] text-fg truncate flex-1">{f.username || f.id.slice(0, 8)}</span>
+                      <Show
+                        when={!memberIds().has(f.id)}
+                        fallback={<span class="text-[12px] text-faint">{t("realm.invited")}</span>}
+                      >
+                        <button
+                          class="text-[12px] text-accent hover:underline bg-transparent border-none cursor-pointer disabled:opacity-50"
+                          disabled={busy()}
+                          onClick={() => void invite(f.id)}
+                        >
+                          {t("realm.invite")}
+                        </button>
+                      </Show>
+                    </Panel>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </Show>
+        </Panel>
+      </Show>
+
       {/* 成员 */}
       <Panel variant="sunken" class="p-[16px]">
         <Heading size="sub" as="h3" class="m-0 text-[14px] mb-[10px]">
@@ -480,6 +540,9 @@ const RealmManage: Component<{ instance: InstanceSummary; onChanged?: () => void
                       {m.synced_version > 0 ? t("realm.syncedTo", { version: m.synced_version }) : t("realm.notSynced")}
                     </span>
                   </div>
+                  <Show when={m.user_id !== myId() && friendIds().has(m.user_id)}>
+                    <Tag>{t("realm.friendTag")}</Tag>
+                  </Show>
                   <Tag>{roleLabel(m.role)}</Tag>
                   <Show when={isOwner() && m.role !== "owner"}>
                     <div class="flex items-center gap-[6px] shrink-0">

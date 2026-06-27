@@ -198,6 +198,20 @@ impl RealmStore {
         self.summary_for(&id, user_id).await
     }
 
+    /// Insert `target_id` as a plain `member` (idempotent). The caller must
+    /// authorize first. Errors (FK violation) ⇒ the target user doesn't exist.
+    pub async fn add_member(&self, realm_id: &str, target_id: &str) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO realm_members (realm_id, user_id, role) VALUES ($1, $2, 'member') \
+             ON CONFLICT (realm_id, user_id) DO NOTHING",
+        )
+        .bind(realm_id)
+        .bind(target_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     /// Realm summary *for a member* (None if the user isn't a member).
     pub async fn summary_for(&self, realm_id: &str, user_id: &str) -> anyhow::Result<Option<RealmSummary>> {
         let row: Option<SummaryRow> = sqlx::query_as(&format!(
@@ -453,6 +467,26 @@ pub async fn members(
 ) -> Result<Json<Vec<MemberInfo>>, StatusCode> {
     let user = require_user(&s.pool, &headers).await?;
     s.realms.members(&id, &user).await.map_err(ise)?.map(Json).ok_or(StatusCode::FORBIDDEN)
+}
+
+/// `POST /v1/realms/{id}/invite` — owner/admin invites an accepted friend
+/// straight into the realm (no join code). `403` if the actor isn't owner/admin
+/// or the target isn't an accepted friend; `404` if the target user is missing.
+pub async fn invite(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(req): Json<crate::friend::UserIdReq>,
+) -> Result<StatusCode, StatusCode> {
+    let actor = require_user(&s.pool, &headers).await?;
+    if !s.realms.can_push(&id, &actor).await.map_err(ise)? {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    if !s.friends.are_friends(&actor, &req.user_id).await.map_err(ise)? {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    s.realms.add_member(&id, &req.user_id).await.map_err(|_| StatusCode::NOT_FOUND)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// `POST /v1/realms/{id}/members/{uid}/role` — owner only.

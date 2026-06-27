@@ -1870,6 +1870,17 @@ pub async fn realm_remove_member(
     client.remove_member(&realm_id, &user_id).await.map_err(err)
 }
 
+/// Owner/admin invites an accepted friend straight into the realm (no join code).
+#[tauri::command]
+#[specta::specta]
+pub async fn realm_invite(
+    client: State<'_, mc_core::server::ServerClient>,
+    realm_id: String,
+    user_id: String,
+) -> CmdResult<()> {
+    client.realm_invite(&realm_id, &user_id).await.map_err(err)
+}
+
 /// Self-leave a realm and unbind it from the local instance (the instance stays;
 /// if it was never synced it's just an empty shell that drops out of the list).
 #[tauri::command]

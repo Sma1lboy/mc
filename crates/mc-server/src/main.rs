@@ -89,6 +89,7 @@ async fn main() {
         .route("/v1/realms/{id}", get(realm::get).delete(realm::disband))
         .route("/v1/realms/{id}/manifest", get(realm::get_manifest).post(realm::push_manifest))
         .route("/v1/realms/{id}/members", get(realm::members))
+        .route("/v1/realms/{id}/invite", post(realm::invite))
         .route("/v1/realms/{id}/members/{uid}/role", post(realm::set_role))
         .route("/v1/realms/{id}/members/{uid}", delete(realm::remove_member))
         .route("/v1/realms/{id}/synced", post(realm::mark_synced))

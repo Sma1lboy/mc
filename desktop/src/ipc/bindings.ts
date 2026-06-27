@@ -318,6 +318,8 @@ export const commands = {
 	 *  (kept off `install://progress` so it can't collide with a concurrent install).
 	 */
 	realmSync: (realmId: string, root: string, instanceId: string, removeExtras: boolean) => typedError<SyncReport, string>(__TAURI_INVOKE("realm_sync", { realmId, root, instanceId, removeExtras })),
+	/**  Owner/admin invites an accepted friend straight into the realm (no join code). */
+	realmInvite: (realmId: string, userId: string) => typedError<null, string>(__TAURI_INVOKE("realm_invite", { realmId, userId })),
 	/**  Owner sets a member's role (`admin`/`member`). */
 	realmSetRole: (realmId: string, userId: string, role: string) => typedError<null, string>(__TAURI_INVOKE("realm_set_role", { realmId, userId, role })),
 	/**  Owner removes another member (their own client clears its binding locally). */

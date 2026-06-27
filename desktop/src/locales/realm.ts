@@ -57,6 +57,15 @@ const dict = {
     pushing: "发布中…",
     pushDone: "已发布清单 v{{ version }}。",
 
+    // 邀请好友(owner/admin)
+    inviteTitle: "邀请好友",
+    inviteHint: "把好友直接拉进这个领域,无需加入码。加入后他们到实例里点「开始同步」即可下载。",
+    invite: "邀请",
+    invited: "已加入",
+    inviteNoFriends: "暂无好友可邀请。先去 kobeMC 账号里加好友。",
+    inviteDone: "已邀请好友加入领域。",
+    friendTag: "好友",
+
     // 成员
     members: "成员",
     you: "(你)",
@@ -132,6 +141,14 @@ const dict = {
     pushAction: "Update manifest",
     pushing: "Publishing…",
     pushDone: "Published manifest v{{ version }}.",
+
+    inviteTitle: "Invite friends",
+    inviteHint: "Add a friend straight into this realm — no join code. They open the instance and hit Begin to download.",
+    invite: "Invite",
+    invited: "Joined",
+    inviteNoFriends: "No friends to invite yet. Add some in your kobeMC account.",
+    inviteDone: "Friend invited to the realm.",
+    friendTag: "Friend",
 
     members: "Members",
     you: "(you)",
