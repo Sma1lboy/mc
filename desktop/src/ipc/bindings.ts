@@ -353,6 +353,11 @@ export const commands = {
 	/**  Remove a friend. */
 	friendRemove: (userId: string) => typedError<null, string>(__TAURI_INVOKE("friend_remove", { userId })),
 	/**
+	 *  Heartbeat the current user's presence; `activity` = the running instance name
+	 *  (what they're playing), or `None` when idle.
+	 */
+	presenceHeartbeat: (activity: string | null) => typedError<null, string>(__TAURI_INVOKE("presence_heartbeat", { activity })),
+	/**
 	 *  Bind a Microsoft identity to the current kobeMC user. `account_id` is the
 	 *  selected Microsoft account's Minecraft profile UUID; `username` is its
 	 *  gamertag/MC username at link time (informational).
@@ -1068,10 +1073,19 @@ export type ThemeConfig = {
 	lightness: number | null,
 };
 
-/**  A minimal public view of a user (search result / friend / pending request). */
+/**
+ *  A minimal public view of a user (search result / friend / pending request).
+ * 
+ *  Friend lists (`GET /v1/friends`) additionally carry presence: `online` (seen
+ *  within the last 120s) and `activity` (what they're playing, only while
+ *  online). Search / pending-request results leave these at their defaults
+ *  (`false` / `None`).
+ */
 export type UserBrief = {
 	id: string,
 	username?: string | null,
+	online?: boolean,
+	activity?: string | null,
 };
 
 /**

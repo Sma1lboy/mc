@@ -103,6 +103,8 @@ async fn main() {
         .route("/v1/friends/accept", post(friend::accept))
         .route("/v1/friends/decline", post(friend::decline))
         .route("/v1/friends/{user_id}", delete(friend::remove))
+        // Presence heartbeat (online status + current activity; authed).
+        .route("/v1/presence", post(friend::presence))
         .with_state(state);
 
     let app = Router::new()

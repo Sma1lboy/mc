@@ -127,6 +127,15 @@ CREATE TABLE IF NOT EXISTS friendships (
 CREATE INDEX IF NOT EXISTS idx_friendships_addressee ON friendships(addressee_id);
 "#;
 
+/// Presence — friend online status + "what they're playing". Two nullable
+/// columns on `users`, added idempotently: `last_seen_at` is bumped to `NOW()`
+/// on each heartbeat (online = seen within the last 120s), and `activity` is the
+/// free-text current activity (e.g. the running instance name), or null when idle.
+const PRESENCE_SQL: &str = r#"
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS activity TEXT;
+"#;
+
 /// Connect to Postgres and ensure both schemas exist.
 pub async fn connect() -> anyhow::Result<PgPool> {
     let url = std::env::var("DATABASE_URL")
@@ -143,6 +152,7 @@ pub async fn connect() -> anyhow::Result<PgPool> {
     sqlx::raw_sql(SHARES_SQL).execute(&pool).await.context("建 shares 表")?;
     sqlx::raw_sql(REALMS_SQL).execute(&pool).await.context("建 realms 表")?;
     sqlx::raw_sql(FRIENDS_SQL).execute(&pool).await.context("建 friendships 表")?;
+    sqlx::raw_sql(PRESENCE_SQL).execute(&pool).await.context("加 presence 列")?;
     Ok(pool)
 }
 
@@ -156,5 +166,7 @@ pub async fn test_pool() -> Option<PgPool> {
     sqlx::raw_sql(BETTER_AUTH_CORE_SQL).execute(&pool).await.ok()?;
     sqlx::raw_sql(SHARES_SQL).execute(&pool).await.ok()?;
     sqlx::raw_sql(REALMS_SQL).execute(&pool).await.ok()?;
+    sqlx::raw_sql(FRIENDS_SQL).execute(&pool).await.ok()?;
+    sqlx::raw_sql(PRESENCE_SQL).execute(&pool).await.ok()?;
     Some(pool)
 }

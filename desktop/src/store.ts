@@ -259,10 +259,36 @@ export function isKobeSignedIn(): boolean {
   return kobeUser() !== null;
 }
 
+// ===== 在线状态心跳(presence) =====
+// 登录 kobeMC 后周期性上报「我在线 + 在玩什么」,好友列表据此显示在线点 + 活动行。
+// 活动 = 当前正在运行的某个实例名(运行领域/实例的名字),空闲则为 null。
+// 心跳是 best-effort:失败静默(网络抖动/会话过期不应打扰用户)。
+
+/** 当前活动文案:取任一正在运行的实例名;无则 null(空闲)。 */
+function currentActivity(): string | null {
+  const running = runningIds();
+  if (running.size === 0) return null;
+  const inst = (instances() ?? []).find((x) => running.has(x.id));
+  return inst?.name ?? null;
+}
+
+/** 上报一次心跳(仅在已登录时)。 */
+function sendPresenceHeartbeat(): void {
+  if (!isKobeSignedIn()) return;
+  void api.presenceHeartbeat(currentActivity()).catch(() => {});
+}
+
+export { sendPresenceHeartbeat };
+
+if (typeof window !== "undefined") {
+  setInterval(sendPresenceHeartbeat, 60_000);
+}
+
 /** 邮箱 + 密码登录 kobeMC 账号;成功后填充全局会话。 */
 export async function kobeLogin(email: string, password: string): Promise<void> {
   const user = await api.kobemcLogin(email, password);
   setKobeUser(user);
+  sendPresenceHeartbeat();
   toast({ type: "info", message: t("kobe.toast.loggedIn", { name: kobeDisplayName(user) }) });
 }
 
@@ -270,6 +296,7 @@ export async function kobeLogin(email: string, password: string): Promise<void> 
 export async function kobeSignup(email: string, password: string, name: string): Promise<void> {
   const user = await api.kobemcSignup(email, password, name);
   setKobeUser(user);
+  sendPresenceHeartbeat();
   toast({ type: "info", message: t("kobe.toast.signedUp", { name: kobeDisplayName(user) }) });
 }
 
@@ -292,7 +319,10 @@ if (typeof window !== "undefined") {
   void api
     .kobemcSession()
     .then((user) => {
-      if (user) setKobeUser(user);
+      if (user) {
+        setKobeUser(user);
+        sendPresenceHeartbeat();
+      }
     })
     .catch(() => {});
 }

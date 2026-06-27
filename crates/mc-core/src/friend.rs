@@ -8,11 +8,20 @@ use crate::error::Result;
 use crate::server::ServerClient;
 
 /// A minimal public view of a user (search result / friend / pending request).
+///
+/// Friend lists (`GET /v1/friends`) additionally carry presence: `online` (seen
+/// within the last 120s) and `activity` (what they're playing, only while
+/// online). Search / pending-request results leave these at their defaults
+/// (`false` / `None`).
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct UserBrief {
     pub id: String,
     #[serde(default)]
     pub username: Option<String>,
+    #[serde(default)]
+    pub online: bool,
+    #[serde(default)]
+    pub activity: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -22,6 +31,10 @@ struct UserIdBody {
 #[derive(Serialize)]
 struct UsernameBody {
     username: String,
+}
+#[derive(Serialize)]
+struct PresenceBody<'a> {
+    activity: Option<&'a str>,
 }
 
 impl ServerClient {
@@ -40,9 +53,15 @@ impl ServerClient {
         self.post_no_content("/v1/friends/request", &UserIdBody { user_id: user_id.to_string() }).await
     }
 
-    /// Accepted friends.
+    /// Accepted friends (each carries presence: `online` + `activity`).
     pub async fn friends(&self) -> Result<Vec<UserBrief>> {
         self.get_json("/v1/friends").await
+    }
+
+    /// Heartbeat the current user's presence; `activity` = what they're playing
+    /// (e.g. the running instance name), or `None` when idle.
+    pub async fn presence_heartbeat(&self, activity: Option<&str>) -> Result<()> {
+        self.post_no_content("/v1/presence", &PresenceBody { activity }).await
     }
 
     /// Incoming pending friend requests.

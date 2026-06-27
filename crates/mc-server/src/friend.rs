@@ -13,11 +13,27 @@ use sqlx::PgPool;
 use crate::session::require_user;
 use crate::AppState;
 
-/// A minimal public view of a user (for search results / friend lists).
+/// A minimal public view of a user (for search results / pending requests).
 #[derive(Serialize)]
 pub struct UserBrief {
     pub id: String,
     pub username: Option<String>,
+}
+
+/// A friend with presence: online (seen within the last 120s) + their current
+/// activity (only surfaced while online). Returned by `GET /v1/friends`.
+#[derive(Serialize)]
+pub struct FriendStatus {
+    pub id: String,
+    pub username: Option<String>,
+    pub online: bool,
+    pub activity: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct PresenceReq {
+    #[serde(default)]
+    pub activity: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -130,17 +146,40 @@ impl FriendStore {
         Ok(())
     }
 
-    /// Accepted friends (the other side of each accepted row).
-    pub async fn list(&self, me: &str) -> anyhow::Result<Vec<UserBrief>> {
-        let rows: Vec<(String, Option<String>)> = sqlx::query_as(
-            "SELECT u.id, u.username FROM friendships f \
+    /// Record a presence heartbeat for `me`: bump `last_seen_at` to now and set
+    /// the current `activity` (null = idle).
+    pub async fn set_presence(&self, me: &str, activity: Option<&str>) -> anyhow::Result<()> {
+        sqlx::query("UPDATE users SET last_seen_at = NOW(), activity = $2 WHERE id = $1")
+            .bind(me)
+            .bind(activity)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Accepted friends (the other side of each accepted row) with presence:
+    /// `online` = seen within the last 120s; `activity` only while online.
+    pub async fn list(&self, me: &str) -> anyhow::Result<Vec<FriendStatus>> {
+        let rows: Vec<(String, Option<String>, bool, Option<String>)> = sqlx::query_as(
+            "SELECT u.id, u.username, \
+                    COALESCE(u.last_seen_at > NOW() - interval '120 seconds', FALSE) AS online, \
+                    u.activity \
+             FROM friendships f \
              JOIN users u ON u.id = CASE WHEN f.requester_id=$1 THEN f.addressee_id ELSE f.requester_id END \
              WHERE f.status='accepted' AND $1 IN (f.requester_id, f.addressee_id) ORDER BY u.username",
         )
         .bind(me)
         .fetch_all(&self.pool)
         .await?;
-        Ok(rows.into_iter().map(|(id, username)| UserBrief { id, username }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|(id, username, online, activity)| FriendStatus {
+                id,
+                username,
+                online,
+                activity: if online { activity } else { None },
+            })
+            .collect())
     }
 
     /// Whether `a` and `b` are accepted friends (either direction).
@@ -194,13 +233,25 @@ pub async fn request(
     if ok { Ok(StatusCode::NO_CONTENT) } else { Err(StatusCode::BAD_REQUEST) }
 }
 
-/// `GET /v1/friends` — accepted friends.
+/// `GET /v1/friends` — accepted friends with presence (online + activity).
 pub async fn list(
     State(s): State<AppState>,
     headers: HeaderMap,
-) -> Result<Json<Vec<UserBrief>>, StatusCode> {
+) -> Result<Json<Vec<FriendStatus>>, StatusCode> {
     let me = require_user(&s.pool, &headers).await?;
     s.friends.list(&me).await.map(Json).map_err(ise)
+}
+
+/// `POST /v1/presence` — heartbeat the current user's presence + activity.
+pub async fn presence(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<PresenceReq>,
+) -> Result<StatusCode, StatusCode> {
+    let me = require_user(&s.pool, &headers).await?;
+    let activity = req.activity.as_deref().map(str::trim).filter(|a| !a.is_empty());
+    s.friends.set_presence(&me, activity).await.map_err(ise)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// `GET /v1/friends/requests` — incoming pending requests.

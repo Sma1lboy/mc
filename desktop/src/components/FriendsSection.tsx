@@ -1,4 +1,4 @@
-import { Component, createResource, createSignal, For, Show } from "solid-js";
+import { Component, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import { Button } from "./Button";
 import { toast } from "./Toast";
 import { api } from "../ipc/api";
@@ -70,6 +70,13 @@ const SetUsername: Component = () => {
 const Friends: Component = () => {
   const [friends, { refetch: refetchFriends }] = createResource(() => api.friendList());
   const [requests, { refetch: refetchRequests }] = createResource(() => api.friendRequests());
+
+  // 好友区打开期间周期性刷新在线状态/活动(节流到 30s),关闭即停。
+  const poll = setInterval(() => {
+    void refetchFriends();
+    void refetchRequests();
+  }, 30_000);
+  onCleanup(() => clearInterval(poll));
   const [query, setQuery] = createSignal("");
   const [results, { refetch: refetchSearch }] = createResource(
     () => query().trim(),
@@ -180,8 +187,21 @@ const Friends: Component = () => {
           <For each={friends()}>
             {(u) => (
               <div class="flex items-center gap-[8px] px-[2px] py-[3px] group">
-                <span class="w-[6px] h-[6px] bg-accent shrink-0" aria-hidden="true" />
-                <span class="text-[13px] text-fg truncate flex-1">{label(u)}</span>
+                <span
+                  class={`w-[6px] h-[6px] shrink-0 ${u.online ? "bg-accent" : "bg-faint"}`}
+                  aria-hidden="true"
+                  title={u.online ? t("friend.online") : t("friend.offline")}
+                />
+                <div class="flex flex-col min-w-0 flex-1">
+                  <span class="text-[13px] text-fg truncate">{label(u)}</span>
+                  <span class="text-[11px] text-faint truncate">
+                    {u.online
+                      ? u.activity
+                        ? t("friend.playing", { name: u.activity })
+                        : t("friend.idle")
+                      : t("friend.offline")}
+                  </span>
+                </div>
                 <button
                   class="text-[11px] text-danger-text hover:underline bg-transparent border-none cursor-pointer opacity-0 group-hover:opacity-100 disabled:opacity-50"
                   disabled={busy()}

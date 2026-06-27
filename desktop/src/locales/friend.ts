@@ -18,6 +18,10 @@ const dict = {
     noResults: "没有匹配的用户",
     searching: "搜索中…",
     opError: "操作失败:{{ err }}",
+    online: "在线",
+    offline: "离线",
+    playing: "在玩 {{ name }}",
+    idle: "在线·空闲",
   } as Record<string, string>,
   en: {
     title: "Friends",
@@ -37,6 +41,10 @@ const dict = {
     noResults: "No matching users",
     searching: "Searching…",
     opError: "Failed: {{ err }}",
+    online: "Online",
+    offline: "Offline",
+    playing: "Playing {{ name }}",
+    idle: "Online · idle",
   } as Record<string, string>,
 };
 

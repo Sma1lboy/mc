@@ -2011,6 +2011,17 @@ pub async fn friend_remove(
     client.friend_remove(&user_id).await.map_err(err)
 }
 
+/// Heartbeat the current user's presence; `activity` = the running instance name
+/// (what they're playing), or `None` when idle.
+#[tauri::command]
+#[specta::specta]
+pub async fn presence_heartbeat(
+    client: State<'_, mc_core::server::ServerClient>,
+    activity: Option<String>,
+) -> CmdResult<()> {
+    client.presence_heartbeat(activity.as_deref()).await.map_err(err)
+}
+
 // --- account linking (bind Microsoft identity to the kobeMC user) ------------
 
 use mc_core::account::Identity;
