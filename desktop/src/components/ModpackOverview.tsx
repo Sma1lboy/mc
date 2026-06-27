@@ -5,6 +5,7 @@ import { ErrorState } from "./ErrorState";
 import Lightbox from "./Lightbox";
 import { toast } from "./Toast";
 import { api } from "../ipc/api";
+import { cached } from "../ipc/cache";
 import { t } from "../i18n";
 import { renderMarkdown } from "../util/markdown";
 import type { LightboxImage } from "./Lightbox";
@@ -18,7 +19,7 @@ export const ModpackOverview: Component<{ projectId: string }> = (props) => {
   const [project, { refetch }] = createResource(
     () => props.projectId,
     (id) =>
-      api.modrinthProject(id).catch((e) => {
+      cached(`project|modrinth|${id}`, () => api.modrinthProject(id)).catch((e) => {
         toast({ type: "error", message: t("discover.modpackDetailLoadFailed", { error: String(e) }) });
         return null;
       }),

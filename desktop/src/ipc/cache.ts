@@ -18,6 +18,11 @@ export function cached<T>(key: string, fetcher: () => Promise<T>): Promise<T> {
   return p;
 }
 
+/** 失效单个 key(数据被本地修改后调用,使下次读取重新拉取最新值)。 */
+export function invalidate(key: string): void {
+  store.delete(key);
+}
+
 /** 清空全部缓存(手动刷新目录时调用)。 */
 export function clearCache(): void {
   store.clear();
