@@ -934,7 +934,10 @@ export type SearchHit = {
 export type SyncPlan = {
 	/**  Files in the manifest that are missing locally or fail their hash. */
 	download: RealmFile[],
-	/**  Mod filenames present under `mods/` but absent from the manifest. */
+	/**
+	 *  Paths (relative to the instance dir) under the managed dirs that are
+	 *  present locally but absent from the manifest.
+	 */
 	remove: string[],
 	/**  Manifest files with no download url — the member must add them by hand. */
 	manual: RealmFile[],

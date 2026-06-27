@@ -1567,21 +1567,39 @@ fn realm_ref(s: &RealmSummary, role: &str) -> RealmRef {
     }
 }
 
-/// Build a realm manifest from a host's instance via the Modrinth provider
-/// (always available — no API key needed). Unresolved jars become `manual`.
-async fn manifest_of_instance(
+/// Build a full snapshot (manifest + optional overrides zip) from a host's
+/// instance via the Modrinth provider (always available — no API key needed).
+async fn snapshot_of_instance(
     root: &str,
     id: &str,
     mc_version: &str,
     loader: &str,
     loader_version: Option<String>,
-) -> CmdResult<RealmManifest> {
+) -> CmdResult<(RealmManifest, Option<Vec<u8>>)> {
     let inst = instance_of(root, id);
     let reg = make_registry();
     let provider = provider_or_err(&reg, mc_core::modplatform::ProviderId::Modrinth)?;
-    mc_core::realm::build_manifest_from_instance(&inst, provider.as_ref(), mc_version, loader, loader_version)
+    mc_core::realm::build_snapshot(&inst, provider.as_ref(), mc_version, loader, loader_version)
         .await
         .map_err(err)
+}
+
+/// Download + extract the realm's overrides blob into `inst` when the manifest
+/// carries one. Best-effort: a missing/failed blob doesn't fail the whole sync.
+/// Extraction runs on a blocking thread (blobs can be large).
+async fn apply_overrides_if_any(
+    client: &mc_core::server::ServerClient,
+    realm_id: &str,
+    inst: &Instance,
+    manifest: &RealmManifest,
+) {
+    if manifest.overrides.is_none() {
+        return;
+    }
+    if let Ok(zip) = client.download_overrides(realm_id).await {
+        let inst = inst.clone();
+        let _ = tokio::task::spawn_blocking(move || mc_core::realm::apply_overrides(&inst, &zip)).await;
+    }
 }
 
 /// Realms the logged-in user belongs to.
@@ -1618,11 +1636,15 @@ pub async fn realm_create(
     loader_version: Option<String>,
     expires_in_secs: Option<i64>,
 ) -> CmdResult<RealmSummary> {
-    let manifest = manifest_of_instance(&root, &instance_id, &mc_version, &loader, loader_version).await?;
+    let (manifest, overrides) =
+        snapshot_of_instance(&root, &instance_id, &mc_version, &loader, loader_version).await?;
     let summary = client
         .create_realm(&CreateRealmReq { name, expires_in_secs, manifest })
         .await
         .map_err(err)?;
+    if let Some(zip) = overrides {
+        client.upload_overrides(&summary.id, zip).await.map_err(err)?;
+    }
     let paths = root_paths(&root);
     let _ = mc_core::instance::lifecycle::set_instance_realm(
         &paths,
@@ -1690,6 +1712,10 @@ pub async fn realm_begin(
     // 2) download the realm's mods.
     let plan = mc_core::realm::plan_sync(&inst, &manifest);
     let report = mc_core::realm::apply_sync(&inst, &dl, &plan, false, Some(tx)).await.map_err(err)?;
+
+    // 3) extract the overrides blob (config/scripts/non-CDN content), if any.
+    apply_overrides_if_any(&client, &realm_id, &inst, &manifest).await;
+
     let _ = client.mark_realm_synced(&realm_id, report.version).await;
     Ok(report)
 }
@@ -1716,8 +1742,13 @@ pub async fn realm_push_manifest(
     loader: String,
     loader_version: Option<String>,
 ) -> CmdResult<i32> {
-    let manifest = manifest_of_instance(&root, &instance_id, &mc_version, &loader, loader_version).await?;
-    client.push_realm_manifest(&realm_id, &manifest).await.map_err(err)
+    let (manifest, overrides) =
+        snapshot_of_instance(&root, &instance_id, &mc_version, &loader, loader_version).await?;
+    let version = client.push_realm_manifest(&realm_id, &manifest).await.map_err(err)?;
+    if let Some(zip) = overrides {
+        client.upload_overrides(&realm_id, zip).await.map_err(err)?;
+    }
+    Ok(version)
 }
 
 /// Dry-run: what syncing `instance_id` to the realm's manifest would change.
@@ -1755,6 +1786,9 @@ pub async fn realm_sync(
     let (tx, rx) = watch::channel(Progress::new("同步领域"));
     forward_progress(app, "realm://sync-progress", rx);
     let report = mc_core::realm::apply_sync(&inst, &dl, &plan, remove_extras, Some(tx)).await.map_err(err)?;
+
+    // Extract the overrides blob (config/scripts/non-CDN content), if any.
+    apply_overrides_if_any(&client, &realm_id, &inst, &manifest).await;
 
     // Best-effort: record how far this member has synced (don't fail the sync).
     let _ = client.mark_realm_synced(&realm_id, report.version).await;

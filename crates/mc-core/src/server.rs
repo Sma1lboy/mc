@@ -190,6 +190,32 @@ impl ServerClient {
         Ok(())
     }
 
+    /// POST a raw binary body (e.g. the realm overrides zip); errors on non-2xx.
+    pub(crate) async fn post_bytes(&self, path: &str, body: Vec<u8>) -> Result<()> {
+        let url = format!("{}{}", self.base, path);
+        let resp = self
+            .http
+            .post(&url)
+            .header(reqwest::header::CONTENT_TYPE, "application/zip")
+            .body(body)
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            return Err(CoreError::other(format!("server {} returned {}", path, resp.status())));
+        }
+        Ok(())
+    }
+
+    /// GET a raw binary body (e.g. the realm overrides zip); errors on non-2xx.
+    pub(crate) async fn get_bytes(&self, path: &str) -> Result<Vec<u8>> {
+        let url = format!("{}{}", self.base, path);
+        let resp = self.http.get(&url).send().await?;
+        if !resp.status().is_success() {
+            return Err(CoreError::other(format!("server {} returned {}", path, resp.status())));
+        }
+        Ok(resp.bytes().await?.to_vec())
+    }
+
     /// Liveness check; returns the raw status json.
     pub async fn health(&self) -> Result<serde_json::Value> {
         self.get_json("/v1/health").await

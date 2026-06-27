@@ -41,6 +41,11 @@ use crate::types::Progress;
 /// dirs (`config`/`scripts`/`kubejs`) ride a separate blob — see the overrides flow.
 const MANAGED_DIRS: &[&str] = &["mods", "resourcepacks", "shaderpacks", "datapacks"];
 
+/// Override-only instance subdirectories — config/scripts that have no CDN url.
+/// Their files (plus any unresolved file from [`MANAGED_DIRS`]) ride the overrides
+/// blob: a zip the host uploads and members download + extract.
+const OVERRIDE_DIRS: &[&str] = &["config", "scripts", "kubejs", "defaultconfigs"];
+
 /* ---------- wire DTOs (mirror crates/mc-server/src/realm.rs) ---------- */
 
 /// One file the syncer reconciles into a member's instance. `path` is relative
@@ -62,6 +67,16 @@ pub struct RealmFile {
     pub source: Option<String>,
 }
 
+/// Non-CDN files (config/scripts + unresolved content) bundled as one zip blob,
+/// stored on the server and fetched by members. The manifest carries only this
+/// descriptor; the bytes live behind `GET /v1/realms/{id}/overrides`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+pub struct RealmOverrides {
+    /// sha1 of the zip — integrity + "did it change since I applied it" check.
+    pub sha1: String,
+    pub size: u64,
+}
+
 /// The versioned sync target. `version` is server-managed (set on read).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]
 pub struct RealmManifest {
@@ -73,6 +88,9 @@ pub struct RealmManifest {
     pub loader_version: Option<String>,
     #[serde(default)]
     pub files: Vec<RealmFile>,
+    /// The overrides blob descriptor, if the snapshot has non-CDN files.
+    #[serde(default)]
+    pub overrides: Option<RealmOverrides>,
     #[serde(default)]
     pub version: i32,
 }
@@ -195,6 +213,16 @@ impl ServerClient {
     /// Owner disbands the realm.
     pub async fn disband_realm(&self, id: &str) -> Result<()> {
         self.delete_no_content(&format!("/v1/realms/{id}")).await
+    }
+
+    /// Upload the realm's overrides blob (owner/admin); paired with a manifest push.
+    pub async fn upload_overrides(&self, id: &str, zip: Vec<u8>) -> Result<()> {
+        self.post_bytes(&format!("/v1/realms/{id}/overrides"), zip).await
+    }
+
+    /// Download the realm's overrides blob (member).
+    pub async fn download_overrides(&self, id: &str) -> Result<Vec<u8>> {
+        self.get_bytes(&format!("/v1/realms/{id}/overrides")).await
     }
 }
 
@@ -375,20 +403,20 @@ pub async fn apply_sync(
     Ok(report)
 }
 
-/// Build a manifest from a host's instance: walk every file under the managed
-/// content dirs ([`MANAGED_DIRS`]) and resolve each to a platform download url by
-/// its sha1; files the provider doesn't recognise (or that are blocked from
-/// third-party download) become `manual` entries carrying the local hash so
-/// members can still verify a hand-placed copy.
-pub async fn build_manifest_from_instance(
+/// Build a full snapshot of a host's instance: a manifest (CDN-resolved files
+/// across [`MANAGED_DIRS`]) **plus** an overrides zip carrying every non-CDN file
+/// (config/scripts in [`OVERRIDE_DIRS`], and any managed-dir file the provider
+/// doesn't recognise). The zip is uploaded to the realm; the manifest only holds
+/// its [`RealmOverrides`] descriptor. Returns `(manifest, Some(zip))`, or a
+/// `None` zip when there are no non-CDN files.
+pub async fn build_snapshot(
     inst: &Instance,
     provider: &dyn ResourceProvider,
     mc_version: &str,
     loader: &str,
     loader_version: Option<String>,
-) -> Result<RealmManifest> {
-    // (path-relative-to-instance, size, sha1) for every file under the managed
-    // dirs (skipping disabled), aligned with `hashes`.
+) -> Result<(RealmManifest, Option<Vec<u8>>)> {
+    // (path-relative-to-instance, size, sha1) for every managed-dir file, aligned with `hashes`.
     let mut entries: Vec<(String, u64, String)> = Vec::new();
     let mut hashes: Vec<String> = Vec::new();
     for d in MANAGED_DIRS {
@@ -411,6 +439,7 @@ pub async fn build_manifest_from_instance(
 
     let source = provider_source(provider.id());
     let mut files = Vec::with_capacity(entries.len());
+    let mut override_paths: Vec<String> = Vec::new();
     for (i, (path, size, sha1)) in entries.into_iter().enumerate() {
         match resolved.get(i).and_then(|r| r.as_ref()) {
             // Resolved to a real, downloadable file — keep the original install path.
@@ -424,26 +453,85 @@ pub async fn build_manifest_from_instance(
                     source: Some(source.to_string()),
                 });
             }
-            // Unresolved, or resolved-but-blocked (empty url) ⇒ manual (Phase 2:
-            // these ride the overrides blob instead).
-            _ => files.push(RealmFile {
-                path,
-                sha1: Some(sha1),
-                sha512: None,
-                size: Some(size),
-                url: None,
-                source: Some("manual".to_string()),
-            }),
+            // Unresolved / blocked ⇒ deliver verbatim via the overrides blob.
+            _ => override_paths.push(path),
         }
     }
 
-    Ok(RealmManifest {
-        mc_version: Some(mc_version.to_string()),
-        loader: Some(loader.to_string()),
-        loader_version,
-        files,
-        version: 0,
-    })
+    // Override-only dirs (config/scripts/…): everything goes into the blob.
+    for d in OVERRIDE_DIRS {
+        for wf in walk_game_root(&inst.dir().join(d), &[]).unwrap_or_default() {
+            override_paths.push(format!("{d}/{}", wf.rel));
+        }
+    }
+
+    let zip = build_overrides_zip(inst, &override_paths)?;
+    let overrides = zip
+        .as_ref()
+        .map(|b| RealmOverrides { sha1: crate::download::checksum::sha1_bytes(b), size: b.len() as u64 });
+
+    Ok((
+        RealmManifest {
+            mc_version: Some(mc_version.to_string()),
+            loader: Some(loader.to_string()),
+            loader_version,
+            files,
+            overrides,
+            version: 0,
+        },
+        zip,
+    ))
+}
+
+/// Zip the given instance-relative paths into an in-memory blob (zip-slip guarded).
+/// `None` when nothing readable was added.
+fn build_overrides_zip(inst: &Instance, rel_paths: &[String]) -> Result<Option<Vec<u8>>> {
+    use std::io::Write;
+    if rel_paths.is_empty() {
+        return Ok(None);
+    }
+    let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let options =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let mut wrote = false;
+    for rel in rel_paths {
+        let Some(abs) = crate::fs::safe_join(&inst.dir(), rel) else { continue };
+        let Ok(data) = std::fs::read(&abs) else { continue };
+        writer.start_file(rel.as_str(), options).map_err(|e| CoreError::Zip(e.to_string()))?;
+        writer.write_all(&data).map_err(|e| CoreError::Zip(e.to_string()))?;
+        wrote = true;
+    }
+    let cursor = writer.finish().map_err(|e| CoreError::Zip(e.to_string()))?;
+    Ok(if wrote { Some(cursor.into_inner()) } else { None })
+}
+
+/// Extract an overrides zip into the instance (zip-slip guarded via `safe_join`).
+/// Returns how many files were written.
+pub fn apply_overrides(inst: &Instance, zip_bytes: &[u8]) -> Result<u32> {
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(zip_bytes))
+        .map_err(|e| CoreError::Zip(e.to_string()))?;
+    let mut n = 0u32;
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i).map_err(|e| CoreError::Zip(e.to_string()))?;
+        if entry.is_dir() {
+            continue;
+        }
+        let name = entry.name().replace('\\', "/");
+        let Some(dest) = crate::fs::safe_join(&inst.dir(), &name) else {
+            tracing::warn!(target: "mc_core::realm", path = %name, "跳过越界的 overrides 条目");
+            continue;
+        };
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| CoreError::Io { path: parent.to_path_buf(), source: e })?;
+        }
+        let mut out = std::fs::File::create(&dest)
+            .map_err(|e| CoreError::Io { path: dest.clone(), source: e })?;
+        std::io::copy(&mut entry, &mut out)
+            .map_err(|e| CoreError::Io { path: dest.clone(), source: e })?;
+        n += 1;
+    }
+    Ok(n)
 }
 
 fn provider_source(id: ProviderId) -> &'static str {
@@ -518,6 +606,7 @@ mod tests {
             mc_version: Some("1.20.1".into()),
             loader: Some("fabric".into()),
             loader_version: None,
+            overrides: None,
             version: 7,
             files: vec![
                 url_file("mods/present.jar", Some(have_sha1)), // matches → skip
@@ -600,6 +689,43 @@ mod tests {
         assert_eq!(plan.download[0].path, "mods/ok.jar");
         assert!(plan.manual.is_empty());
         assert!(plan.remove.is_empty());
+    }
+
+    #[test]
+    fn overrides_zip_roundtrips_into_a_fresh_instance() {
+        let src = TempInst::new("ov-src");
+        src.put_file("config/sodium-options.json", b"{\"fps\":\"max\"}");
+        src.put_file("config/sub/extra.toml", b"x=1");
+        let zip = build_overrides_zip(
+            &src.inst,
+            &["config/sodium-options.json".into(), "config/sub/extra.toml".into()],
+        )
+        .unwrap()
+        .expect("non-empty zip");
+
+        let dst = TempInst::new("ov-dst");
+        let n = apply_overrides(&dst.inst, &zip).unwrap();
+        assert_eq!(n, 2);
+        assert_eq!(
+            std::fs::read(dst.inst.dir().join("config/sodium-options.json")).unwrap(),
+            b"{\"fps\":\"max\"}"
+        );
+        assert!(dst.inst.dir().join("config/sub/extra.toml").exists());
+    }
+
+    #[test]
+    fn apply_overrides_rejects_zip_slip() {
+        use std::io::Write;
+        let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let o = zip::write::SimpleFileOptions::default();
+        w.start_file("../escape.txt", o).unwrap();
+        w.write_all(b"pwned").unwrap();
+        let bytes = w.finish().unwrap().into_inner();
+
+        let t = TempInst::new("ov-slip");
+        let n = apply_overrides(&t.inst, &bytes).unwrap();
+        assert_eq!(n, 0, "the traversal entry must be skipped");
+        assert!(!t.inst.dir().parent().unwrap().join("escape.txt").exists());
     }
 
     #[test]

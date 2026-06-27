@@ -32,6 +32,9 @@ struct AppState {
     pool: PgPool,
     shares: ShareStore,
     realms: RealmStore,
+    /// Directory holding per-realm overrides zip blobs (a mounted volume in prod,
+    /// `BLOB_DIR`; defaults to `./blobs` for local dev).
+    blob_dir: std::path::PathBuf,
 }
 
 #[tokio::main]
@@ -56,6 +59,7 @@ async fn main() {
         pool: pool.clone(),
         shares: ShareStore::new(pool.clone()),
         realms: RealmStore::new(pool),
+        blob_dir: std::env::var("BLOB_DIR").unwrap_or_else(|_| "blobs".to_string()).into(),
     };
 
     // better-auth's own routes (sign-up/email, sign-in/email, get-session,
@@ -84,11 +88,14 @@ async fn main() {
         .route("/v1/realms/{id}/members/{uid}/role", post(realm::set_role))
         .route("/v1/realms/{id}/members/{uid}", delete(realm::remove_member))
         .route("/v1/realms/{id}/synced", post(realm::mark_synced))
+        .route("/v1/realms/{id}/overrides", get(realm::get_overrides).post(realm::upload_overrides))
         .with_state(state);
 
     let app = Router::new()
         .nest("/v1/auth", auth_router)
         .merge(api)
+        // Overrides blobs can be large (config + non-CDN content); raise the body cap.
+        .layer(axum::extract::DefaultBodyLimit::max(256 * 1024 * 1024))
         .layer(CorsLayer::permissive());
 
     let port = std::env::var("PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(8787u16);

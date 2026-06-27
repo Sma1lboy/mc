@@ -42,6 +42,11 @@ pub fn sha1_file(path: &Path) -> Result<String> {
     hash_file::<Sha1>(path)
 }
 
+/// 内存字节的 sha1(小写十六进制)。领域 overrides blob 的完整性/变更检测用。
+pub fn sha1_bytes(bytes: &[u8]) -> String {
+    hex::encode(Sha1::digest(bytes))
+}
+
 /// 读取文件并返回其 sha512 的小写十六进制字符串。Modrinth `.mrpack` 索引以 sha512 为准。
 pub fn sha512_file(path: &Path) -> Result<String> {
     hash_file::<Sha512>(path)

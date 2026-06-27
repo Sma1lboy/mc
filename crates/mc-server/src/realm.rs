@@ -39,6 +39,15 @@ pub struct RealmFile {
     pub source: Option<String>,
 }
 
+/// Descriptor for the realm's overrides blob (config/scripts + non-CDN files),
+/// stored verbatim in the manifest jsonb; the bytes live on disk (see the
+/// `/overrides` endpoints).
+#[derive(Serialize, Deserialize, Clone)]
+pub struct RealmOverrides {
+    pub sha1: String,
+    pub size: u64,
+}
+
 /// The versioned sync target an owner/admin publishes. `version` is
 /// server-managed (ignored on submit, set on read).
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -51,6 +60,8 @@ pub struct RealmManifest {
     pub loader_version: Option<String>,
     #[serde(default)]
     pub files: Vec<RealmFile>,
+    #[serde(default)]
+    pub overrides: Option<RealmOverrides>,
     #[serde(default)]
     pub version: i32,
 }
@@ -353,6 +364,16 @@ impl RealmStore {
                 .await?;
         Ok(row.map(|(r,)| r))
     }
+
+    /// Whether `user_id` may push content to the realm (owner/admin).
+    pub async fn can_push(&self, realm_id: &str, user_id: &str) -> anyhow::Result<bool> {
+        Ok(matches!(self.role_of(realm_id, user_id).await?.as_deref(), Some("owner") | Some("admin")))
+    }
+
+    /// Whether `user_id` is a member of the realm (can read content).
+    pub async fn is_member(&self, realm_id: &str, user_id: &str) -> anyhow::Result<bool> {
+        Ok(self.role_of(realm_id, user_id).await?.is_some())
+    }
 }
 
 /* ---- handlers ---- */
@@ -481,6 +502,41 @@ pub async fn disband(
     let user = require_user(&s.pool, &headers).await?;
     let ok = s.realms.delete(&id, &user).await.map_err(ise)?;
     if ok { Ok(StatusCode::NO_CONTENT) } else { Err(StatusCode::FORBIDDEN) }
+}
+
+/// `POST /v1/realms/{id}/overrides` — owner/admin uploads the overrides zip blob
+/// (raw body). Stored on the server's blob volume keyed by realm id.
+pub async fn upload_overrides(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    body: axum::body::Bytes,
+) -> Result<StatusCode, StatusCode> {
+    let user = require_user(&s.pool, &headers).await?;
+    if !s.realms.can_push(&id, &user).await.map_err(ise)? {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let _ = std::fs::create_dir_all(&s.blob_dir);
+    let path = s.blob_dir.join(format!("{id}.zip"));
+    std::fs::write(&path, &body).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// `GET /v1/realms/{id}/overrides` — member downloads the overrides zip blob.
+pub async fn get_overrides(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<(axum::http::HeaderMap, Vec<u8>), StatusCode> {
+    let user = require_user(&s.pool, &headers).await?;
+    if !s.realms.is_member(&id, &user).await.map_err(ise)? {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let path = s.blob_dir.join(format!("{id}.zip"));
+    let bytes = std::fs::read(&path).map_err(|_| StatusCode::NOT_FOUND)?;
+    let mut h = axum::http::HeaderMap::new();
+    h.insert(axum::http::header::CONTENT_TYPE, axum::http::HeaderValue::from_static("application/zip"));
+    Ok((h, bytes))
 }
 
 #[cfg(test)]
