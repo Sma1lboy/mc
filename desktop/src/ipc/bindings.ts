@@ -339,6 +339,16 @@ export const commands = {
 	/**  Remove a friend. */
 	friendRemove: (userId: string) => typedError<null, string>(__TAURI_INVOKE("friend_remove", { userId })),
 	/**
+	 *  Bind a Microsoft identity to the current kobeMC user. `account_id` is the
+	 *  selected Microsoft account's Minecraft profile UUID; `username` is its
+	 *  gamertag/MC username at link time (informational).
+	 */
+	accountLinkMicrosoft: (accountId: string, username: string | null) => typedError<null, string>(__TAURI_INVOKE("account_link_microsoft", { accountId, username })),
+	/**  List the current kobeMC user's linked identities. */
+	accountIdentities: () => typedError<Identity[], string>(__TAURI_INVOKE("account_identities")),
+	/**  Unlink a provider (e.g. `microsoft`) from the current kobeMC user. */
+	accountUnlink: (provider: string) => typedError<null, string>(__TAURI_INVOKE("account_unlink", { provider })),
+	/**
 	 *  检查某实例(由 Modrinth 整合包安装)是否有更新:返回比当前来源版本更新的版本列表。
 	 *  非整合包来源 / 非 modrinth / 缺 project_id 时返回空(前端据此不显示更新提示)。
 	 */
@@ -512,6 +522,15 @@ export type GlobalSettings = {
 	 *  `Some(_)` = 用户在设置里的显式覆盖。
 	 */
 	social_enabled?: boolean | null,
+};
+
+/**
+ *  One linked identity of the current kobeMC user (e.g. `credential` email, or
+ *  `microsoft`). Mirrors `mc-server`'s `Identity`.
+ */
+export type Identity = {
+	provider: string,
+	account_id: string,
 };
 
 /**  `import_modpack` 的返回:建好的实例 id + 需手动处理的 blocked 文件 + 跳过的可选文件。 */

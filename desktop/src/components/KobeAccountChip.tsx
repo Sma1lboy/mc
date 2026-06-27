@@ -2,6 +2,7 @@ import { Component, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { Button } from "./Button";
 import { Icon } from "./Icon";
 import { FriendsSection } from "./FriendsSection";
+import { LinkedAccountsSection } from "./LinkedAccountsSection";
 import { kobeUser, kobeLogin, kobeSignup, kobeLogout, kobeDisplayName } from "../store";
 import { t } from "../i18n";
 
@@ -66,6 +67,8 @@ export const KobeAccountChip: Component = () => {
             >
               {t("kobe.logoutAction")}
             </Button>
+
+            <LinkedAccountsSection />
 
             <FriendsSection />
           </Show>

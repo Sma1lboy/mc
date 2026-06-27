@@ -5,6 +5,7 @@
 //! lives here. It has no knowledge of Tauri or any UI; the CLI and desktop
 //! shells are thin consumers. See `docs/04-rust-tauri-design.md`.
 
+pub mod account;
 pub mod auth;
 pub mod diagnostics;
 pub mod download;

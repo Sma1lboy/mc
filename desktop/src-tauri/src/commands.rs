@@ -1932,6 +1932,42 @@ pub async fn friend_remove(
     client.friend_remove(&user_id).await.map_err(err)
 }
 
+// --- account linking (bind Microsoft identity to the kobeMC user) ------------
+
+use mc_core::account::Identity;
+
+/// Bind a Microsoft identity to the current kobeMC user. `account_id` is the
+/// selected Microsoft account's Minecraft profile UUID; `username` is its
+/// gamertag/MC username at link time (informational).
+#[tauri::command]
+#[specta::specta]
+pub async fn account_link_microsoft(
+    client: State<'_, mc_core::server::ServerClient>,
+    account_id: String,
+    username: Option<String>,
+) -> CmdResult<()> {
+    client.link_microsoft(account_id.trim(), username).await.map_err(err)
+}
+
+/// List the current kobeMC user's linked identities.
+#[tauri::command]
+#[specta::specta]
+pub async fn account_identities(
+    client: State<'_, mc_core::server::ServerClient>,
+) -> CmdResult<Vec<Identity>> {
+    client.account_identities().await.map_err(err)
+}
+
+/// Unlink a provider (e.g. `microsoft`) from the current kobeMC user.
+#[tauri::command]
+#[specta::specta]
+pub async fn account_unlink(
+    client: State<'_, mc_core::server::ServerClient>,
+    provider: String,
+) -> CmdResult<()> {
+    client.unlink_provider(provider.trim()).await.map_err(err)
+}
+
 // --- modpack import / export (thin glue over mc_core::modpack) ---------------
 
 /// 一个 blocked 文件(CurseForge 作者禁第三方分发)的 UI 视图:需用户手动下载。
