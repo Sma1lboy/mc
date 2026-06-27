@@ -408,17 +408,19 @@ export async function kobeSignup(email: string, password: string, username: stri
 
 /** 退出 kobeMC 账号(清后端会话 + 本地状态)。 */
 export async function kobeLogout(): Promise<void> {
+  const email = kobeUser()?.email ?? null;
   try {
     await api.kobemcLogout();
   } finally {
     setKobeUser(null);
   }
-  // 显式退出后下次启动不再自动登录;保留记住的账号密码用于预填(只关掉 auto_login)。
-  try {
-    const c = await api.kobeLoadCredentials();
-    if (c?.auto_login) await api.kobeSaveCredentials(c.email, c.password, false);
-  } catch {
-    /* 忽略 */
+  // 显式退出后下次启动不再自动登录该账号;凭据仍留在列表里(只关掉它的 auto_login)。
+  if (email) {
+    try {
+      await api.kobeSetAutoLogin(email, false);
+    } catch {
+      /* 忽略 */
+    }
   }
 }
 
@@ -439,9 +441,9 @@ if (typeof window !== "undefined") {
         return;
       }
       try {
-        const creds = await api.kobeLoadCredentials();
-        if (creds?.auto_login && creds.email && creds.password) {
-          await kobeLogin(creds.email, creds.password);
+        const auto = (await api.kobeListCredentials()).find((c) => c.auto_login);
+        if (auto?.email && auto.password) {
+          await kobeLogin(auto.email, auto.password);
         }
       } catch {
         /* 自动登录尽力而为:失败(密码改了 / 网络)保持登出态,不打扰 */
