@@ -19,6 +19,8 @@ import {
   setMode,
   saveTheme,
   PRESETS,
+  THEME_PRESETS,
+  accentFromHex,
   DEFAULT_THEME,
   normalizeThemeConfig,
 } from "../theme/theme";
@@ -211,6 +213,27 @@ const Settings: Component = () => {
     toast({ type: "info", message: t("settings.switchedTo", { label }) });
   }
 
+  // 一键应用完整主题预设(模式 + 强调色),立即生效并持久化。
+  function pickThemePreset(p: { key: string; mode: "dark" | "light"; hex: string }) {
+    const cfg: ThemeConfig = { mode: p.mode, ...accentFromHex(p.hex) };
+    setLocalTheme(cfg);
+    void saveTheme(cfg).catch(() => {});
+    toast({
+      type: "success",
+      message: t("settings.presetApplied", { name: t(`settings.themePreset_${p.key}`) }),
+    });
+  }
+
+  function isSelectedThemePreset(p: { mode: "dark" | "light"; hex: string }): boolean {
+    const a = accentFromHex(p.hex);
+    return (
+      mode() === p.mode &&
+      Math.abs(hue() - a.hue) < 0.5 &&
+      Math.abs(sat() - a.saturation) < 0.5 &&
+      Math.abs(light() - a.lightness) < 0.5
+    );
+  }
+
   function pickPreset(p: { hue: number; saturation: number; lightness: number }) {
     setHue(p.hue);
     setSat(p.saturation);
@@ -273,6 +296,42 @@ const Settings: Component = () => {
                   options={themeModeOptions()}
                   onChange={selectThemeMode}
                 />
+              </div>
+
+              <div class="mb-[16px]">
+                <span class="block mb-[10px] text-fg text-[14px]">{t("settings.themePresets")}</span>
+                <div class="grid grid-cols-3 gap-[8px]">
+                  <For each={THEME_PRESETS}>
+                    {(p) => (
+                      <button
+                        type="button"
+                        class="flex items-center gap-[8px] p-[8px] rounded-none shadow-raised cursor-pointer text-left transition-[transform,box-shadow] duration-[var(--dur)] ease-app hover:-translate-y-[1px] active:shadow-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                        classList={{ "ring-2 ring-tag": isSelectedThemePreset(p) }}
+                        title={t(`settings.themePreset_${p.key}`)}
+                        aria-label={t("settings.themePresetAria", { name: t(`settings.themePreset_${p.key}`) })}
+                        aria-pressed={isSelectedThemePreset(p)}
+                        onClick={() => pickThemePreset(p)}
+                      >
+                        <span
+                          class="grid w-[24px] h-[24px] shrink-0 place-items-center rounded-none shadow-sunken"
+                          style={{ background: p.hex }}
+                        >
+                          <Show when={isSelectedThemePreset(p)}>
+                            <Check size={13} aria-hidden="true" class="text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.6)]" />
+                          </Show>
+                        </span>
+                        <span class="flex flex-col gap-[1px] min-w-0">
+                          <span class="truncate text-fg text-[12px]">{t(`settings.themePreset_${p.key}`)}</span>
+                          <span class="text-muted text-[11px]">
+                            {p.mode === "dark"
+                              ? t("settings.themeModeDark")
+                              : t("settings.themeModeLight")}
+                          </span>
+                        </span>
+                      </button>
+                    )}
+                  </For>
+                </div>
               </div>
 
               <div class="flex items-center justify-between mb-[16px] text-fg text-[14px]">
