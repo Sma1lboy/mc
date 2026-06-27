@@ -378,6 +378,10 @@ export const commands = {
 	 *  (what they're playing), or `None` when idle.
 	 */
 	presenceHeartbeat: (activity: string | null) => typedError<null, string>(__TAURI_INVOKE("presence_heartbeat", { activity })),
+	/**  The current user's last 50 notifications (newest first). */
+	notifications: () => typedError<Notification[], string>(__TAURI_INVOKE("notifications")),
+	/**  Mark every notification as read (called when the bell dropdown opens). */
+	notificationsRead: () => typedError<null, string>(__TAURI_INVOKE("notifications_read")),
 	/**
 	 *  Bind a Microsoft identity to the current kobeMC user. `account_id` is the
 	 *  selected Microsoft account's Minecraft profile UUID; `username` is its
@@ -858,6 +862,23 @@ export type NewsItem = {
 	body: string,
 	date: string,
 	url?: string | null,
+};
+
+/**
+ *  A notification addressed to the current user. `kind` is one of
+ *  `friend_request` | `friend_accepted` | `realm_invite`; `actor_*` is who
+ *  caused it and `realm_*` the realm it concerns (resolved server-side). `read`
+ *  is whether the user has already seen it (cleared on bell open).
+ */
+export type Notification = {
+	id: string,
+	kind: string,
+	actor_id?: string | null,
+	actor_username?: string | null,
+	realm_id?: string | null,
+	realm_name?: string | null,
+	created_at: string,
+	read?: boolean,
 };
 
 /**  一个已安装包的列表视图。直接派生 `Serialize` 以便经 Tauri command 回传前端。 */

@@ -10,6 +10,7 @@ mod db;
 mod friend;
 mod meta;
 mod news;
+mod notification;
 mod realm;
 mod session;
 mod share;
@@ -23,6 +24,7 @@ use sqlx::PgPool;
 use tower_http::cors::CorsLayer;
 
 use friend::FriendStore;
+use notification::NotificationStore;
 use realm::RealmStore;
 use share::{ShareStore, SharedInstance};
 
@@ -35,6 +37,7 @@ struct AppState {
     shares: ShareStore,
     realms: RealmStore,
     friends: FriendStore,
+    notifications: NotificationStore,
     /// Directory holding per-realm overrides zip blobs (a mounted volume in prod,
     /// `BLOB_DIR`; defaults to `./blobs` for local dev).
     blob_dir: std::path::PathBuf,
@@ -62,6 +65,7 @@ async fn main() {
         pool: pool.clone(),
         shares: ShareStore::new(pool.clone()),
         realms: RealmStore::new(pool.clone()),
+        notifications: NotificationStore::new(pool.clone()),
         friends: FriendStore::new(pool),
         blob_dir: std::env::var("BLOB_DIR").unwrap_or_else(|_| "blobs".to_string()).into(),
     };
@@ -105,6 +109,9 @@ async fn main() {
         .route("/v1/friends/{user_id}", delete(friend::remove))
         // Presence heartbeat (online status + current activity; authed).
         .route("/v1/presence", post(friend::presence))
+        // Notifications inbox (friend requests/accepts + realm invites; authed).
+        .route("/v1/notifications", get(notification::list))
+        .route("/v1/notifications/read", post(notification::read_all))
         .with_state(state);
 
     let app = Router::new()

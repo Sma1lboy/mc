@@ -51,6 +51,16 @@ pub struct UsernameReq {
     pub username: String,
 }
 
+/// Outcome of a friend request, so the handler can emit the right notification.
+/// `Pending` = a new pending row was inserted (notify the addressee of a request);
+/// `AutoAccepted` = a reverse pending request just got auto-accepted (notify them
+/// it's accepted); `Failed` = self-add / unknown user (FK) / conflict no-op.
+pub enum RequestOutcome {
+    Pending,
+    AutoAccepted,
+    Failed,
+}
+
 #[derive(Clone)]
 pub struct FriendStore {
     pool: PgPool,
@@ -77,10 +87,12 @@ impl FriendStore {
     }
 
     /// Send a request me→to. A reverse pending request auto-accepts (mutual).
-    /// `false` if `to == me` or `to` doesn't exist.
-    pub async fn request(&self, me: &str, to: &str) -> anyhow::Result<bool> {
+    /// Returns a [`RequestOutcome`] so the handler can emit the right
+    /// notification: `Failed` if `to == me`, `to` doesn't exist (FK), or the
+    /// request was a conflict no-op (already pending/accepted).
+    pub async fn request(&self, me: &str, to: &str) -> anyhow::Result<RequestOutcome> {
         if me == to {
-            return Ok(false);
+            return Ok(RequestOutcome::Failed);
         }
         let reverse_pending: Option<(String,)> = sqlx::query_as(
             "SELECT requester_id FROM friendships WHERE requester_id=$1 AND addressee_id=$2 AND status='pending'",
@@ -95,9 +107,10 @@ impl FriendStore {
                 .bind(me)
                 .execute(&self.pool)
                 .await?;
-            return Ok(true);
+            return Ok(RequestOutcome::AutoAccepted);
         }
-        // Insert pending (idempotent). FK violation = `to` doesn't exist → false.
+        // Insert pending (idempotent). FK violation = `to` doesn't exist; a
+        // conflict no-op (already pending/accepted) affects 0 rows → Failed.
         match sqlx::query(
             "INSERT INTO friendships (requester_id, addressee_id, status) VALUES ($1,$2,'pending') \
              ON CONFLICT (requester_id, addressee_id) DO NOTHING",
@@ -107,8 +120,9 @@ impl FriendStore {
         .execute(&self.pool)
         .await
         {
-            Ok(_) => Ok(true),
-            Err(_) => Ok(false),
+            Ok(res) if res.rows_affected() > 0 => Ok(RequestOutcome::Pending),
+            Ok(_) => Ok(RequestOutcome::Failed),
+            Err(_) => Ok(RequestOutcome::Failed),
         }
     }
 
@@ -229,8 +243,19 @@ pub async fn request(
     Json(req): Json<UserIdReq>,
 ) -> Result<StatusCode, StatusCode> {
     let me = require_user(&s.pool, &headers).await?;
-    let ok = s.friends.request(&me, &req.user_id).await.map_err(ise)?;
-    if ok { Ok(StatusCode::NO_CONTENT) } else { Err(StatusCode::BAD_REQUEST) }
+    match s.friends.request(&me, &req.user_id).await.map_err(ise)? {
+        RequestOutcome::Pending => {
+            // Notify the addressee they have a new incoming request.
+            let _ = s.notifications.create(&req.user_id, "friend_request", Some(&me), None).await;
+            Ok(StatusCode::NO_CONTENT)
+        }
+        RequestOutcome::AutoAccepted => {
+            // Their earlier request just got accepted — notify them it's mutual.
+            let _ = s.notifications.create(&req.user_id, "friend_accepted", Some(&me), None).await;
+            Ok(StatusCode::NO_CONTENT)
+        }
+        RequestOutcome::Failed => Err(StatusCode::BAD_REQUEST),
+    }
 }
 
 /// `GET /v1/friends` — accepted friends with presence (online + activity).
@@ -271,7 +296,13 @@ pub async fn accept(
 ) -> Result<StatusCode, StatusCode> {
     let me = require_user(&s.pool, &headers).await?;
     let ok = s.friends.accept(&me, &req.user_id).await.map_err(ise)?;
-    if ok { Ok(StatusCode::NO_CONTENT) } else { Err(StatusCode::NOT_FOUND) }
+    if ok {
+        // Notify the original requester that `me` accepted their request.
+        let _ = s.notifications.create(&req.user_id, "friend_accepted", Some(&me), None).await;
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
 }
 
 /// `POST /v1/friends/decline` — decline a request from `user_id`.

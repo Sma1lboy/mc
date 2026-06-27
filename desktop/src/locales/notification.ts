@@ -4,10 +4,16 @@ const dict = {
   zh: {
     title: "通知",
     empty: "暂无通知",
+    friendRequest: "{{ name }} 请求加你为好友",
+    friendAccepted: "{{ name }} 接受了你的好友请求",
+    realmInvite: "{{ name }} 邀请你加入领域「{{ realm }}」",
   } as Record<string, string>,
   en: {
     title: "Notifications",
     empty: "No notifications",
+    friendRequest: "{{ name }} wants to add you as a friend",
+    friendAccepted: "{{ name }} accepted your friend request",
+    realmInvite: "{{ name }} invited you to the realm “{{ realm }}”",
   } as Record<string, string>,
 };
 

@@ -133,6 +133,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::friend_decline,
             commands::friend_remove,
             commands::presence_heartbeat,
+            commands::notifications,
+            commands::notifications_read,
             commands::account_link_microsoft,
             commands::account_identities,
             commands::account_unlink,

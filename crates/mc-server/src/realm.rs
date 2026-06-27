@@ -486,6 +486,8 @@ pub async fn invite(
         return Err(StatusCode::FORBIDDEN);
     }
     s.realms.add_member(&id, &req.user_id).await.map_err(|_| StatusCode::NOT_FOUND)?;
+    // Tell the invitee they were added to the realm (best-effort).
+    let _ = s.notifications.create(&req.user_id, "realm_invite", Some(&actor), Some(&id)).await;
     Ok(StatusCode::NO_CONTENT)
 }
 

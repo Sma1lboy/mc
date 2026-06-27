@@ -19,6 +19,7 @@ pub mod loader;
 pub mod meta;
 pub mod modpack;
 pub mod modplatform;
+pub mod notification;
 pub mod paths;
 pub mod realm;
 pub mod server;

@@ -2117,6 +2117,24 @@ pub async fn presence_heartbeat(
     client.presence_heartbeat(activity.as_deref()).await.map_err(err)
 }
 
+// --- notifications (typed inbox: friend requests/accepts + realm invites) -----
+
+/// The current user's last 50 notifications (newest first).
+#[tauri::command]
+#[specta::specta]
+pub async fn notifications(
+    client: State<'_, mc_core::server::ServerClient>,
+) -> CmdResult<Vec<mc_core::notification::Notification>> {
+    client.notifications().await.map_err(err)
+}
+
+/// Mark every notification as read (called when the bell dropdown opens).
+#[tauri::command]
+#[specta::specta]
+pub async fn notifications_read(client: State<'_, mc_core::server::ServerClient>) -> CmdResult<()> {
+    client.mark_notifications_read().await.map_err(err)
+}
+
 // --- account linking (bind Microsoft identity to the kobeMC user) ------------
 
 use mc_core::account::Identity;

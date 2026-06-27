@@ -3,7 +3,7 @@ import { api, onGameExit, onGameStarted } from "./ipc/api";
 import { toast } from "./components/Toast";
 import { t } from "./i18n";
 import type { ProjectKind } from "./ipc/types";
-import type { AuthUser, UserBrief, Identity } from "./ipc/bindings";
+import type { AuthUser, UserBrief, Identity, Notification } from "./ipc/bindings";
 
 // 页面标识。home/library/discover/settings + 实例详情。
 export type Page = "home" | "library" | "discover" | "settings" | "instance";
@@ -496,6 +496,9 @@ const [friendRequests, setFriendRequests] = createSignal<UserBrief[]>([]);
 export { friendRequests };
 const [accountIdentities, setAccountIdentities] = createSignal<Identity[]>([]);
 export { accountIdentities };
+// 通知中心的单一真相:服务端 typed 通知(好友请求/接受、领域邀请),随社交轮询刷新。
+const [notifications, setNotifications] = createSignal<Notification[]>([]);
+export { notifications };
 
 /** 刷新好友列表(含在线状态/活动);未登录或社交关闭时不动。 */
 export async function refreshFriends(): Promise<void> {
@@ -517,6 +520,26 @@ export async function refreshFriendRequests(): Promise<void> {
   }
 }
 
+/** 刷新通知中心列表;未登录或社交关闭时不动。容错:失败保留旧值。 */
+export async function refreshNotifications(): Promise<void> {
+  if (!isKobeSignedIn() || !socialEnabled()) return;
+  try {
+    setNotifications(await api.notifications());
+  } catch {
+    /* 保留旧值 */
+  }
+}
+
+/** 标记所有通知为已读(打开铃铛下拉时调),随后刷新一次清空角标。 */
+export async function markNotificationsRead(): Promise<void> {
+  try {
+    await api.notificationsRead();
+  } catch {
+    /* 标记失败不阻断:下次刷新仍按服务端状态显示 */
+  }
+  await refreshNotifications();
+}
+
 /** 刷新当前 kobeMC 账号的关联身份;未登录时不动。 */
 export async function refreshIdentities(): Promise<void> {
   if (!isKobeSignedIn()) return;
@@ -533,6 +556,7 @@ if (typeof window !== "undefined") {
   setInterval(() => {
     void refreshFriends();
     void refreshFriendRequests();
+    void refreshNotifications();
   }, 30_000);
 
   // kobeUser 变为已登录 → 拉一次初值;登出 → 清空社交信号。
@@ -541,10 +565,12 @@ if (typeof window !== "undefined") {
       if (kobeUser()) {
         void refreshFriends();
         void refreshFriendRequests();
+        void refreshNotifications();
         void refreshIdentities();
       } else {
         setFriends([]);
         setFriendRequests([]);
+        setNotifications([]);
         setAccountIdentities([]);
       }
     });

@@ -136,6 +136,24 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS activity TEXT;
 "#;
 
+/// Notifications — a typed, per-user inbox the launcher polls. Each row is one
+/// event addressed to `user_id` (`kind` = `friend_request` | `friend_accepted` |
+/// `realm_invite`); `actor_id` is who caused it and `realm_id` the realm it
+/// concerns (both nullable). `read_at` is null until the user opens the bell.
+/// `gen_random_uuid()` (Postgres 13+ / Supabase) mints ids server-side.
+const NOTIFICATIONS_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS notifications (
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  actor_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  realm_id TEXT,
+  read_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS notifications_user_idx ON notifications(user_id, created_at DESC);
+"#;
+
 /// Connect to Postgres and ensure both schemas exist.
 pub async fn connect() -> anyhow::Result<PgPool> {
     let url = std::env::var("DATABASE_URL")
@@ -153,6 +171,7 @@ pub async fn connect() -> anyhow::Result<PgPool> {
     sqlx::raw_sql(REALMS_SQL).execute(&pool).await.context("建 realms 表")?;
     sqlx::raw_sql(FRIENDS_SQL).execute(&pool).await.context("建 friendships 表")?;
     sqlx::raw_sql(PRESENCE_SQL).execute(&pool).await.context("加 presence 列")?;
+    sqlx::raw_sql(NOTIFICATIONS_SQL).execute(&pool).await.context("建 notifications 表")?;
     Ok(pool)
 }
 
@@ -168,5 +187,6 @@ pub async fn test_pool() -> Option<PgPool> {
     sqlx::raw_sql(REALMS_SQL).execute(&pool).await.ok()?;
     sqlx::raw_sql(FRIENDS_SQL).execute(&pool).await.ok()?;
     sqlx::raw_sql(PRESENCE_SQL).execute(&pool).await.ok()?;
+    sqlx::raw_sql(NOTIFICATIONS_SQL).execute(&pool).await.ok()?;
     Some(pool)
 }
