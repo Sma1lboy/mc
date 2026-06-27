@@ -1,6 +1,7 @@
 import { Component, createResource, createSignal, For, Show } from "solid-js";
 import { toast } from "./Toast";
 import { api } from "../ipc/api";
+import { accountIdentities, refreshIdentities } from "../store";
 import { t } from "../i18n";
 import type { AccountSummary, Identity } from "../ipc/bindings";
 
@@ -10,7 +11,8 @@ import type { AccountSummary, Identity } from "../ipc/bindings";
  * 仅在登录 kobeMC 后由 KobeAccountChip 渲染。
  */
 export const LinkedAccountsSection: Component = () => {
-  const [identities, { refetch }] = createResource(() => api.accountIdentities());
+  // 已关联身份来自 store(单一真相);listAccounts 是本地廉价调用,保留本地 resource。
+  const identities = accountIdentities;
   const [accounts] = createResource(() => api.listAccounts());
   const [busy, setBusy] = createSignal(false);
 
@@ -40,14 +42,14 @@ export const LinkedAccountsSection: Component = () => {
     act(async () => {
       await api.accountLinkMicrosoft(acc.uuid, acc.username);
       toast({ type: "success", message: t("link.linked") });
-      void refetch();
+      void refreshIdentities();
     });
 
   const unlink = (provider: string) =>
     act(async () => {
       await api.accountUnlink(provider);
       toast({ type: "success", message: t("link.unlinked") });
-      void refetch();
+      void refreshIdentities();
     });
 
   return (

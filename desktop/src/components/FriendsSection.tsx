@@ -1,8 +1,15 @@
-import { Component, createResource, createSignal, For, onCleanup, Show } from "solid-js";
+import { Component, createResource, createSignal, For, Show } from "solid-js";
 import { Button } from "./Button";
 import { toast } from "./Toast";
 import { api } from "../ipc/api";
-import { kobeUser, refreshKobeUser } from "../store";
+import {
+  kobeUser,
+  refreshKobeUser,
+  friends,
+  friendRequests,
+  refreshFriends,
+  refreshFriendRequests,
+} from "../store";
 import { t } from "../i18n";
 import type { UserBrief } from "../ipc/bindings";
 
@@ -68,15 +75,8 @@ const SetUsername: Component = () => {
 };
 
 const Friends: Component = () => {
-  const [friends, { refetch: refetchFriends }] = createResource(() => api.friendList());
-  const [requests, { refetch: refetchRequests }] = createResource(() => api.friendRequests());
-
-  // 好友区打开期间周期性刷新在线状态/活动(节流到 30s),关闭即停。
-  const poll = setInterval(() => {
-    void refetchFriends();
-    void refetchRequests();
-  }, 30_000);
-  onCleanup(() => clearInterval(poll));
+  // 好友列表 / 收到的请求来自 store(单一真相 + 连续 30s 轮询),不再各自起 resource/轮询。
+  const requests = friendRequests;
   const [query, setQuery] = createSignal("");
   const [results, { refetch: refetchSearch }] = createResource(
     () => query().trim(),
@@ -103,23 +103,23 @@ const Friends: Component = () => {
       await api.friendRequest(u.id);
       toast({ type: "success", message: t("friend.requestSent") });
       void refetchSearch();
-      void refetchFriends();
+      void refreshFriends();
     });
   const accept = (u: UserBrief) =>
     act(async () => {
       await api.friendAccept(u.id);
-      void refetchRequests();
-      void refetchFriends();
+      void refreshFriendRequests();
+      void refreshFriends();
     });
   const decline = (u: UserBrief) =>
     act(async () => {
       await api.friendDecline(u.id);
-      void refetchRequests();
+      void refreshFriendRequests();
     });
   const remove = (u: UserBrief) =>
     act(async () => {
       await api.friendRemove(u.id);
-      void refetchFriends();
+      void refreshFriends();
     });
 
   return (
@@ -182,7 +182,7 @@ const Friends: Component = () => {
       <div class="flex flex-col gap-[4px]">
         <Show
           when={(friends() ?? []).length > 0}
-          fallback={<p class="text-[12px] text-faint">{friends.loading ? "" : t("friend.noFriends")}</p>}
+          fallback={<p class="text-[12px] text-faint">{t("friend.noFriends")}</p>}
         >
           <For each={friends()}>
             {(u) => (

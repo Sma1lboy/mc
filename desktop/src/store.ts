@@ -1,9 +1,9 @@
-import { createSignal, createResource, createRoot } from "solid-js";
+import { createSignal, createResource, createRoot, createEffect } from "solid-js";
 import { api, onGameExit, onGameStarted } from "./ipc/api";
 import { toast } from "./components/Toast";
 import { t } from "./i18n";
 import type { ProjectKind } from "./ipc/types";
-import type { AuthUser } from "./ipc/bindings";
+import type { AuthUser, UserBrief, Identity } from "./ipc/bindings";
 
 // 页面标识。home/library/discover/settings + 实例详情。
 export type Page = "home" | "library" | "discover" | "settings" | "instance";
@@ -453,4 +453,70 @@ export async function refreshKobeUser(): Promise<void> {
   } catch {
     /* 会话探测失败不影响现有登录态 */
   }
+}
+
+// ===== 社交数据缓存(好友 / 好友请求 / 关联身份) =====
+// 单一真相:顶栏账号下拉的好友/关联区与领域面板的「邀请好友」共享同一份数据,
+// 避免每次打开下拉都重新发起 kobe-server 往返、空白闪烁、并重复 friendList 拉取。
+// 由 store 持有一条连续 30s 轮询(只在已登录 + 社交开启时刷新好友/请求的在线状态/活动),
+// 不随组件挂载重启。登录变化时拉一次初值,登出清空。各刷新器容错:失败保留旧值。
+const [friends, setFriends] = createSignal<UserBrief[]>([]);
+export { friends };
+const [friendRequests, setFriendRequests] = createSignal<UserBrief[]>([]);
+export { friendRequests };
+const [accountIdentities, setAccountIdentities] = createSignal<Identity[]>([]);
+export { accountIdentities };
+
+/** 刷新好友列表(含在线状态/活动);未登录或社交关闭时不动。 */
+export async function refreshFriends(): Promise<void> {
+  if (!isKobeSignedIn() || !socialEnabled()) return;
+  try {
+    setFriends(await api.friendList());
+  } catch {
+    /* 保留旧值 */
+  }
+}
+
+/** 刷新收到的好友请求;未登录或社交关闭时不动。 */
+export async function refreshFriendRequests(): Promise<void> {
+  if (!isKobeSignedIn() || !socialEnabled()) return;
+  try {
+    setFriendRequests(await api.friendRequests());
+  } catch {
+    /* 保留旧值 */
+  }
+}
+
+/** 刷新当前 kobeMC 账号的关联身份;未登录时不动。 */
+export async function refreshIdentities(): Promise<void> {
+  if (!isKobeSignedIn()) return;
+  try {
+    setAccountIdentities(await api.accountIdentities());
+  } catch {
+    /* 保留旧值 */
+  }
+}
+
+if (typeof window !== "undefined") {
+  // 单一连续轮询:仅在已登录 + 社交开启时刷新好友 + 请求(30s 新鲜度)。
+  // store 持有,绝不随组件挂载/卸载重启,避免多处各自起轮询。
+  setInterval(() => {
+    void refreshFriends();
+    void refreshFriendRequests();
+  }, 30_000);
+
+  // kobeUser 变为已登录 → 拉一次初值;登出 → 清空社交信号。
+  createRoot(() => {
+    createEffect(() => {
+      if (kobeUser()) {
+        void refreshFriends();
+        void refreshFriendRequests();
+        void refreshIdentities();
+      } else {
+        setFriends([]);
+        setFriendRequests([]);
+        setAccountIdentities([]);
+      }
+    });
+  });
 }

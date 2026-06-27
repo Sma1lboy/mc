@@ -5,6 +5,7 @@ import {
   createSignal,
   For,
   onCleanup,
+  onMount,
   Show,
 } from "solid-js";
 import { Button } from "./Button";
@@ -17,7 +18,16 @@ import { Tag } from "./Tag";
 import { Toggle } from "./Toggle";
 import { toast } from "./Toast";
 import { api, onRealmSyncProgress } from "../ipc/api";
-import { activeRoot, refreshInstances, kobeUser, isKobeSignedIn, setCurrentPage, socialEnabled } from "../store";
+import {
+  activeRoot,
+  refreshInstances,
+  kobeUser,
+  isKobeSignedIn,
+  setCurrentPage,
+  socialEnabled,
+  friends,
+  refreshFriends,
+} from "../store";
 import { t } from "../i18n";
 import type { InstanceSummary, RealmMember, SyncReport } from "../ipc/bindings";
 
@@ -228,19 +238,11 @@ const RealmManage: Component<{ instance: InstanceSummary; onChanged?: () => void
   const isOwner = () => role() === "owner";
   const canPush = () => role() === "owner" || role() === "admin";
 
-  // 好友列表(仅在社交开启 + 已登录时拉取):用于「邀请好友」与成员的好友标记。
-  const [friends, { refetch: refetchFriends }] = createResource(
-    () => (socialEnabled() && isKobeSignedIn() ? rid() : null),
-    () => api.friendList(),
-  );
+  // 好友列表来自 store(单一真相 + 连续 30s 轮询),用于「邀请好友」与成员的好友标记。
+  // 面板打开时主动拉一次,保证 store 缓存新鲜(后续在线状态/活动由 store 轮询维护)。
+  onMount(() => void refreshFriends());
   const memberIds = () => new Set((members() ?? []).map((m) => m.user_id));
   const friendIds = () => new Set((friends() ?? []).map((f) => f.id));
-
-  // 面板打开期间周期性刷新好友在线状态/活动(节流到 30s),关闭即停。
-  const friendsPoll = setInterval(() => {
-    if (socialEnabled() && isKobeSignedIn()) void refetchFriends();
-  }, 30_000);
-  onCleanup(() => clearInterval(friendsPoll));
 
   // 在线好友优先,其次按用户名排序,便于优先邀请在线好友。
   const sortedFriends = () =>
@@ -501,11 +503,10 @@ const RealmManage: Component<{ instance: InstanceSummary; onChanged?: () => void
             {t("realm.inviteTitle")}
           </Heading>
           <p class="text-[12px] text-muted leading-[1.6] mb-[10px]">{t("realm.inviteHint")}</p>
-          <Show when={!friends.loading} fallback={<div class="flex justify-center p-[8px]"><Spinner /></div>}>
-            <Show
-              when={(friends() ?? []).length > 0}
-              fallback={<p class="text-[12px] text-faint">{t("realm.inviteNoFriends")}</p>}
-            >
+          <Show
+            when={(friends() ?? []).length > 0}
+            fallback={<p class="text-[12px] text-faint">{t("realm.inviteNoFriends")}</p>}
+          >
               <div class="flex flex-col gap-[6px]">
                 <For each={sortedFriends()}>
                   {(f) => (
@@ -542,7 +543,6 @@ const RealmManage: Component<{ instance: InstanceSummary; onChanged?: () => void
                 </For>
               </div>
             </Show>
-          </Show>
         </Panel>
       </Show>
 

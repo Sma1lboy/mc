@@ -43,37 +43,40 @@ export const KobeAccountChip: Component = () => {
         </span>
       </button>
 
-      <Show when={open()}>
-        <div class="absolute right-0 top-[calc(100%+6px)] w-[300px] bg-panel border border-titlebar shadow-raised rounded-none z-[200] p-[16px]">
-          <Show when={kobeUser()} fallback={<LoginForm onDone={() => setOpen(false)} />}>
-            <div class="flex items-center gap-[10px] mb-[12px]">
-              <span class="grid place-items-center w-[40px] h-[40px] bg-sidebar shadow-input text-accent shrink-0">
-                <Icon name="user" size={20} />
-              </span>
-              <div class="flex flex-col min-w-0 flex-1">
-                <span class="text-[14px] text-strong truncate">{kobeDisplayName(kobeUser()!)}</span>
-                <Show when={kobeUser()!.email}>
-                  <span class="text-[12px] text-muted truncate">{kobeUser()!.email}</span>
-                </Show>
-              </div>
+      {/* 下拉体保持挂载、用 hidden 切换显隐(不再 <Show when={open()}> 销毁重建):
+          这样关掉再打开时好友/请求来自 store 缓存、搜索框文字与滚动位置都保留,不再每次重拉。 */}
+      <div
+        class="absolute right-0 top-[calc(100%+6px)] w-[300px] bg-panel border border-titlebar shadow-raised rounded-none z-[200] p-[16px]"
+        classList={{ hidden: !open() }}
+      >
+        <Show when={kobeUser()} fallback={<LoginForm onDone={() => setOpen(false)} />}>
+          <div class="flex items-center gap-[10px] mb-[12px]">
+            <span class="grid place-items-center w-[40px] h-[40px] bg-sidebar shadow-input text-accent shrink-0">
+              <Icon name="user" size={20} />
+            </span>
+            <div class="flex flex-col min-w-0 flex-1">
+              <span class="text-[14px] text-strong truncate">{kobeDisplayName(kobeUser()!)}</span>
+              <Show when={kobeUser()!.email}>
+                <span class="text-[12px] text-muted truncate">{kobeUser()!.email}</span>
+              </Show>
             </div>
-            <Button
-              variant="ghost"
-              class="w-full justify-center"
-              onClick={() => {
-                void kobeLogout();
-                setOpen(false);
-              }}
-            >
-              {t("kobe.logoutAction")}
-            </Button>
+          </div>
+          <Button
+            variant="ghost"
+            class="w-full justify-center"
+            onClick={() => {
+              void kobeLogout();
+              setOpen(false);
+            }}
+          >
+            {t("kobe.logoutAction")}
+          </Button>
 
-            <LinkedAccountsSection />
+          <LinkedAccountsSection />
 
-            <FriendsSection />
-          </Show>
-        </div>
-      </Show>
+          <FriendsSection />
+        </Show>
+      </div>
     </div>
   );
 };
