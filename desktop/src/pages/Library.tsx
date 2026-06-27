@@ -17,6 +17,7 @@ import {
   toast,
   type InstanceRowData,
 } from "../components";
+import { JoinRealmDialog } from "../components/JoinRealmDialog";
 import { useModpackDrop } from "../util/useModpackDrop";
 import { api, onInstallProgress } from "../ipc/api";
 import { activeRoot, openInstance, playInstance, isRunning, instances, refreshInstances } from "../store";
@@ -40,6 +41,8 @@ function toRowData(i: InstanceSummary): InstanceRowData {
     icon: i.icon || undefined,
     last_played: i.last_played ?? 0,
     running: i.running ?? false,
+    realmRole: i.realm?.role,
+    installed: i.installed,
   };
 }
 
@@ -57,6 +60,7 @@ const Library: Component = () => {
   const [progress, setProgress] = createSignal("");
   // 导入整合包:统一弹窗(展示支持格式 / 拖入提示 / 须知);产物里有需手动下载或跳过的文件再摊开。
   const [importOpen, setImportOpen] = createSignal(false);
+  const [joinOpen, setJoinOpen] = createSignal(false);
   const [importPath, setImportPath] = createSignal<string | null>(null);
   const [importOutcome, setImportOutcome] = createSignal<ImportOutcome | null>(null);
   // 导出整合包:选格式弹窗(非空 = 打开)。
@@ -210,6 +214,9 @@ const Library: Component = () => {
             </Button>
           </Show>
           <Show when={!selectMode()}>
+            <Button variant="ghost" onClick={() => setJoinOpen(true)}>
+              {t("realm.joinAction")}
+            </Button>
             <Button variant="ghost" onClick={() => setImportOpen(true)}>
               {t("library.importModpack")}
             </Button>
@@ -360,6 +367,15 @@ const Library: Component = () => {
         root={activeRoot()}
         instance={exportRow()}
         onClose={() => setExportRow(null)}
+      />
+
+      <JoinRealmDialog
+        open={joinOpen()}
+        onClose={() => setJoinOpen(false)}
+        onJoined={(instanceId) => {
+          setJoinOpen(false);
+          openInstance(instanceId);
+        }}
       />
 
       {/* 批量删除确认。 */}
