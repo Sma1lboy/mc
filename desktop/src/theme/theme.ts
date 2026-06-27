@@ -206,7 +206,28 @@ export const PRESETS: {
   { name: "下界红", hex: "#c0392b" },
   { name: "紫晶", hex: "#7d4fd1" },
   { name: "钻石青", hex: "#3aa6a0" },
+  { name: "天蓝", hex: "#3b82c4" },
+  { name: "樱粉", hex: "#d6649b" },
+  { name: "琥珀", hex: "#d9a420" },
 ].map((p) => ({ ...p, ...accentFromHex(p.hex) }));
+
+/**
+ * 完整主题预设:每条捆绑「明暗模式 + 强调色」,一键切换整体观感。
+ * `key` 稳定不译(用于 i18n 取名:settings.themePreset_<key>),`hex` 直接展示为色块,
+ * 应用时由 accentFromHex 派生强调旋钮再喂 applyTheme({mode, ...accentFromHex(hex)})。
+ */
+export const THEME_PRESETS: {
+  key: string;
+  mode: "dark" | "light";
+  hex: string;
+}[] = [
+  { key: "nightLava", mode: "dark", hex: "#e8590c" }, // 暗夜熔岩
+  { key: "midnightDiamond", mode: "dark", hex: "#3aa6a0" }, // 午夜钻石
+  { key: "deepForest", mode: "dark", hex: "#5b8f3a" }, // 深林
+  { key: "parchment", mode: "light", hex: "#b8742a" }, // 羊皮纸
+  { key: "snowfield", mode: "light", hex: "#3b82c4" }, // 雪境
+  { key: "cherryBlossom", mode: "light", hex: "#d6649b" }, // 樱粉
+];
 
 /**
  * 启动时初始化主题:向后端取持久化配置并应用。
