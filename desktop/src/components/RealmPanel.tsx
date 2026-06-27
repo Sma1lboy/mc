@@ -229,12 +229,25 @@ const RealmManage: Component<{ instance: InstanceSummary; onChanged?: () => void
   const canPush = () => role() === "owner" || role() === "admin";
 
   // 好友列表(仅在社交开启 + 已登录时拉取):用于「邀请好友」与成员的好友标记。
-  const [friends] = createResource(
+  const [friends, { refetch: refetchFriends }] = createResource(
     () => (socialEnabled() && isKobeSignedIn() ? rid() : null),
     () => api.friendList(),
   );
   const memberIds = () => new Set((members() ?? []).map((m) => m.user_id));
   const friendIds = () => new Set((friends() ?? []).map((f) => f.id));
+
+  // 面板打开期间周期性刷新好友在线状态/活动(节流到 30s),关闭即停。
+  const friendsPoll = setInterval(() => {
+    if (socialEnabled() && isKobeSignedIn()) void refetchFriends();
+  }, 30_000);
+  onCleanup(() => clearInterval(friendsPoll));
+
+  // 在线好友优先,其次按用户名排序,便于优先邀请在线好友。
+  const sortedFriends = () =>
+    [...(friends() ?? [])].sort((a, b) => {
+      if (!!a.online !== !!b.online) return a.online ? -1 : 1;
+      return (a.username || a.id).localeCompare(b.username || b.id);
+    });
 
   const [removeExtras, setRemoveExtras] = createSignal(false);
   const [busy, setBusy] = createSignal(false);
@@ -494,10 +507,24 @@ const RealmManage: Component<{ instance: InstanceSummary; onChanged?: () => void
               fallback={<p class="text-[12px] text-faint">{t("realm.inviteNoFriends")}</p>}
             >
               <div class="flex flex-col gap-[6px]">
-                <For each={friends() ?? []}>
+                <For each={sortedFriends()}>
                   {(f) => (
                     <Panel variant="raised" class="flex items-center gap-[10px] px-[12px] py-[7px]">
-                      <span class="text-[13px] text-fg truncate flex-1">{f.username || f.id.slice(0, 8)}</span>
+                      <span
+                        class={`w-[6px] h-[6px] shrink-0 ${f.online ? "bg-accent" : "bg-faint"}`}
+                        aria-hidden="true"
+                        title={f.online ? t("friend.online") : t("friend.offline")}
+                      />
+                      <div class="flex flex-col min-w-0 flex-1">
+                        <span class="text-[13px] text-fg truncate">{f.username || f.id.slice(0, 8)}</span>
+                        <span class="text-[11px] text-faint truncate">
+                          {f.online
+                            ? f.activity
+                              ? t("friend.playing", { name: f.activity })
+                              : t("friend.idle")
+                            : t("friend.offline")}
+                        </span>
+                      </div>
                       <Show
                         when={!memberIds().has(f.id)}
                         fallback={<span class="text-[12px] text-faint">{t("realm.invited")}</span>}
