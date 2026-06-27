@@ -14,6 +14,7 @@ import projectDetail from "./projectDetail";
 import kobe from "./kobe";
 import realm from "./realm";
 import friend from "./friend";
+import notification from "./notification";
 import link from "./link";
 import skin from "./skin";
 import tags from "./tags";
@@ -37,6 +38,7 @@ export const dictionaries = {
     kobe: kobe.zh,
     realm: realm.zh,
     friend: friend.zh,
+    notification: notification.zh,
     link: link.zh,
     skin: skin.zh,
     tags: tags.zh,
@@ -59,6 +61,7 @@ export const dictionaries = {
     kobe: kobe.en,
     realm: realm.en,
     friend: friend.en,
+    notification: notification.en,
     link: link.en,
     skin: skin.en,
     tags: tags.en,

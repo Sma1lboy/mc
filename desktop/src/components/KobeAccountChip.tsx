@@ -1,10 +1,12 @@
 import { Component, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { Button } from "./Button";
 import { Icon } from "./Icon";
-import { FriendsSection } from "./FriendsSection";
 import { LinkedAccountsSection } from "./LinkedAccountsSection";
 import { kobeUser, kobeLogin, kobeSignup, kobeLogout, kobeDisplayName } from "../store";
 import { t } from "../i18n";
+
+/** 用户名规则:3–24 位,字母/数字/下划线/连字符。 */
+const USERNAME_RE = /^[A-Za-z0-9_-]{3,24}$/;
 
 const INPUT =
   "h-[34px] px-[12px] rounded-none text-[13px] text-fg bg-sidebar shadow-input w-full " +
@@ -73,8 +75,6 @@ export const KobeAccountChip: Component = () => {
           </Button>
 
           <LinkedAccountsSection />
-
-          <FriendsSection />
         </Show>
       </div>
     </div>
@@ -85,7 +85,7 @@ const LoginForm: Component<{ onDone: () => void }> = (props) => {
   const [mode, setMode] = createSignal<"login" | "signup">("login");
   const [email, setEmail] = createSignal("");
   const [password, setPassword] = createSignal("");
-  const [name, setName] = createSignal("");
+  const [username, setUsername] = createSignal("");
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
 
@@ -98,10 +98,16 @@ const LoginForm: Component<{ onDone: () => void }> = (props) => {
       setError(t("kobe.errEmptyCreds"));
       return;
     }
+    const name = username().trim();
+    // 注册必须提供合法用户名:它同时是展示名 + 好友用户名(单一身份)。
+    if (mode() === "signup" && !USERNAME_RE.test(name)) {
+      setError(t("kobe.usernameInvalid"));
+      return;
+    }
     setBusy(true);
     try {
       if (mode() === "signup") {
-        await kobeSignup(mail, password(), name().trim() || mail.split("@")[0]);
+        await kobeSignup(mail, password(), name);
       } else {
         await kobeLogin(mail, password());
       }
@@ -120,10 +126,11 @@ const LoginForm: Component<{ onDone: () => void }> = (props) => {
         <input
           class={INPUT}
           type="text"
-          autocomplete="nickname"
-          placeholder={t("kobe.namePlaceholder")}
-          value={name()}
-          onInput={(ev) => setName(ev.currentTarget.value)}
+          autocomplete="username"
+          maxLength={24}
+          placeholder={t("kobe.usernamePlaceholder")}
+          value={username()}
+          onInput={(ev) => setUsername(ev.currentTarget.value)}
         />
       </Show>
       <input

@@ -387,12 +387,23 @@ export async function kobeLogin(email: string, password: string): Promise<void> 
   toast({ type: "info", message: t("kobe.toast.loggedIn", { name: kobeDisplayName(user) }) });
 }
 
-/** 注册新 kobeMC 账号(注册即登录,沿用同一会话 cookie)。 */
-export async function kobeSignup(email: string, password: string, name: string): Promise<void> {
-  const user = await api.kobemcSignup(email, password, name);
+/**
+ * 注册新 kobeMC 账号(注册即登录,沿用同一会话 cookie)。
+ * username 同时作为 better-auth 的展示名(name)与好友用户名 —— 单一身份。
+ * 设好友用户名失败(如已被占用)不阻断登录:toast 提示后照常保持登录态,
+ * 用户可在好友面板的兜底设名处重设(老/登录账号同走那条兜底路径)。
+ */
+export async function kobeSignup(email: string, password: string, username: string): Promise<void> {
+  const user = await api.kobemcSignup(email, password, username);
   setKobeUser(user);
   sendPresenceHeartbeat();
   toast({ type: "info", message: t("kobe.toast.signedUp", { name: kobeDisplayName(user) }) });
+  try {
+    await api.friendSetUsername(username);
+  } catch {
+    toast({ type: "error", message: t("kobe.usernameTaken") });
+  }
+  await refreshKobeUser();
 }
 
 /** 退出 kobeMC 账号(清后端会话 + 本地状态)。 */

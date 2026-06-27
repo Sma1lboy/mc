@@ -1,0 +1,224 @@
+import { Component, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { Button } from "./Button";
+import { Icon } from "./Icon";
+import { toast } from "./Toast";
+import { api } from "../ipc/api";
+import {
+  kobeUser,
+  refreshKobeUser,
+  friends,
+  refreshFriends,
+} from "../store";
+import { t } from "../i18n";
+import type { UserBrief } from "../ipc/bindings";
+
+const INPUT =
+  "h-[32px] px-[10px] rounded-none text-[13px] text-fg bg-sidebar shadow-input w-full " +
+  "placeholder:text-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
+
+const label = (u: UserBrief) => u.username || u.id.slice(0, 8);
+
+/**
+ * FriendsButton —— 顶栏好友入口(从账号 chip 拆出的独立按钮)。
+ * 人像 chip + 好友数,点开保持挂载的下拉:搜索加好友 + 好友列表(在线点 + 活动行)。
+ * 收到的好友请求改由通知中心(NotificationCenter)处理,这里不再展示。
+ * 老/登录账号若还没用户名,先走兜底设名(新注册用户在注册时已设好,不会看到)。
+ */
+export const FriendsButton: Component = () => {
+  const [open, setOpen] = createSignal(false);
+  const hasUsername = () => !!kobeUser()?.username;
+  const count = () => (friends() ?? []).length;
+  let rootEl: HTMLDivElement | undefined;
+
+  onMount(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (rootEl && !rootEl.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    onCleanup(() => document.removeEventListener("mousedown", onDoc));
+  });
+
+  return (
+    <div ref={rootEl} class="relative">
+      <button
+        type="button"
+        class="inline-flex items-center gap-[7px] h-[26px] px-[10px] bg-panel-2 shadow-sunken text-[12px] text-fg cursor-pointer hover:brightness-110 transition-[filter] duration-150"
+        onClick={() => setOpen((o) => !o)}
+        title={t("friend.title")}
+      >
+        <span class="grid place-items-center w-[16px] h-[16px] text-accent shrink-0">
+          <Icon name="users" size={14} />
+        </span>
+        <Show when={count() > 0}>
+          <span class="min-w-[14px] text-center tabular-nums">{count()}</span>
+        </Show>
+      </button>
+
+      {/* 下拉体保持挂载、用 hidden 切换显隐(不 <Show> 销毁重建):
+          关掉再打开时好友列表来自 store 缓存、搜索框文字与滚动位置都保留,不再重拉。 */}
+      <div
+        class="absolute right-0 top-[calc(100%+6px)] w-[300px] bg-panel border border-titlebar shadow-raised rounded-none z-[200] p-[16px]"
+        classList={{ hidden: !open() }}
+      >
+        <div class="text-[13px] text-strong font-display mb-[8px]">{t("friend.title")}</div>
+        <Show when={hasUsername()} fallback={<SetUsername />}>
+          <Friends />
+        </Show>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * SetUsername —— 兜底设名:仅对没有用户名的老/登录账号显示。
+ * 新注册用户在注册时即设好用户名(store.kobeSignup),正常流程不会走到这里。
+ */
+const SetUsername: Component = () => {
+  const [name, setName] = createSignal("");
+  const [busy, setBusy] = createSignal(false);
+
+  async function save() {
+    const n = name().trim();
+    if (busy() || n.length < 3) return;
+    setBusy(true);
+    try {
+      await api.friendSetUsername(n);
+      await refreshKobeUser();
+      toast({ type: "success", message: t("friend.usernameSaved") });
+    } catch {
+      toast({ type: "error", message: t("friend.usernameError") });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div class="flex flex-col gap-[8px]">
+      <p class="text-[12px] text-muted leading-[1.5]">{t("friend.setUsernameHint")}</p>
+      <input
+        class={INPUT}
+        type="text"
+        maxLength={24}
+        placeholder={t("friend.usernamePlaceholder")}
+        value={name()}
+        onInput={(e) => setName(e.currentTarget.value)}
+        onKeyDown={(e) => e.key === "Enter" && void save()}
+      />
+      <Button variant="primary" disabled={busy() || name().trim().length < 3} onClick={() => void save()} class="w-full justify-center">
+        {t("friend.saveUsername")}
+      </Button>
+    </div>
+  );
+};
+
+const Friends: Component = () => {
+  // 好友列表来自 store(单一真相 + 连续 30s 轮询),不再起各自的 resource/轮询。
+  const [query, setQuery] = createSignal("");
+  const [results, { refetch: refetchSearch }] = createResource(
+    () => query().trim(),
+    (q) => (q.length >= 2 ? api.friendSearch(q) : Promise.resolve([] as UserBrief[])),
+  );
+  const [busy, setBusy] = createSignal(false);
+
+  const fail = (e: unknown) => toast({ type: "error", message: t("friend.opError", { err: String(e) }) });
+
+  async function act(fn: () => Promise<void>) {
+    if (busy()) return;
+    setBusy(true);
+    try {
+      await fn();
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const sendRequest = (u: UserBrief) =>
+    act(async () => {
+      await api.friendRequest(u.id);
+      toast({ type: "success", message: t("friend.requestSent") });
+      void refetchSearch();
+      void refreshFriends();
+    });
+  const remove = (u: UserBrief) =>
+    act(async () => {
+      await api.friendRemove(u.id);
+      void refreshFriends();
+    });
+
+  return (
+    <div class="flex flex-col gap-[10px]">
+      {/* 加好友:搜索用户名 */}
+      <div class="flex flex-col gap-[6px]">
+        <input
+          class={INPUT}
+          type="text"
+          placeholder={t("friend.addPlaceholder")}
+          value={query()}
+          onInput={(e) => setQuery(e.currentTarget.value)}
+        />
+        <Show when={query().trim().length >= 2}>
+          <div class="flex flex-col gap-[4px] max-h-[140px] overflow-y-auto">
+            <Show
+              when={(results() ?? []).length > 0}
+              fallback={<p class="text-[12px] text-faint px-[2px]">{results.loading ? t("friend.searching") : t("friend.noResults")}</p>}
+            >
+              <For each={results()}>
+                {(u) => (
+                  <div class="flex items-center gap-[8px] bg-sidebar shadow-input px-[8px] py-[5px]">
+                    <span class="text-[13px] text-fg truncate flex-1">{label(u)}</span>
+                    <button
+                      class="text-[12px] text-accent hover:underline bg-transparent border-none cursor-pointer disabled:opacity-50"
+                      disabled={busy()}
+                      onClick={() => void sendRequest(u)}
+                    >
+                      {t("friend.add")}
+                    </button>
+                  </div>
+                )}
+              </For>
+            </Show>
+          </div>
+        </Show>
+      </div>
+
+      {/* 好友列表 */}
+      <div class="flex flex-col gap-[4px]">
+        <Show
+          when={(friends() ?? []).length > 0}
+          fallback={<p class="text-[12px] text-faint">{t("friend.noFriends")}</p>}
+        >
+          <For each={friends()}>
+            {(u) => (
+              <div class="flex items-center gap-[8px] px-[2px] py-[3px] group">
+                <span
+                  class={`w-[6px] h-[6px] shrink-0 ${u.online ? "bg-accent" : "bg-faint"}`}
+                  aria-hidden="true"
+                  title={u.online ? t("friend.online") : t("friend.offline")}
+                />
+                <div class="flex flex-col min-w-0 flex-1">
+                  <span class="text-[13px] text-fg truncate">{label(u)}</span>
+                  <span class="text-[11px] text-faint truncate">
+                    {u.online
+                      ? u.activity
+                        ? t("friend.playing", { name: u.activity })
+                        : t("friend.idle")
+                      : t("friend.offline")}
+                  </span>
+                </div>
+                <button
+                  class="text-[11px] text-danger-text hover:underline bg-transparent border-none cursor-pointer opacity-0 group-hover:opacity-100 disabled:opacity-50"
+                  disabled={busy()}
+                  onClick={() => void remove(u)}
+                >
+                  {t("friend.remove")}
+                </button>
+              </div>
+            )}
+          </For>
+        </Show>
+      </div>
+    </div>
+  );
+};

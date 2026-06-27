@@ -1,8 +1,10 @@
 import { Component, Show } from "solid-js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { runningIds, socialEnabled } from "../store";
+import { runningIds, socialEnabled, isKobeSignedIn } from "../store";
 import { DownloadQueue } from "../components/DownloadQueue";
 import { KobeAccountChip } from "../components/KobeAccountChip";
+import { NotificationCenter } from "../components/NotificationCenter";
+import { FriendsButton } from "../components/FriendsButton";
 import { PixelLabel } from "../components";
 import { t } from "../i18n";
 
@@ -77,8 +79,13 @@ const TopBar: Component = () => {
           </Show>
         </div>
 
-        {/* kobeMC 账号入口(社交开关关闭时整体隐藏)。 */}
+        {/* 社交入口(社交开关关闭时整体隐藏)。已登录时:通知中心(铃铛)+ 好友 + 账号 chip;
+            未登录时只剩账号 chip(它本身就是登录入口)。 */}
         <Show when={socialEnabled()}>
+          <Show when={isKobeSignedIn()}>
+            <NotificationCenter />
+            <FriendsButton />
+          </Show>
           <KobeAccountChip />
         </Show>
 
