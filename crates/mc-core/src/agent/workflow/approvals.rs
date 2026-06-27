@@ -185,7 +185,7 @@ pub(super) fn requirements_plan(
             requirement_description(output)
         ),
         risks: if missing.is_empty() {
-            vec!["No search/import/install/write work runs before requirements are confirmed."
+            vec!["No search/export/write work runs before requirements are confirmed."
                 .to_string()]
         } else {
             vec![format!(
