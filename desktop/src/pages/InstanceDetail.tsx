@@ -1,5 +1,5 @@
 import { Component, createEffect, createResource, createSignal, onCleanup, onMount, For, Show } from "solid-js";
-import { InstanceManageDialog, InstanceIcon, Dialog, ExportModpackDialog, toast, Button, Heading, PixelLabel, Tag, type InstanceRowData } from "../components";
+import { InstanceManageDialog, InstanceIcon, Dialog, ExportModpackDialog, toast, Button, Chip, Heading, PixelLabel, Tag, type InstanceRowData } from "../components";
 import { PlayButton } from "../components/PlayButton";
 import { RealmPanel } from "../components/RealmPanel";
 import { Menu } from "../components/Menu";
@@ -110,6 +110,39 @@ const InstanceDetail: Component = () => {
   const [confirmDel, setConfirmDel] = createSignal(false);
   // 导出整合包:选格式弹窗(非空 = 打开)。
   const [exportRow, setExportRow] = createSignal<InstanceRowData | null>(null);
+
+  // ===== 标签编辑 =====
+  // 新标签输入框内容;实例的现有标签直接读 inst().tags(后端单一真相)。
+  const [tagInput, setTagInput] = createSignal("");
+  // 提交标签集合到后端(后端会再做去空白/去重),成功后刷新全局列表 + 本页。
+  async function saveTags(next: string[]) {
+    const i = inst();
+    if (!i) return;
+    try {
+      await api.setInstanceTags(activeRoot(), i.id, next);
+      refreshInstances();
+      void refetch();
+    } catch (e) {
+      toast({ type: "error", message: t("tags.saveError", { err: String(e) }) });
+    }
+  }
+  function addTag() {
+    const i = inst();
+    const raw = tagInput().trim();
+    if (!i || !raw) return;
+    const current = i.tags ?? [];
+    if (current.includes(raw)) {
+      setTagInput("");
+      return;
+    }
+    void saveTags([...current, raw]);
+    setTagInput("");
+  }
+  function removeTag(tag: string) {
+    const i = inst();
+    if (!i) return;
+    void saveTags((i.tags ?? []).filter((x) => x !== tag));
+  }
 
   // Esc 返回上一页(与详情页导航一致);浏览模式有自己的 Esc,正在输入文本时不抢。
   onMount(() => {
@@ -275,6 +308,34 @@ const InstanceDetail: Component = () => {
                     {t("instance.updateAvailable", { version: latestUpdate()!.version_number })}
                   </button>
                 </Show>
+                {/* 标签编辑:现有标签可点 ✕ 移除,输入框 + 添加(回车也行)。库页据此分组/筛选。 */}
+                <div class="mt-[8px] flex flex-wrap items-center gap-[6px]">
+                  <For each={i().tags ?? []}>
+                    {(tag) => (
+                      <Chip onRemove={() => removeTag(tag)} removeLabel={t("tags.remove", { tag })}>
+                        {tag}
+                      </Chip>
+                    )}
+                  </For>
+                  <div class="inline-flex items-center gap-[6px]">
+                    <input
+                      type="text"
+                      value={tagInput()}
+                      onInput={(e) => setTagInput(e.currentTarget.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          addTag();
+                        }
+                      }}
+                      placeholder={t("tags.addPlaceholder")}
+                      class="h-[28px] w-[140px] bg-panel-2 text-fg text-[12px] px-[10px] rounded-none shadow-input border-none outline-none placeholder:text-faint focus:shadow-pressed"
+                    />
+                    <Button variant="ghost" disabled={!tagInput().trim()} onClick={addTag}>
+                      {t("tags.add")}
+                    </Button>
+                  </div>
+                </div>
               </div>
               <PlayButton
                 running={isRunning(i().id)}

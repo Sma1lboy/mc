@@ -16,6 +16,7 @@ import realm from "./realm";
 import friend from "./friend";
 import link from "./link";
 import skin from "./skin";
+import tags from "./tags";
 
 export const dictionaries = {
   zh: {
@@ -36,6 +37,7 @@ export const dictionaries = {
     friend: friend.zh,
     link: link.zh,
     skin: skin.zh,
+    tags: tags.zh,
   },
   en: {
     settings: settings.en,
@@ -55,5 +57,6 @@ export const dictionaries = {
     friend: friend.en,
     link: link.en,
     skin: skin.en,
+    tags: tags.en,
   },
 };

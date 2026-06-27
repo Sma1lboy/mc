@@ -2,6 +2,7 @@ import { Component, createResource, createSignal, For, Show, onCleanup } from "s
 import {
   InstanceRow,
   Button,
+  Chip,
   Panel,
   Heading,
   Select,
@@ -43,6 +44,7 @@ function toRowData(i: InstanceSummary): InstanceRowData {
     running: i.running ?? false,
     realmRole: i.realm?.role,
     installed: i.installed,
+    tags: i.tags ?? [],
   };
 }
 
@@ -56,6 +58,8 @@ const Library: Component = () => {
   const [instQuery, setInstQuery] = createSignal("");
   // 实例列表排序键:recent(默认,上次游玩降序)/ name / version。
   const [sortKey, setSortKey] = createSignal<"recent" | "name" | "version">("recent");
+  // 标签筛选:已选标签集合;空 = 不筛选(显示全部)。OR 语义:命中任一选中标签即保留。
+  const [activeTags, setActiveTags] = createSignal<Set<string>>(new Set());
   const [installing, setInstalling] = createSignal<string | null>(null);
   const [progress, setProgress] = createSignal("");
   // 导入整合包:统一弹窗(展示支持格式 / 拖入提示 / 须知);产物里有需手动下载或跳过的文件再摊开。
@@ -114,9 +118,28 @@ const Library: Component = () => {
     }
   };
 
-  // 在排序基础上按名称 / 版本 / 加载器过滤(空查询返回全部)。
+  // 当前所有实例上出现过的不同标签(字典序),用于渲染筛选条。
+  const allTags = () => {
+    const set = new Set<string>();
+    for (const i of instances() ?? []) for (const tag of i.tags ?? []) set.add(tag);
+    return [...set].sort((a, b) => a.localeCompare(b));
+  };
+
+  function toggleTag(tag: string) {
+    setActiveTags((s) => {
+      const n = new Set(s);
+      if (n.has(tag)) n.delete(tag);
+      else n.add(tag);
+      return n;
+    });
+  }
+
+  // 在排序基础上按名称 / 版本 / 加载器过滤 + 标签筛选(空查询/空标签集返回全部)。
   const filteredInstances = () => {
-    const all = sortedInstances();
+    let all = sortedInstances();
+    const active = activeTags();
+    // 标签 OR:实例命中任一选中标签即保留。
+    if (active.size > 0) all = all.filter((i) => (i.tags ?? []).some((tag) => active.has(tag)));
     const q = instQuery().trim().toLowerCase();
     if (!q) return all;
     return all.filter((i) =>
@@ -301,6 +324,22 @@ const Library: Component = () => {
           when={(instances() ?? []).length > 0}
           fallback={<EmptyState title={t("library.emptyRoot")} />}
         >
+          {/* 标签筛选条:任意实例带标签时出现。「全部」清空,其余 chip OR 多选。 */}
+          <Show when={allTags().length > 0}>
+            <div class="flex flex-wrap items-center gap-[8px] mb-[12px]">
+              <span class="text-[12px] text-muted shrink-0">{t("tags.filterLabel")}</span>
+              <Chip active={activeTags().size === 0} onClick={() => setActiveTags(new Set())}>
+                {t("tags.filterAll")}
+              </Chip>
+              <For each={allTags()}>
+                {(tag) => (
+                  <Chip active={activeTags().has(tag)} onClick={() => toggleTag(tag)}>
+                    {tag}
+                  </Chip>
+                )}
+              </For>
+            </div>
+          </Show>
           {/* 实例较多时给搜索框 + 排序(≥6 个才显示,避免少量实例时多余 chrome)。 */}
           <Show when={(instances() ?? []).length >= 6}>
             <div class="flex items-center gap-[10px] mb-[12px]">
