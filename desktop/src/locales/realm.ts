@@ -59,10 +59,9 @@ const dict = {
 
     // 邀请好友(owner/admin)
     inviteTitle: "邀请好友",
-    inviteHint: "把好友直接拉进这个领域,无需加入码。加入后他们到实例里点「开始同步」即可下载。",
+    inviteSearchPlaceholder: "搜索好友用户名邀请…",
     invite: "邀请",
     invited: "已加入",
-    inviteNoFriends: "暂无好友可邀请。先去 kobeMC 账号里加好友。",
     inviteDone: "已邀请好友加入领域。",
     friendTag: "好友",
 
@@ -143,10 +142,9 @@ const dict = {
     pushDone: "Published manifest v{{ version }}.",
 
     inviteTitle: "Invite friends",
-    inviteHint: "Add a friend straight into this realm — no join code. They open the instance and hit Begin to download.",
+    inviteSearchPlaceholder: "Search a friend's username to invite…",
     invite: "Invite",
     invited: "Joined",
-    inviteNoFriends: "No friends to invite yet. Add some in your kobeMC account.",
     inviteDone: "Friend invited to the realm.",
     friendTag: "Friend",
 

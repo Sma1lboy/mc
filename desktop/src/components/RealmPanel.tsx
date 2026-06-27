@@ -28,8 +28,40 @@ import {
   friends,
   refreshFriends,
 } from "../store";
+import { avatarTone, avatarInitial } from "../util/avatar";
 import { t } from "../i18n";
 import type { InstanceSummary, RealmMember, SyncReport } from "../ipc/bindings";
+
+/** 折叠区标题左侧的 caret(展开时旋转 90°)。 */
+const Caret: Component<{ open: boolean }> = (props) => (
+  <svg
+    class="w-[10px] h-[10px] shrink-0 text-muted transition-transform duration-150"
+    classList={{ "rotate-90": props.open }}
+    viewBox="0 0 12 12"
+    fill="none"
+    aria-hidden="true"
+  >
+    <path d="M4 2.5 8 6 4 9.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+  </svg>
+);
+
+/** 成员 / 邀请头像方块瓦片(含可选在线 pip)。 */
+const PersonTile: Component<{ name: string; online?: boolean; pip?: boolean }> = (props) => (
+  <span
+    class="relative w-[26px] h-[26px] shrink-0 grid place-items-center shadow-raised font-display text-[12px] text-[#1a1b12]"
+    classList={{ "grayscale brightness-75": props.pip ? !props.online : false }}
+    style={{ "background-color": avatarTone(props.name) }}
+    aria-hidden="true"
+  >
+    {avatarInitial(props.name)}
+    <Show when={props.pip}>
+      <span
+        class="absolute -right-[2px] -bottom-[2px] w-[8px] h-[8px] shadow-[0_0_0_2px_var(--color-panel)]"
+        classList={{ "bg-accent": props.online, "bg-faint": !props.online }}
+      />
+    </Show>
+  </span>
+);
 
 /** role 字符串 → 本地化标签。 */
 function roleLabel(role: string): string {
@@ -255,6 +287,17 @@ const RealmManage: Component<{ instance: InstanceSummary; onChanged?: () => void
   const [busy, setBusy] = createSignal(false);
   const [progress, setProgress] = createSignal<{ current: number; total: number } | null>(null);
   const [confirmKind, setConfirmKind] = createSignal<"leave" | "disband" | null>(null);
+
+  // 折叠态:成员默认展开,邀请默认折叠(展开后只放一个搜索框,输入才出名字)。
+  const [membersOpen, setMembersOpen] = createSignal(true);
+  const [inviteOpen, setInviteOpen] = createSignal(false);
+  const [inviteQuery, setInviteQuery] = createSignal("");
+  // 邀请:在自己的好友里按用户名过滤(空输入不出名单),在线优先。
+  const inviteMatches = () => {
+    const q = inviteQuery().trim().toLowerCase();
+    if (!q) return [];
+    return sortedFriends().filter((f) => (f.username || f.id).toLowerCase().includes(q));
+  };
 
   // 自动检测差异:随 (领域, 清单版本) 自动重算。
   const [plan, { refetch: refetchPlan }] = createResource(
@@ -496,110 +539,140 @@ const RealmManage: Component<{ instance: InstanceSummary; onChanged?: () => void
         </Show>
       </Panel>
 
-      {/* 邀请好友(owner/admin · 社交开启时) */}
-      <Show when={canPush() && socialEnabled() && isKobeSignedIn()}>
-        <Panel variant="sunken" class="p-[16px]">
-          <Heading size="sub" as="h3" class="m-0 text-[14px] mb-[4px]">
-            {t("realm.inviteTitle")}
-          </Heading>
-          <p class="text-[12px] text-muted leading-[1.6] mb-[10px]">{t("realm.inviteHint")}</p>
-          <Show
-            when={(friends() ?? []).length > 0}
-            fallback={<p class="text-[12px] text-faint">{t("realm.inviteNoFriends")}</p>}
-          >
-              <div class="flex flex-col gap-[6px]">
-                <For each={sortedFriends()}>
-                  {(f) => (
-                    <Panel variant="raised" class="flex items-center gap-[10px] px-[12px] py-[7px]">
-                      <span
-                        class={`w-[6px] h-[6px] shrink-0 ${f.online ? "bg-accent" : "bg-faint"}`}
-                        aria-hidden="true"
-                        title={f.online ? t("friend.online") : t("friend.offline")}
-                      />
+      {/* 成员(可折叠;上移到邀请之前) */}
+      <Panel variant="sunken" class="p-0 overflow-hidden">
+        <button
+          type="button"
+          class="w-full flex items-center gap-[8px] px-[16px] py-[12px] bg-transparent border-none cursor-pointer text-left hover:bg-panel-2 transition-[background-color] duration-[var(--dur)] ease-app"
+          onClick={() => setMembersOpen((o) => !o)}
+        >
+          <Caret open={membersOpen()} />
+          <span class="text-[12px] text-sub font-display tracking-[0.5px]">{t("realm.members")}</span>
+          <span class="text-[11px] text-faint tabular-nums">{(members() ?? []).length}</span>
+        </button>
+        <Show when={membersOpen()}>
+          <div class="px-[8px] pb-[10px]">
+            <Show when={!members.loading} fallback={<div class="flex justify-center p-[12px]"><Spinner /></div>}>
+              <For each={members() ?? []}>
+                {(m: RealmMember) => {
+                  const nm = m.username || m.user_id.slice(0, 8);
+                  return (
+                    <div class="flex items-center gap-[10px] px-[8px] py-[6px] group hover:bg-panel-2 transition-[background-color] duration-[var(--dur)] ease-app">
+                      <PersonTile name={nm} />
                       <div class="flex flex-col min-w-0 flex-1">
-                        <span class="text-[13px] text-fg truncate">{f.username || f.id.slice(0, 8)}</span>
+                        <span class="text-[13px] text-fg truncate">
+                          {nm}
+                          <Show when={m.user_id === myId()}>
+                            <span class="text-muted"> {t("realm.you")}</span>
+                          </Show>
+                        </span>
                         <span class="text-[11px] text-faint truncate">
-                          {f.online
-                            ? f.activity
-                              ? t("friend.playing", { name: f.activity })
-                              : t("friend.idle")
-                            : t("friend.offline")}
+                          {m.synced_version > 0 ? t("realm.syncedTo", { version: m.synced_version }) : t("realm.notSynced")}
                         </span>
                       </div>
-                      <Show
-                        when={!memberIds().has(f.id)}
-                        fallback={<span class="text-[12px] text-faint">{t("realm.invited")}</span>}
-                      >
-                        <button
-                          class="text-[12px] text-accent hover:underline bg-transparent border-none cursor-pointer disabled:opacity-50"
-                          disabled={busy()}
-                          onClick={() => void invite(f.id)}
-                        >
-                          {t("realm.invite")}
-                        </button>
+                      <Show when={m.user_id !== myId() && friendIds().has(m.user_id)}>
+                        <Tag>{t("realm.friendTag")}</Tag>
                       </Show>
-                    </Panel>
-                  )}
-                </For>
-              </div>
+                      <Tag>{roleLabel(m.role)}</Tag>
+                      <Show when={isOwner() && m.role !== "owner"}>
+                        <div class="flex items-center gap-[6px] shrink-0">
+                          <button
+                            class="text-[12px] text-muted hover:text-fg bg-transparent border-none cursor-pointer disabled:opacity-50"
+                            disabled={busy()}
+                            onClick={() => void setRole(m.user_id, m.role === "member" ? "admin" : "member")}
+                          >
+                            {m.role === "member" ? t("realm.promote") : t("realm.demote")}
+                          </button>
+                          <button
+                            class="text-[12px] text-danger-text hover:underline bg-transparent border-none cursor-pointer disabled:opacity-50"
+                            disabled={busy()}
+                            onClick={() => void removeMember(m.user_id)}
+                          >
+                            {t("realm.removeMember")}
+                          </button>
+                        </div>
+                      </Show>
+                    </div>
+                  );
+                }}
+              </For>
             </Show>
+          </div>
+        </Show>
+      </Panel>
+
+      {/* 邀请好友(owner/admin · 社交开启时;可折叠,展开后搜索自己的好友邀请,输入才出名字) */}
+      <Show when={canPush() && socialEnabled() && isKobeSignedIn()}>
+        <Panel variant="sunken" class="p-0 overflow-hidden">
+          <button
+            type="button"
+            class="w-full flex items-center gap-[8px] px-[16px] py-[12px] bg-transparent border-none cursor-pointer text-left hover:bg-panel-2 transition-[background-color] duration-[var(--dur)] ease-app"
+            onClick={() => setInviteOpen((o) => !o)}
+          >
+            <Caret open={inviteOpen()} />
+            <span class="text-[12px] text-sub font-display tracking-[0.5px]">{t("realm.inviteTitle")}</span>
+          </button>
+          <Show when={inviteOpen()}>
+            <div class="px-[16px] pb-[12px] flex flex-col gap-[8px]">
+              <input
+                class="h-[32px] px-[10px] rounded-none text-[13px] text-fg bg-sidebar shadow-input w-full placeholder:text-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                type="text"
+                placeholder={t("realm.inviteSearchPlaceholder")}
+                value={inviteQuery()}
+                onInput={(e) => setInviteQuery(e.currentTarget.value)}
+              />
+              <Show when={inviteQuery().trim().length > 0}>
+                <Show
+                  when={inviteMatches().length > 0}
+                  fallback={<p class="text-[12px] text-faint px-[2px]">{t("friend.noResults")}</p>}
+                >
+                  <div class="flex flex-col gap-[2px] max-h-[200px] overflow-y-auto">
+                    <For each={inviteMatches()}>
+                      {(f) => {
+                        const nm = f.username || f.id.slice(0, 8);
+                        return (
+                          <div class="flex items-center gap-[10px] px-[8px] py-[6px]" classList={{ "opacity-70": !f.online }}>
+                            <PersonTile name={nm} online={f.online} pip />
+                            <div class="flex flex-col min-w-0 flex-1">
+                              <span class="text-[13px] text-fg truncate">{nm}</span>
+                              <span class="text-[11px] text-faint truncate">
+                                {f.online
+                                  ? f.activity
+                                    ? t("friend.playing", { name: f.activity })
+                                    : t("friend.idle")
+                                  : t("friend.offline")}
+                              </span>
+                            </div>
+                            <Show
+                              when={!memberIds().has(f.id)}
+                              fallback={<span class="text-[12px] text-faint">{t("realm.invited")}</span>}
+                            >
+                              <button
+                                class="text-[12px] text-accent hover:underline bg-transparent border-none cursor-pointer disabled:opacity-50"
+                                disabled={busy()}
+                                onClick={() => void invite(f.id)}
+                              >
+                                {t("realm.invite")}
+                              </button>
+                            </Show>
+                          </div>
+                        );
+                      }}
+                    </For>
+                  </div>
+                </Show>
+              </Show>
+            </div>
+          </Show>
         </Panel>
       </Show>
 
-      {/* 成员 */}
-      <Panel variant="sunken" class="p-[16px]">
-        <Heading size="sub" as="h3" class="m-0 text-[14px] mb-[10px]">
-          {t("realm.members")}
-        </Heading>
-        <Show when={!members.loading} fallback={<div class="flex justify-center p-[12px]"><Spinner /></div>}>
-          <div class="flex flex-col gap-[8px]">
-            <For each={members() ?? []}>
-              {(m: RealmMember) => (
-                <Panel variant="raised" class="flex items-center gap-[10px] px-[12px] py-[8px]">
-                  <div class="flex flex-col min-w-0 flex-1">
-                    <span class="text-[13px] text-fg truncate">
-                      {m.username || m.user_id.slice(0, 8)}
-                      <Show when={m.user_id === myId()}>
-                        <span class="text-muted"> {t("realm.you")}</span>
-                      </Show>
-                    </span>
-                    <span class="text-[11px] text-faint">
-                      {m.synced_version > 0 ? t("realm.syncedTo", { version: m.synced_version }) : t("realm.notSynced")}
-                    </span>
-                  </div>
-                  <Show when={m.user_id !== myId() && friendIds().has(m.user_id)}>
-                    <Tag>{t("realm.friendTag")}</Tag>
-                  </Show>
-                  <Tag>{roleLabel(m.role)}</Tag>
-                  <Show when={isOwner() && m.role !== "owner"}>
-                    <div class="flex items-center gap-[6px] shrink-0">
-                      <button
-                        class="text-[12px] text-muted hover:text-fg bg-transparent border-none cursor-pointer disabled:opacity-50"
-                        disabled={busy()}
-                        onClick={() => void setRole(m.user_id, m.role === "member" ? "admin" : "member")}
-                      >
-                        {m.role === "member" ? t("realm.promote") : t("realm.demote")}
-                      </button>
-                      <button
-                        class="text-[12px] text-danger-text hover:underline bg-transparent border-none cursor-pointer disabled:opacity-50"
-                        disabled={busy()}
-                        onClick={() => void removeMember(m.user_id)}
-                      >
-                        {t("realm.removeMember")}
-                      </button>
-                    </div>
-                  </Show>
-                </Panel>
-              )}
-            </For>
-          </div>
-        </Show>
-        <div class="mt-[12px] pt-[12px] border-t border-titlebar flex justify-end">
-          <Button variant="danger" disabled={busy()} onClick={() => setConfirmKind(isOwner() ? "disband" : "leave")}>
-            {isOwner() ? t("realm.disband") : t("realm.leave")}
-          </Button>
-        </div>
-      </Panel>
+      {/* 退出 / 解散 */}
+      <div class="flex justify-end">
+        <Button variant="danger" disabled={busy()} onClick={() => setConfirmKind(isOwner() ? "disband" : "leave")}>
+          {isOwner() ? t("realm.disband") : t("realm.leave")}
+        </Button>
+      </div>
 
       <Dialog open={confirmKind() !== null} onClose={() => setConfirmKind(null)} label={confirmKind() === "disband" ? t("realm.disband") : t("realm.leave")}>
         <div class="p-[20px] flex flex-col gap-[16px]">

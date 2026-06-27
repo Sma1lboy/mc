@@ -1,0 +1,357 @@
+/* === GLASS:fluent === Windows 11 Fluent Acrylic + Mica ===================
+   Restrained, professional, content-first. Subtle mica desktop background,
+   tinted acrylic panels with real backdrop blur + fine noise texture, thin
+   subtle borders, minimal shadow, reveal-style hover.
+   Every selector scoped under [data-glass="fluent"].
+   ========================================================================= */
+
+/* ---- local design constants (acrylic recipe) ---------------------------- */
+[data-glass="fluent"] {
+  --fl-acrylic:        rgba(30,33,38,0.62);
+  --fl-acrylic-strong: rgba(28,31,36,0.74);
+  --fl-acrylic-faint:  rgba(32,35,40,0.46);
+  --fl-card:           rgba(38,42,48,0.58);
+  --fl-card-hover:     rgba(46,50,57,0.66);
+  --fl-border:         rgba(255,255,255,0.06);
+  --fl-border-strong:  rgba(255,255,255,0.10);
+  --fl-border-reveal:  rgba(255,255,255,0.16);
+  --fl-blur:           saturate(1.25) blur(30px);
+  --fl-blur-strong:    saturate(1.3) blur(40px);
+  --fl-text:           #e8eaed;
+  --fl-text-dim:       #9aa1ad;
+  --fl-shadow:         0 2px 10px rgba(0,0,0,0.28);
+  --fl-shadow-hover:   0 6px 18px rgba(0,0,0,0.34);
+  /* fine noise (feTurbulence) as a tileable data-URI; layered low-opacity */
+  --fl-noise: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='160' height='160' filter='url(%23n)' opacity='0.5'/></svg>");
+}
+
+/* ---- window root --------------------------------------------------------- */
+[data-glass="fluent"].window {
+  border-radius:10px;
+  box-shadow:0 24px 60px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.05);
+  color:var(--fl-text);
+}
+
+/* ---- app background : MICA ----------------------------------------------
+   Dark, calm. A single faint low-saturation tint gradient. No colorful blobs.
+   ::before adds an extremely gentle large-radius desktop-tint wash; ::after
+   lays the fine noise across the whole scene (mica = blurred desktop + noise).
+   ------------------------------------------------------------------------- */
+[data-glass="fluent"] .app-bg {
+  background:
+    radial-gradient(120% 90% at 78% 8%, rgba(63,191,120,0.05), transparent 55%),
+    linear-gradient(160deg, #1c1f24 0%, #181a1e 48%, #15171b 100%);
+}
+[data-glass="fluent"] .app-bg::before {
+  content:"";
+  position:absolute; inset:0;
+  background:
+    radial-gradient(70% 55% at 18% 92%, rgba(72,103,140,0.055), transparent 60%),
+    radial-gradient(60% 50% at 95% 60%, rgba(40,46,55,0.5), transparent 70%);
+  pointer-events:none;
+}
+[data-glass="fluent"] .app-bg::after {
+  content:"";
+  position:absolute; inset:0;
+  background-image:var(--fl-noise);
+  background-size:160px 160px;
+  opacity:0.045;
+  mix-blend-mode:overlay;
+  pointer-events:none;
+}
+
+/* ---- shell : transparent (leave grid) ----------------------------------- */
+[data-glass="fluent"] .shell { background:transparent; }
+
+/* =========================================================================
+   RAIL — acrylic vertical nav
+   ========================================================================= */
+[data-glass="fluent"] .rail {
+  position:relative;
+  background:var(--fl-acrylic-strong);
+  -webkit-backdrop-filter:var(--fl-blur);
+  backdrop-filter:var(--fl-blur);
+  border-right:1px solid var(--fl-border);
+}
+/* noise overlay for the rail acrylic */
+[data-glass="fluent"] .rail::after {
+  content:"";
+  position:absolute; inset:0;
+  background-image:var(--fl-noise);
+  background-size:160px 160px;
+  opacity:0.05;
+  mix-blend-mode:overlay;
+  pointer-events:none;
+}
+[data-glass="fluent"] .rail > * { position:relative; z-index:1; }
+
+[data-glass="fluent"] .rail .logo {
+  border-radius:6px;
+  transition:background-color .18s ease;
+}
+[data-glass="fluent"] .rail .logo:hover {
+  background:rgba(255,255,255,0.05);
+}
+
+[data-glass="fluent"] .rail-item {
+  color:var(--fl-text-dim);
+  border:1px solid transparent;
+  border-radius:6px;
+  transition:background-color .18s ease, color .18s ease, border-color .18s ease;
+}
+/* reveal hover — faint inner light + lightened border, no heavy glow */
+[data-glass="fluent"] .rail-item:hover {
+  background:rgba(255,255,255,0.06);
+  border-color:var(--fl-border-reveal);
+  color:var(--fl-text);
+}
+[data-glass="fluent"] .rail-item.selected {
+  color:var(--a-5);
+  background:color-mix(in srgb, var(--a-4) 14%, rgba(255,255,255,0.04));
+  border-color:rgba(63,191,120,0.18);
+}
+[data-glass="fluent"] .rail-item.selected::before {
+  background:var(--a-4);
+  box-shadow:0 0 8px rgba(40,160,98,0.45);
+}
+
+[data-glass="fluent"] .rail .divider {
+  background:rgba(255,255,255,0.08);
+}
+[data-glass="fluent"] .rail .avatar {
+  border:1px solid var(--fl-border-strong);
+  background:linear-gradient(135deg,var(--a-3),var(--a-5));
+  box-shadow:0 1px 4px rgba(0,0,0,0.3);
+}
+
+/* =========================================================================
+   TOPBAR — acrylic
+   ========================================================================= */
+[data-glass="fluent"] .topbar {
+  position:relative;
+  background:var(--fl-acrylic);
+  -webkit-backdrop-filter:var(--fl-blur);
+  backdrop-filter:var(--fl-blur);
+  border-bottom:1px solid var(--fl-border);
+}
+[data-glass="fluent"] .topbar::after {
+  content:"";
+  position:absolute; inset:0;
+  background-image:var(--fl-noise);
+  background-size:160px 160px;
+  opacity:0.04;
+  mix-blend-mode:overlay;
+  pointer-events:none;
+}
+[data-glass="fluent"] .topbar > * { position:relative; z-index:1; }
+
+[data-glass="fluent"] .topbar .brand { color:var(--fl-text); }
+[data-glass="fluent"] .topbar .pagetitle { color:var(--fl-text); }
+[data-glass="fluent"] .topbar .navbtns button { color:var(--fl-text-dim); }
+
+[data-glass="fluent"] .btn-switch {
+  border:1px solid var(--fl-border-strong);
+  background:rgba(255,255,255,0.04);
+  color:var(--fl-text-dim);
+  border-radius:6px;
+  transition:background-color .18s ease, color .18s ease, border-color .18s ease;
+}
+[data-glass="fluent"] .btn-switch:hover {
+  background:rgba(255,255,255,0.09);
+  border-color:var(--fl-border-reveal);
+  color:var(--fl-text);
+}
+
+[data-glass="fluent"] .runstat { color:var(--fl-text); }
+[data-glass="fluent"] .runstat .dot {
+  background:var(--a-5);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--a-4) 25%,transparent), 0 0 6px rgba(63,191,120,0.5);
+}
+
+/* =========================================================================
+   MAIN — transparent so app-bg mica shows through behind frosted cards
+   ========================================================================= */
+[data-glass="fluent"] .body { background:transparent; }
+[data-glass="fluent"] .main { background:transparent; }
+[data-glass="fluent"] .main h1 { color:var(--fl-text); }
+[data-glass="fluent"] .main h2 { color:var(--fl-text); }
+[data-glass="fluent"] .section h2 { color:var(--fl-text); }
+
+/* =========================================================================
+   INSTANCE ROWS — acrylic cards
+   ========================================================================= */
+[data-glass="fluent"] .glass-row {
+  position:relative;
+  background:var(--fl-card);
+  -webkit-backdrop-filter:var(--fl-blur);
+  backdrop-filter:var(--fl-blur);
+  border:1px solid var(--fl-border);
+  border-radius:8px;
+  box-shadow:var(--fl-shadow);
+  overflow:hidden;
+  transition:background-color .18s ease, border-color .18s ease,
+             box-shadow .18s ease, transform .18s ease;
+}
+[data-glass="fluent"] .glass-row::after {
+  content:"";
+  position:absolute; inset:0;
+  background-image:var(--fl-noise);
+  background-size:160px 160px;
+  opacity:0.04;
+  mix-blend-mode:overlay;
+  pointer-events:none;
+}
+[data-glass="fluent"] .glass-row > * { position:relative; z-index:1; }
+/* reveal hover */
+[data-glass="fluent"] .glass-row:hover {
+  transform:translateY(-1px);
+  background:var(--fl-card-hover);
+  border-color:var(--fl-border-reveal);
+  box-shadow:var(--fl-shadow-hover);
+}
+
+[data-glass="fluent"] .glass-row .ricon {
+  background:linear-gradient(135deg,var(--a-3),var(--a-5));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.18);
+}
+[data-glass="fluent"] .glass-row .ricon .live {
+  background:var(--a-5);
+  box-shadow:0 0 0 2px rgba(38,42,48,0.9), 0 0 5px rgba(63,191,120,0.6);
+}
+[data-glass="fluent"] .glass-row .rname { color:var(--fl-text); }
+[data-glass="fluent"] .glass-row .rsub { color:var(--fl-text-dim); }
+
+[data-glass="fluent"] .play-btn {
+  background:linear-gradient(135deg,var(--a-4),var(--a-5));
+  color:#fff;
+  border-radius:6px;
+  box-shadow:0 1px 6px rgba(40,160,98,0.32), inset 0 1px 0 rgba(255,255,255,0.2);
+  transition:filter .15s ease, box-shadow .15s ease;
+}
+[data-glass="fluent"] .play-btn:hover {
+  filter:brightness(1.06);
+  box-shadow:0 2px 10px rgba(40,160,98,0.42), inset 0 1px 0 rgba(255,255,255,0.25);
+}
+
+[data-glass="fluent"] .menu-btn {
+  color:var(--fl-text-dim);
+  border:1px solid transparent;
+  border-radius:6px;
+  transition:background-color .18s ease, color .18s ease, border-color .18s ease;
+}
+[data-glass="fluent"] .menu-btn:hover {
+  background:rgba(255,255,255,0.07);
+  border-color:var(--fl-border-reveal);
+  color:var(--fl-text);
+}
+
+/* =========================================================================
+   MODPACK CARDS — acrylic shell, vivid covers preserved
+   ========================================================================= */
+[data-glass="fluent"] .glass-modcard {
+  position:relative;
+  background:var(--fl-card);
+  -webkit-backdrop-filter:var(--fl-blur);
+  backdrop-filter:var(--fl-blur);
+  border:1px solid var(--fl-border);
+  border-radius:8px;
+  box-shadow:var(--fl-shadow);
+  transition:background-color .18s ease, border-color .18s ease,
+             box-shadow .18s ease, transform .18s ease;
+}
+[data-glass="fluent"] .glass-modcard:hover {
+  transform:translateY(-2px);
+  background:var(--fl-card-hover);
+  border-color:var(--fl-border-reveal);
+  box-shadow:var(--fl-shadow-hover);
+}
+
+/* keep covers vivid; add a subtle inner highlight for depth */
+[data-glass="fluent"] .glass-modcard .cover {
+  position:relative;
+}
+[data-glass="fluent"] .glass-modcard .cover::after {
+  content:"";
+  position:absolute; inset:0;
+  background:linear-gradient(180deg, rgba(255,255,255,0.16), transparent 40%, rgba(0,0,0,0.18));
+  pointer-events:none;
+}
+
+/* noise over the info area only (keep covers clean/photographic) */
+[data-glass="fluent"] .glass-modcard .info {
+  position:relative;
+}
+[data-glass="fluent"] .glass-modcard .info::after {
+  content:"";
+  position:absolute; inset:0;
+  background-image:var(--fl-noise);
+  background-size:160px 160px;
+  opacity:0.04;
+  mix-blend-mode:overlay;
+  pointer-events:none;
+}
+[data-glass="fluent"] .glass-modcard .info > * { position:relative; z-index:1; }
+
+[data-glass="fluent"] .glass-modcard .mtitle { color:var(--fl-text); }
+[data-glass="fluent"] .glass-modcard .mtitle .by { color:var(--fl-text-dim); }
+[data-glass="fluent"] .glass-modcard .mdesc { color:var(--fl-text-dim); }
+[data-glass="fluent"] .glass-modcard .dl { color:var(--fl-text-dim); }
+[data-glass="fluent"] .glass-modcard .dl svg { color:var(--a-5); }
+
+[data-glass="fluent"] .chip {
+  color:var(--fl-text-dim);
+  background:rgba(255,255,255,0.06);
+  border:1px solid var(--fl-border);
+  border-radius:4px;
+}
+
+/* =========================================================================
+   CONTEXT BAR — acrylic
+   ========================================================================= */
+[data-glass="fluent"] .ctxbar {
+  position:relative;
+  background:var(--fl-acrylic);
+  -webkit-backdrop-filter:var(--fl-blur-strong);
+  backdrop-filter:var(--fl-blur-strong);
+  border-left:1px solid var(--fl-border);
+}
+[data-glass="fluent"] .ctxbar::after {
+  content:"";
+  position:absolute; inset:0;
+  background-image:var(--fl-noise);
+  background-size:160px 160px;
+  opacity:0.045;
+  mix-blend-mode:overlay;
+  pointer-events:none;
+}
+[data-glass="fluent"] .ctxbar > * { position:relative; z-index:1; }
+
+[data-glass="fluent"] .ctxbar .heading { color:var(--fl-text-dim); }
+
+[data-glass="fluent"] .ctx-card {
+  background:var(--fl-card);
+  -webkit-backdrop-filter:saturate(1.2) blur(12px);
+  backdrop-filter:saturate(1.2) blur(12px);
+  border:1px solid var(--fl-border);
+  border-radius:6px;
+  transition:background-color .18s ease, border-color .18s ease;
+}
+[data-glass="fluent"] .ctx-card:hover {
+  background:var(--fl-card-hover);
+  border-color:var(--fl-border-reveal);
+}
+[data-glass="fluent"] .ctx-card .av {
+  background:linear-gradient(135deg,var(--a-3),var(--a-5));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.18);
+}
+[data-glass="fluent"] .ctx-card .cname { color:var(--fl-text); }
+[data-glass="fluent"] .ctx-card .ckind { color:var(--fl-text-dim); }
+[data-glass="fluent"] .ctx-card .chev { color:var(--fl-text-dim); }
+
+[data-glass="fluent"] .empty-card {
+  background:rgba(255,255,255,0.025);
+  border:1px dashed rgba(255,255,255,0.12);
+  border-radius:6px;
+}
+[data-glass="fluent"] .empty-card .e1 { color:var(--fl-text-dim); }
+[data-glass="fluent"] .empty-card .e2 { color:rgba(154,161,173,0.7); }

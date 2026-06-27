@@ -1,0 +1,2437 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MC Launcher · 首页玻璃风格对比</title>
+<style>
+/* =====================================================================
+   真实 token(取自 desktop/src/theme/tokens.css 的 dark 调色板)
+   ===================================================================== */
+:root {
+  --n-1:#0e0f11; --n-2:#16181c; --n-3:#1b1e23; --n-4:#23272e;
+  --n-5:#2c313a; --n-6:#3a414c; --n-7:#8b929e; --n-8:#e8eaed;
+  --a-1:#0f3d2a; --a-2:#155f3a; --a-3:#1f7a4d; --a-4:#28a062;
+  --a-5:#3fbf78; --a-6:#6fd79b; --a-7:#a8e8c4; --a-8:#d9f6e6;
+
+  --text:var(--n-8); --text-dim:var(--n-7);
+  --bg-card:var(--n-4);
+  --radius-card:8px; --radius:6px; --radius-sm:4px;
+  --font:"Inter","Microsoft YaHei UI",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --shadow:0 2px 12px rgba(0,0,0,0.35);
+  --blur-r:18px;
+}
+
+* { box-sizing:border-box; }
+html,body { margin:0; height:100%; }
+body {
+  font-family:var(--font);
+  font-size:14px;
+  color:var(--text);
+  background:#0a0b0d;
+  -webkit-font-smoothing:antialiased;
+  display:flex; flex-direction:column; align-items:center;
+  padding:18px 18px 48px;
+  min-height:100vh;
+}
+
+/* ===== 顶部风格切换器(原型外壳,非启动器一部分) ===== */
+.switcher {
+  position:sticky; top:0; z-index:50;
+  display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:center;
+  padding:10px 14px; margin-bottom:18px;
+  background:rgba(20,22,26,0.8);
+  backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+  border:1px solid rgba(255,255,255,0.08);
+  border-radius:999px;
+  box-shadow:0 8px 30px rgba(0,0,0,0.5);
+}
+.switcher b { font-size:12px; color:#9aa3b0; letter-spacing:.3px; margin-right:4px; }
+.sw-btn {
+  font:inherit; font-size:13px; font-weight:600;
+  padding:7px 14px; border-radius:999px; cursor:pointer;
+  border:1px solid rgba(255,255,255,0.12);
+  background:rgba(255,255,255,0.04); color:#cdd3dc;
+  transition:all .18s cubic-bezier(.4,0,.2,1);
+}
+.sw-btn:hover { background:rgba(255,255,255,0.1); color:#fff; }
+.sw-btn.active {
+  background:linear-gradient(135deg,var(--a-4),var(--a-5));
+  border-color:transparent; color:#06130d;
+  box-shadow:0 4px 16px rgba(63,191,120,0.4);
+}
+.sw-note {
+  width:100%; text-align:center; font-size:12px; color:#7d8693;
+  margin-top:2px; min-height:16px;
+}
+
+/* =====================================================================
+   窗口框 + 布局骨架(与 desktop/src/layout/AppShell 一致)
+   columns 64px 1fr;rows 48px 1fr;areas: rail/topbar, rail/body
+   ===================================================================== */
+.window {
+  position:relative;
+  width:1180px; max-width:100%; height:760px;
+  border-radius:12px; overflow:hidden;
+  box-shadow:0 30px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05);
+  isolation:isolate;
+}
+/* 背景层:满铺窗口、置于 shell 之下,玻璃面板透出它 */
+.app-bg { position:absolute; inset:0; z-index:0; background:var(--n-1); }
+
+.shell {
+  position:relative; z-index:1;
+  display:grid;
+  grid-template-columns:64px 1fr;
+  grid-template-rows:48px 1fr;
+  grid-template-areas:"rail topbar" "rail body";
+  width:100%; height:100%;
+  background:transparent;
+}
+
+/* ---------- Rail（左 64px 竖直图标栏） ---------- */
+.rail {
+  grid-area:rail;
+  display:flex; flex-direction:column; align-items:center;
+  padding:36px 0 8px; gap:4px;
+  background:var(--n-2); border-right:1px solid var(--n-6);
+}
+.rail .logo { width:40px; height:40px; margin-bottom:6px; display:grid; place-items:center; border-radius:var(--radius); cursor:pointer; }
+.rail .logo svg { width:26px; height:26px; }
+.rail-item {
+  position:relative; width:48px; height:48px; border:0; background:transparent;
+  border-radius:var(--radius); cursor:pointer; display:grid; place-items:center;
+  color:var(--n-7); transition:background-color .2s, color .2s;
+}
+.rail-item svg { width:22px; height:22px; }
+.rail-item:hover { background:color-mix(in srgb, var(--a-4) 16%, transparent); color:var(--n-8); }
+.rail-item.selected { color:var(--a-5); background:color-mix(in srgb, var(--a-4) 12%, transparent); }
+.rail-item.selected::before {
+  content:""; position:absolute; left:-8px; top:50%; transform:translateY(-50%);
+  width:4px; height:24px; border-radius:0 2px 2px 0; background:var(--a-4);
+}
+.rail .divider { width:32px; height:1px; background:var(--n-6); margin:6px 0; }
+.rail .spacer { flex:1 1 auto; }
+.rail .avatar {
+  width:36px; height:36px; border:1px solid var(--n-6); border-radius:50%;
+  display:grid; place-items:center; overflow:hidden; cursor:pointer;
+  background:linear-gradient(135deg,var(--a-3),var(--a-5)); color:#fff; font-weight:700; font-size:15px;
+}
+
+/* ---------- TopBar（顶 48px） ---------- */
+.topbar {
+  grid-area:topbar;
+  display:flex; align-items:center; justify-content:space-between;
+  padding:0 8px 0 14px;
+  background:var(--n-2); border-bottom:1px solid var(--n-6);
+  user-select:none;
+}
+.topbar .left { display:flex; align-items:center; gap:10px; min-width:0; }
+.topbar .brand { font-size:13px; font-weight:600; color:var(--text); letter-spacing:.2px; }
+.topbar .navbtns { display:flex; gap:2px; }
+.topbar .navbtns button {
+  width:28px; height:28px; border:none; background:transparent; color:var(--n-7);
+  border-radius:var(--radius); display:grid; place-items:center; opacity:.35; cursor:default;
+}
+.topbar .navbtns svg { width:18px; height:18px; }
+.topbar .pagetitle { font-size:14px; font-weight:500; color:var(--text); }
+.topbar .right { display:flex; align-items:center; gap:12px; }
+.btn-switch {
+  border:1px solid var(--n-6); background:var(--n-4); color:var(--text-dim);
+  font:inherit; font-size:12px; padding:5px 10px; border-radius:var(--radius); cursor:pointer; margin-right:12px;
+  transition:all .2s;
+}
+.btn-switch:hover { background:var(--a-4); color:#fff; border-color:var(--a-4); }
+.runstat { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text); }
+.runstat .dot { width:8px; height:8px; border-radius:50%; background:var(--a-5); box-shadow:0 0 0 3px color-mix(in srgb,var(--a-4) 25%,transparent); }
+
+/* ---------- Body：main + ctxbar ---------- */
+.body {
+  grid-area:body;
+  display:grid; grid-template-columns:1fr 340px;
+  min-height:0;
+}
+
+/* ---------- Main（内容滚动区） ---------- */
+.main { background:var(--n-3); overflow-y:auto; padding:24px 28px; min-width:0; }
+.main h1 { font-size:28px; font-weight:700; margin:0 0 4px; color:var(--text); }
+.main h2 { font-size:18px; font-weight:600; margin:12px 0; color:var(--text); }
+.section { margin-top:28px; }
+.section h2 { margin:0 0 14px; cursor:pointer; }
+
+.rows { display:flex; flex-direction:column; gap:10px; }
+
+/* 实例行卡片（InstanceRow） */
+.glass-row {
+  display:flex; align-items:center; gap:14px;
+  background:var(--bg-card); border:1px solid transparent;
+  border-radius:var(--radius-card); box-shadow:var(--shadow);
+  padding:12px 14px; transition:transform .2s, box-shadow .2s, border-color .2s;
+}
+.glass-row:hover { transform:translateY(-2px); box-shadow:0 6px 20px rgba(0,0,0,0.42); border-color:var(--n-6); }
+.glass-row .ricon {
+  position:relative; flex-shrink:0; width:48px; height:48px; border-radius:var(--radius);
+  display:grid; place-items:center; overflow:hidden; color:#fff; font-weight:700; font-size:20px;
+  background:linear-gradient(135deg,var(--a-3),var(--a-5));
+}
+.glass-row .ricon .live { position:absolute; right:2px; bottom:2px; width:11px; height:11px; border-radius:50%; background:var(--a-5); box-shadow:0 0 0 2px var(--bg-card); }
+.glass-row .rmeta { flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; }
+.glass-row .rname { font-size:14px; font-weight:600; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.glass-row .rsub { font-size:12px; color:var(--text-dim); display:flex; align-items:center; gap:6px; }
+.glass-row .rsub .sep { opacity:.5; }
+.glass-row .ractions { flex-shrink:0; display:flex; align-items:center; gap:6px; }
+.play-btn {
+  display:inline-flex; align-items:center; gap:6px; height:34px; padding:0 16px;
+  border:none; border-radius:var(--radius); cursor:pointer; font:inherit; font-size:13px; font-weight:600;
+  background:linear-gradient(135deg,var(--a-4),var(--a-5)); color:#fff;
+  box-shadow:0 2px 8px rgba(40,160,98,0.35); transition:filter .15s, transform .1s;
+}
+.play-btn:hover { filter:brightness(1.08); }
+.play-btn svg { width:13px; height:13px; }
+.menu-btn { width:34px; height:34px; border:none; background:transparent; color:var(--text-dim); border-radius:var(--radius); cursor:pointer; display:grid; place-items:center; }
+.menu-btn:hover { background:var(--n-5); color:var(--text); }
+.menu-btn svg { width:16px; height:16px; }
+
+/* Discover 整合包网格 */
+.grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+
+/* 整合包大卡（ModpackCard） */
+.glass-modcard {
+  display:flex; flex-direction:column; overflow:hidden; cursor:pointer;
+  background:var(--bg-card); border:1px solid transparent;
+  border-radius:var(--radius-card); box-shadow:var(--shadow);
+  transition:transform .2s, box-shadow .2s, border-color .2s;
+}
+.glass-modcard:hover { transform:translateY(-3px); box-shadow:0 8px 24px rgba(0,0,0,0.45); border-color:var(--n-6); }
+.glass-modcard .cover {
+  position:relative; width:100%; aspect-ratio:16/9; overflow:hidden;
+  display:grid; place-items:center;
+  background:linear-gradient(135deg,var(--a-2),var(--a-4) 60%,var(--a-5));
+  color:rgba(255,255,255,0.9); font-size:42px; font-weight:800;
+}
+.glass-modcard .cover.c2 { background:linear-gradient(135deg,#3a2f7a,#5b46c4 60%,#8b6cf0); }
+.glass-modcard .cover.c3 { background:linear-gradient(135deg,#7a3a2f,#c45b46 60%,#f0916c); }
+.glass-modcard .cover.c4 { background:linear-gradient(135deg,#2f5a7a,#46a3c4 60%,#6cd6f0); }
+.glass-modcard .info { display:flex; flex-direction:column; flex:1; gap:8px; padding:14px; }
+.glass-modcard .mtitle { font-size:15px; font-weight:700; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.glass-modcard .mtitle .by { color:var(--text-dim); font-weight:400; }
+.glass-modcard .mdesc { font-size:13px; line-height:1.45; color:var(--text-dim);
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; min-height:calc(1.45em*2); }
+.glass-modcard .mstats { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:auto; }
+.glass-modcard .dl { display:inline-flex; align-items:center; gap:4px; font-size:12px; color:var(--text-dim); }
+.glass-modcard .dl svg { color:var(--a-5); }
+.chip { font-size:11px; color:var(--text-dim); background:var(--n-5); border-radius:var(--radius-sm); padding:2px 7px; text-transform:capitalize; white-space:nowrap; }
+
+/* ---------- ContextBar（右 340px） ---------- */
+.ctxbar {
+  width:340px; height:100%; background:var(--n-2); border-left:1px solid var(--n-6);
+  padding:16px; display:flex; flex-direction:column; gap:20px; overflow-y:auto;
+}
+.ctxbar .heading { margin:0; font-size:13px; font-weight:600; color:var(--text-dim); letter-spacing:.2px; }
+.ctxbar section { display:flex; flex-direction:column; gap:8px; }
+.ctx-card {
+  display:flex; align-items:center; gap:10px; width:100%; padding:10px;
+  border:1px solid var(--n-6); border-radius:var(--radius); background:var(--bg-card); cursor:pointer;
+  transition:background-color .2s, border-color .2s;
+}
+.ctx-card:hover { background:var(--n-5); border-color:var(--a-4); }
+.ctx-card .av { width:36px; height:36px; flex-shrink:0; border-radius:var(--radius-sm); display:grid; place-items:center; color:#fff; font-weight:600; font-size:15px; background:linear-gradient(135deg,var(--a-3),var(--a-5)); }
+.ctx-card .cmeta { flex:1; min-width:0; display:flex; flex-direction:column; }
+.ctx-card .cname { font-size:14px; font-weight:500; color:var(--text); }
+.ctx-card .ckind { font-size:11px; color:var(--text-dim); }
+.ctx-card .chev { color:var(--text-dim); }
+.empty-card {
+  display:flex; flex-direction:column; gap:2px; align-items:center; text-align:center;
+  padding:16px 12px; border:1px dashed var(--n-6); border-radius:var(--radius); background:var(--n-3);
+}
+.empty-card .e1 { font-size:13px; color:var(--text-dim); }
+.empty-card .e2 { font-size:11px; color:var(--n-7); }
+
+/* =====================================================================
+   玻璃风格主题块（由设计 agent 填充,scoped 在 .window[data-glass=KEY] 下）
+   下面 4 个 <style> 区块各自独立,切换器只改 .window 的 data-glass 属性。
+   ===================================================================== */
+</style>
+
+<!-- GLASS-STYLE-BLOCKS:START -->
+<style id="glass-calm">
+/* ===== 沉静毛玻璃 (calm) — 磨砂玻璃 + 沉静深色背景,无彩色光斑 ===== */
+[data-glass="calm"] {
+  --cg-blur: 20px;
+}
+
+/* 背景:沉静深色,只有极淡的顶部绿色呼吸 + 轻微纵深,不花 */
+[data-glass="calm"] .app-bg {
+  background:
+    radial-gradient(75% 55% at 50% -8%, rgba(40,160,98,0.07), transparent 62%),
+    radial-gradient(125% 100% at 50% -10%, #181c22 0%, #12151b 46%, #0b0d11 100%);
+}
+
+/* 三大栏:浅白磨砂 */
+[data-glass="calm"] .rail,
+[data-glass="calm"] .topbar,
+[data-glass="calm"] .ctxbar {
+  background: rgba(255,255,255,0.035);
+  backdrop-filter: blur(var(--cg-blur)) saturate(1.15);
+  -webkit-backdrop-filter: blur(var(--cg-blur)) saturate(1.15);
+}
+[data-glass="calm"] .rail { border-right: 1px solid rgba(255,255,255,0.06); }
+[data-glass="calm"] .topbar { border-bottom: 1px solid rgba(255,255,255,0.06); }
+[data-glass="calm"] .ctxbar { border-left: 1px solid rgba(255,255,255,0.06); }
+
+/* 内容区透明,让卡片在沉静背景上结霜 */
+[data-glass="calm"] .main { background: transparent; }
+
+/* 实例行 / 整合包卡:磨砂玻璃 + 顶部细高光 */
+[data-glass="calm"] .glass-row,
+[data-glass="calm"] .glass-modcard {
+  background: rgba(255,255,255,0.05);
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  box-shadow: 0 6px 22px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.10);
+}
+[data-glass="calm"] .glass-row:hover,
+[data-glass="calm"] .glass-modcard:hover {
+  background: rgba(255,255,255,0.07);
+  border-color: rgba(255,255,255,0.14);
+  box-shadow: 0 12px 34px rgba(0,0,0,0.40), inset 0 1px 0 rgba(255,255,255,0.16);
+}
+[data-glass="calm"] .glass-modcard { overflow: hidden; }
+[data-glass="calm"] .glass-modcard .info { background: transparent; }
+
+/* 整合包封面保留(这是整合包封面图,不是页面背景),仅加一道微高光 */
+[data-glass="calm"] .glass-modcard .cover::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(255,255,255,0.12), transparent 40%);
+  pointer-events: none;
+}
+
+/* 右栏卡片 */
+[data-glass="calm"] .ctx-card {
+  background: rgba(255,255,255,0.05);
+  backdrop-filter: blur(14px) saturate(1.15);
+  -webkit-backdrop-filter: blur(14px) saturate(1.15);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+[data-glass="calm"] .ctx-card:hover {
+  background: rgba(255,255,255,0.08);
+  border-color: color-mix(in srgb, var(--a-4) 45%, transparent);
+}
+[data-glass="calm"] .empty-card {
+  background: rgba(255,255,255,0.025);
+  border: 1px dashed rgba(255,255,255,0.12);
+}
+
+/* 标签 / 顶栏按钮:玻璃化 */
+[data-glass="calm"] .chip {
+  background: rgba(255,255,255,0.08);
+  color: var(--text-dim);
+}
+[data-glass="calm"] .btn-switch {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.10);
+  color: var(--text);
+}
+[data-glass="calm"] .btn-switch:hover {
+  background: var(--a-4); border-color: var(--a-4); color: #fff;
+}
+[data-glass="calm"] .menu-btn:hover { background: rgba(255,255,255,0.10); color: var(--text); }
+[data-glass="calm"] .rail-item:hover { background: rgba(255,255,255,0.08); }
+</style>
+<style id="glass-clean">
+/* ===== 通透玻璃 (clean) — 更透、更轻、大圆角、亮边吃光,背景近纯黑沉静 ===== */
+[data-glass="clean"] {
+  --cl-blur: 28px;
+}
+
+/* 背景:近纯黑,中性,只有一点纵深,完全不花 */
+[data-glass="clean"] .app-bg {
+  background:
+    radial-gradient(100% 80% at 50% -20%, #14171d 0%, #0e1116 52%, #090a0d 100%);
+}
+
+/* 三大栏:极透磨砂 + 提亮 */
+[data-glass="clean"] .rail,
+[data-glass="clean"] .topbar,
+[data-glass="clean"] .ctxbar {
+  background: rgba(255,255,255,0.03);
+  backdrop-filter: blur(var(--cl-blur)) saturate(1.1) brightness(1.04);
+  -webkit-backdrop-filter: blur(var(--cl-blur)) saturate(1.1) brightness(1.04);
+}
+[data-glass="clean"] .rail { border-right: 1px solid rgba(255,255,255,0.05); }
+[data-glass="clean"] .topbar { border-bottom: 1px solid rgba(255,255,255,0.05); }
+[data-glass="clean"] .ctxbar { border-left: 1px solid rgba(255,255,255,0.05); }
+
+[data-glass="clean"] .main { background: transparent; }
+
+/* 卡片:更透 + 大圆角 + 左上亮边吃光(airy 玻璃感) */
+[data-glass="clean"] .glass-row,
+[data-glass="clean"] .glass-modcard {
+  background: rgba(255,255,255,0.035);
+  backdrop-filter: blur(26px) saturate(1.15) brightness(1.05);
+  -webkit-backdrop-filter: blur(26px) saturate(1.15) brightness(1.05);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 16px;
+  box-shadow:
+    0 8px 30px rgba(0,0,0,0.28),
+    inset 0 1px 0 rgba(255,255,255,0.18),
+    inset 1px 0 0 rgba(255,255,255,0.07);
+}
+[data-glass="clean"] .glass-row:hover,
+[data-glass="clean"] .glass-modcard:hover {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.12);
+  box-shadow:
+    0 16px 44px rgba(0,0,0,0.36),
+    inset 0 1px 0 rgba(255,255,255,0.26),
+    inset 1px 0 0 rgba(255,255,255,0.10);
+}
+[data-glass="clean"] .glass-modcard { overflow: hidden; }
+[data-glass="clean"] .glass-modcard .info { background: transparent; }
+[data-glass="clean"] .glass-modcard .cover::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(255,255,255,0.14), transparent 38%);
+  pointer-events: none;
+}
+
+/* 右栏 */
+[data-glass="clean"] .ctx-card {
+  background: rgba(255,255,255,0.035);
+  backdrop-filter: blur(20px) saturate(1.1) brightness(1.04);
+  -webkit-backdrop-filter: blur(20px) saturate(1.1) brightness(1.04);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 12px;
+}
+[data-glass="clean"] .ctx-card:hover {
+  background: rgba(255,255,255,0.06);
+  border-color: color-mix(in srgb, var(--a-4) 40%, transparent);
+}
+[data-glass="clean"] .empty-card {
+  background: rgba(255,255,255,0.02);
+  border: 1px dashed rgba(255,255,255,0.10);
+  border-radius: 12px;
+}
+
+/* 标签 / 按钮:更圆润、通透 */
+[data-glass="clean"] .chip {
+  background: rgba(255,255,255,0.07);
+  color: var(--text-dim);
+  border-radius: 999px;
+}
+[data-glass="clean"] .play-btn { border-radius: 999px; }
+[data-glass="clean"] .btn-switch {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.09);
+  color: var(--text);
+  border-radius: 999px;
+}
+[data-glass="clean"] .btn-switch:hover { background: var(--a-4); border-color: var(--a-4); color: #fff; }
+[data-glass="clean"] .menu-btn:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+[data-glass="clean"] .rail-item:hover { background: rgba(255,255,255,0.06); }
+</style>
+<style id="glass-glassmorphism">
+/* =====================================================================
+   GLASS:glassmorphism — 彩色毛玻璃 / Glassmorphism
+   Translucent white panels (~6–10%) frosting over a deep dark base with
+   large, soft, saturated emerald / teal / violet color blobs. Each panel
+   carries a thin bright top-edge highlight and a large soft drop shadow;
+   the colorful glow bleeds through the frosted surfaces.
+   Every selector scoped under [data-glass="glassmorphism"].
+   ===================================================================== */
+
+/* ---- per-style tunables ---- */
+[data-glass="glassmorphism"] {
+  --gm-panel:        rgba(255,255,255,0.07);
+  --gm-panel-strong: rgba(255,255,255,0.10);
+  --gm-border:       rgba(255,255,255,0.12);
+  --gm-top-hi:       rgba(255,255,255,0.22);
+  --gm-blur:         blur(20px) saturate(1.35);
+  --gm-shadow:       0 8px 32px rgba(0,0,0,0.38);
+  --gm-shadow-lift:  0 16px 48px rgba(0,0,0,0.45);
+  --gm-radius:       14px;
+}
+
+/* ---------------------------------------------------------------------
+   Background scene: deep dark base + large soft vivid color blobs.
+   .app-bg paints the base; ::before / ::after add the blobs + faint grain.
+   --------------------------------------------------------------------- */
+[data-glass="glassmorphism"] .app-bg {
+  background:
+    radial-gradient(58% 70% at 18% 14%, rgba(63,191,120,0.42), transparent 60%),
+    radial-gradient(54% 64% at 88% 26%, rgba(34,200,196,0.34), transparent 62%),
+    radial-gradient(66% 72% at 72% 96%, rgba(168,92,240,0.36), transparent 64%),
+    radial-gradient(50% 56% at 6% 92%, rgba(46,120,200,0.26), transparent 60%),
+    linear-gradient(160deg, #0b1016 0%, #0a0d12 55%, #090b10 100%);
+}
+/* second blob cluster + breathing color so the frost picks up more hue */
+[data-glass="glassmorphism"] .app-bg::before {
+  content:""; position:absolute; inset:-12%;
+  background:
+    radial-gradient(40% 46% at 40% 60%, rgba(111,215,155,0.30), transparent 60%),
+    radial-gradient(38% 42% at 64% 40%, rgba(139,108,240,0.26), transparent 62%);
+  filter: blur(28px);
+  pointer-events:none;
+}
+/* very faint grain via inline SVG noise data-URI */
+[data-glass="glassmorphism"] .app-bg::after {
+  content:""; position:absolute; inset:0; pointer-events:none;
+  opacity:0.05; mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  background-size:180px 180px;
+}
+
+/* shell stays transparent */
+[data-glass="glassmorphism"] .shell { background:transparent; }
+
+/* =====================================================================
+   RAIL — left 64px frosted column
+   ===================================================================== */
+[data-glass="glassmorphism"] .rail {
+  position:relative;
+  background:var(--gm-panel);
+  -webkit-backdrop-filter:var(--gm-blur);
+  backdrop-filter:var(--gm-blur);
+  border-right:1px solid var(--gm-border);
+  box-shadow:
+    inset 0 1px 0 var(--gm-top-hi),
+    var(--gm-shadow);
+}
+/* bright top highlight line signature */
+[data-glass="glassmorphism"] .rail::before {
+  content:""; position:absolute; left:10px; right:10px; top:0; height:1px;
+  background:linear-gradient(90deg, transparent, var(--gm-top-hi), transparent);
+  pointer-events:none;
+}
+
+[data-glass="glassmorphism"] .rail .logo {
+  background:rgba(255,255,255,0.06);
+  border:1px solid rgba(255,255,255,0.10);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.18);
+  border-radius:10px;
+  transition:background-color .2s, box-shadow .2s, transform .15s;
+}
+[data-glass="glassmorphism"] .rail .logo:hover {
+  background:rgba(255,255,255,0.12);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.28), 0 4px 14px rgba(63,191,120,0.30);
+  transform:translateY(-1px);
+}
+
+[data-glass="glassmorphism"] .rail-item {
+  color:rgba(232,234,237,0.62);
+  border-radius:10px;
+  transition:background-color .2s, color .2s, box-shadow .2s;
+}
+[data-glass="glassmorphism"] .rail-item:hover {
+  background:rgba(255,255,255,0.10);
+  color:#fff;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.16);
+}
+[data-glass="glassmorphism"] .rail-item.selected {
+  color:var(--a-6);
+  background:linear-gradient(180deg,
+    color-mix(in srgb, var(--a-4) 26%, rgba(255,255,255,0.06)),
+    color-mix(in srgb, var(--a-4) 14%, rgba(255,255,255,0.04)));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.22),
+    0 4px 16px rgba(63,191,120,0.30);
+}
+[data-glass="glassmorphism"] .rail-item.selected::before {
+  background:linear-gradient(180deg, var(--a-5), var(--a-4));
+  box-shadow:0 0 12px rgba(63,191,120,0.75);
+}
+[data-glass="glassmorphism"] .rail .divider {
+  background:linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent);
+}
+[data-glass="glassmorphism"] .rail .avatar {
+  border:1px solid rgba(255,255,255,0.22);
+  background:linear-gradient(135deg, var(--a-3), var(--a-5));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.30),
+    0 4px 14px rgba(63,191,120,0.35);
+}
+
+/* =====================================================================
+   TOPBAR — frosted top bar
+   ===================================================================== */
+[data-glass="glassmorphism"] .topbar {
+  position:relative;
+  background:var(--gm-panel);
+  -webkit-backdrop-filter:var(--gm-blur);
+  backdrop-filter:var(--gm-blur);
+  border-bottom:1px solid var(--gm-border);
+  box-shadow:inset 0 1px 0 var(--gm-top-hi);
+}
+[data-glass="glassmorphism"] .topbar::before {
+  content:""; position:absolute; left:0; right:0; top:0; height:1px;
+  background:linear-gradient(90deg, transparent, var(--gm-top-hi) 30%, var(--gm-top-hi) 70%, transparent);
+  pointer-events:none;
+}
+[data-glass="glassmorphism"] .topbar .brand { color:#fff; }
+[data-glass="glassmorphism"] .topbar .pagetitle { color:rgba(232,234,237,0.92); }
+[data-glass="glassmorphism"] .topbar .navbtns button { color:rgba(232,234,237,0.55); }
+
+[data-glass="glassmorphism"] .btn-switch {
+  border:1px solid rgba(255,255,255,0.16);
+  background:rgba(255,255,255,0.08);
+  color:rgba(232,234,237,0.88);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.16);
+  -webkit-backdrop-filter:blur(8px);
+  backdrop-filter:blur(8px);
+}
+[data-glass="glassmorphism"] .btn-switch:hover {
+  background:linear-gradient(135deg, var(--a-4), var(--a-5));
+  color:#06130d;
+  border-color:transparent;
+  box-shadow:0 4px 16px rgba(63,191,120,0.42), inset 0 1px 0 rgba(255,255,255,0.3);
+}
+[data-glass="glassmorphism"] .runstat { color:rgba(232,234,237,0.92); }
+[data-glass="glassmorphism"] .runstat .dot {
+  background:var(--a-5);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--a-4) 28%, transparent),
+    0 0 10px rgba(63,191,120,0.85);
+}
+
+/* =====================================================================
+   MAIN — make transparent so the .app-bg blobs show through behind cards
+   ===================================================================== */
+[data-glass="glassmorphism"] .body { background:transparent; }
+[data-glass="glassmorphism"] .main {
+  background:transparent;
+}
+[data-glass="glassmorphism"] .main h1 {
+  color:#fff;
+  text-shadow:0 1px 18px rgba(0,0,0,0.35);
+}
+[data-glass="glassmorphism"] .main h2 { color:rgba(232,234,237,0.94); }
+[data-glass="glassmorphism"] .section h2 { color:rgba(232,234,237,0.94); }
+
+/* =====================================================================
+   INSTANCE ROW CARDS (.glass-row)
+   ===================================================================== */
+[data-glass="glassmorphism"] .glass-row {
+  position:relative;
+  background:var(--gm-panel);
+  -webkit-backdrop-filter:var(--gm-blur);
+  backdrop-filter:var(--gm-blur);
+  border:1px solid var(--gm-border);
+  border-radius:var(--gm-radius);
+  box-shadow:
+    inset 0 1px 0 var(--gm-top-hi),
+    var(--gm-shadow);
+}
+/* thin bright top highlight line on each card */
+[data-glass="glassmorphism"] .glass-row::before {
+  content:""; position:absolute; left:14px; right:14px; top:0; height:1px;
+  background:linear-gradient(90deg, transparent, var(--gm-top-hi), transparent);
+  pointer-events:none; border-radius:1px;
+}
+[data-glass="glassmorphism"] .glass-row:hover {
+  transform:translateY(-3px);
+  background:var(--gm-panel-strong);
+  border-color:rgba(255,255,255,0.20);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.26),
+    var(--gm-shadow-lift),
+    0 0 28px rgba(63,191,120,0.22);
+}
+[data-glass="glassmorphism"] .glass-row .ricon {
+  border-radius:11px;
+  background:linear-gradient(135deg, var(--a-3), var(--a-5));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.30),
+    0 4px 14px rgba(63,191,120,0.30);
+}
+[data-glass="glassmorphism"] .glass-row .ricon .live {
+  background:var(--a-5);
+  box-shadow:
+    0 0 0 2px rgba(20,24,30,0.85),
+    0 0 8px rgba(63,191,120,0.9);
+}
+[data-glass="glassmorphism"] .glass-row .rname { color:#fff; }
+[data-glass="glassmorphism"] .glass-row .rsub { color:rgba(232,234,237,0.68); }
+[data-glass="glassmorphism"] .glass-row .rsub .sep { opacity:.45; }
+
+[data-glass="glassmorphism"] .play-btn {
+  background:linear-gradient(135deg, var(--a-4), var(--a-5));
+  color:#06130d;
+  border-radius:10px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.35),
+    0 4px 14px rgba(40,160,98,0.42);
+}
+[data-glass="glassmorphism"] .play-btn:hover {
+  filter:brightness(1.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.45),
+    0 6px 20px rgba(63,191,120,0.55);
+}
+[data-glass="glassmorphism"] .menu-btn {
+  color:rgba(232,234,237,0.62);
+  border-radius:10px;
+}
+[data-glass="glassmorphism"] .menu-btn:hover {
+  background:rgba(255,255,255,0.12);
+  color:#fff;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.16);
+}
+
+/* =====================================================================
+   MODPACK CARDS (.glass-modcard)
+   ===================================================================== */
+[data-glass="glassmorphism"] .glass-modcard {
+  position:relative;
+  background:var(--gm-panel);
+  -webkit-backdrop-filter:var(--gm-blur);
+  backdrop-filter:var(--gm-blur);
+  border:1px solid var(--gm-border);
+  border-radius:var(--gm-radius);
+  box-shadow:
+    inset 0 1px 0 var(--gm-top-hi),
+    var(--gm-shadow);
+}
+[data-glass="glassmorphism"] .glass-modcard:hover {
+  transform:translateY(-4px);
+  background:var(--gm-panel-strong);
+  border-color:rgba(255,255,255,0.20);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.26),
+    var(--gm-shadow-lift),
+    0 0 32px rgba(63,191,120,0.20);
+}
+/* vivid covers kept; add inner top highlight + subtle saturation pop */
+[data-glass="glassmorphism"] .glass-modcard .cover {
+  position:relative;
+  filter:saturate(1.1);
+}
+[data-glass="glassmorphism"] .glass-modcard .cover::after {
+  content:""; position:absolute; inset:0; pointer-events:none;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.22), transparent 38%),
+    radial-gradient(120% 80% at 50% -20%, rgba(255,255,255,0.18), transparent 60%);
+}
+[data-glass="glassmorphism"] .glass-modcard .mtitle { color:#fff; }
+[data-glass="glassmorphism"] .glass-modcard .mtitle .by { color:rgba(232,234,237,0.6); }
+[data-glass="glassmorphism"] .glass-modcard .mdesc { color:rgba(232,234,237,0.68); }
+[data-glass="glassmorphism"] .glass-modcard .dl { color:rgba(232,234,237,0.7); }
+[data-glass="glassmorphism"] .glass-modcard .dl svg { color:var(--a-5); }
+
+/* category pill (shared) */
+[data-glass="glassmorphism"] .chip {
+  color:rgba(232,234,237,0.82);
+  background:rgba(255,255,255,0.10);
+  border:1px solid rgba(255,255,255,0.12);
+  border-radius:999px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.14);
+  -webkit-backdrop-filter:blur(6px);
+  backdrop-filter:blur(6px);
+}
+
+/* =====================================================================
+   CONTEXT BAR (.ctxbar) — right 340px frosted sidebar
+   ===================================================================== */
+[data-glass="glassmorphism"] .ctxbar {
+  position:relative;
+  background:var(--gm-panel);
+  -webkit-backdrop-filter:var(--gm-blur);
+  backdrop-filter:var(--gm-blur);
+  border-left:1px solid var(--gm-border);
+  box-shadow:
+    inset 0 1px 0 var(--gm-top-hi),
+    var(--gm-shadow);
+}
+[data-glass="glassmorphism"] .ctxbar::before {
+  content:""; position:absolute; left:16px; right:16px; top:0; height:1px;
+  background:linear-gradient(90deg, transparent, var(--gm-top-hi), transparent);
+  pointer-events:none;
+}
+[data-glass="glassmorphism"] .ctxbar .heading {
+  color:rgba(232,234,237,0.6);
+  letter-spacing:.4px;
+  text-transform:uppercase;
+}
+
+[data-glass="glassmorphism"] .ctx-card {
+  background:rgba(255,255,255,0.07);
+  border:1px solid rgba(255,255,255,0.12);
+  border-radius:12px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.18);
+  -webkit-backdrop-filter:blur(10px);
+  backdrop-filter:blur(10px);
+  transition:background-color .2s, border-color .2s, box-shadow .2s, transform .15s;
+}
+[data-glass="glassmorphism"] .ctx-card:hover {
+  transform:translateY(-1px);
+  background:rgba(255,255,255,0.11);
+  border-color:rgba(63,191,120,0.45);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.24),
+    0 6px 20px rgba(63,191,120,0.22);
+}
+[data-glass="glassmorphism"] .ctx-card .av {
+  background:linear-gradient(135deg, var(--a-3), var(--a-5));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.3), 0 2px 8px rgba(63,191,120,0.3);
+}
+[data-glass="glassmorphism"] .ctx-card .cname { color:#fff; }
+[data-glass="glassmorphism"] .ctx-card .ckind { color:rgba(232,234,237,0.6); }
+[data-glass="glassmorphism"] .ctx-card .chev { color:rgba(232,234,237,0.6); }
+
+[data-glass="glassmorphism"] .empty-card {
+  background:rgba(255,255,255,0.04);
+  border:1px dashed rgba(255,255,255,0.18);
+  border-radius:12px;
+  -webkit-backdrop-filter:blur(8px);
+  backdrop-filter:blur(8px);
+}
+[data-glass="glassmorphism"] .empty-card .e1 { color:rgba(232,234,237,0.72); }
+[data-glass="glassmorphism"] .empty-card .e2 { color:rgba(232,234,237,0.45); }
+</style>
+<style id="glass-liquid">
+/* === GLASS:liquid ===
+   液态玻璃 / Apple Liquid Glass (visionOS / iOS 26)
+   Signature: light-catching edges + soft specular highlight + ultra clarity.
+   Every selector scoped under [data-glass="liquid"]. */
+
+/* ---------------------------------------------------------------------------
+   App background: a smooth flowing pastel-aurora mesh on a medium-dark base.
+   Brighter / more colorful than glassmorphism so the refraction reads through
+   the ultra-clear glass. Decorative color blobs via ::before / ::after.
+--------------------------------------------------------------------------- */
+[data-glass="liquid"] .app-bg {
+  background:
+    radial-gradient(120% 90% at 12% 8%, rgba(80, 220, 170, 0.30) 0%, rgba(80, 220, 170, 0) 55%),
+    radial-gradient(110% 100% at 92% 16%, rgba(120, 150, 255, 0.30) 0%, rgba(120, 150, 255, 0) 52%),
+    radial-gradient(130% 110% at 78% 95%, rgba(255, 140, 200, 0.26) 0%, rgba(255, 140, 200, 0) 55%),
+    radial-gradient(120% 120% at 20% 100%, rgba(255, 200, 120, 0.22) 0%, rgba(255, 200, 120, 0) 55%),
+    linear-gradient(155deg, #12161d 0%, #161b26 45%, #1a1622 100%);
+}
+
+/* large soft drifting color blobs (decorative, behind glass) */
+[data-glass="liquid"] .app-bg::before {
+  content: "";
+  position: absolute;
+  inset: -20%;
+  pointer-events: none;
+  background:
+    radial-gradient(closest-side, rgba(63, 191, 120, 0.55), rgba(63, 191, 120, 0) 70%) 8% 18% / 42% 46% no-repeat,
+    radial-gradient(closest-side, rgba(108, 156, 255, 0.50), rgba(108, 156, 255, 0) 70%) 88% 12% / 46% 50% no-repeat,
+    radial-gradient(closest-side, rgba(214, 120, 255, 0.42), rgba(214, 120, 255, 0) 70%) 70% 92% / 50% 54% no-repeat;
+  filter: blur(40px) saturate(1.25);
+}
+[data-glass="liquid"] .app-bg::after {
+  content: "";
+  position: absolute;
+  inset: -10%;
+  pointer-events: none;
+  background:
+    radial-gradient(closest-side, rgba(255, 168, 120, 0.38), rgba(255, 168, 120, 0) 70%) 14% 96% / 40% 44% no-repeat,
+    radial-gradient(closest-side, rgba(120, 240, 210, 0.34), rgba(120, 240, 210, 0) 70%) 50% 40% / 38% 42% no-repeat;
+  filter: blur(48px) saturate(1.2);
+  mix-blend-mode: screen;
+}
+
+/* ---------------------------------------------------------------------------
+   Shared glass material vars (continuous big radius, wet ultra-clear glass)
+--------------------------------------------------------------------------- */
+[data-glass="liquid"] {
+  --lg-tint: rgba(255, 255, 255, 0.055);
+  --lg-tint-hover: rgba(255, 255, 255, 0.10);
+  --lg-blur: blur(30px) saturate(1.7) brightness(1.08);
+  /* bright top-left rim + faint full hairline + soft outer shadow */
+  --lg-rim:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 1px 0 0 rgba(255, 255, 255, 0.22),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.18);
+  --lg-shadow: 0 12px 34px rgba(0, 0, 0, 0.34), 0 2px 8px rgba(0, 0, 0, 0.22);
+  --lg-r-lg: 22px;
+  --lg-r-md: 16px;
+  --lg-r-sm: 12px;
+}
+
+/* keep text crisp on the brighter scene */
+[data-glass="liquid"] .main h1,
+[data-glass="liquid"] .main h2,
+[data-glass="liquid"] .topbar .brand,
+[data-glass="liquid"] .topbar .pagetitle {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+}
+
+/* ---------------------------------------------------------------------------
+   Rail — left vertical nav, glassified vertical pill column
+--------------------------------------------------------------------------- */
+[data-glass="liquid"] .rail {
+  position: relative;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.03));
+  backdrop-filter: var(--lg-blur);
+  -webkit-backdrop-filter: var(--lg-blur);
+  border-right: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.30),
+    inset 1px 0 0 rgba(255, 255, 255, 0.10),
+    2px 0 18px rgba(0, 0, 0, 0.20);
+}
+/* specular glint near top-left */
+[data-glass="liquid"] .rail::before {
+  content: "";
+  position: absolute;
+  top: -30px;
+  left: -20px;
+  width: 120px;
+  height: 130px;
+  pointer-events: none;
+  background: radial-gradient(closest-side, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0) 72%);
+  filter: blur(8px);
+}
+
+[data-glass="liquid"] .rail .logo {
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.02));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.40), inset 0 0 0 1px rgba(255, 255, 255, 0.10);
+}
+
+[data-glass="liquid"] .rail-item {
+  border-radius: 14px;
+  color: rgba(232, 234, 237, 0.62);
+  transition: background-color .22s, color .22s, box-shadow .22s, transform .15s;
+}
+[data-glass="liquid"] .rail-item:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+[data-glass="liquid"] .rail-item.selected {
+  color: var(--a-6);
+  background: linear-gradient(135deg, rgba(63, 191, 120, 0.26), rgba(63, 191, 120, 0.08));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    inset 0 0 0 1px rgba(111, 215, 155, 0.30),
+    0 4px 14px rgba(40, 160, 98, 0.22);
+}
+[data-glass="liquid"] .rail-item.selected::before {
+  left: -8px;
+  width: 4px;
+  height: 26px;
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(180deg, var(--a-6), var(--a-4));
+  box-shadow: 0 0 10px rgba(63, 191, 120, 0.65);
+}
+
+[data-glass="liquid"] .rail .divider {
+  width: 30px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.22), transparent);
+}
+
+[data-glass="liquid"] .rail .avatar {
+  border: 1px solid rgba(255, 255, 255, 0.30);
+  background: linear-gradient(135deg, var(--a-3), var(--a-5));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 4px 12px rgba(40, 160, 98, 0.32);
+}
+
+/* ---------------------------------------------------------------------------
+   TopBar — glassy translucent header
+--------------------------------------------------------------------------- */
+[data-glass="liquid"] .topbar {
+  position: relative;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.03));
+  backdrop-filter: var(--lg-blur);
+  -webkit-backdrop-filter: var(--lg-blur);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.34),
+    0 2px 14px rgba(0, 0, 0, 0.16);
+}
+[data-glass="liquid"] .topbar::before {
+  content: "";
+  position: absolute;
+  top: -24px;
+  left: 18px;
+  width: 220px;
+  height: 70px;
+  pointer-events: none;
+  background: radial-gradient(closest-side, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 72%);
+  filter: blur(6px);
+}
+
+[data-glass="liquid"] .topbar .brand { color: var(--text); }
+[data-glass="liquid"] .topbar .pagetitle { color: var(--text); }
+[data-glass="liquid"] .topbar .navbtns button {
+  color: rgba(232, 234, 237, 0.55);
+  border-radius: 10px;
+}
+
+[data-glass="liquid"] .btn-switch {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(232, 234, 237, 0.85);
+  border-radius: 999px;
+  padding: 5px 14px;
+  backdrop-filter: blur(8px) saturate(1.4);
+  -webkit-backdrop-filter: blur(8px) saturate(1.4);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.40);
+  transition: background-color .2s, color .2s, box-shadow .2s, border-color .2s;
+}
+[data-glass="liquid"] .btn-switch:hover {
+  background: linear-gradient(135deg, var(--a-4), var(--a-5));
+  color: #06130d;
+  border-color: transparent;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 4px 14px rgba(63, 191, 120, 0.40);
+}
+
+[data-glass="liquid"] .runstat { color: var(--text); }
+[data-glass="liquid"] .runstat .dot {
+  background: var(--a-5);
+  box-shadow:
+    0 0 0 3px rgba(63, 191, 120, 0.22),
+    0 0 10px rgba(63, 191, 120, 0.65);
+}
+
+/* ---------------------------------------------------------------------------
+   Main — make transparent so .app-bg shows through behind frosted cards
+--------------------------------------------------------------------------- */
+[data-glass="liquid"] .main {
+  background: transparent;
+}
+[data-glass="liquid"] .main h1 { color: #fff; }
+[data-glass="liquid"] .main h2 { color: rgba(255, 255, 255, 0.92); }
+
+/* ---------------------------------------------------------------------------
+   Instance rows — clear wet glass cards w/ bright rim + specular glint
+--------------------------------------------------------------------------- */
+[data-glass="liquid"] .glass-row {
+  position: relative;
+  background: var(--lg-tint);
+  backdrop-filter: var(--lg-blur);
+  -webkit-backdrop-filter: var(--lg-blur);
+  border: 0;
+  border-radius: var(--lg-r-md);
+  box-shadow: var(--lg-rim), var(--lg-shadow);
+  overflow: hidden;
+  transition: transform .2s, box-shadow .2s, background-color .2s;
+}
+/* soft specular highlight near top-left */
+[data-glass="liquid"] .glass-row::before {
+  content: "";
+  position: absolute;
+  top: -40%;
+  left: -6%;
+  width: 46%;
+  height: 160%;
+  pointer-events: none;
+  background: radial-gradient(closest-side, rgba(255, 255, 255, 0.30), rgba(255, 255, 255, 0) 72%);
+  filter: blur(12px);
+  opacity: .8;
+}
+[data-glass="liquid"] .glass-row:hover {
+  transform: translateY(-2px);
+  background: var(--lg-tint-hover);
+  box-shadow:
+    var(--lg-rim),
+    0 18px 42px rgba(0, 0, 0, 0.40),
+    0 2px 8px rgba(0, 0, 0, 0.22);
+}
+
+[data-glass="liquid"] .glass-row .ricon {
+  position: relative;
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--a-3), var(--a-5));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.16),
+    0 4px 12px rgba(40, 160, 98, 0.30);
+}
+[data-glass="liquid"] .glass-row .ricon .live {
+  background: var(--a-5);
+  box-shadow:
+    0 0 0 2px rgba(20, 24, 30, 0.6),
+    0 0 8px rgba(63, 191, 120, 0.8);
+}
+[data-glass="liquid"] .glass-row .rname { color: #fff; }
+[data-glass="liquid"] .glass-row .rsub { color: rgba(232, 234, 237, 0.72); }
+[data-glass="liquid"] .glass-row .rsub .sep { opacity: .5; }
+
+/* play button — very rounded, glassy pill, accent stays green */
+[data-glass="liquid"] .play-btn {
+  position: relative;
+  height: 34px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--a-4), var(--a-5));
+  color: #fff;
+  overflow: hidden;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.50),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.14),
+    0 4px 14px rgba(40, 160, 98, 0.40);
+  transition: filter .15s, transform .1s, box-shadow .15s;
+}
+[data-glass="liquid"] .play-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 50% 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.30), rgba(255, 255, 255, 0));
+}
+[data-glass="liquid"] .play-btn:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.16),
+    0 6px 18px rgba(40, 160, 98, 0.50);
+}
+
+[data-glass="liquid"] .menu-btn {
+  border-radius: 12px;
+  color: rgba(232, 234, 237, 0.70);
+  transition: background-color .2s, color .2s, box-shadow .2s;
+}
+[data-glass="liquid"] .menu-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.40), inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+/* ---------------------------------------------------------------------------
+   Modpack cards — wet glass shell, vivid covers kept photographic-feeling
+--------------------------------------------------------------------------- */
+[data-glass="liquid"] .glass-modcard {
+  position: relative;
+  background: var(--lg-tint);
+  backdrop-filter: var(--lg-blur);
+  -webkit-backdrop-filter: var(--lg-blur);
+  border: 0;
+  border-radius: var(--lg-r-lg);
+  box-shadow: var(--lg-rim), var(--lg-shadow);
+  transition: transform .2s, box-shadow .2s, background-color .2s;
+}
+[data-glass="liquid"] .glass-modcard::before {
+  content: "";
+  position: absolute;
+  top: -10%;
+  left: -8%;
+  width: 55%;
+  height: 70%;
+  z-index: 2;
+  pointer-events: none;
+  background: radial-gradient(closest-side, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0) 72%);
+  filter: blur(16px);
+  opacity: .7;
+}
+[data-glass="liquid"] .glass-modcard:hover {
+  transform: translateY(-3px);
+  background: var(--lg-tint-hover);
+  box-shadow:
+    var(--lg-rim),
+    0 22px 50px rgba(0, 0, 0, 0.42),
+    0 3px 10px rgba(0, 0, 0, 0.24);
+}
+
+/* covers: vivid gradients, with an inner top highlight for a glossy finish */
+[data-glass="liquid"] .glass-modcard .cover {
+  position: relative;
+  background: linear-gradient(135deg, #14965e, #28a062 55%, #58dd97);
+  color: rgba(255, 255, 255, 0.95);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.30);
+}
+[data-glass="liquid"] .glass-modcard .cover.c2 { background: linear-gradient(135deg, #4634a6, #6b50e0 55%, #a585ff); }
+[data-glass="liquid"] .glass-modcard .cover.c3 { background: linear-gradient(135deg, #a6442f, #e06b4a 55%, #ffa57a); }
+[data-glass="liquid"] .glass-modcard .cover.c4 { background: linear-gradient(135deg, #2f6fa6, #46b3d6 55%, #7ce0ff); }
+[data-glass="liquid"] .glass-modcard .cover::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0) 38%),
+    radial-gradient(140% 90% at 18% 0%, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 55%);
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.20);
+}
+
+[data-glass="liquid"] .glass-modcard .info { position: relative; z-index: 1; }
+[data-glass="liquid"] .glass-modcard .mtitle { color: #fff; }
+[data-glass="liquid"] .glass-modcard .mtitle .by { color: rgba(232, 234, 237, 0.70); }
+[data-glass="liquid"] .glass-modcard .mdesc { color: rgba(232, 234, 237, 0.78); }
+[data-glass="liquid"] .glass-modcard .dl { color: rgba(232, 234, 237, 0.78); }
+[data-glass="liquid"] .glass-modcard .dl svg { color: var(--a-6); }
+
+/* ---------------------------------------------------------------------------
+   Chip — glassy pill (shared by modcards + ctxbar)
+--------------------------------------------------------------------------- */
+[data-glass="liquid"] .chip {
+  color: rgba(232, 234, 237, 0.85);
+  background: rgba(255, 255, 255, 0.10);
+  border-radius: 999px;
+  padding: 2px 9px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.30), inset 0 0 0 1px rgba(255, 255, 255, 0.10);
+}
+
+/* ---------------------------------------------------------------------------
+   ContextBar — right glass sidebar
+--------------------------------------------------------------------------- */
+[data-glass="liquid"] .ctxbar {
+  position: relative;
+  background: linear-gradient(200deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.03));
+  backdrop-filter: var(--lg-blur);
+  -webkit-backdrop-filter: var(--lg-blur);
+  border-left: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow:
+    inset 1px 0 0 rgba(255, 255, 255, 0.20),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    -2px 0 18px rgba(0, 0, 0, 0.18);
+}
+[data-glass="liquid"] .ctxbar::before {
+  content: "";
+  position: absolute;
+  top: -30px;
+  right: -20px;
+  width: 160px;
+  height: 150px;
+  pointer-events: none;
+  background: radial-gradient(closest-side, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 72%);
+  filter: blur(10px);
+}
+[data-glass="liquid"] .ctxbar .heading { color: rgba(232, 234, 237, 0.62); }
+
+[data-glass="liquid"] .ctx-card {
+  position: relative;
+  border: 0;
+  background: var(--lg-tint);
+  backdrop-filter: blur(18px) saturate(1.5);
+  -webkit-backdrop-filter: blur(18px) saturate(1.5);
+  border-radius: 14px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.40),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+    0 6px 18px rgba(0, 0, 0, 0.22);
+  overflow: hidden;
+  transition: background-color .2s, box-shadow .2s;
+}
+[data-glass="liquid"] .ctx-card::before {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -6%;
+  width: 40%;
+  height: 200%;
+  pointer-events: none;
+  background: radial-gradient(closest-side, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0) 72%);
+  filter: blur(10px);
+  opacity: .8;
+}
+[data-glass="liquid"] .ctx-card:hover {
+  background: var(--lg-tint-hover);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    inset 0 0 0 1px rgba(111, 215, 155, 0.28),
+    0 8px 22px rgba(0, 0, 0, 0.28);
+}
+[data-glass="liquid"] .ctx-card .av {
+  border-radius: 11px;
+  background: linear-gradient(135deg, var(--a-3), var(--a-5));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.50), 0 3px 10px rgba(40, 160, 98, 0.30);
+}
+[data-glass="liquid"] .ctx-card .cname { color: #fff; }
+[data-glass="liquid"] .ctx-card .ckind { color: rgba(232, 234, 237, 0.70); }
+[data-glass="liquid"] .ctx-card .chev { color: rgba(232, 234, 237, 0.65); }
+
+[data-glass="liquid"] .empty-card {
+  background: rgba(255, 255, 255, 0.035);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  border: 1px dashed rgba(255, 255, 255, 0.22);
+  border-radius: 14px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+[data-glass="liquid"] .empty-card .e1 { color: rgba(232, 234, 237, 0.78); }
+[data-glass="liquid"] .empty-card .e2 { color: rgba(232, 234, 237, 0.50); }
+</style>
+<style id="glass-fluent">
+/* === GLASS:fluent === Windows 11 Fluent Acrylic + Mica ===================
+   Restrained, professional, content-first. Subtle mica desktop background,
+   tinted acrylic panels with real backdrop blur + fine noise texture, thin
+   subtle borders, minimal shadow, reveal-style hover.
+   Every selector scoped under [data-glass="fluent"].
+   ========================================================================= */
+
+/* ---- local design constants (acrylic recipe) ---------------------------- */
+[data-glass="fluent"] {
+  --fl-acrylic:        rgba(30,33,38,0.62);
+  --fl-acrylic-strong: rgba(28,31,36,0.74);
+  --fl-acrylic-faint:  rgba(32,35,40,0.46);
+  --fl-card:           rgba(38,42,48,0.58);
+  --fl-card-hover:     rgba(46,50,57,0.66);
+  --fl-border:         rgba(255,255,255,0.06);
+  --fl-border-strong:  rgba(255,255,255,0.10);
+  --fl-border-reveal:  rgba(255,255,255,0.16);
+  --fl-blur:           saturate(1.25) blur(30px);
+  --fl-blur-strong:    saturate(1.3) blur(40px);
+  --fl-text:           #e8eaed;
+  --fl-text-dim:       #9aa1ad;
+  --fl-shadow:         0 2px 10px rgba(0,0,0,0.28);
+  --fl-shadow-hover:   0 6px 18px rgba(0,0,0,0.34);
+  /* fine noise (feTurbulence) as a tileable data-URI; layered low-opacity */
+  --fl-noise: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='160' height='160' filter='url(%23n)' opacity='0.5'/></svg>");
+}
+
+/* ---- window root --------------------------------------------------------- */
+[data-glass="fluent"].window {
+  border-radius:10px;
+  box-shadow:0 24px 60px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.05);
+  color:var(--fl-text);
+}
+
+/* ---- app background : MICA ----------------------------------------------
+   Dark, calm. A single faint low-saturation tint gradient. No colorful blobs.
+   ::before adds an extremely gentle large-radius desktop-tint wash; ::after
+   lays the fine noise across the whole scene (mica = blurred desktop + noise).
+   ------------------------------------------------------------------------- */
+[data-glass="fluent"] .app-bg {
+  background:
+    radial-gradient(120% 90% at 78% 8%, rgba(63,191,120,0.05), transparent 55%),
+    linear-gradient(160deg, #1c1f24 0%, #181a1e 48%, #15171b 100%);
+}
+[data-glass="fluent"] .app-bg::before {
+  content:"";
+  position:absolute; inset:0;
+  background:
+    radial-gradient(70% 55% at 18% 92%, rgba(72,103,140,0.055), transparent 60%),
+    radial-gradient(60% 50% at 95% 60%, rgba(40,46,55,0.5), transparent 70%);
+  pointer-events:none;
+}
+[data-glass="fluent"] .app-bg::after {
+  content:"";
+  position:absolute; inset:0;
+  background-image:var(--fl-noise);
+  background-size:160px 160px;
+  opacity:0.045;
+  mix-blend-mode:overlay;
+  pointer-events:none;
+}
+
+/* ---- shell : transparent (leave grid) ----------------------------------- */
+[data-glass="fluent"] .shell { background:transparent; }
+
+/* =========================================================================
+   RAIL — acrylic vertical nav
+   ========================================================================= */
+[data-glass="fluent"] .rail {
+  position:relative;
+  background:var(--fl-acrylic-strong);
+  -webkit-backdrop-filter:var(--fl-blur);
+  backdrop-filter:var(--fl-blur);
+  border-right:1px solid var(--fl-border);
+}
+/* noise overlay for the rail acrylic */
+[data-glass="fluent"] .rail::after {
+  content:"";
+  position:absolute; inset:0;
+  background-image:var(--fl-noise);
+  background-size:160px 160px;
+  opacity:0.05;
+  mix-blend-mode:overlay;
+  pointer-events:none;
+}
+[data-glass="fluent"] .rail > * { position:relative; z-index:1; }
+
+[data-glass="fluent"] .rail .logo {
+  border-radius:6px;
+  transition:background-color .18s ease;
+}
+[data-glass="fluent"] .rail .logo:hover {
+  background:rgba(255,255,255,0.05);
+}
+
+[data-glass="fluent"] .rail-item {
+  color:var(--fl-text-dim);
+  border:1px solid transparent;
+  border-radius:6px;
+  transition:background-color .18s ease, color .18s ease, border-color .18s ease;
+}
+/* reveal hover — faint inner light + lightened border, no heavy glow */
+[data-glass="fluent"] .rail-item:hover {
+  background:rgba(255,255,255,0.06);
+  border-color:var(--fl-border-reveal);
+  color:var(--fl-text);
+}
+[data-glass="fluent"] .rail-item.selected {
+  color:var(--a-5);
+  background:color-mix(in srgb, var(--a-4) 14%, rgba(255,255,255,0.04));
+  border-color:rgba(63,191,120,0.18);
+}
+[data-glass="fluent"] .rail-item.selected::before {
+  background:var(--a-4);
+  box-shadow:0 0 8px rgba(40,160,98,0.45);
+}
+
+[data-glass="fluent"] .rail .divider {
+  background:rgba(255,255,255,0.08);
+}
+[data-glass="fluent"] .rail .avatar {
+  border:1px solid var(--fl-border-strong);
+  background:linear-gradient(135deg,var(--a-3),var(--a-5));
+  box-shadow:0 1px 4px rgba(0,0,0,0.3);
+}
+
+/* =========================================================================
+   TOPBAR — acrylic
+   ========================================================================= */
+[data-glass="fluent"] .topbar {
+  position:relative;
+  background:var(--fl-acrylic);
+  -webkit-backdrop-filter:var(--fl-blur);
+  backdrop-filter:var(--fl-blur);
+  border-bottom:1px solid var(--fl-border);
+}
+[data-glass="fluent"] .topbar::after {
+  content:"";
+  position:absolute; inset:0;
+  background-image:var(--fl-noise);
+  background-size:160px 160px;
+  opacity:0.04;
+  mix-blend-mode:overlay;
+  pointer-events:none;
+}
+[data-glass="fluent"] .topbar > * { position:relative; z-index:1; }
+
+[data-glass="fluent"] .topbar .brand { color:var(--fl-text); }
+[data-glass="fluent"] .topbar .pagetitle { color:var(--fl-text); }
+[data-glass="fluent"] .topbar .navbtns button { color:var(--fl-text-dim); }
+
+[data-glass="fluent"] .btn-switch {
+  border:1px solid var(--fl-border-strong);
+  background:rgba(255,255,255,0.04);
+  color:var(--fl-text-dim);
+  border-radius:6px;
+  transition:background-color .18s ease, color .18s ease, border-color .18s ease;
+}
+[data-glass="fluent"] .btn-switch:hover {
+  background:rgba(255,255,255,0.09);
+  border-color:var(--fl-border-reveal);
+  color:var(--fl-text);
+}
+
+[data-glass="fluent"] .runstat { color:var(--fl-text); }
+[data-glass="fluent"] .runstat .dot {
+  background:var(--a-5);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--a-4) 25%,transparent), 0 0 6px rgba(63,191,120,0.5);
+}
+
+/* =========================================================================
+   MAIN — transparent so app-bg mica shows through behind frosted cards
+   ========================================================================= */
+[data-glass="fluent"] .body { background:transparent; }
+[data-glass="fluent"] .main { background:transparent; }
+[data-glass="fluent"] .main h1 { color:var(--fl-text); }
+[data-glass="fluent"] .main h2 { color:var(--fl-text); }
+[data-glass="fluent"] .section h2 { color:var(--fl-text); }
+
+/* =========================================================================
+   INSTANCE ROWS — acrylic cards
+   ========================================================================= */
+[data-glass="fluent"] .glass-row {
+  position:relative;
+  background:var(--fl-card);
+  -webkit-backdrop-filter:var(--fl-blur);
+  backdrop-filter:var(--fl-blur);
+  border:1px solid var(--fl-border);
+  border-radius:8px;
+  box-shadow:var(--fl-shadow);
+  overflow:hidden;
+  transition:background-color .18s ease, border-color .18s ease,
+             box-shadow .18s ease, transform .18s ease;
+}
+[data-glass="fluent"] .glass-row::after {
+  content:"";
+  position:absolute; inset:0;
+  background-image:var(--fl-noise);
+  background-size:160px 160px;
+  opacity:0.04;
+  mix-blend-mode:overlay;
+  pointer-events:none;
+}
+[data-glass="fluent"] .glass-row > * { position:relative; z-index:1; }
+/* reveal hover */
+[data-glass="fluent"] .glass-row:hover {
+  transform:translateY(-1px);
+  background:var(--fl-card-hover);
+  border-color:var(--fl-border-reveal);
+  box-shadow:var(--fl-shadow-hover);
+}
+
+[data-glass="fluent"] .glass-row .ricon {
+  background:linear-gradient(135deg,var(--a-3),var(--a-5));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.18);
+}
+[data-glass="fluent"] .glass-row .ricon .live {
+  background:var(--a-5);
+  box-shadow:0 0 0 2px rgba(38,42,48,0.9), 0 0 5px rgba(63,191,120,0.6);
+}
+[data-glass="fluent"] .glass-row .rname { color:var(--fl-text); }
+[data-glass="fluent"] .glass-row .rsub { color:var(--fl-text-dim); }
+
+[data-glass="fluent"] .play-btn {
+  background:linear-gradient(135deg,var(--a-4),var(--a-5));
+  color:#fff;
+  border-radius:6px;
+  box-shadow:0 1px 6px rgba(40,160,98,0.32), inset 0 1px 0 rgba(255,255,255,0.2);
+  transition:filter .15s ease, box-shadow .15s ease;
+}
+[data-glass="fluent"] .play-btn:hover {
+  filter:brightness(1.06);
+  box-shadow:0 2px 10px rgba(40,160,98,0.42), inset 0 1px 0 rgba(255,255,255,0.25);
+}
+
+[data-glass="fluent"] .menu-btn {
+  color:var(--fl-text-dim);
+  border:1px solid transparent;
+  border-radius:6px;
+  transition:background-color .18s ease, color .18s ease, border-color .18s ease;
+}
+[data-glass="fluent"] .menu-btn:hover {
+  background:rgba(255,255,255,0.07);
+  border-color:var(--fl-border-reveal);
+  color:var(--fl-text);
+}
+
+/* =========================================================================
+   MODPACK CARDS — acrylic shell, vivid covers preserved
+   ========================================================================= */
+[data-glass="fluent"] .glass-modcard {
+  position:relative;
+  background:var(--fl-card);
+  -webkit-backdrop-filter:var(--fl-blur);
+  backdrop-filter:var(--fl-blur);
+  border:1px solid var(--fl-border);
+  border-radius:8px;
+  box-shadow:var(--fl-shadow);
+  transition:background-color .18s ease, border-color .18s ease,
+             box-shadow .18s ease, transform .18s ease;
+}
+[data-glass="fluent"] .glass-modcard:hover {
+  transform:translateY(-2px);
+  background:var(--fl-card-hover);
+  border-color:var(--fl-border-reveal);
+  box-shadow:var(--fl-shadow-hover);
+}
+
+/* keep covers vivid; add a subtle inner highlight for depth */
+[data-glass="fluent"] .glass-modcard .cover {
+  position:relative;
+}
+[data-glass="fluent"] .glass-modcard .cover::after {
+  content:"";
+  position:absolute; inset:0;
+  background:linear-gradient(180deg, rgba(255,255,255,0.16), transparent 40%, rgba(0,0,0,0.18));
+  pointer-events:none;
+}
+
+/* noise over the info area only (keep covers clean/photographic) */
+[data-glass="fluent"] .glass-modcard .info {
+  position:relative;
+}
+[data-glass="fluent"] .glass-modcard .info::after {
+  content:"";
+  position:absolute; inset:0;
+  background-image:var(--fl-noise);
+  background-size:160px 160px;
+  opacity:0.04;
+  mix-blend-mode:overlay;
+  pointer-events:none;
+}
+[data-glass="fluent"] .glass-modcard .info > * { position:relative; z-index:1; }
+
+[data-glass="fluent"] .glass-modcard .mtitle { color:var(--fl-text); }
+[data-glass="fluent"] .glass-modcard .mtitle .by { color:var(--fl-text-dim); }
+[data-glass="fluent"] .glass-modcard .mdesc { color:var(--fl-text-dim); }
+[data-glass="fluent"] .glass-modcard .dl { color:var(--fl-text-dim); }
+[data-glass="fluent"] .glass-modcard .dl svg { color:var(--a-5); }
+
+[data-glass="fluent"] .chip {
+  color:var(--fl-text-dim);
+  background:rgba(255,255,255,0.06);
+  border:1px solid var(--fl-border);
+  border-radius:4px;
+}
+
+/* =========================================================================
+   CONTEXT BAR — acrylic
+   ========================================================================= */
+[data-glass="fluent"] .ctxbar {
+  position:relative;
+  background:var(--fl-acrylic);
+  -webkit-backdrop-filter:var(--fl-blur-strong);
+  backdrop-filter:var(--fl-blur-strong);
+  border-left:1px solid var(--fl-border);
+}
+[data-glass="fluent"] .ctxbar::after {
+  content:"";
+  position:absolute; inset:0;
+  background-image:var(--fl-noise);
+  background-size:160px 160px;
+  opacity:0.045;
+  mix-blend-mode:overlay;
+  pointer-events:none;
+}
+[data-glass="fluent"] .ctxbar > * { position:relative; z-index:1; }
+
+[data-glass="fluent"] .ctxbar .heading { color:var(--fl-text-dim); }
+
+[data-glass="fluent"] .ctx-card {
+  background:var(--fl-card);
+  -webkit-backdrop-filter:saturate(1.2) blur(12px);
+  backdrop-filter:saturate(1.2) blur(12px);
+  border:1px solid var(--fl-border);
+  border-radius:6px;
+  transition:background-color .18s ease, border-color .18s ease;
+}
+[data-glass="fluent"] .ctx-card:hover {
+  background:var(--fl-card-hover);
+  border-color:var(--fl-border-reveal);
+}
+[data-glass="fluent"] .ctx-card .av {
+  background:linear-gradient(135deg,var(--a-3),var(--a-5));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.18);
+}
+[data-glass="fluent"] .ctx-card .cname { color:var(--fl-text); }
+[data-glass="fluent"] .ctx-card .ckind { color:var(--fl-text-dim); }
+[data-glass="fluent"] .ctx-card .chev { color:var(--fl-text-dim); }
+
+[data-glass="fluent"] .empty-card {
+  background:rgba(255,255,255,0.025);
+  border:1px dashed rgba(255,255,255,0.12);
+  border-radius:6px;
+}
+[data-glass="fluent"] .empty-card .e1 { color:var(--fl-text-dim); }
+[data-glass="fluent"] .empty-card .e2 { color:rgba(154,161,173,0.7); }
+</style>
+<style id="glass-aero">
+/* === GLASS:aero === 复古玻璃 / Windows Aero (Vista/Win7) ===
+   Glossy, nostalgic frosted glass. Vista aurora wallpaper behind everything;
+   panels are semi-transparent with a vertical top-down gloss, a crisp 1px white
+   top highlight line, a faint aqua/cyan glass tint, soft outer glow, and a
+   ::before reflection strip across the top ~40%. Play buttons stay green.
+   Every selector scoped under [data-glass="aero"]. */
+
+/* ---------------------------------------------------------------------------
+   Aero-local variables (panel gloss / tint / glow recipes)
+   --------------------------------------------------------------------------- */
+[data-glass="aero"] {
+  --aero-blur: blur(18px) saturate(1.25);
+  /* vertical gloss: lighter top half fading to near-clear at ~50% */
+  --aero-gloss: linear-gradient(
+      to bottom,
+      rgba(255,255,255,0.20) 0%,
+      rgba(255,255,255,0.10) 26%,
+      rgba(255,255,255,0.035) 50%,
+      rgba(255,255,255,0.00) 72%);
+  /* faint aqua/cyan nostalgic glass tint */
+  --aero-tint: linear-gradient(
+      to bottom,
+      rgba(150,215,235,0.16),
+      rgba(110,180,210,0.07));
+  --aero-panel-bg: rgba(28,46,58,0.40);
+  --aero-edge: 1px solid rgba(255,255,255,0.22);
+  --aero-glow: 0 8px 30px rgba(8,30,46,0.45), 0 0 0 1px rgba(120,200,230,0.18),
+               0 0 24px rgba(120,200,230,0.10);
+  --aero-top-line: inset 0 1px 0 rgba(255,255,255,0.55);
+  --aero-radius: 8px;
+}
+
+/* ---------------------------------------------------------------------------
+   Window root + outer glow
+   --------------------------------------------------------------------------- */
+[data-glass="aero"].window {
+  box-shadow:
+    0 30px 80px rgba(0,0,0,0.55),
+    0 0 0 1px rgba(255,255,255,0.10),
+    0 0 60px rgba(80,180,220,0.12);
+}
+
+/* ---------------------------------------------------------------------------
+   App background: glossy Vista aurora wallpaper (aqua / teal / blue swooshes
+   with a top-left light source). Decorative aurora swooshes via ::before /
+   ::after so no new DOM elements are introduced.
+   --------------------------------------------------------------------------- */
+[data-glass="aero"] .app-bg {
+  background:
+    /* top-left light source */
+    radial-gradient(120% 90% at 18% -10%,
+      rgba(225,248,255,0.55) 0%,
+      rgba(150,225,250,0.22) 24%,
+      rgba(60,150,200,0.0) 55%),
+    /* warm cyan glow lower-right */
+    radial-gradient(90% 80% at 92% 108%,
+      rgba(40,180,180,0.40) 0%,
+      rgba(20,90,140,0.0) 60%),
+    /* deep teal/blue base gradient */
+    linear-gradient(155deg,
+      #0a4d6b 0%,
+      #0d6a86 26%,
+      #0e7e8c 48%,
+      #115f86 70%,
+      #103a63 100%);
+  overflow: hidden;
+}
+
+/* aurora swoosh #1 — broad teal/green ribbon */
+[data-glass="aero"] .app-bg::before {
+  content: "";
+  position: absolute;
+  left: -25%;
+  top: -30%;
+  width: 150%;
+  height: 120%;
+  background:
+    radial-gradient(60% 45% at 35% 40%,
+      rgba(110,235,205,0.45) 0%,
+      rgba(60,200,200,0.18) 40%,
+      rgba(0,0,0,0) 72%),
+    radial-gradient(50% 40% at 70% 30%,
+      rgba(120,220,255,0.40) 0%,
+      rgba(0,0,0,0) 70%);
+  transform: rotate(-14deg);
+  filter: blur(28px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* aurora swoosh #2 — bright specular sweep + lower aqua blob */
+[data-glass="aero"] .app-bg::after {
+  content: "";
+  position: absolute;
+  right: -20%;
+  bottom: -25%;
+  width: 130%;
+  height: 110%;
+  background:
+    radial-gradient(55% 50% at 75% 75%,
+      rgba(70,210,235,0.38) 0%,
+      rgba(30,120,170,0.0) 65%),
+    /* glossy specular sweep across the middle (the Vista "shine") */
+    linear-gradient(110deg,
+      rgba(255,255,255,0) 38%,
+      rgba(255,255,255,0.16) 50%,
+      rgba(255,255,255,0) 60%);
+  transform: rotate(8deg);
+  filter: blur(18px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Shell stays transparent (leave as-is per spec)
+   --------------------------------------------------------------------------- */
+[data-glass="aero"] .shell { background: transparent; }
+
+/* ===========================================================================
+   RAIL — glassy vertical nav
+   =========================================================================== */
+[data-glass="aero"] .rail {
+  position: relative;
+  background:
+    var(--aero-gloss),
+    var(--aero-tint),
+    var(--aero-panel-bg);
+  background-blend-mode: screen, normal, normal;
+  -webkit-backdrop-filter: var(--aero-blur);
+  backdrop-filter: var(--aero-blur);
+  border-right: 1px solid rgba(255,255,255,0.16);
+  box-shadow:
+    var(--aero-top-line),
+    1px 0 0 rgba(120,200,230,0.18),
+    inset -1px 0 0 rgba(0,0,0,0.18);
+}
+/* top gloss reflection strip across the rail's upper region */
+[data-glass="aero"] .rail::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 38%;
+  background: linear-gradient(
+      to bottom,
+      rgba(255,255,255,0.28),
+      rgba(255,255,255,0.06) 60%,
+      rgba(255,255,255,0) 100%);
+  border-radius: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+[data-glass="aero"] .rail > * { position: relative; z-index: 1; }
+
+[data-glass="aero"] .rail .logo {
+  border-radius: var(--radius);
+}
+[data-glass="aero"] .rail .logo:hover {
+  background: rgba(255,255,255,0.12);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.4);
+}
+
+[data-glass="aero"] .rail-item {
+  color: rgba(225,240,248,0.78);
+  border-radius: var(--radius);
+  transition: background-color .18s, color .18s, box-shadow .18s;
+}
+[data-glass="aero"] .rail-item:hover {
+  background:
+    linear-gradient(to bottom, rgba(255,255,255,0.22), rgba(255,255,255,0.04));
+  color: #ffffff;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.5),
+    inset 0 -1px 0 rgba(0,0,0,0.12);
+}
+[data-glass="aero"] .rail-item.selected {
+  color: var(--a-6);
+  background:
+    linear-gradient(to bottom,
+      rgba(63,191,120,0.30),
+      rgba(31,122,77,0.14));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.45),
+    0 0 10px rgba(63,191,120,0.30);
+}
+[data-glass="aero"] .rail-item.selected::before {
+  background: linear-gradient(to bottom, var(--a-5), var(--a-3));
+  box-shadow: 0 0 8px rgba(63,191,120,0.6);
+  border-radius: 0 2px 2px 0;
+}
+[data-glass="aero"] .rail .divider {
+  background: linear-gradient(to right,
+      rgba(255,255,255,0) 0%,
+      rgba(255,255,255,0.30) 50%,
+      rgba(255,255,255,0) 100%);
+  height: 1px;
+  box-shadow: 0 1px 0 rgba(0,0,0,0.15);
+}
+[data-glass="aero"] .rail .avatar {
+  border: 1px solid rgba(255,255,255,0.45);
+  background: linear-gradient(135deg, var(--a-3), var(--a-5));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.55),
+    0 2px 8px rgba(0,0,0,0.35),
+    0 0 0 1px rgba(120,200,230,0.25);
+}
+
+/* ===========================================================================
+   TOPBAR — glassy top bar
+   =========================================================================== */
+[data-glass="aero"] .topbar {
+  position: relative;
+  background:
+    var(--aero-gloss),
+    var(--aero-tint),
+    var(--aero-panel-bg);
+  background-blend-mode: screen, normal, normal;
+  -webkit-backdrop-filter: var(--aero-blur);
+  backdrop-filter: var(--aero-blur);
+  border-bottom: 1px solid rgba(120,200,230,0.22);
+  box-shadow:
+    var(--aero-top-line),
+    inset 0 -1px 0 rgba(0,0,0,0.16);
+}
+/* top gloss reflection strip — brighter curved highlight across upper 40% */
+[data-glass="aero"] .topbar::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 46%;
+  background: linear-gradient(
+      to bottom,
+      rgba(255,255,255,0.30),
+      rgba(255,255,255,0.05) 80%,
+      rgba(255,255,255,0) 100%);
+  pointer-events: none;
+  z-index: 0;
+}
+[data-glass="aero"] .topbar > * { position: relative; z-index: 1; }
+
+[data-glass="aero"] .topbar .brand {
+  color: #ffffff;
+  text-shadow: 0 1px 1px rgba(0,0,0,0.35);
+}
+[data-glass="aero"] .topbar .pagetitle {
+  color: rgba(240,250,255,0.92);
+  text-shadow: 0 1px 1px rgba(0,0,0,0.30);
+}
+[data-glass="aero"] .topbar .navbtns button {
+  color: rgba(225,240,248,0.7);
+}
+
+[data-glass="aero"] .btn-switch {
+  position: relative;
+  border: 1px solid rgba(255,255,255,0.35);
+  background:
+    linear-gradient(to bottom,
+      rgba(255,255,255,0.28) 0%,
+      rgba(255,255,255,0.10) 50%,
+      rgba(160,210,230,0.10) 51%,
+      rgba(120,180,210,0.06) 100%);
+  color: #f1faff;
+  text-shadow: 0 1px 1px rgba(0,0,0,0.30);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.55),
+    0 1px 3px rgba(0,0,0,0.25);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  transition: all .18s;
+}
+[data-glass="aero"] .btn-switch:hover {
+  border-color: rgba(255,255,255,0.55);
+  background:
+    linear-gradient(to bottom,
+      rgba(63,191,120,0.55) 0%,
+      rgba(40,160,98,0.40) 50%,
+      rgba(31,122,77,0.45) 100%);
+  color: #ffffff;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.6),
+    0 2px 8px rgba(40,160,98,0.4);
+}
+[data-glass="aero"] .runstat {
+  color: rgba(240,250,255,0.92);
+  text-shadow: 0 1px 1px rgba(0,0,0,0.3);
+}
+[data-glass="aero"] .runstat .dot {
+  background: var(--a-5);
+  box-shadow:
+    0 0 0 3px rgba(63,191,120,0.30),
+    0 0 8px rgba(63,191,120,0.7);
+}
+
+/* ===========================================================================
+   BODY / MAIN — transparent so .app-bg frosts through cards
+   =========================================================================== */
+[data-glass="aero"] .body { background: transparent; }
+[data-glass="aero"] .main {
+  background: transparent;
+}
+[data-glass="aero"] .main h1 {
+  color: #ffffff;
+  text-shadow: 0 1px 3px rgba(0,30,46,0.55), 0 0 18px rgba(120,210,240,0.25);
+}
+[data-glass="aero"] .main h2 {
+  color: rgba(240,250,255,0.95);
+  text-shadow: 0 1px 2px rgba(0,30,46,0.5);
+}
+
+/* ===========================================================================
+   INSTANCE ROW cards — frosted glossy
+   =========================================================================== */
+[data-glass="aero"] .glass-row {
+  position: relative;
+  background:
+    var(--aero-gloss),
+    var(--aero-tint),
+    rgba(24,42,54,0.42);
+  background-blend-mode: screen, normal, normal;
+  -webkit-backdrop-filter: var(--aero-blur);
+  backdrop-filter: var(--aero-blur);
+  border: 1px solid rgba(255,255,255,0.22);
+  border-radius: var(--aero-radius);
+  box-shadow:
+    var(--aero-top-line),
+    0 6px 22px rgba(8,30,46,0.40),
+    0 0 0 1px rgba(120,200,230,0.10);
+  overflow: hidden;
+  transition: transform .2s, box-shadow .2s, border-color .2s;
+}
+/* curved top gloss reflection strip over upper ~40% */
+[data-glass="aero"] .glass-row::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 42%;
+  background: linear-gradient(
+      to bottom,
+      rgba(255,255,255,0.26),
+      rgba(255,255,255,0.05) 70%,
+      rgba(255,255,255,0) 100%);
+  /* slight curve to the highlight */
+  border-radius: var(--aero-radius) var(--aero-radius) 50% 50% / var(--aero-radius) var(--aero-radius) 14px 14px;
+  pointer-events: none;
+  z-index: 0;
+}
+[data-glass="aero"] .glass-row > * { position: relative; z-index: 1; }
+[data-glass="aero"] .glass-row:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255,255,255,0.4);
+  box-shadow:
+    var(--aero-top-line),
+    0 10px 30px rgba(8,30,46,0.50),
+    0 0 22px rgba(120,200,230,0.18);
+}
+
+[data-glass="aero"] .glass-row .ricon {
+  background: linear-gradient(135deg, var(--a-3), var(--a-5));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.5),
+    0 1px 4px rgba(0,0,0,0.3);
+}
+[data-glass="aero"] .glass-row .ricon .live {
+  background: var(--a-5);
+  box-shadow:
+    0 0 0 2px rgba(24,42,54,0.9),
+    0 0 8px rgba(63,191,120,0.8);
+}
+[data-glass="aero"] .glass-row .rname {
+  color: #ffffff;
+  text-shadow: 0 1px 1px rgba(0,20,32,0.4);
+}
+[data-glass="aero"] .glass-row .rsub {
+  color: rgba(220,238,246,0.82);
+}
+[data-glass="aero"] .glass-row .rsub .sep { opacity: .55; }
+
+/* play button — glossy green pill (hue stays green) */
+[data-glass="aero"] .play-btn {
+  position: relative;
+  background:
+    linear-gradient(to bottom,
+      rgba(255,255,255,0.35) 0%,
+      rgba(255,255,255,0.0) 48%),
+    linear-gradient(135deg, var(--a-4), var(--a-5));
+  color: #ffffff;
+  text-shadow: 0 1px 1px rgba(0,40,20,0.4);
+  border: 1px solid rgba(255,255,255,0.30);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.6),
+    0 2px 8px rgba(40,160,98,0.45);
+  overflow: hidden;
+  transition: filter .15s, transform .1s, box-shadow .15s;
+}
+[data-glass="aero"] .play-btn:hover {
+  filter: brightness(1.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.7),
+    0 3px 12px rgba(40,160,98,0.6);
+}
+[data-glass="aero"] .play-btn:active { transform: translateY(1px); }
+
+[data-glass="aero"] .menu-btn {
+  color: rgba(220,238,246,0.78);
+  border-radius: var(--radius);
+}
+[data-glass="aero"] .menu-btn:hover {
+  background: linear-gradient(to bottom, rgba(255,255,255,0.20), rgba(255,255,255,0.04));
+  color: #ffffff;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.45);
+}
+
+/* ===========================================================================
+   MODPACK cards — frosted glossy with vivid covers
+   =========================================================================== */
+[data-glass="aero"] .glass-modcard {
+  position: relative;
+  background:
+    var(--aero-gloss),
+    var(--aero-tint),
+    rgba(24,42,54,0.42);
+  background-blend-mode: screen, normal, normal;
+  -webkit-backdrop-filter: var(--aero-blur);
+  backdrop-filter: var(--aero-blur);
+  border: 1px solid rgba(255,255,255,0.22);
+  border-radius: var(--aero-radius);
+  box-shadow:
+    var(--aero-top-line),
+    0 6px 22px rgba(8,30,46,0.40),
+    0 0 0 1px rgba(120,200,230,0.10);
+  transition: transform .2s, box-shadow .2s, border-color .2s;
+}
+[data-glass="aero"] .glass-modcard:hover {
+  transform: translateY(-3px);
+  border-color: rgba(255,255,255,0.4);
+  box-shadow:
+    var(--aero-top-line),
+    0 12px 32px rgba(8,30,46,0.52),
+    0 0 24px rgba(120,200,230,0.18);
+}
+
+/* covers stay vivid; add an inner glossy highlight (top sheen + bottom shade) */
+[data-glass="aero"] .glass-modcard .cover {
+  position: relative;
+}
+[data-glass="aero"] .glass-modcard .cover::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(to bottom,
+      rgba(255,255,255,0.30) 0%,
+      rgba(255,255,255,0.06) 40%,
+      rgba(255,255,255,0) 55%,
+      rgba(0,0,0,0.12) 100%);
+  pointer-events: none;
+}
+/* big initial above the gloss */
+[data-glass="aero"] .glass-modcard .cover {
+  text-shadow: 0 2px 6px rgba(0,0,0,0.35);
+}
+
+[data-glass="aero"] .glass-modcard .info {
+  position: relative;
+  z-index: 1;
+}
+[data-glass="aero"] .glass-modcard .mtitle {
+  color: #ffffff;
+  text-shadow: 0 1px 1px rgba(0,20,32,0.4);
+}
+[data-glass="aero"] .glass-modcard .mtitle .by {
+  color: rgba(210,232,242,0.7);
+}
+[data-glass="aero"] .glass-modcard .mdesc {
+  color: rgba(214,234,244,0.80);
+}
+[data-glass="aero"] .glass-modcard .dl {
+  color: rgba(214,234,244,0.82);
+}
+[data-glass="aero"] .glass-modcard .dl svg {
+  color: var(--a-6);
+}
+
+/* category chip — frosted aqua pill (shared style) */
+[data-glass="aero"] .chip {
+  color: rgba(235,248,255,0.92);
+  background:
+    linear-gradient(to bottom,
+      rgba(255,255,255,0.22),
+      rgba(150,210,235,0.10));
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: var(--radius-sm);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.4);
+  text-shadow: 0 1px 1px rgba(0,20,32,0.3);
+}
+
+/* ===========================================================================
+   CTXBAR — glassy right sidebar
+   =========================================================================== */
+[data-glass="aero"] .ctxbar {
+  position: relative;
+  background:
+    var(--aero-gloss),
+    var(--aero-tint),
+    var(--aero-panel-bg);
+  background-blend-mode: screen, normal, normal;
+  -webkit-backdrop-filter: var(--aero-blur);
+  backdrop-filter: var(--aero-blur);
+  border-left: 1px solid rgba(120,200,230,0.22);
+  box-shadow:
+    var(--aero-top-line),
+    inset 1px 0 0 rgba(255,255,255,0.10);
+}
+/* top gloss reflection strip over upper ~32% of the sidebar */
+[data-glass="aero"] .ctxbar::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 30%;
+  background: linear-gradient(
+      to bottom,
+      rgba(255,255,255,0.22),
+      rgba(255,255,255,0.04) 70%,
+      rgba(255,255,255,0) 100%);
+  pointer-events: none;
+  z-index: 0;
+}
+[data-glass="aero"] .ctxbar > * { position: relative; z-index: 1; }
+
+[data-glass="aero"] .ctxbar .heading {
+  color: rgba(220,238,246,0.78);
+  text-shadow: 0 1px 1px rgba(0,20,32,0.3);
+}
+
+[data-glass="aero"] .ctx-card {
+  position: relative;
+  background:
+    linear-gradient(to bottom,
+      rgba(255,255,255,0.18) 0%,
+      rgba(255,255,255,0.04) 50%,
+      rgba(255,255,255,0) 75%),
+    var(--aero-tint),
+    rgba(28,46,58,0.40);
+  background-blend-mode: screen, normal, normal;
+  -webkit-backdrop-filter: blur(8px) saturate(1.2);
+  backdrop-filter: blur(8px) saturate(1.2);
+  border: 1px solid rgba(255,255,255,0.22);
+  border-radius: var(--radius);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.4),
+    0 2px 10px rgba(8,30,46,0.30);
+  overflow: hidden;
+  transition: background-color .2s, border-color .2s, box-shadow .2s;
+}
+[data-glass="aero"] .ctx-card::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 45%;
+  background: linear-gradient(
+      to bottom,
+      rgba(255,255,255,0.20),
+      rgba(255,255,255,0) 100%);
+  pointer-events: none;
+  z-index: 0;
+}
+[data-glass="aero"] .ctx-card > * { position: relative; z-index: 1; }
+[data-glass="aero"] .ctx-card:hover {
+  border-color: rgba(120,215,155,0.6);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.5),
+    0 3px 14px rgba(8,30,46,0.40),
+    0 0 14px rgba(63,191,120,0.18);
+}
+[data-glass="aero"] .ctx-card .av {
+  background: linear-gradient(135deg, var(--a-3), var(--a-5));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.5),
+    0 1px 4px rgba(0,0,0,0.3);
+}
+[data-glass="aero"] .ctx-card .cname {
+  color: #ffffff;
+  text-shadow: 0 1px 1px rgba(0,20,32,0.35);
+}
+[data-glass="aero"] .ctx-card .ckind {
+  color: rgba(210,232,242,0.72);
+}
+[data-glass="aero"] .ctx-card .chev {
+  color: rgba(210,232,242,0.7);
+}
+
+[data-glass="aero"] .empty-card {
+  background:
+    linear-gradient(to bottom,
+      rgba(255,255,255,0.10),
+      rgba(255,255,255,0.02) 60%,
+      rgba(0,0,0,0.04));
+  -webkit-backdrop-filter: blur(6px) saturate(1.1);
+  backdrop-filter: blur(6px) saturate(1.1);
+  border: 1px dashed rgba(255,255,255,0.30);
+  border-radius: var(--radius);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.22);
+}
+[data-glass="aero"] .empty-card .e1 {
+  color: rgba(218,236,244,0.82);
+}
+[data-glass="aero"] .empty-card .e2 {
+  color: rgba(190,212,224,0.62);
+}
+</style>
+<!-- GLASS-STYLE-BLOCKS:END -->
+
+</head>
+<body>
+
+<div class="switcher">
+  <b>玻璃风格:</b>
+  <button class="sw-btn" data-key="solid">原版(当前)</button>
+  <button class="sw-btn active" data-key="calm">沉静毛玻璃 ★</button>
+  <button class="sw-btn" data-key="clean">通透玻璃 ★</button>
+  <button class="sw-btn" data-key="glassmorphism">彩色毛玻璃</button>
+  <button class="sw-btn" data-key="liquid">液态玻璃</button>
+  <button class="sw-btn" data-key="fluent">亚克力 Fluent</button>
+  <button class="sw-btn" data-key="aero">复古 Aero</button>
+  <div class="sw-note" id="swNote"></div>
+</div>
+
+<div class="window" data-glass="calm" id="win">
+  <div class="app-bg"></div>
+  <div class="shell">
+
+    <!-- ===== Rail ===== -->
+    <nav class="rail">
+      <div class="logo">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M12 2 3 7v10l9 5 9-5V7l-9-5Z" fill="var(--a-1)" stroke="var(--a-4)" stroke-width="1.4" stroke-linejoin="round"/>
+          <path d="M12 7 7.5 9.5v5L12 17l4.5-2.5v-5L12 7Z" fill="var(--a-4)"/>
+        </svg>
+      </div>
+      <button class="rail-item selected" title="主页">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20a1 1 0 0 0 1 1h3v-6h6v6h3a1 1 0 0 0 1-1V9.5"/></svg>
+      </button>
+      <button class="rail-item" title="发现">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5 5-2Z"/></svg>
+      </button>
+      <button class="rail-item" title="库">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="6" height="16" rx="1"/><rect x="11" y="4" width="6" height="16" rx="1"/><path d="M19.5 5.2 21 19"/></svg>
+      </button>
+      <div class="divider"></div>
+      <div class="spacer"></div>
+      <button class="rail-item" title="设置">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 13a7.8 7.8 0 0 0 0-2l1.8-1.4-1.9-3.3-2.2.9a7.6 7.6 0 0 0-1.7-1l-.3-2.3H10.5l-.3 2.3a7.6 7.6 0 0 0-1.7 1l-2.2-.9-1.9 3.3L6.2 11a7.8 7.8 0 0 0 0 2l-1.8 1.4 1.9 3.3 2.2-.9a7.6 7.6 0 0 0 1.7 1l.3 2.3h3.9l.3-2.3a7.6 7.6 0 0 0 1.7-1l2.2.9 1.9-3.3Z"/></svg>
+      </button>
+      <div class="avatar">S</div>
+    </nav>
+
+    <!-- ===== TopBar ===== -->
+    <header class="topbar">
+      <div class="left">
+        <span class="brand">MC Launcher</span>
+        <div class="navbtns">
+          <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m14 6-6 6 6 6"/></svg></button>
+          <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m10 6 6 6-6 6"/></svg></button>
+        </div>
+        <span class="pagetitle">主页</span>
+      </div>
+      <div class="right">
+        <button class="btn-switch">切到经典视图 ⇄</button>
+        <div class="runstat"><span class="dot"></span><span>1 个实例运行中</span></div>
+      </div>
+    </header>
+
+    <!-- ===== Body ===== -->
+    <div class="body">
+      <main class="main">
+        <header>
+          <h1>Welcome back!</h1>
+          <h2>Jump back in</h2>
+        </header>
+
+        <div class="rows">
+          <!-- 实例行 1（运行中） -->
+          <div class="glass-row">
+            <div class="ricon">万<span class="live"></span></div>
+            <div class="rmeta">
+              <div class="rname">万象更新 整合包</div>
+              <div class="rsub"><span>Fabric 1.20.1</span><span class="sep">·</span><span>Played 5 分钟前</span></div>
+            </div>
+            <div class="ractions">
+              <button class="play-btn"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M5 3.5v9l7-4.5z"/></svg>停止</button>
+              <button class="menu-btn"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="3" r="1.5"/><circle cx="8" cy="8" r="1.5"/><circle cx="8" cy="13" r="1.5"/></svg></button>
+            </div>
+          </div>
+          <!-- 实例行 2 -->
+          <div class="glass-row">
+            <div class="ricon">空</div>
+            <div class="rmeta">
+              <div class="rname">空岛生存 SkyBlock</div>
+              <div class="rsub"><span>Forge 1.19.2</span><span class="sep">·</span><span>Played 2 小时前</span></div>
+            </div>
+            <div class="ractions">
+              <button class="play-btn"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M5 3.5v9l7-4.5z"/></svg>启动</button>
+              <button class="menu-btn"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="3" r="1.5"/><circle cx="8" cy="8" r="1.5"/><circle cx="8" cy="13" r="1.5"/></svg></button>
+            </div>
+          </div>
+          <!-- 实例行 3 -->
+          <div class="glass-row">
+            <div class="ricon">原</div>
+            <div class="rmeta">
+              <div class="rname">原版生存 Vanilla</div>
+              <div class="rsub"><span>Vanilla 1.21</span><span class="sep">·</span><span>Played 昨天</span></div>
+            </div>
+            <div class="ractions">
+              <button class="play-btn"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M5 3.5v9l7-4.5z"/></svg>启动</button>
+              <button class="menu-btn"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="3" r="1.5"/><circle cx="8" cy="8" r="1.5"/><circle cx="8" cy="13" r="1.5"/></svg></button>
+            </div>
+          </div>
+        </div>
+
+        <section class="section">
+          <h2>Discover a modpack →</h2>
+          <div class="grid2">
+            <!-- 整合包卡 1 -->
+            <div class="glass-modcard">
+              <div class="cover">B</div>
+              <div class="info">
+                <div class="mtitle">Better MC <span class="by">by Luna Pixel</span></div>
+                <div class="mdesc">一个内容丰富的现代生存整合包,包含上百个精选模组与流畅的优化体验。</div>
+                <div class="mstats">
+                  <span class="dl"><svg width="13" height="13" viewBox="0 0 14 14" fill="currentColor"><path d="M7 1a.9.9 0 0 1 .9.9v5.04l1.5-1.5a.9.9 0 1 1 1.27 1.27L7.64 9.94a.9.9 0 0 1-1.28 0L3.33 6.71A.9.9 0 0 1 4.6 5.44l1.5 1.5V1.9A.9.9 0 0 1 7 1Z"/><path d="M2.1 10.2a.9.9 0 0 1 .9.9v.7h8v-.7a.9.9 0 1 1 1.8 0v1.1a1.4 1.4 0 0 1-1.4 1.4H2.7a1.4 1.4 0 0 1-1.4-1.4v-1.1a.9.9 0 0 1 .9-.9Z"/></svg>3.2M</span>
+                  <span class="chip">adventure</span><span class="chip">magic</span>
+                </div>
+              </div>
+            </div>
+            <!-- 整合包卡 2 -->
+            <div class="glass-modcard">
+              <div class="cover c2">F</div>
+              <div class="info">
+                <div class="mtitle">Fabulously Optimized <span class="by">by robotmime</span></div>
+                <div class="mdesc">保留原版手感的极致性能整合包,开箱即用,显著提升帧率。</div>
+                <div class="mstats">
+                  <span class="dl"><svg width="13" height="13" viewBox="0 0 14 14" fill="currentColor"><path d="M7 1a.9.9 0 0 1 .9.9v5.04l1.5-1.5a.9.9 0 1 1 1.27 1.27L7.64 9.94a.9.9 0 0 1-1.28 0L3.33 6.71A.9.9 0 0 1 4.6 5.44l1.5 1.5V1.9A.9.9 0 0 1 7 1Z"/><path d="M2.1 10.2a.9.9 0 0 1 .9.9v.7h8v-.7a.9.9 0 1 1 1.8 0v1.1a1.4 1.4 0 0 1-1.4 1.4H2.7a1.4 1.4 0 0 1-1.4-1.4v-1.1a.9.9 0 0 1 .9-.9Z"/></svg>8.1M</span>
+                  <span class="chip">optimization</span><span class="chip">vanilla+</span>
+                </div>
+              </div>
+            </div>
+            <!-- 整合包卡 3 -->
+            <div class="glass-modcard">
+              <div class="cover c3">C</div>
+              <div class="info">
+                <div class="mtitle">Create: Above and Beyond <span class="by">by simibubi</span></div>
+                <div class="mdesc">围绕机械动力(Create)打造的科技流程整合包,从齿轮到飞行器一应俱全。</div>
+                <div class="mstats">
+                  <span class="dl"><svg width="13" height="13" viewBox="0 0 14 14" fill="currentColor"><path d="M7 1a.9.9 0 0 1 .9.9v5.04l1.5-1.5a.9.9 0 1 1 1.27 1.27L7.64 9.94a.9.9 0 0 1-1.28 0L3.33 6.71A.9.9 0 0 1 4.6 5.44l1.5 1.5V1.9A.9.9 0 0 1 7 1Z"/><path d="M2.1 10.2a.9.9 0 0 1 .9.9v.7h8v-.7a.9.9 0 1 1 1.8 0v1.1a1.4 1.4 0 0 1-1.4 1.4H2.7a1.4 1.4 0 0 1-1.4-1.4v-1.1a.9.9 0 0 1 .9-.9Z"/></svg>1.4M</span>
+                  <span class="chip">tech</span><span class="chip">automation</span>
+                </div>
+              </div>
+            </div>
+            <!-- 整合包卡 4 -->
+            <div class="glass-modcard">
+              <div class="cover c4">R</div>
+              <div class="info">
+                <div class="mtitle">RLCraft <span class="by">by Shivaxi</span></div>
+                <div class="mdesc">硬核生存的代名词,真实物理、口渴温度与龙,挑战你的极限。</div>
+                <div class="mstats">
+                  <span class="dl"><svg width="13" height="13" viewBox="0 0 14 14" fill="currentColor"><path d="M7 1a.9.9 0 0 1 .9.9v5.04l1.5-1.5a.9.9 0 1 1 1.27 1.27L7.64 9.94a.9.9 0 0 1-1.28 0L3.33 6.71A.9.9 0 0 1 4.6 5.44l1.5 1.5V1.9A.9.9 0 0 1 7 1Z"/><path d="M2.1 10.2a.9.9 0 0 1 .9.9v.7h8v-.7a.9.9 0 1 1 1.8 0v1.1a1.4 1.4 0 0 1-1.4 1.4H2.7a1.4 1.4 0 0 1-1.4-1.4v-1.1a.9.9 0 0 1 .9-.9Z"/></svg>5.7M</span>
+                  <span class="chip">hardcore</span><span class="chip">survival</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <!-- ===== ContextBar ===== -->
+      <aside class="ctxbar">
+        <section>
+          <h3 class="heading">Playing as</h3>
+          <div class="ctx-card">
+            <span class="av">S</span>
+            <span class="cmeta"><span class="cname">Sma1lboy</span><span class="ckind">微软</span></span>
+            <span class="chev"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span>
+          </div>
+        </section>
+        <section>
+          <h3 class="heading">Friends</h3>
+          <div class="empty-card"><span class="e1">暂无好友</span><span class="e2">联机/社交功能开发中</span></div>
+        </section>
+        <section>
+          <h3 class="heading">News</h3>
+          <div class="empty-card"><span class="e1">暂无动态</span><span class="e2">敬请期待</span></div>
+        </section>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<script>
+const NOTES = {
+  solid: "原版:当前的纯色深色界面（bg-n-2 / bg-n-3 / bg-card），作为对比基准。",
+  calm: "沉静毛玻璃 ★ 推荐:磨砂玻璃面板 + 沉静深色背景(无彩色光斑),只留极淡一点绿色呼吸感。玻璃质感在,但不花、不诡异。",
+  clean: "通透玻璃 ★:更透、更轻、大圆角、亮边吃光,背景近纯黑沉静。比沉静版更 airy。",
+  glassmorphism: "彩色毛玻璃:半透磨砂面板浮在鲜艳渐变光斑背景上,细高光边 + 柔和大阴影。",
+  liquid: "液态玻璃:极致通透 + 边缘折射高光,圆润、苹果 visionOS 风。",
+  fluent: "亚克力 Fluent:磨砂+噪点+淡主题色染色,含蓄克制,Windows 11 系统质感。",
+  aero: "复古 Aero:厚磨砂 + 顶部玻璃高光反射 + 有色玻璃边,Vista/Win7 怀旧感。"
+};
+const win = document.getElementById('win');
+const note = document.getElementById('swNote');
+function setStyle(key){
+  const btn = document.querySelector('.sw-btn[data-key="'+key+'"]');
+  if(!btn) return;
+  win.setAttribute('data-glass', key);
+  document.querySelectorAll('.sw-btn').forEach(b=>b.classList.toggle('active', b===btn));
+  note.textContent = NOTES[key] || "";
+  if (location.hash.replace('#','') !== key) history.replaceState(null,'','#'+key);
+}
+document.querySelectorAll('.sw-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=> setStyle(btn.dataset.key));
+});
+window.addEventListener('hashchange', ()=> setStyle(location.hash.replace('#','')||'calm'));
+// 初始:URL hash 优先(方便直接截某风格),否则默认沉静毛玻璃
+setStyle(location.hash.replace('#','') || 'calm');
+</script>
+</body>
+</html>

@@ -9,6 +9,7 @@ import {
   friends,
   refreshFriends,
 } from "../store";
+import { avatarTone, avatarInitial } from "../util/avatar";
 import { t } from "../i18n";
 import type { UserBrief } from "../ipc/bindings";
 
@@ -17,16 +18,6 @@ const INPUT =
   "placeholder:text-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
 const label = (u: UserBrief) => u.username || u.id.slice(0, 8);
-
-// 头像方块瓦片:取名字首字 + 由名字哈希定一个方块色调(草绿 / 泥土 / 石青 / 棕 / 灰紫)。
-const AVATAR_TONES = ["#6f9b4e", "#8a6f3f", "#5b7f86", "#7a5b3a", "#5e5b6e"];
-const avatarTone = (u: UserBrief) => {
-  const s = label(u);
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  return AVATAR_TONES[h % AVATAR_TONES.length];
-};
-const initial = (u: UserBrief) => label(u).slice(0, 1).toUpperCase();
 
 /**
  * FriendsButton —— 顶栏好友入口(从账号 chip 拆出的独立按钮)。
@@ -252,10 +243,10 @@ const Friends: Component = () => {
                   <span
                     class="relative w-[24px] h-[24px] shrink-0 grid place-items-center shadow-raised font-display text-[12px] text-[#1a1b12]"
                     classList={{ "grayscale brightness-75": !u.online }}
-                    style={{ "background-color": avatarTone(u) }}
+                    style={{ "background-color": avatarTone(label(u)) }}
                     aria-hidden="true"
                   >
-                    {initial(u)}
+                    {avatarInitial(label(u))}
                     <span
                       class="absolute -right-[2px] -bottom-[2px] w-[8px] h-[8px] shadow-[0_0_0_2px_var(--color-panel)]"
                       classList={{ "bg-accent": u.online, "bg-faint": !u.online }}

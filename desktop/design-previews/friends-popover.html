@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>好友 Popover — 优化方案</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400..700&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet" />
+<style>
+  /* ===== System — 1:1 from desktop/src/theme/tokens.css (dark) ; accent = live green ===== */
+  :root{
+    --window:#16170f; --titlebar:#0c0d0a; --sidebar:#22241b;
+    --panel:#1d1f15; --panel-2:#2a2c20; --panel-3:#3a3d2c;
+    --text:#f1ead8; --strong:#f3ecda; --sub:#a39f8e; --muted:#8f8f7e; --faint:#7c7c66;
+    --accent:#6aa84a; --accent-dim:#5b8f3a; --accent-text:#16170f;
+    --danger-text:#e5848a; --danger-soft:rgba(229,132,138,.14);
+    --tag:#c9a06a; --dirt:#7a5b3a;
+    --bevel-input:inset 2px 2px 0 rgba(0,0,0,.45);
+    --bevel-raised:inset 2px 2px 0 rgba(255,255,255,.3), inset -2px -2px 0 rgba(0,0,0,.35);
+    --bevel-sunken:inset 2px 2px 0 rgba(255,255,255,.05), inset -2px -2px 0 rgba(0,0,0,.45);
+    --shadow:0 6px 22px rgba(0,0,0,.5);
+    --font:"Noto Sans SC","PingFang SC",system-ui,sans-serif;
+    --display:"Pixelify Sans","Noto Sans SC",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;}
+  body{
+    background:
+      radial-gradient(120% 80% at 50% -10%, #1d1f15 0%, var(--window) 60%);
+    color:var(--text); font-family:var(--font); font-size:14px;
+    min-height:100vh; padding:40px 28px 64px; -webkit-font-smoothing:antialiased;
+  }
+  .page-h{font-family:var(--display);font-size:22px;color:var(--strong);letter-spacing:.5px;margin-bottom:4px;}
+  .page-sub{color:var(--muted);font-size:13px;margin-bottom:32px;}
+  .canvas{display:flex;gap:40px;flex-wrap:wrap;align-items:flex-start;justify-content:center;}
+  .cell{display:flex;flex-direction:column;align-items:center;gap:14px;}
+  .cell-label{font-family:var(--display);font-size:13px;color:var(--tag);letter-spacing:.5px;}
+  .cell-note{font-size:11px;color:var(--faint);max-width:300px;text-align:center;line-height:1.5;}
+
+  /* faux topbar friends button so the popover reads as a real dropdown */
+  .anchor{position:relative;width:300px;}
+  .fauxbar{display:flex;justify-content:flex-end;height:30px;margin-bottom:6px;}
+  .fbtn{width:30px;height:30px;display:grid;place-items:center;color:var(--accent);background:var(--panel-2);box-shadow:var(--bevel-input);}
+  .fbtn svg{width:16px;height:16px;}
+
+  /* ===== popover shell (matches FriendsButton dropdown: 300px, bg-panel, titlebar border, raised shadow, p16) ===== */
+  .pop{width:300px;background:var(--panel);border:1px solid var(--titlebar);box-shadow:var(--shadow);padding:14px;}
+  .pop-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+  .pop-title{font-family:var(--display);font-size:14px;color:var(--strong);letter-spacing:.5px;}
+  .count-chip{font-size:11px;color:var(--accent);background:var(--danger-soft);background:rgba(106,168,74,.16);padding:1px 7px;font-variant-numeric:tabular-nums;}
+
+  /* add-friend block */
+  .add{position:relative;margin-bottom:12px;}
+  .add input{width:100%;height:32px;padding:0 10px 0 30px;background:var(--panel-2);box-shadow:var(--bevel-input);border:0;color:var(--text);font-family:var(--font);font-size:13px;outline:0;}
+  .add input::placeholder{color:var(--faint);}
+  .add .si{position:absolute;left:9px;top:50%;transform:translateY(-50%);width:14px;height:14px;color:var(--faint);}
+
+  /* section label */
+  .sec{display:flex;align-items:center;gap:8px;margin:12px 2px 6px;}
+  .sec-t{font-family:var(--display);font-size:11px;color:var(--sub);letter-spacing:.6px;text-transform:uppercase;white-space:nowrap;}
+  .sec-n{font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums;}
+  .sec-rule{flex:1;height:1px;background:var(--titlebar);}
+
+  .list{display:flex;flex-direction:column;}
+  /* friend row */
+  .row{display:flex;align-items:center;gap:9px;padding:6px 6px;cursor:default;transition:background-color .12s;}
+  .row:hover{background:var(--panel-2);}
+  .av{position:relative;width:26px;height:26px;flex:0 0 26px;box-shadow:var(--bevel-raised);display:grid;place-items:center;font-family:var(--display);font-size:13px;color:#1a1b12;image-rendering:pixelated;}
+  .av .pip{position:absolute;right:-2px;bottom:-2px;width:9px;height:9px;background:var(--accent);box-shadow:0 0 0 2px var(--panel);}
+  .row.off .av{filter:grayscale(.7) brightness(.7);}
+  .row.off .av .pip{background:var(--faint);}
+  .meta{min-width:0;flex:1;display:flex;flex-direction:column;}
+  .nm{font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .row.off .nm{color:var(--muted);}
+  .ac{font-size:11px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .ac.play{color:var(--accent);}
+  .rm{opacity:0;font-size:11px;color:var(--danger-text);background:none;border:0;cursor:pointer;padding:2px 4px;}
+  .row:hover .rm{opacity:1;}
+
+  /* dot variant */
+  .dot{width:7px;height:7px;flex:0 0 7px;background:var(--accent);}
+  .dot.off{background:var(--faint);}
+
+  /* empty */
+  .empty{display:flex;flex-direction:column;align-items:center;gap:8px;padding:22px 12px 10px;text-align:center;}
+  .empty .blk{width:34px;height:34px;display:grid;grid-template-rows:11px 1fr;box-shadow:var(--bevel-input);overflow:hidden;}
+  .empty .blk .g{background:var(--accent-dim);} .empty .blk .d{background:var(--dirt);}
+  .empty p{font-size:12px;color:var(--faint);line-height:1.6;max-width:200px;}
+
+  /* segmented (variant C) */
+  .seg{display:flex;background:var(--panel-2);box-shadow:var(--bevel-input);padding:2px;margin-bottom:10px;}
+  .seg button{flex:1;height:24px;border:0;background:none;color:var(--muted);font-family:var(--font);font-size:12px;cursor:pointer;}
+  .seg button.on{background:var(--accent);color:var(--accent-text);box-shadow:var(--bevel-raised);font-weight:500;}
+  .tag-act{font-size:10px;color:var(--accent);background:rgba(106,168,74,.16);padding:1px 6px;font-variant-numeric:tabular-nums;white-space:nowrap;}
+
+  /* add result row */
+  .res{display:flex;align-items:center;gap:8px;padding:6px;background:var(--panel-2);box-shadow:var(--bevel-input);margin-top:4px;}
+  .res .nm{flex:1;}
+  .res .addbtn{font-size:12px;color:var(--accent);background:none;border:0;cursor:pointer;}
+  .ghost-add{display:flex;align-items:center;gap:6px;width:100%;height:30px;justify-content:center;background:var(--panel-2);box-shadow:var(--bevel-input);border:0;color:var(--sub);font-family:var(--font);font-size:12px;cursor:pointer;margin-bottom:10px;}
+  .ghost-add:hover{color:var(--text);}
+</style>
+</head>
+<body>
+  <div class="page-h">好友 Popover · 优化方案</div>
+  <div class="page-sub">300px 启动器下拉 · Blocky Craft 暗色 · 令牌取自 tokens.css(accent=当前绿主题) · 三个方案 保守 → 进阶</div>
+
+  <div class="canvas">
+
+    <!-- ============ A — 分组清晰 ============ -->
+    <div class="cell">
+      <div class="cell-label">方案 A · 分组清晰</div>
+      <div class="anchor">
+        <div class="fauxbar"><div class="fbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></div></div>
+        <div class="pop">
+          <div class="pop-head"><span class="pop-title">好友</span><span class="count-chip">3 在线</span></div>
+          <div class="add">
+            <svg class="si" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <input placeholder="搜索用户名加好友" />
+          </div>
+          <div class="sec"><span class="sec-t">在线</span><span class="sec-n">3</span><span class="sec-rule"></span></div>
+          <div class="list">
+            <div class="row"><div class="av" style="background:#6f9b4e">A<span class="pip"></span></div><div class="meta"><span class="nm">AlphaWolf</span><span class="ac play">在玩 Fabulously Optimized</span></div><button class="rm">移除</button></div>
+            <div class="row"><div class="av" style="background:#8a6f3f">N<span class="pip"></span></div><div class="meta"><span class="nm">NyanCat_99</span><span class="ac">在线 · 空闲</span></div><button class="rm">移除</button></div>
+            <div class="row"><div class="av" style="background:#5b7f86">213<span class="pip"></span></div><div class="meta"><span class="nm">213</span><span class="ac">在线 · 空闲</span></div><button class="rm">移除</button></div>
+          </div>
+          <div class="sec"><span class="sec-t">离线</span><span class="sec-n">2</span><span class="sec-rule"></span></div>
+          <div class="list">
+            <div class="row off"><div class="av" style="background:#7a5b3a">C<span class="pip"></span></div><div class="meta"><span class="nm">CobbleKing</span><span class="ac">离线</span></div><button class="rm">移除</button></div>
+            <div class="row off"><div class="av" style="background:#5e5b6e">Z<span class="pip"></span></div><div class="meta"><span class="nm">Zombie100</span><span class="ac">离线</span></div><button class="rm">移除</button></div>
+          </div>
+        </div>
+      </div>
+      <div class="cell-note">头像方块瓦片 + 角落状态 pip;在线/离线分组,各带 pixel-font 段标 + 计数;hover 整行上底色、显示「移除」。</div>
+    </div>
+
+    <!-- ============ B — 紧凑单行 ============ -->
+    <div class="cell">
+      <div class="cell-label">方案 B · 紧凑单行 + 活动标签</div>
+      <div class="anchor">
+        <div class="fauxbar"><div class="fbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></div></div>
+        <div class="pop">
+          <div class="pop-head"><span class="pop-title">好友</span><span class="count-chip">3 / 5</span></div>
+          <button class="ghost-add">＋ 搜索用户名加好友</button>
+          <div class="sec"><span class="sec-t">在线</span><span class="sec-n">3</span><span class="sec-rule"></span></div>
+          <div class="list">
+            <div class="row"><span class="dot"></span><span class="nm" style="flex:1">AlphaWolf</span><span class="tag-act">在玩 FO</span><button class="rm">移除</button></div>
+            <div class="row"><span class="dot"></span><span class="nm" style="flex:1">NyanCat_99</span><span class="ac" style="color:var(--muted)">空闲</span><button class="rm">移除</button></div>
+            <div class="row"><span class="dot"></span><span class="nm" style="flex:1">213</span><span class="ac" style="color:var(--muted)">空闲</span><button class="rm">移除</button></div>
+          </div>
+          <div class="sec"><span class="sec-t">离线</span><span class="sec-n">2</span><span class="sec-rule"></span></div>
+          <div class="list">
+            <div class="row off"><span class="dot off"></span><span class="nm" style="flex:1">CobbleKing</span><button class="rm">移除</button></div>
+            <div class="row off"><span class="dot off"></span><span class="nm" style="flex:1">Zombie100</span><button class="rm">移除</button></div>
+          </div>
+        </div>
+      </div>
+      <div class="cell-note">最紧凑:单行 = 方点 + 名 + 右对齐活动标签。加好友收成一个幽灵按钮,点开才展开搜索,默认更干净。</div>
+    </div>
+
+    <!-- ============ C — 状态分段 ============ -->
+    <div class="cell">
+      <div class="cell-label">方案 C · 状态分段</div>
+      <div class="anchor">
+        <div class="fauxbar"><div class="fbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></div></div>
+        <div class="pop">
+          <div class="pop-head"><span class="pop-title">好友</span><span class="count-chip">3 在线</span></div>
+          <div class="seg"><button class="on">全部 5</button><button>在线 3</button></div>
+          <div class="add">
+            <svg class="si" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <input placeholder="搜索用户名加好友" />
+          </div>
+          <div class="list">
+            <div class="row"><div class="av" style="background:#6f9b4e;width:24px;height:24px">A<span class="pip"></span></div><div class="meta"><span class="nm">AlphaWolf</span><span class="ac play">在玩 Fabulously Optimized</span></div></div>
+            <div class="row"><div class="av" style="background:#8a6f3f;width:24px;height:24px">N<span class="pip"></span></div><div class="meta"><span class="nm">NyanCat_99</span><span class="ac">在线 · 空闲</span></div></div>
+            <div class="row"><div class="av" style="background:#5b7f86;width:24px;height:24px">213<span class="pip"></span></div><div class="meta"><span class="nm">213</span><span class="ac">在线 · 空闲</span></div></div>
+            <div class="row off"><div class="av" style="background:#7a5b3a;width:24px;height:24px">C<span class="pip"></span></div><div class="meta"><span class="nm">CobbleKing</span><span class="ac">离线</span></div></div>
+            <div class="row off"><div class="av" style="background:#5e5b6e;width:24px;height:24px">Z<span class="pip"></span></div><div class="meta"><span class="nm">Zombie100</span><span class="ac">离线</span></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="cell-note">顶部分段控件「全部 / 在线」过滤;大号在线计数。适合好友多时一眼看谁能一起玩。移除走右键 / 长按,行更干净。</div>
+    </div>
+
+    <!-- ============ empty state ============ -->
+    <div class="cell">
+      <div class="cell-label">空状态(三方案通用)</div>
+      <div class="anchor" style="width:300px">
+        <div class="fauxbar"><div class="fbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></div></div>
+        <div class="pop">
+          <div class="pop-head"><span class="pop-title">好友</span></div>
+          <div class="add">
+            <svg class="si" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <input placeholder="搜索用户名加好友" />
+          </div>
+          <div class="empty">
+            <div class="blk"><div class="g"></div><div class="d"></div></div>
+            <p>还没有好友。<br/>搜索用户名,把一起玩的人加进来。</p>
+          </div>
+        </div>
+      </div>
+      <div class="cell-note">空态用一个草方块标 + 两行引导,比纯灰文字更有性格,且呼应顶栏品牌标。</div>
+    </div>
+
+  </div>
+</body>
+</html>

@@ -1,0 +1,355 @@
+/* =====================================================================
+   GLASS:glassmorphism — 彩色毛玻璃 / Glassmorphism
+   Translucent white panels (~6–10%) frosting over a deep dark base with
+   large, soft, saturated emerald / teal / violet color blobs. Each panel
+   carries a thin bright top-edge highlight and a large soft drop shadow;
+   the colorful glow bleeds through the frosted surfaces.
+   Every selector scoped under [data-glass="glassmorphism"].
+   ===================================================================== */
+
+/* ---- per-style tunables ---- */
+[data-glass="glassmorphism"] {
+  --gm-panel:        rgba(255,255,255,0.07);
+  --gm-panel-strong: rgba(255,255,255,0.10);
+  --gm-border:       rgba(255,255,255,0.12);
+  --gm-top-hi:       rgba(255,255,255,0.22);
+  --gm-blur:         blur(20px) saturate(1.35);
+  --gm-shadow:       0 8px 32px rgba(0,0,0,0.38);
+  --gm-shadow-lift:  0 16px 48px rgba(0,0,0,0.45);
+  --gm-radius:       14px;
+}
+
+/* ---------------------------------------------------------------------
+   Background scene: deep dark base + large soft vivid color blobs.
+   .app-bg paints the base; ::before / ::after add the blobs + faint grain.
+   --------------------------------------------------------------------- */
+[data-glass="glassmorphism"] .app-bg {
+  background:
+    radial-gradient(58% 70% at 18% 14%, rgba(63,191,120,0.42), transparent 60%),
+    radial-gradient(54% 64% at 88% 26%, rgba(34,200,196,0.34), transparent 62%),
+    radial-gradient(66% 72% at 72% 96%, rgba(168,92,240,0.36), transparent 64%),
+    radial-gradient(50% 56% at 6% 92%, rgba(46,120,200,0.26), transparent 60%),
+    linear-gradient(160deg, #0b1016 0%, #0a0d12 55%, #090b10 100%);
+}
+/* second blob cluster + breathing color so the frost picks up more hue */
+[data-glass="glassmorphism"] .app-bg::before {
+  content:""; position:absolute; inset:-12%;
+  background:
+    radial-gradient(40% 46% at 40% 60%, rgba(111,215,155,0.30), transparent 60%),
+    radial-gradient(38% 42% at 64% 40%, rgba(139,108,240,0.26), transparent 62%);
+  filter: blur(28px);
+  pointer-events:none;
+}
+/* very faint grain via inline SVG noise data-URI */
+[data-glass="glassmorphism"] .app-bg::after {
+  content:""; position:absolute; inset:0; pointer-events:none;
+  opacity:0.05; mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  background-size:180px 180px;
+}
+
+/* shell stays transparent */
+[data-glass="glassmorphism"] .shell { background:transparent; }
+
+/* =====================================================================
+   RAIL — left 64px frosted column
+   ===================================================================== */
+[data-glass="glassmorphism"] .rail {
+  position:relative;
+  background:var(--gm-panel);
+  -webkit-backdrop-filter:var(--gm-blur);
+  backdrop-filter:var(--gm-blur);
+  border-right:1px solid var(--gm-border);
+  box-shadow:
+    inset 0 1px 0 var(--gm-top-hi),
+    var(--gm-shadow);
+}
+/* bright top highlight line signature */
+[data-glass="glassmorphism"] .rail::before {
+  content:""; position:absolute; left:10px; right:10px; top:0; height:1px;
+  background:linear-gradient(90deg, transparent, var(--gm-top-hi), transparent);
+  pointer-events:none;
+}
+
+[data-glass="glassmorphism"] .rail .logo {
+  background:rgba(255,255,255,0.06);
+  border:1px solid rgba(255,255,255,0.10);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.18);
+  border-radius:10px;
+  transition:background-color .2s, box-shadow .2s, transform .15s;
+}
+[data-glass="glassmorphism"] .rail .logo:hover {
+  background:rgba(255,255,255,0.12);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.28), 0 4px 14px rgba(63,191,120,0.30);
+  transform:translateY(-1px);
+}
+
+[data-glass="glassmorphism"] .rail-item {
+  color:rgba(232,234,237,0.62);
+  border-radius:10px;
+  transition:background-color .2s, color .2s, box-shadow .2s;
+}
+[data-glass="glassmorphism"] .rail-item:hover {
+  background:rgba(255,255,255,0.10);
+  color:#fff;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.16);
+}
+[data-glass="glassmorphism"] .rail-item.selected {
+  color:var(--a-6);
+  background:linear-gradient(180deg,
+    color-mix(in srgb, var(--a-4) 26%, rgba(255,255,255,0.06)),
+    color-mix(in srgb, var(--a-4) 14%, rgba(255,255,255,0.04)));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.22),
+    0 4px 16px rgba(63,191,120,0.30);
+}
+[data-glass="glassmorphism"] .rail-item.selected::before {
+  background:linear-gradient(180deg, var(--a-5), var(--a-4));
+  box-shadow:0 0 12px rgba(63,191,120,0.75);
+}
+[data-glass="glassmorphism"] .rail .divider {
+  background:linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent);
+}
+[data-glass="glassmorphism"] .rail .avatar {
+  border:1px solid rgba(255,255,255,0.22);
+  background:linear-gradient(135deg, var(--a-3), var(--a-5));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.30),
+    0 4px 14px rgba(63,191,120,0.35);
+}
+
+/* =====================================================================
+   TOPBAR — frosted top bar
+   ===================================================================== */
+[data-glass="glassmorphism"] .topbar {
+  position:relative;
+  background:var(--gm-panel);
+  -webkit-backdrop-filter:var(--gm-blur);
+  backdrop-filter:var(--gm-blur);
+  border-bottom:1px solid var(--gm-border);
+  box-shadow:inset 0 1px 0 var(--gm-top-hi);
+}
+[data-glass="glassmorphism"] .topbar::before {
+  content:""; position:absolute; left:0; right:0; top:0; height:1px;
+  background:linear-gradient(90deg, transparent, var(--gm-top-hi) 30%, var(--gm-top-hi) 70%, transparent);
+  pointer-events:none;
+}
+[data-glass="glassmorphism"] .topbar .brand { color:#fff; }
+[data-glass="glassmorphism"] .topbar .pagetitle { color:rgba(232,234,237,0.92); }
+[data-glass="glassmorphism"] .topbar .navbtns button { color:rgba(232,234,237,0.55); }
+
+[data-glass="glassmorphism"] .btn-switch {
+  border:1px solid rgba(255,255,255,0.16);
+  background:rgba(255,255,255,0.08);
+  color:rgba(232,234,237,0.88);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.16);
+  -webkit-backdrop-filter:blur(8px);
+  backdrop-filter:blur(8px);
+}
+[data-glass="glassmorphism"] .btn-switch:hover {
+  background:linear-gradient(135deg, var(--a-4), var(--a-5));
+  color:#06130d;
+  border-color:transparent;
+  box-shadow:0 4px 16px rgba(63,191,120,0.42), inset 0 1px 0 rgba(255,255,255,0.3);
+}
+[data-glass="glassmorphism"] .runstat { color:rgba(232,234,237,0.92); }
+[data-glass="glassmorphism"] .runstat .dot {
+  background:var(--a-5);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--a-4) 28%, transparent),
+    0 0 10px rgba(63,191,120,0.85);
+}
+
+/* =====================================================================
+   MAIN — make transparent so the .app-bg blobs show through behind cards
+   ===================================================================== */
+[data-glass="glassmorphism"] .body { background:transparent; }
+[data-glass="glassmorphism"] .main {
+  background:transparent;
+}
+[data-glass="glassmorphism"] .main h1 {
+  color:#fff;
+  text-shadow:0 1px 18px rgba(0,0,0,0.35);
+}
+[data-glass="glassmorphism"] .main h2 { color:rgba(232,234,237,0.94); }
+[data-glass="glassmorphism"] .section h2 { color:rgba(232,234,237,0.94); }
+
+/* =====================================================================
+   INSTANCE ROW CARDS (.glass-row)
+   ===================================================================== */
+[data-glass="glassmorphism"] .glass-row {
+  position:relative;
+  background:var(--gm-panel);
+  -webkit-backdrop-filter:var(--gm-blur);
+  backdrop-filter:var(--gm-blur);
+  border:1px solid var(--gm-border);
+  border-radius:var(--gm-radius);
+  box-shadow:
+    inset 0 1px 0 var(--gm-top-hi),
+    var(--gm-shadow);
+}
+/* thin bright top highlight line on each card */
+[data-glass="glassmorphism"] .glass-row::before {
+  content:""; position:absolute; left:14px; right:14px; top:0; height:1px;
+  background:linear-gradient(90deg, transparent, var(--gm-top-hi), transparent);
+  pointer-events:none; border-radius:1px;
+}
+[data-glass="glassmorphism"] .glass-row:hover {
+  transform:translateY(-3px);
+  background:var(--gm-panel-strong);
+  border-color:rgba(255,255,255,0.20);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.26),
+    var(--gm-shadow-lift),
+    0 0 28px rgba(63,191,120,0.22);
+}
+[data-glass="glassmorphism"] .glass-row .ricon {
+  border-radius:11px;
+  background:linear-gradient(135deg, var(--a-3), var(--a-5));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.30),
+    0 4px 14px rgba(63,191,120,0.30);
+}
+[data-glass="glassmorphism"] .glass-row .ricon .live {
+  background:var(--a-5);
+  box-shadow:
+    0 0 0 2px rgba(20,24,30,0.85),
+    0 0 8px rgba(63,191,120,0.9);
+}
+[data-glass="glassmorphism"] .glass-row .rname { color:#fff; }
+[data-glass="glassmorphism"] .glass-row .rsub { color:rgba(232,234,237,0.68); }
+[data-glass="glassmorphism"] .glass-row .rsub .sep { opacity:.45; }
+
+[data-glass="glassmorphism"] .play-btn {
+  background:linear-gradient(135deg, var(--a-4), var(--a-5));
+  color:#06130d;
+  border-radius:10px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.35),
+    0 4px 14px rgba(40,160,98,0.42);
+}
+[data-glass="glassmorphism"] .play-btn:hover {
+  filter:brightness(1.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.45),
+    0 6px 20px rgba(63,191,120,0.55);
+}
+[data-glass="glassmorphism"] .menu-btn {
+  color:rgba(232,234,237,0.62);
+  border-radius:10px;
+}
+[data-glass="glassmorphism"] .menu-btn:hover {
+  background:rgba(255,255,255,0.12);
+  color:#fff;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.16);
+}
+
+/* =====================================================================
+   MODPACK CARDS (.glass-modcard)
+   ===================================================================== */
+[data-glass="glassmorphism"] .glass-modcard {
+  position:relative;
+  background:var(--gm-panel);
+  -webkit-backdrop-filter:var(--gm-blur);
+  backdrop-filter:var(--gm-blur);
+  border:1px solid var(--gm-border);
+  border-radius:var(--gm-radius);
+  box-shadow:
+    inset 0 1px 0 var(--gm-top-hi),
+    var(--gm-shadow);
+}
+[data-glass="glassmorphism"] .glass-modcard:hover {
+  transform:translateY(-4px);
+  background:var(--gm-panel-strong);
+  border-color:rgba(255,255,255,0.20);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.26),
+    var(--gm-shadow-lift),
+    0 0 32px rgba(63,191,120,0.20);
+}
+/* vivid covers kept; add inner top highlight + subtle saturation pop */
+[data-glass="glassmorphism"] .glass-modcard .cover {
+  position:relative;
+  filter:saturate(1.1);
+}
+[data-glass="glassmorphism"] .glass-modcard .cover::after {
+  content:""; position:absolute; inset:0; pointer-events:none;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.22), transparent 38%),
+    radial-gradient(120% 80% at 50% -20%, rgba(255,255,255,0.18), transparent 60%);
+}
+[data-glass="glassmorphism"] .glass-modcard .mtitle { color:#fff; }
+[data-glass="glassmorphism"] .glass-modcard .mtitle .by { color:rgba(232,234,237,0.6); }
+[data-glass="glassmorphism"] .glass-modcard .mdesc { color:rgba(232,234,237,0.68); }
+[data-glass="glassmorphism"] .glass-modcard .dl { color:rgba(232,234,237,0.7); }
+[data-glass="glassmorphism"] .glass-modcard .dl svg { color:var(--a-5); }
+
+/* category pill (shared) */
+[data-glass="glassmorphism"] .chip {
+  color:rgba(232,234,237,0.82);
+  background:rgba(255,255,255,0.10);
+  border:1px solid rgba(255,255,255,0.12);
+  border-radius:999px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.14);
+  -webkit-backdrop-filter:blur(6px);
+  backdrop-filter:blur(6px);
+}
+
+/* =====================================================================
+   CONTEXT BAR (.ctxbar) — right 340px frosted sidebar
+   ===================================================================== */
+[data-glass="glassmorphism"] .ctxbar {
+  position:relative;
+  background:var(--gm-panel);
+  -webkit-backdrop-filter:var(--gm-blur);
+  backdrop-filter:var(--gm-blur);
+  border-left:1px solid var(--gm-border);
+  box-shadow:
+    inset 0 1px 0 var(--gm-top-hi),
+    var(--gm-shadow);
+}
+[data-glass="glassmorphism"] .ctxbar::before {
+  content:""; position:absolute; left:16px; right:16px; top:0; height:1px;
+  background:linear-gradient(90deg, transparent, var(--gm-top-hi), transparent);
+  pointer-events:none;
+}
+[data-glass="glassmorphism"] .ctxbar .heading {
+  color:rgba(232,234,237,0.6);
+  letter-spacing:.4px;
+  text-transform:uppercase;
+}
+
+[data-glass="glassmorphism"] .ctx-card {
+  background:rgba(255,255,255,0.07);
+  border:1px solid rgba(255,255,255,0.12);
+  border-radius:12px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.18);
+  -webkit-backdrop-filter:blur(10px);
+  backdrop-filter:blur(10px);
+  transition:background-color .2s, border-color .2s, box-shadow .2s, transform .15s;
+}
+[data-glass="glassmorphism"] .ctx-card:hover {
+  transform:translateY(-1px);
+  background:rgba(255,255,255,0.11);
+  border-color:rgba(63,191,120,0.45);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.24),
+    0 6px 20px rgba(63,191,120,0.22);
+}
+[data-glass="glassmorphism"] .ctx-card .av {
+  background:linear-gradient(135deg, var(--a-3), var(--a-5));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.3), 0 2px 8px rgba(63,191,120,0.3);
+}
+[data-glass="glassmorphism"] .ctx-card .cname { color:#fff; }
+[data-glass="glassmorphism"] .ctx-card .ckind { color:rgba(232,234,237,0.6); }
+[data-glass="glassmorphism"] .ctx-card .chev { color:rgba(232,234,237,0.6); }
+
+[data-glass="glassmorphism"] .empty-card {
+  background:rgba(255,255,255,0.04);
+  border:1px dashed rgba(255,255,255,0.18);
+  border-radius:12px;
+  -webkit-backdrop-filter:blur(8px);
+  backdrop-filter:blur(8px);
+}
+[data-glass="glassmorphism"] .empty-card .e1 { color:rgba(232,234,237,0.72); }
+[data-glass="glassmorphism"] .empty-card .e2 { color:rgba(232,234,237,0.45); }

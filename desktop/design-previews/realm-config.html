@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>领域配置 — 优化方案</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400..700&family=Noto+Sans+SC:wght@300;400;500;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet" />
+<style>
+  /* ===== tokens 1:1 from tokens.css (dark); accent = live green ===== */
+  :root{
+    --window:#16170f; --titlebar:#0c0d0a; --sidebar:#22241b;
+    --panel:#1d1f15; --panel-2:#2a2c20; --panel-3:#3a3d2c;
+    --text:#f1ead8; --strong:#f3ecda; --sub:#a39f8e; --muted:#8f8f7e; --faint:#7c7c66;
+    --accent:#6aa84a; --accent-dim:#5b8f3a; --accent-text:#16170f;
+    --danger:#d9534f; --danger-text:#e5848a; --danger-soft:rgba(229,132,138,.14);
+    --tag:#c9a06a; --dirt:#7a5b3a;
+    --bevel-input:inset 2px 2px 0 rgba(0,0,0,.45);
+    --bevel-raised:inset 2px 2px 0 rgba(255,255,255,.3), inset -2px -2px 0 rgba(0,0,0,.35);
+    --bevel-sunken:inset 2px 2px 0 rgba(255,255,255,.05), inset -2px -2px 0 rgba(0,0,0,.45);
+    --font:"Noto Sans SC","PingFang SC",system-ui,sans-serif;
+    --display:"Pixelify Sans","Noto Sans SC",system-ui,sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,monospace;
+  }
+  *{box-sizing:border-box;margin:0;}
+  body{background:radial-gradient(120% 70% at 50% -10%,#1d1f15,var(--window) 60%);color:var(--text);font-family:var(--font);font-size:14px;padding:40px 28px 64px;-webkit-font-smoothing:antialiased;}
+  .ph{font-family:var(--display);font-size:22px;color:var(--strong);letter-spacing:.5px;margin-bottom:4px;}
+  .psub{color:var(--muted);font-size:13px;margin-bottom:32px;}
+  .canvas{display:flex;gap:48px;align-items:flex-start;flex-wrap:wrap;justify-content:center;}
+  .cell{display:flex;flex-direction:column;gap:14px;width:560px;}
+  .clabel{font-family:var(--display);font-size:13px;color:var(--tag);letter-spacing:.5px;}
+
+  /* primitives */
+  .sunken{background:var(--panel);box-shadow:var(--bevel-input);}
+  .raised{background:var(--panel-2);box-shadow:var(--bevel-raised);}
+  .h3{font-family:var(--display);font-size:14px;color:var(--strong);}
+  .seclabel{font-family:var(--display);font-size:11px;color:var(--sub);letter-spacing:.6px;text-transform:uppercase;}
+  .muted{color:var(--muted);} .faint{color:var(--faint);} .sub{color:var(--sub);}
+  .tag{display:inline-block;font-size:11px;color:var(--tag);background:var(--panel-2);box-shadow:var(--bevel-input);padding:1px 7px;}
+  .tag.green{color:var(--accent);background:rgba(106,168,74,.15);box-shadow:none;}
+  .chip{font-size:12px;background:var(--window);box-shadow:var(--bevel-input);padding:3px 8px;color:var(--sub);}
+  .btn{font-family:var(--font);font-size:13px;border:0;cursor:pointer;padding:7px 14px;background:var(--accent);color:var(--accent-text);box-shadow:var(--bevel-raised);font-weight:500;}
+  .btn.ghost{background:var(--panel-3);color:var(--text);}
+  .btn.danger{background:none;box-shadow:none;color:var(--danger-text);padding:6px 10px;}
+  .rule{height:1px;background:var(--titlebar);}
+
+  /* people row (shared language with friends popover) */
+  .prow{display:flex;align-items:center;gap:10px;padding:7px 10px;}
+  .av{position:relative;width:26px;height:26px;flex:0 0 26px;box-shadow:var(--bevel-raised);display:grid;place-items:center;font-family:var(--display);font-size:12px;color:#1a1b12;}
+  .av .pip{position:absolute;right:-2px;bottom:-2px;width:9px;height:9px;background:var(--accent);box-shadow:0 0 0 2px var(--panel-2);}
+  .prow.off .av{filter:grayscale(.7) brightness(.7);} .prow.off .av .pip{background:var(--faint);}
+  .pmeta{min-width:0;flex:1;display:flex;flex-direction:column;}
+  .pn{font-size:13px;color:var(--text);} .prow.off .pn{color:var(--muted);}
+  .pa{font-size:11px;color:var(--faint);} .pa.play{color:var(--accent);}
+  .link{font-size:12px;color:var(--accent);background:none;border:0;cursor:pointer;}
+  .link.d{color:var(--danger-text);opacity:0;}
+  .prow:hover .link.d{opacity:1;}
+
+  /* toggle */
+  .tog{width:42px;height:22px;background:var(--accent);box-shadow:var(--bevel-input);position:relative;padding:3px;display:inline-flex;}
+  .tog i{width:16px;height:16px;background:#fff;box-shadow:var(--bevel-raised);margin-left:20px;}
+  .code{font-family:var(--mono);font-size:16px;color:var(--accent);letter-spacing:.16em;background:var(--window);box-shadow:var(--bevel-input);padding:5px 12px;cursor:pointer;}
+
+  /* status banner (variant A leads with status) */
+  .status{display:flex;align-items:center;gap:9px;}
+  .status .dot{width:8px;height:8px;background:var(--accent);}
+  .status .dot.warn{background:var(--tag);}
+</style>
+</head>
+<body>
+  <div class="ph">领域配置 · 优化方案</div>
+  <div class="psub">实例详情里的「领域」段 · 令牌取自 tokens.css(绿主题) · 复用好友头像瓦片语言 · 两个方向</div>
+
+  <div class="canvas">
+
+    <!-- ============ A — 精炼卡片栈(状态先行) ============ -->
+    <div class="cell">
+      <div class="clabel">方案 A · 精炼卡片栈(状态先行)</div>
+
+      <!-- header -->
+      <div class="sunken" style="padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:10px;min-width:0">
+          <span class="av" style="background:var(--accent-dim);width:30px;height:30px;font-size:13px">FO</span>
+          <div style="display:flex;flex-direction:column;min-width:0">
+            <div style="display:flex;align-items:center;gap:8px"><span class="h3">Fabulously Optimized</span><span class="tag green">群主</span></div>
+            <span class="faint" style="font-size:11px">领域版本 v3 · 3 名成员</span>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span class="faint" style="font-size:11px">加入码</span>
+          <button class="code">E54D14</button>
+        </div>
+      </div>
+
+      <!-- sync: status-led -->
+      <div class="sunken" style="padding:16px;display:flex;flex-direction:column;gap:12px">
+        <div class="status"><span class="dot warn"></span><span style="font-size:13px;color:var(--strong)">有 3 项待同步</span><span style="flex:1"></span>
+          <span class="chip">↓ 下载 2</span><span class="chip">✕ 移除 1</span>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+          <div style="display:flex;flex-direction:column;gap:2px;min-width:0;padding-right:12px">
+            <span style="font-size:13px">移除清单外的 mod</span>
+            <span class="faint" style="font-size:11px">勾选后会把实例里清单未包含的 mod 移到回收站</span>
+          </div>
+          <span class="tog"><i></i></span>
+        </div>
+        <button class="btn" style="align-self:flex-start">应用更改</button>
+        <div class="rule"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+          <span class="muted" style="font-size:12px;min-width:0">把这个实例当前的 mods 发布为新的领域清单</span>
+          <button class="btn ghost">推送清单</button>
+        </div>
+      </div>
+
+      <!-- invite -->
+      <div class="sunken" style="padding:16px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><span class="seclabel">邀请好友</span><span class="rule" style="flex:1"></span></div>
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <div class="prow raised" style="box-shadow:var(--bevel-raised)"><span class="av" style="background:#5b7f86">213<span class="pip"></span></span><div class="pmeta"><span class="pn">213</span><span class="pa">在线 · 空闲</span></div><button class="link">邀请</button></div>
+          <div class="prow raised off" style="box-shadow:var(--bevel-raised)"><span class="av" style="background:#8a6f3f">N<span class="pip"></span></span><div class="pmeta"><span class="pn">NyanCat_99</span><span class="pa">离线</span></div><span class="faint" style="font-size:12px">已邀请</span></div>
+        </div>
+      </div>
+
+      <!-- members -->
+      <div class="sunken" style="padding:16px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><span class="seclabel">成员</span><span class="faint" style="font-size:11px">3</span><span class="rule" style="flex:1"></span></div>
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <div class="prow"><span class="av" style="background:var(--accent-dim)">S<span class="pip"></span></span><div class="pmeta"><span class="pn">Sma1lboy <span class="faint">(你)</span></span><span class="pa play">已同步 · 领域版本 v3</span></div><span class="tag green">群主</span></div>
+          <div class="prow"><span class="av" style="background:#5b7f86">213<span class="pip"></span></span><div class="pmeta"><span class="pn">213</span><span class="pa">成员 · 未同步</span></div><span class="tag">好友</span><button class="link d">移除</button></div>
+          <div class="prow off"><span class="av" style="background:#7a5b3a">C<span class="pip"></span></span><div class="pmeta"><span class="pn">CobbleKing</span><span class="pa">成员</span></div><button class="link d">移除</button></div>
+        </div>
+      </div>
+
+      <!-- danger -->
+      <div style="display:flex;justify-content:flex-end"><button class="btn danger">解散领域</button></div>
+    </div>
+
+    <!-- ============ B — 聚合单卡 + 分隔线 ============ -->
+    <div class="cell">
+      <div class="clabel">方案 B · 聚合单卡(分隔线分区,去盒感)</div>
+      <div class="sunken" style="padding:0;display:flex;flex-direction:column">
+        <!-- header -->
+        <div style="padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+          <div style="display:flex;align-items:center;gap:10px;min-width:0">
+            <span class="av" style="background:var(--accent-dim);width:30px;height:30px;font-size:13px">FO</span>
+            <div style="display:flex;flex-direction:column;min-width:0">
+              <div style="display:flex;align-items:center;gap:8px"><span class="h3">Fabulously Optimized</span><span class="tag green">群主</span></div>
+              <span class="faint" style="font-size:11px">领域版本 v3 · 3 名成员</span>
+            </div>
+          </div>
+          <button class="code">E54D14</button>
+        </div>
+        <div class="rule"></div>
+        <!-- sync -->
+        <div style="padding:14px 16px;display:flex;flex-direction:column;gap:11px">
+          <div class="status"><span class="dot warn"></span><span style="font-size:13px;color:var(--strong)">有 3 项待同步</span><span style="flex:1"></span><span class="chip">↓ 2</span><span class="chip">✕ 1</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+            <span style="font-size:12px" class="muted">移除清单外的 mod(移到回收站)</span><span class="tog"><i></i></span>
+          </div>
+          <div style="display:flex;gap:8px"><button class="btn">应用更改</button><button class="btn ghost">推送清单</button></div>
+        </div>
+        <div class="rule"></div>
+        <!-- invite -->
+        <div style="padding:12px 16px">
+          <div class="seclabel" style="margin-bottom:8px;display:block">邀请好友</div>
+          <div class="prow" style="padding:6px 0"><span class="av" style="background:#5b7f86">213<span class="pip"></span></span><div class="pmeta"><span class="pn">213</span><span class="pa">在线 · 空闲</span></div><button class="link">邀请</button></div>
+          <div class="prow off" style="padding:6px 0"><span class="av" style="background:#8a6f3f">N<span class="pip"></span></span><div class="pmeta"><span class="pn">NyanCat_99</span><span class="pa">离线</span></div><span class="faint" style="font-size:12px">已邀请</span></div>
+        </div>
+        <div class="rule"></div>
+        <!-- members -->
+        <div style="padding:12px 16px">
+          <div class="seclabel" style="margin-bottom:8px;display:block">成员 · 3</div>
+          <div class="prow" style="padding:6px 0"><span class="av" style="background:var(--accent-dim)">S<span class="pip"></span></span><div class="pmeta"><span class="pn">Sma1lboy <span class="faint">(你)</span></span><span class="pa play">已同步 · v3</span></div><span class="tag green">群主</span></div>
+          <div class="prow" style="padding:6px 0"><span class="av" style="background:#5b7f86">213<span class="pip"></span></span><div class="pmeta"><span class="pn">213</span><span class="pa">成员 · 未同步</span></div><span class="tag">好友</span><button class="link d">移除</button></div>
+          <div class="prow off" style="padding:6px 0"><span class="av" style="background:#7a5b3a">C<span class="pip"></span></span><div class="pmeta"><span class="pn">CobbleKing</span><span class="pa">成员</span></div><button class="link d">移除</button></div>
+        </div>
+        <div class="rule"></div>
+        <div style="padding:10px 16px;display:flex;justify-content:flex-end"><button class="btn danger">解散领域</button></div>
+      </div>
+
+      <!-- up-to-date state -->
+      <div class="clabel" style="margin-top:8px">同步「已是最新」状态</div>
+      <div class="sunken" style="padding:14px 16px"><div class="status"><span class="dot"></span><span style="font-size:13px;color:var(--accent)">领域已是最新</span></div></div>
+    </div>
+
+  </div>
+</body>
+</html>

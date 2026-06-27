@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>领域配置 v2 — 折叠 + 搜索邀请</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400..700&family=Noto+Sans+SC:wght@300;400;500;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --window:#16170f; --titlebar:#0c0d0a;
+    --panel:#1d1f15; --panel-2:#2a2c20; --panel-3:#3a3d2c; --sidebar:#22241b;
+    --text:#f1ead8; --strong:#f3ecda; --sub:#a39f8e; --muted:#8f8f7e; --faint:#7c7c66;
+    --accent:#6aa84a; --accent-dim:#5b8f3a; --accent-text:#16170f;
+    --danger-text:#e5848a; --tag:#c9a06a; --dirt:#7a5b3a;
+    --bevel-input:inset 2px 2px 0 rgba(0,0,0,.45);
+    --bevel-raised:inset 2px 2px 0 rgba(255,255,255,.3), inset -2px -2px 0 rgba(0,0,0,.35);
+    --font:"Noto Sans SC","PingFang SC",system-ui,sans-serif;
+    --display:"Pixelify Sans","Noto Sans SC",system-ui,sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,monospace;
+  }
+  *{box-sizing:border-box;margin:0;}
+  body{background:radial-gradient(120% 70% at 50% -10%,#1d1f15,var(--window) 60%);color:var(--text);font-family:var(--font);font-size:14px;padding:40px 28px 64px;-webkit-font-smoothing:antialiased;}
+  .ph{font-family:var(--display);font-size:22px;color:var(--strong);letter-spacing:.5px;margin-bottom:4px;}
+  .psub{color:var(--muted);font-size:13px;margin-bottom:32px;max-width:760px;line-height:1.6;}
+  .canvas{display:flex;gap:48px;align-items:flex-start;flex-wrap:wrap;justify-content:center;}
+  .cell{display:flex;flex-direction:column;gap:12px;width:560px;}
+  .clabel{font-family:var(--display);font-size:13px;color:var(--tag);letter-spacing:.5px;}
+  .cnote{font-size:11px;color:var(--faint);line-height:1.5;}
+
+  .sunken{background:var(--panel);box-shadow:var(--bevel-input);}
+  .h3{font-family:var(--display);font-size:14px;color:var(--strong);}
+  .seclabel{font-family:var(--display);font-size:12px;color:var(--sub);letter-spacing:.5px;}
+  .faint{color:var(--faint);} .muted{color:var(--muted);}
+  .tag{display:inline-block;font-size:11px;color:var(--tag);background:var(--panel-2);box-shadow:var(--bevel-input);padding:1px 7px;}
+  .tag.green{color:var(--accent);background:rgba(106,168,74,.15);box-shadow:none;}
+  .chip{font-size:12px;background:var(--window);box-shadow:var(--bevel-input);padding:3px 8px;color:var(--sub);}
+  .btn{font-family:var(--font);font-size:13px;border:0;cursor:pointer;padding:7px 14px;background:var(--accent);color:var(--accent-text);box-shadow:var(--bevel-raised);font-weight:500;}
+  .btn.ghost{background:var(--panel-3);color:var(--text);}
+  .btn.danger{background:none;box-shadow:none;color:var(--danger-text);padding:6px 10px;}
+  .rule{height:1px;background:var(--titlebar);}
+  .code{font-family:var(--mono);font-size:16px;color:var(--accent);letter-spacing:.16em;background:var(--window);box-shadow:var(--bevel-input);padding:5px 12px;cursor:pointer;}
+  .tog{width:42px;height:22px;background:var(--accent);box-shadow:var(--bevel-input);position:relative;padding:3px;display:inline-flex;}
+  .tog i{width:16px;height:16px;background:#fff;box-shadow:var(--bevel-raised);margin-left:20px;}
+
+  /* foldable section header */
+  .fold{display:flex;align-items:center;gap:8px;width:100%;border:0;background:none;cursor:pointer;padding:13px 16px;text-align:left;}
+  .fold:hover{background:var(--panel-2);}
+  .fold .car{width:10px;height:10px;color:var(--muted);transition:transform .15s;}
+  .fold.open .car{transform:rotate(90deg);}
+  .fold .n{font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums;}
+  .fold .sp{flex:1;}
+
+  /* people row (shared avatar-tile language) */
+  .prow{display:flex;align-items:center;gap:10px;padding:6px 16px;}
+  .av{position:relative;width:26px;height:26px;flex:0 0 26px;box-shadow:var(--bevel-raised);display:grid;place-items:center;font-family:var(--display);font-size:12px;color:#1a1b12;}
+  .av .pip{position:absolute;right:-2px;bottom:-2px;width:9px;height:9px;background:var(--accent);box-shadow:0 0 0 2px var(--panel);}
+  .prow.off .av{filter:grayscale(.7) brightness(.7);} .prow.off .av .pip{background:var(--faint);}
+  .pmeta{min-width:0;flex:1;display:flex;flex-direction:column;}
+  .pn{font-size:13px;color:var(--text);} .prow.off .pn{color:var(--muted);}
+  .pa{font-size:11px;color:var(--faint);} .pa.play{color:var(--accent);}
+  .link{font-size:12px;color:var(--accent);background:none;border:0;cursor:pointer;}
+  .link.d{color:var(--danger-text);opacity:0;} .prow:hover .link.d{opacity:1;}
+
+  .status{display:flex;align-items:center;gap:9px;}
+  .status .dot{width:8px;height:8px;background:var(--accent);} .status .dot.warn{background:var(--tag);}
+
+  .search{position:relative;margin:2px 16px 8px;}
+  .search input{width:100%;height:32px;padding:0 10px 0 30px;background:var(--sidebar);box-shadow:var(--bevel-input);border:0;color:var(--text);font-family:var(--font);font-size:13px;outline:0;}
+  .search input::placeholder{color:var(--faint);}
+  .search .si{position:absolute;left:9px;top:50%;transform:translateY(-50%);width:14px;height:14px;color:var(--faint);}
+  .hint{font-size:11px;color:var(--faint);padding:0 16px 10px;line-height:1.5;}
+</style>
+</head>
+<body>
+  <div class="ph">领域配置 v2 · 折叠 + 搜索邀请</div>
+  <div class="psub">改:① 邀请好友 不再整列重复好友,改成「搜索自己的好友」邀请,默认折叠不拉出来 ② 成员上移(在邀请之前) ③ 成员/邀请 都可折叠。左:默认态(成员展开、邀请折叠)。右:邀请展开(搜索好友)。</div>
+
+  <div class="canvas">
+
+    <!-- ============ 默认态 ============ -->
+    <div class="cell">
+      <div class="clabel">默认态(成员展开 · 邀请折叠)</div>
+      <div class="sunken" style="display:flex;flex-direction:column">
+        <!-- header -->
+        <div style="padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+          <div style="display:flex;align-items:center;gap:10px;min-width:0">
+            <span class="av" style="background:var(--accent-dim);width:30px;height:30px;font-size:13px">FO</span>
+            <div style="display:flex;flex-direction:column;min-width:0">
+              <div style="display:flex;align-items:center;gap:8px"><span class="h3">Fabulously Optimized</span><span class="tag green">群主</span></div>
+              <span class="faint" style="font-size:11px">领域版本 v3 · 3 名成员</span>
+            </div>
+          </div>
+          <button class="code">E54D14</button>
+        </div>
+        <div class="rule"></div>
+        <!-- sync -->
+        <div style="padding:14px 16px;display:flex;flex-direction:column;gap:11px">
+          <div class="status"><span class="dot warn"></span><span style="font-size:13px;color:var(--strong)">有 3 项待同步</span><span style="flex:1"></span><span class="chip">↓ 下载 2</span><span class="chip">✕ 移除 1</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+            <span style="font-size:12px" class="muted">移除清单外的 mod(移到回收站)</span><span class="tog"><i></i></span>
+          </div>
+          <div style="display:flex;gap:8px"><button class="btn">应用更改</button><button class="btn ghost">推送清单</button></div>
+        </div>
+        <div class="rule"></div>
+        <!-- members (open, moved above invite) -->
+        <button class="fold open"><svg class="car" viewBox="0 0 12 12" fill="none"><path d="M4 2.5 8 6 4 9.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="seclabel">成员</span><span class="n">3</span><span class="sp"></span></button>
+        <div style="padding-bottom:8px">
+          <div class="prow"><span class="av" style="background:var(--accent-dim)">S<span class="pip"></span></span><div class="pmeta"><span class="pn">Sma1lboy <span class="faint">(你)</span></span><span class="pa play">已同步 · 领域版本 v3</span></div><span class="tag green">群主</span></div>
+          <div class="prow"><span class="av" style="background:#5b7f86">213<span class="pip"></span></span><div class="pmeta"><span class="pn">213</span><span class="pa">成员 · 未同步</span></div><span class="tag">好友</span><button class="link d">移除</button></div>
+          <div class="prow off"><span class="av" style="background:#7a5b3a">C<span class="pip"></span></span><div class="pmeta"><span class="pn">CobbleKing</span><span class="pa">成员</span></div><button class="link d">移除</button></div>
+        </div>
+        <div class="rule"></div>
+        <!-- invite (collapsed by default) -->
+        <button class="fold"><svg class="car" viewBox="0 0 12 12" fill="none"><path d="M4 2.5 8 6 4 9.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="seclabel">邀请好友</span><span class="sp"></span><span class="faint" style="font-size:11px">展开搜索</span></button>
+        <div class="rule"></div>
+        <div style="padding:10px 16px;display:flex;justify-content:flex-end"><button class="btn danger">解散领域</button></div>
+      </div>
+      <div class="cnote">「邀请好友」默认折叠成一行,不再整列拉出好友。成员上移到邀请之前。两段标题左侧 caret,点击折叠/展开。</div>
+    </div>
+
+    <!-- ============ 邀请展开态 ============ -->
+    <div class="cell">
+      <div class="clabel">邀请展开态(搜索自己的好友)</div>
+      <div class="sunken" style="display:flex;flex-direction:column">
+        <div style="padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+          <div style="display:flex;align-items:center;gap:10px;min-width:0">
+            <span class="av" style="background:var(--accent-dim);width:30px;height:30px;font-size:13px">FO</span>
+            <div style="display:flex;flex-direction:column;min-width:0">
+              <div style="display:flex;align-items:center;gap:8px"><span class="h3">Fabulously Optimized</span><span class="tag green">群主</span></div>
+              <span class="faint" style="font-size:11px">领域版本 v3 · 3 名成员</span>
+            </div>
+          </div>
+          <button class="code">E54D14</button>
+        </div>
+        <div class="rule"></div>
+        <div style="padding:14px 16px"><div class="status"><span class="dot"></span><span style="font-size:13px;color:var(--accent)">领域已是最新</span></div></div>
+        <div class="rule"></div>
+        <!-- members collapsed here to show fold variety -->
+        <button class="fold"><svg class="car" viewBox="0 0 12 12" fill="none"><path d="M4 2.5 8 6 4 9.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="seclabel">成员</span><span class="n">3</span><span class="sp"></span></button>
+        <div class="rule"></div>
+        <!-- invite OPEN -->
+        <button class="fold open"><svg class="car" viewBox="0 0 12 12" fill="none"><path d="M4 2.5 8 6 4 9.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="seclabel">邀请好友</span><span class="sp"></span></button>
+        <div class="search">
+          <svg class="si" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <input value="ny" />
+        </div>
+        <div class="hint">从你的好友里搜索,把人邀进这个领域(无需加入码)。</div>
+        <div style="padding-bottom:8px">
+          <div class="prow"><span class="av" style="background:#8a6f3f">N<span class="pip"></span></span><div class="pmeta"><span class="pn">NyanCat_99</span><span class="pa">在线 · 空闲</span></div><button class="link">邀请</button></div>
+          <div class="prow off"><span class="av" style="background:#6f9b4e">N<span class="pip"></span></span><div class="pmeta"><span class="pn">NightOwl</span><span class="pa">离线</span></div><span class="faint" style="font-size:12px">已邀请</span></div>
+        </div>
+        <div class="rule"></div>
+        <div style="padding:10px 16px;display:flex;justify-content:flex-end"><button class="btn danger">解散领域</button></div>
+      </div>
+      <div class="cnote">展开后:一个搜索框(搜自己的好友)+ 命中结果行(邀请 / 已邀请)。默认不列全部,输入才出。空输入可只提示,或列在线好友前几位(可选)。</div>
+    </div>
+
+  </div>
+</body>
+</html>

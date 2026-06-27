@@ -1,0 +1,608 @@
+/* === GLASS:aero === 复古玻璃 / Windows Aero (Vista/Win7) ===
+   Glossy, nostalgic frosted glass. Vista aurora wallpaper behind everything;
+   panels are semi-transparent with a vertical top-down gloss, a crisp 1px white
+   top highlight line, a faint aqua/cyan glass tint, soft outer glow, and a
+   ::before reflection strip across the top ~40%. Play buttons stay green.
+   Every selector scoped under [data-glass="aero"]. */
+
+/* ---------------------------------------------------------------------------
+   Aero-local variables (panel gloss / tint / glow recipes)
+   --------------------------------------------------------------------------- */
+[data-glass="aero"] {
+  --aero-blur: blur(18px) saturate(1.25);
+  /* vertical gloss: lighter top half fading to near-clear at ~50% */
+  --aero-gloss: linear-gradient(
+      to bottom,
+      rgba(255,255,255,0.20) 0%,
+      rgba(255,255,255,0.10) 26%,
+      rgba(255,255,255,0.035) 50%,
+      rgba(255,255,255,0.00) 72%);
+  /* faint aqua/cyan nostalgic glass tint */
+  --aero-tint: linear-gradient(
+      to bottom,
+      rgba(150,215,235,0.16),
+      rgba(110,180,210,0.07));
+  --aero-panel-bg: rgba(28,46,58,0.40);
+  --aero-edge: 1px solid rgba(255,255,255,0.22);
+  --aero-glow: 0 8px 30px rgba(8,30,46,0.45), 0 0 0 1px rgba(120,200,230,0.18),
+               0 0 24px rgba(120,200,230,0.10);
+  --aero-top-line: inset 0 1px 0 rgba(255,255,255,0.55);
+  --aero-radius: 8px;
+}
+
+/* ---------------------------------------------------------------------------
+   Window root + outer glow
+   --------------------------------------------------------------------------- */
+[data-glass="aero"].window {
+  box-shadow:
+    0 30px 80px rgba(0,0,0,0.55),
+    0 0 0 1px rgba(255,255,255,0.10),
+    0 0 60px rgba(80,180,220,0.12);
+}
+
+/* ---------------------------------------------------------------------------
+   App background: glossy Vista aurora wallpaper (aqua / teal / blue swooshes
+   with a top-left light source). Decorative aurora swooshes via ::before /
+   ::after so no new DOM elements are introduced.
+   --------------------------------------------------------------------------- */
+[data-glass="aero"] .app-bg {
+  background:
+    /* top-left light source */
+    radial-gradient(120% 90% at 18% -10%,
+      rgba(225,248,255,0.55) 0%,
+      rgba(150,225,250,0.22) 24%,
+      rgba(60,150,200,0.0) 55%),
+    /* warm cyan glow lower-right */
+    radial-gradient(90% 80% at 92% 108%,
+      rgba(40,180,180,0.40) 0%,
+      rgba(20,90,140,0.0) 60%),
+    /* deep teal/blue base gradient */
+    linear-gradient(155deg,
+      #0a4d6b 0%,
+      #0d6a86 26%,
+      #0e7e8c 48%,
+      #115f86 70%,
+      #103a63 100%);
+  overflow: hidden;
+}
+
+/* aurora swoosh #1 — broad teal/green ribbon */
+[data-glass="aero"] .app-bg::before {
+  content: "";
+  position: absolute;
+  left: -25%;
+  top: -30%;
+  width: 150%;
+  height: 120%;
+  background:
+    radial-gradient(60% 45% at 35% 40%,
+      rgba(110,235,205,0.45) 0%,
+      rgba(60,200,200,0.18) 40%,
+      rgba(0,0,0,0) 72%),
+    radial-gradient(50% 40% at 70% 30%,
+      rgba(120,220,255,0.40) 0%,
+      rgba(0,0,0,0) 70%);
+  transform: rotate(-14deg);
+  filter: blur(28px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* aurora swoosh #2 — bright specular sweep + lower aqua blob */
+[data-glass="aero"] .app-bg::after {
+  content: "";
+  position: absolute;
+  right: -20%;
+  bottom: -25%;
+  width: 130%;
+  height: 110%;
+  background:
+    radial-gradient(55% 50% at 75% 75%,
+      rgba(70,210,235,0.38) 0%,
+      rgba(30,120,170,0.0) 65%),
+    /* glossy specular sweep across the middle (the Vista "shine") */
+    linear-gradient(110deg,
+      rgba(255,255,255,0) 38%,
+      rgba(255,255,255,0.16) 50%,
+      rgba(255,255,255,0) 60%);
+  transform: rotate(8deg);
+  filter: blur(18px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Shell stays transparent (leave as-is per spec)
+   --------------------------------------------------------------------------- */
+[data-glass="aero"] .shell { background: transparent; }
+
+/* ===========================================================================
+   RAIL — glassy vertical nav
+   =========================================================================== */
+[data-glass="aero"] .rail {
+  position: relative;
+  background:
+    var(--aero-gloss),
+    var(--aero-tint),
+    var(--aero-panel-bg);
+  background-blend-mode: screen, normal, normal;
+  -webkit-backdrop-filter: var(--aero-blur);
+  backdrop-filter: var(--aero-blur);
+  border-right: 1px solid rgba(255,255,255,0.16);
+  box-shadow:
+    var(--aero-top-line),
+    1px 0 0 rgba(120,200,230,0.18),
+    inset -1px 0 0 rgba(0,0,0,0.18);
+}
+/* top gloss reflection strip across the rail's upper region */
+[data-glass="aero"] .rail::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 38%;
+  background: linear-gradient(
+      to bottom,
+      rgba(255,255,255,0.28),
+      rgba(255,255,255,0.06) 60%,
+      rgba(255,255,255,0) 100%);
+  border-radius: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+[data-glass="aero"] .rail > * { position: relative; z-index: 1; }
+
+[data-glass="aero"] .rail .logo {
+  border-radius: var(--radius);
+}
+[data-glass="aero"] .rail .logo:hover {
+  background: rgba(255,255,255,0.12);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.4);
+}
+
+[data-glass="aero"] .rail-item {
+  color: rgba(225,240,248,0.78);
+  border-radius: var(--radius);
+  transition: background-color .18s, color .18s, box-shadow .18s;
+}
+[data-glass="aero"] .rail-item:hover {
+  background:
+    linear-gradient(to bottom, rgba(255,255,255,0.22), rgba(255,255,255,0.04));
+  color: #ffffff;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.5),
+    inset 0 -1px 0 rgba(0,0,0,0.12);
+}
+[data-glass="aero"] .rail-item.selected {
+  color: var(--a-6);
+  background:
+    linear-gradient(to bottom,
+      rgba(63,191,120,0.30),
+      rgba(31,122,77,0.14));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.45),
+    0 0 10px rgba(63,191,120,0.30);
+}
+[data-glass="aero"] .rail-item.selected::before {
+  background: linear-gradient(to bottom, var(--a-5), var(--a-3));
+  box-shadow: 0 0 8px rgba(63,191,120,0.6);
+  border-radius: 0 2px 2px 0;
+}
+[data-glass="aero"] .rail .divider {
+  background: linear-gradient(to right,
+      rgba(255,255,255,0) 0%,
+      rgba(255,255,255,0.30) 50%,
+      rgba(255,255,255,0) 100%);
+  height: 1px;
+  box-shadow: 0 1px 0 rgba(0,0,0,0.15);
+}
+[data-glass="aero"] .rail .avatar {
+  border: 1px solid rgba(255,255,255,0.45);
+  background: linear-gradient(135deg, var(--a-3), var(--a-5));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.55),
+    0 2px 8px rgba(0,0,0,0.35),
+    0 0 0 1px rgba(120,200,230,0.25);
+}
+
+/* ===========================================================================
+   TOPBAR — glassy top bar
+   =========================================================================== */
+[data-glass="aero"] .topbar {
+  position: relative;
+  background:
+    var(--aero-gloss),
+    var(--aero-tint),
+    var(--aero-panel-bg);
+  background-blend-mode: screen, normal, normal;
+  -webkit-backdrop-filter: var(--aero-blur);
+  backdrop-filter: var(--aero-blur);
+  border-bottom: 1px solid rgba(120,200,230,0.22);
+  box-shadow:
+    var(--aero-top-line),
+    inset 0 -1px 0 rgba(0,0,0,0.16);
+}
+/* top gloss reflection strip — brighter curved highlight across upper 40% */
+[data-glass="aero"] .topbar::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 46%;
+  background: linear-gradient(
+      to bottom,
+      rgba(255,255,255,0.30),
+      rgba(255,255,255,0.05) 80%,
+      rgba(255,255,255,0) 100%);
+  pointer-events: none;
+  z-index: 0;
+}
+[data-glass="aero"] .topbar > * { position: relative; z-index: 1; }
+
+[data-glass="aero"] .topbar .brand {
+  color: #ffffff;
+  text-shadow: 0 1px 1px rgba(0,0,0,0.35);
+}
+[data-glass="aero"] .topbar .pagetitle {
+  color: rgba(240,250,255,0.92);
+  text-shadow: 0 1px 1px rgba(0,0,0,0.30);
+}
+[data-glass="aero"] .topbar .navbtns button {
+  color: rgba(225,240,248,0.7);
+}
+
+[data-glass="aero"] .btn-switch {
+  position: relative;
+  border: 1px solid rgba(255,255,255,0.35);
+  background:
+    linear-gradient(to bottom,
+      rgba(255,255,255,0.28) 0%,
+      rgba(255,255,255,0.10) 50%,
+      rgba(160,210,230,0.10) 51%,
+      rgba(120,180,210,0.06) 100%);
+  color: #f1faff;
+  text-shadow: 0 1px 1px rgba(0,0,0,0.30);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.55),
+    0 1px 3px rgba(0,0,0,0.25);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  transition: all .18s;
+}
+[data-glass="aero"] .btn-switch:hover {
+  border-color: rgba(255,255,255,0.55);
+  background:
+    linear-gradient(to bottom,
+      rgba(63,191,120,0.55) 0%,
+      rgba(40,160,98,0.40) 50%,
+      rgba(31,122,77,0.45) 100%);
+  color: #ffffff;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.6),
+    0 2px 8px rgba(40,160,98,0.4);
+}
+[data-glass="aero"] .runstat {
+  color: rgba(240,250,255,0.92);
+  text-shadow: 0 1px 1px rgba(0,0,0,0.3);
+}
+[data-glass="aero"] .runstat .dot {
+  background: var(--a-5);
+  box-shadow:
+    0 0 0 3px rgba(63,191,120,0.30),
+    0 0 8px rgba(63,191,120,0.7);
+}
+
+/* ===========================================================================
+   BODY / MAIN — transparent so .app-bg frosts through cards
+   =========================================================================== */
+[data-glass="aero"] .body { background: transparent; }
+[data-glass="aero"] .main {
+  background: transparent;
+}
+[data-glass="aero"] .main h1 {
+  color: #ffffff;
+  text-shadow: 0 1px 3px rgba(0,30,46,0.55), 0 0 18px rgba(120,210,240,0.25);
+}
+[data-glass="aero"] .main h2 {
+  color: rgba(240,250,255,0.95);
+  text-shadow: 0 1px 2px rgba(0,30,46,0.5);
+}
+
+/* ===========================================================================
+   INSTANCE ROW cards — frosted glossy
+   =========================================================================== */
+[data-glass="aero"] .glass-row {
+  position: relative;
+  background:
+    var(--aero-gloss),
+    var(--aero-tint),
+    rgba(24,42,54,0.42);
+  background-blend-mode: screen, normal, normal;
+  -webkit-backdrop-filter: var(--aero-blur);
+  backdrop-filter: var(--aero-blur);
+  border: 1px solid rgba(255,255,255,0.22);
+  border-radius: var(--aero-radius);
+  box-shadow:
+    var(--aero-top-line),
+    0 6px 22px rgba(8,30,46,0.40),
+    0 0 0 1px rgba(120,200,230,0.10);
+  overflow: hidden;
+  transition: transform .2s, box-shadow .2s, border-color .2s;
+}
+/* curved top gloss reflection strip over upper ~40% */
+[data-glass="aero"] .glass-row::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 42%;
+  background: linear-gradient(
+      to bottom,
+      rgba(255,255,255,0.26),
+      rgba(255,255,255,0.05) 70%,
+      rgba(255,255,255,0) 100%);
+  /* slight curve to the highlight */
+  border-radius: var(--aero-radius) var(--aero-radius) 50% 50% / var(--aero-radius) var(--aero-radius) 14px 14px;
+  pointer-events: none;
+  z-index: 0;
+}
+[data-glass="aero"] .glass-row > * { position: relative; z-index: 1; }
+[data-glass="aero"] .glass-row:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255,255,255,0.4);
+  box-shadow:
+    var(--aero-top-line),
+    0 10px 30px rgba(8,30,46,0.50),
+    0 0 22px rgba(120,200,230,0.18);
+}
+
+[data-glass="aero"] .glass-row .ricon {
+  background: linear-gradient(135deg, var(--a-3), var(--a-5));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.5),
+    0 1px 4px rgba(0,0,0,0.3);
+}
+[data-glass="aero"] .glass-row .ricon .live {
+  background: var(--a-5);
+  box-shadow:
+    0 0 0 2px rgba(24,42,54,0.9),
+    0 0 8px rgba(63,191,120,0.8);
+}
+[data-glass="aero"] .glass-row .rname {
+  color: #ffffff;
+  text-shadow: 0 1px 1px rgba(0,20,32,0.4);
+}
+[data-glass="aero"] .glass-row .rsub {
+  color: rgba(220,238,246,0.82);
+}
+[data-glass="aero"] .glass-row .rsub .sep { opacity: .55; }
+
+/* play button — glossy green pill (hue stays green) */
+[data-glass="aero"] .play-btn {
+  position: relative;
+  background:
+    linear-gradient(to bottom,
+      rgba(255,255,255,0.35) 0%,
+      rgba(255,255,255,0.0) 48%),
+    linear-gradient(135deg, var(--a-4), var(--a-5));
+  color: #ffffff;
+  text-shadow: 0 1px 1px rgba(0,40,20,0.4);
+  border: 1px solid rgba(255,255,255,0.30);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.6),
+    0 2px 8px rgba(40,160,98,0.45);
+  overflow: hidden;
+  transition: filter .15s, transform .1s, box-shadow .15s;
+}
+[data-glass="aero"] .play-btn:hover {
+  filter: brightness(1.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.7),
+    0 3px 12px rgba(40,160,98,0.6);
+}
+[data-glass="aero"] .play-btn:active { transform: translateY(1px); }
+
+[data-glass="aero"] .menu-btn {
+  color: rgba(220,238,246,0.78);
+  border-radius: var(--radius);
+}
+[data-glass="aero"] .menu-btn:hover {
+  background: linear-gradient(to bottom, rgba(255,255,255,0.20), rgba(255,255,255,0.04));
+  color: #ffffff;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.45);
+}
+
+/* ===========================================================================
+   MODPACK cards — frosted glossy with vivid covers
+   =========================================================================== */
+[data-glass="aero"] .glass-modcard {
+  position: relative;
+  background:
+    var(--aero-gloss),
+    var(--aero-tint),
+    rgba(24,42,54,0.42);
+  background-blend-mode: screen, normal, normal;
+  -webkit-backdrop-filter: var(--aero-blur);
+  backdrop-filter: var(--aero-blur);
+  border: 1px solid rgba(255,255,255,0.22);
+  border-radius: var(--aero-radius);
+  box-shadow:
+    var(--aero-top-line),
+    0 6px 22px rgba(8,30,46,0.40),
+    0 0 0 1px rgba(120,200,230,0.10);
+  transition: transform .2s, box-shadow .2s, border-color .2s;
+}
+[data-glass="aero"] .glass-modcard:hover {
+  transform: translateY(-3px);
+  border-color: rgba(255,255,255,0.4);
+  box-shadow:
+    var(--aero-top-line),
+    0 12px 32px rgba(8,30,46,0.52),
+    0 0 24px rgba(120,200,230,0.18);
+}
+
+/* covers stay vivid; add an inner glossy highlight (top sheen + bottom shade) */
+[data-glass="aero"] .glass-modcard .cover {
+  position: relative;
+}
+[data-glass="aero"] .glass-modcard .cover::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(to bottom,
+      rgba(255,255,255,0.30) 0%,
+      rgba(255,255,255,0.06) 40%,
+      rgba(255,255,255,0) 55%,
+      rgba(0,0,0,0.12) 100%);
+  pointer-events: none;
+}
+/* big initial above the gloss */
+[data-glass="aero"] .glass-modcard .cover {
+  text-shadow: 0 2px 6px rgba(0,0,0,0.35);
+}
+
+[data-glass="aero"] .glass-modcard .info {
+  position: relative;
+  z-index: 1;
+}
+[data-glass="aero"] .glass-modcard .mtitle {
+  color: #ffffff;
+  text-shadow: 0 1px 1px rgba(0,20,32,0.4);
+}
+[data-glass="aero"] .glass-modcard .mtitle .by {
+  color: rgba(210,232,242,0.7);
+}
+[data-glass="aero"] .glass-modcard .mdesc {
+  color: rgba(214,234,244,0.80);
+}
+[data-glass="aero"] .glass-modcard .dl {
+  color: rgba(214,234,244,0.82);
+}
+[data-glass="aero"] .glass-modcard .dl svg {
+  color: var(--a-6);
+}
+
+/* category chip — frosted aqua pill (shared style) */
+[data-glass="aero"] .chip {
+  color: rgba(235,248,255,0.92);
+  background:
+    linear-gradient(to bottom,
+      rgba(255,255,255,0.22),
+      rgba(150,210,235,0.10));
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: var(--radius-sm);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.4);
+  text-shadow: 0 1px 1px rgba(0,20,32,0.3);
+}
+
+/* ===========================================================================
+   CTXBAR — glassy right sidebar
+   =========================================================================== */
+[data-glass="aero"] .ctxbar {
+  position: relative;
+  background:
+    var(--aero-gloss),
+    var(--aero-tint),
+    var(--aero-panel-bg);
+  background-blend-mode: screen, normal, normal;
+  -webkit-backdrop-filter: var(--aero-blur);
+  backdrop-filter: var(--aero-blur);
+  border-left: 1px solid rgba(120,200,230,0.22);
+  box-shadow:
+    var(--aero-top-line),
+    inset 1px 0 0 rgba(255,255,255,0.10);
+}
+/* top gloss reflection strip over upper ~32% of the sidebar */
+[data-glass="aero"] .ctxbar::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 30%;
+  background: linear-gradient(
+      to bottom,
+      rgba(255,255,255,0.22),
+      rgba(255,255,255,0.04) 70%,
+      rgba(255,255,255,0) 100%);
+  pointer-events: none;
+  z-index: 0;
+}
+[data-glass="aero"] .ctxbar > * { position: relative; z-index: 1; }
+
+[data-glass="aero"] .ctxbar .heading {
+  color: rgba(220,238,246,0.78);
+  text-shadow: 0 1px 1px rgba(0,20,32,0.3);
+}
+
+[data-glass="aero"] .ctx-card {
+  position: relative;
+  background:
+    linear-gradient(to bottom,
+      rgba(255,255,255,0.18) 0%,
+      rgba(255,255,255,0.04) 50%,
+      rgba(255,255,255,0) 75%),
+    var(--aero-tint),
+    rgba(28,46,58,0.40);
+  background-blend-mode: screen, normal, normal;
+  -webkit-backdrop-filter: blur(8px) saturate(1.2);
+  backdrop-filter: blur(8px) saturate(1.2);
+  border: 1px solid rgba(255,255,255,0.22);
+  border-radius: var(--radius);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.4),
+    0 2px 10px rgba(8,30,46,0.30);
+  overflow: hidden;
+  transition: background-color .2s, border-color .2s, box-shadow .2s;
+}
+[data-glass="aero"] .ctx-card::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 45%;
+  background: linear-gradient(
+      to bottom,
+      rgba(255,255,255,0.20),
+      rgba(255,255,255,0) 100%);
+  pointer-events: none;
+  z-index: 0;
+}
+[data-glass="aero"] .ctx-card > * { position: relative; z-index: 1; }
+[data-glass="aero"] .ctx-card:hover {
+  border-color: rgba(120,215,155,0.6);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.5),
+    0 3px 14px rgba(8,30,46,0.40),
+    0 0 14px rgba(63,191,120,0.18);
+}
+[data-glass="aero"] .ctx-card .av {
+  background: linear-gradient(135deg, var(--a-3), var(--a-5));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.5),
+    0 1px 4px rgba(0,0,0,0.3);
+}
+[data-glass="aero"] .ctx-card .cname {
+  color: #ffffff;
+  text-shadow: 0 1px 1px rgba(0,20,32,0.35);
+}
+[data-glass="aero"] .ctx-card .ckind {
+  color: rgba(210,232,242,0.72);
+}
+[data-glass="aero"] .ctx-card .chev {
+  color: rgba(210,232,242,0.7);
+}
+
+[data-glass="aero"] .empty-card {
+  background:
+    linear-gradient(to bottom,
+      rgba(255,255,255,0.10),
+      rgba(255,255,255,0.02) 60%,
+      rgba(0,0,0,0.04));
+  -webkit-backdrop-filter: blur(6px) saturate(1.1);
+  backdrop-filter: blur(6px) saturate(1.1);
+  border: 1px dashed rgba(255,255,255,0.30);
+  border-radius: var(--radius);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.22);
+}
+[data-glass="aero"] .empty-card .e1 {
+  color: rgba(218,236,244,0.82);
+}
+[data-glass="aero"] .empty-card .e2 {
+  color: rgba(190,212,224,0.62);
+}

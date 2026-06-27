@@ -1,0 +1,84 @@
+/* ===== 沉静毛玻璃 (calm) — 磨砂玻璃 + 沉静深色背景,无彩色光斑 ===== */
+[data-glass="calm"] {
+  --cg-blur: 20px;
+}
+
+/* 背景:沉静深色,只有极淡的顶部绿色呼吸 + 轻微纵深,不花 */
+[data-glass="calm"] .app-bg {
+  background:
+    radial-gradient(75% 55% at 50% -8%, rgba(40,160,98,0.07), transparent 62%),
+    radial-gradient(125% 100% at 50% -10%, #181c22 0%, #12151b 46%, #0b0d11 100%);
+}
+
+/* 三大栏:浅白磨砂 */
+[data-glass="calm"] .rail,
+[data-glass="calm"] .topbar,
+[data-glass="calm"] .ctxbar {
+  background: rgba(255,255,255,0.035);
+  backdrop-filter: blur(var(--cg-blur)) saturate(1.15);
+  -webkit-backdrop-filter: blur(var(--cg-blur)) saturate(1.15);
+}
+[data-glass="calm"] .rail { border-right: 1px solid rgba(255,255,255,0.06); }
+[data-glass="calm"] .topbar { border-bottom: 1px solid rgba(255,255,255,0.06); }
+[data-glass="calm"] .ctxbar { border-left: 1px solid rgba(255,255,255,0.06); }
+
+/* 内容区透明,让卡片在沉静背景上结霜 */
+[data-glass="calm"] .main { background: transparent; }
+
+/* 实例行 / 整合包卡:磨砂玻璃 + 顶部细高光 */
+[data-glass="calm"] .glass-row,
+[data-glass="calm"] .glass-modcard {
+  background: rgba(255,255,255,0.05);
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  box-shadow: 0 6px 22px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.10);
+}
+[data-glass="calm"] .glass-row:hover,
+[data-glass="calm"] .glass-modcard:hover {
+  background: rgba(255,255,255,0.07);
+  border-color: rgba(255,255,255,0.14);
+  box-shadow: 0 12px 34px rgba(0,0,0,0.40), inset 0 1px 0 rgba(255,255,255,0.16);
+}
+[data-glass="calm"] .glass-modcard { overflow: hidden; }
+[data-glass="calm"] .glass-modcard .info { background: transparent; }
+
+/* 整合包封面保留(这是整合包封面图,不是页面背景),仅加一道微高光 */
+[data-glass="calm"] .glass-modcard .cover::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(255,255,255,0.12), transparent 40%);
+  pointer-events: none;
+}
+
+/* 右栏卡片 */
+[data-glass="calm"] .ctx-card {
+  background: rgba(255,255,255,0.05);
+  backdrop-filter: blur(14px) saturate(1.15);
+  -webkit-backdrop-filter: blur(14px) saturate(1.15);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+[data-glass="calm"] .ctx-card:hover {
+  background: rgba(255,255,255,0.08);
+  border-color: color-mix(in srgb, var(--a-4) 45%, transparent);
+}
+[data-glass="calm"] .empty-card {
+  background: rgba(255,255,255,0.025);
+  border: 1px dashed rgba(255,255,255,0.12);
+}
+
+/* 标签 / 顶栏按钮:玻璃化 */
+[data-glass="calm"] .chip {
+  background: rgba(255,255,255,0.08);
+  color: var(--text-dim);
+}
+[data-glass="calm"] .btn-switch {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.10);
+  color: var(--text);
+}
+[data-glass="calm"] .btn-switch:hover {
+  background: var(--a-4); border-color: var(--a-4); color: #fff;
+}
+[data-glass="calm"] .menu-btn:hover { background: rgba(255,255,255,0.10); color: var(--text); }
+[data-glass="calm"] .rail-item:hover { background: rgba(255,255,255,0.08); }

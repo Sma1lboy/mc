@@ -1,0 +1,89 @@
+/* ===== 通透玻璃 (clean) — 更透、更轻、大圆角、亮边吃光,背景近纯黑沉静 ===== */
+[data-glass="clean"] {
+  --cl-blur: 28px;
+}
+
+/* 背景:近纯黑,中性,只有一点纵深,完全不花 */
+[data-glass="clean"] .app-bg {
+  background:
+    radial-gradient(100% 80% at 50% -20%, #14171d 0%, #0e1116 52%, #090a0d 100%);
+}
+
+/* 三大栏:极透磨砂 + 提亮 */
+[data-glass="clean"] .rail,
+[data-glass="clean"] .topbar,
+[data-glass="clean"] .ctxbar {
+  background: rgba(255,255,255,0.03);
+  backdrop-filter: blur(var(--cl-blur)) saturate(1.1) brightness(1.04);
+  -webkit-backdrop-filter: blur(var(--cl-blur)) saturate(1.1) brightness(1.04);
+}
+[data-glass="clean"] .rail { border-right: 1px solid rgba(255,255,255,0.05); }
+[data-glass="clean"] .topbar { border-bottom: 1px solid rgba(255,255,255,0.05); }
+[data-glass="clean"] .ctxbar { border-left: 1px solid rgba(255,255,255,0.05); }
+
+[data-glass="clean"] .main { background: transparent; }
+
+/* 卡片:更透 + 大圆角 + 左上亮边吃光(airy 玻璃感) */
+[data-glass="clean"] .glass-row,
+[data-glass="clean"] .glass-modcard {
+  background: rgba(255,255,255,0.035);
+  backdrop-filter: blur(26px) saturate(1.15) brightness(1.05);
+  -webkit-backdrop-filter: blur(26px) saturate(1.15) brightness(1.05);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 16px;
+  box-shadow:
+    0 8px 30px rgba(0,0,0,0.28),
+    inset 0 1px 0 rgba(255,255,255,0.18),
+    inset 1px 0 0 rgba(255,255,255,0.07);
+}
+[data-glass="clean"] .glass-row:hover,
+[data-glass="clean"] .glass-modcard:hover {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.12);
+  box-shadow:
+    0 16px 44px rgba(0,0,0,0.36),
+    inset 0 1px 0 rgba(255,255,255,0.26),
+    inset 1px 0 0 rgba(255,255,255,0.10);
+}
+[data-glass="clean"] .glass-modcard { overflow: hidden; }
+[data-glass="clean"] .glass-modcard .info { background: transparent; }
+[data-glass="clean"] .glass-modcard .cover::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(255,255,255,0.14), transparent 38%);
+  pointer-events: none;
+}
+
+/* 右栏 */
+[data-glass="clean"] .ctx-card {
+  background: rgba(255,255,255,0.035);
+  backdrop-filter: blur(20px) saturate(1.1) brightness(1.04);
+  -webkit-backdrop-filter: blur(20px) saturate(1.1) brightness(1.04);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 12px;
+}
+[data-glass="clean"] .ctx-card:hover {
+  background: rgba(255,255,255,0.06);
+  border-color: color-mix(in srgb, var(--a-4) 40%, transparent);
+}
+[data-glass="clean"] .empty-card {
+  background: rgba(255,255,255,0.02);
+  border: 1px dashed rgba(255,255,255,0.10);
+  border-radius: 12px;
+}
+
+/* 标签 / 按钮:更圆润、通透 */
+[data-glass="clean"] .chip {
+  background: rgba(255,255,255,0.07);
+  color: var(--text-dim);
+  border-radius: 999px;
+}
+[data-glass="clean"] .play-btn { border-radius: 999px; }
+[data-glass="clean"] .btn-switch {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.09);
+  color: var(--text);
+  border-radius: 999px;
+}
+[data-glass="clean"] .btn-switch:hover { background: var(--a-4); border-color: var(--a-4); color: #fff; }
+[data-glass="clean"] .menu-btn:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+[data-glass="clean"] .rail-item:hover { background: rgba(255,255,255,0.06); }
