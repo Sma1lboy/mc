@@ -41,11 +41,6 @@ use crate::types::Progress;
 /// dirs (`config`/`scripts`/`kubejs`) ride a separate blob — see the overrides flow.
 const MANAGED_DIRS: &[&str] = &["mods", "resourcepacks", "shaderpacks", "datapacks"];
 
-/// Override-only instance subdirectories — config/scripts that have no CDN url.
-/// Their files (plus any unresolved file from [`MANAGED_DIRS`]) ride the overrides
-/// blob: a zip the host uploads and members download + extract.
-const OVERRIDE_DIRS: &[&str] = &["config", "scripts", "kubejs", "defaultconfigs"];
-
 /* ---------- wire DTOs (mirror crates/mc-server/src/realm.rs) ---------- */
 
 /// One file the syncer reconciles into a member's instance. `path` is relative
@@ -434,11 +429,13 @@ pub async fn apply_sync(
 }
 
 /// Build a full snapshot of a host's instance: a manifest (CDN-resolved files
-/// across [`MANAGED_DIRS`]) **plus** an overrides zip carrying every non-CDN file
-/// (config/scripts in [`OVERRIDE_DIRS`], and any managed-dir file the provider
-/// doesn't recognise). The zip is uploaded to the realm; the manifest only holds
-/// its [`RealmOverrides`] descriptor. Returns `(manifest, Some(zip))`, or a
-/// `None` zip when there are no non-CDN files.
+/// across [`MANAGED_DIRS`]) **plus** an overrides zip carrying every other host
+/// customisation — config/scripts, options.txt, servers.dat, icon.png, any
+/// modpack-shipped dir, and any managed-dir file the provider doesn't recognise —
+/// excluding personal data (saves/screenshots) and launcher internals (core
+/// jar/json, our instance.json). The zip is uploaded to the realm; the manifest
+/// only holds its [`RealmOverrides`] descriptor. Returns `(manifest, Some(zip))`,
+/// or a `None` zip when there are no non-CDN files.
 pub async fn build_snapshot(
     inst: &Instance,
     provider: &dyn ResourceProvider,
@@ -488,17 +485,22 @@ pub async fn build_snapshot(
         }
     }
 
-    // Override-only dirs (config/scripts/…): everything goes into the blob.
-    for d in OVERRIDE_DIRS {
-        for wf in walk_game_root(&inst.dir().join(d), &[]).unwrap_or_default() {
-            override_paths.push(format!("{d}/{}", wf.rel));
-        }
-    }
-
-    // Instance icon (`icon.png` at the instance root) rides the overrides blob so
-    // members' synced instances keep the modpack icon instead of the placeholder.
-    if inst.icon_path().exists() {
-        override_paths.push("icon.png".to_string());
+    // Everything else the host customised rides the overrides blob — not just
+    // config/scripts but options.txt, servers.dat, icon.png, OptiFine/shader option
+    // files, and any modpack-shipped dir. Walk the whole instance tree, excluding:
+    //   - the CDN-managed dirs (handled above: resolved → url, unresolved → blob);
+    //   - personal data (saves / screenshots) the host shouldn't push onto members;
+    //   - launcher internals (the core jar/json, natives dir, our instance.json).
+    // (walk_game_root already hard-ignores logs / crash-reports / loader caches.)
+    let id = inst.version_id();
+    let ignores: Vec<String> = MANAGED_DIRS
+        .iter()
+        .map(|s| (*s).to_string())
+        .chain(["saves", "screenshots", "natives"].into_iter().map(str::to_string))
+        .chain(["instance.json".to_string(), format!("{id}.jar"), format!("{id}.json")])
+        .collect();
+    for wf in walk_game_root(&inst.dir(), &ignores).unwrap_or_default() {
+        override_paths.push(wf.rel);
     }
 
     let zip = build_overrides_zip(inst, &override_paths)?;
