@@ -79,17 +79,23 @@ impl ModpackImporter for McbbsImporter {
     }
 }
 
-/// 纯内容判别:字节是否是「MCBBS manifest」——顶层**有** `addons` 或 `launchInfo`
-/// (与 CurseForge 同名 `manifest.json` 的唯一区分点)。
+/// 纯内容判别:字节是否是「MCBBS manifest」——顶层带 MCBBS 专有标记。
 ///
 /// 与 [`super::curseforge::is_curseforge_manifest`] 互补:对同一 `manifest.json` 至多一个为真。
 pub(crate) fn is_mcbbs_manifest(bytes: &[u8]) -> bool {
     let Ok(value) = serde_json::from_slice::<serde_json::Value>(bytes) else {
         return false;
     };
-    let has_addons = value.get("addons").map(|v| !v.is_null()).unwrap_or(false);
-    let has_launch_info = value.get("launchInfo").map(|v| !v.is_null()).unwrap_or(false);
-    has_addons || has_launch_info
+    has_mcbbs_markers(&value)
+}
+
+/// MCBBS 与 CurseForge 共用 `manifest.json` 文件名,靠**内容**区分:MCBBS 独有顶层
+/// `addons` / `launchInfo` 字段。这是二者格式判别的**唯一真相**——`is_mcbbs_manifest`
+/// 与 `is_curseforge_manifest` 都从这里派生,保证它们永远互为精确补集(新增/调整判别
+/// 字段只改这一处,不会让两个 importer 的 `detect()` 漂移成「都命中」或「都不命中」)。
+pub(crate) fn has_mcbbs_markers(value: &serde_json::Value) -> bool {
+    let present = |key: &str| value.get(key).map(|v| !v.is_null()).unwrap_or(false);
+    present("addons") || present("launchInfo")
 }
 
 /// 从 staging 取 packmeta:优先 `mcbbs.packmeta`,其次 `manifest.json`。返回(标记名, 内容)。

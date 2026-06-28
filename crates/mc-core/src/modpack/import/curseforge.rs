@@ -93,12 +93,9 @@ pub(crate) fn is_curseforge_manifest(bytes: &[u8]) -> bool {
         .get("manifestType")
         .and_then(|v| v.as_str())
         .unwrap_or_default();
-    if manifest_type != "minecraftModpack" {
-        return false;
-    }
-    let has_addons = value.get("addons").map(|v| !v.is_null()).unwrap_or(false);
-    let has_launch_info = value.get("launchInfo").map(|v| !v.is_null()).unwrap_or(false);
-    !has_addons && !has_launch_info
+    // minecraftModpack 且**不带** MCBBS 专有标记 → CurseForge。判别字段共用
+    // mcbbs::has_mcbbs_markers 这一份 owner,与 is_mcbbs_manifest 保证互补、不漂移。
+    manifest_type == "minecraftModpack" && !super::mcbbs::has_mcbbs_markers(&value)
 }
 
 /// 纯解析:从一份已反序列化的 [`FlameManifest`] 产出 [`ImportPlan`](不含 sources,待 resolve)。
@@ -291,13 +288,30 @@ fn sanitize_filename(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::sanitize_filename;
+    use super::{is_curseforge_manifest, sanitize_filename};
+    use crate::modpack::import::mcbbs::is_mcbbs_manifest;
 
     #[test]
     fn strips_path_separators_to_basename() {
         assert_eq!(sanitize_filename("mods/cool.jar"), "cool.jar");
         assert_eq!(sanitize_filename("..\\..\\evil.jar"), "evil.jar");
         assert_eq!(sanitize_filename("a/b/c.zip"), "c.zip");
+    }
+
+    #[test]
+    fn cf_and_mcbbs_manifest_predicates_never_both_match() {
+        let plain_cf = br#"{"manifestType":"minecraftModpack","minecraft":{}}"#;
+        let mcbbs_addons = br#"{"manifestType":"minecraftModpack","addons":[{"id":"game"}]}"#;
+        let mcbbs_launch = br#"{"launchInfo":{}}"#;
+        let neither = br#"{"manifestType":"other"}"#;
+        // Sharing has_mcbbs_markers makes the two detectors provably non-overlapping.
+        for b in [&plain_cf[..], &mcbbs_addons[..], &mcbbs_launch[..], &neither[..]] {
+            assert!(!(is_curseforge_manifest(b) && is_mcbbs_manifest(b)), "both matched: {b:?}");
+        }
+        // …and each canonical input lands in exactly the right bucket.
+        assert!(is_curseforge_manifest(plain_cf) && !is_mcbbs_manifest(plain_cf));
+        assert!(is_mcbbs_manifest(mcbbs_addons) && !is_curseforge_manifest(mcbbs_addons));
+        assert!(is_mcbbs_manifest(mcbbs_launch));
     }
 
     #[test]
