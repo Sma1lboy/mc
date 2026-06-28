@@ -115,15 +115,43 @@ impl ServerClient {
         &self.base
     }
 
-    pub(crate) async fn get_json<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T> {
-        let url = format!("{}{}", self.base, path);
-        let resp = self.http.get(&url).send().await?;
+    /// 本客户端拼绝对 URL 的唯一处(原先散在每个动词里 `format!("{}{}", base, path)`)。
+    fn url(&self, path: &str) -> String {
+        format!("{}{}", self.base, path)
+    }
+
+    /// 非 2xx 状态的统一映射(标准接口错误策略的单一来源);返回原 `Response` 供继续读取。
+    fn checked(&self, resp: reqwest::Response, path: &str) -> Result<reqwest::Response> {
         if !resp.status().is_success() {
             return Err(CoreError::other(format!("server {} returned {}", path, resp.status())));
         }
+        Ok(resp)
+    }
+
+    /// 发送一个已构造好的请求并校验状态。所有标准动词的「发送 + 校验」都收敛到这里——
+    /// 像旧 `share_instance` 那样漏掉状态检查、把 4xx body 当成功体解析,在结构上不再可能。
+    async fn send_checked(
+        &self,
+        req: reqwest::RequestBuilder,
+        path: &str,
+    ) -> Result<reqwest::Response> {
+        self.checked(req.send().await?, path)
+    }
+
+    /// 读取并反序列化 JSON 响应体(解析错误信息的单一来源)。
+    async fn parse_json<T: serde::de::DeserializeOwned>(
+        &self,
+        resp: reqwest::Response,
+        path: &str,
+    ) -> Result<T> {
         let bytes = resp.bytes().await?;
         serde_json::from_slice(&bytes)
             .map_err(|e| CoreError::Parse { what: format!("server {path}"), source: e })
+    }
+
+    pub(crate) async fn get_json<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T> {
+        let resp = self.send_checked(self.http.get(self.url(path)), path).await?;
+        self.parse_json(resp, path).await
     }
 
     /// GET with query params and parse the JSON response; errors on non-2xx.
@@ -132,14 +160,8 @@ impl ServerClient {
         path: &str,
         query: &[(&str, &str)],
     ) -> Result<T> {
-        let url = format!("{}{}", self.base, path);
-        let resp = self.http.get(&url).query(query).send().await?;
-        if !resp.status().is_success() {
-            return Err(CoreError::other(format!("server {} returned {}", path, resp.status())));
-        }
-        let bytes = resp.bytes().await?;
-        serde_json::from_slice(&bytes)
-            .map_err(|e| CoreError::Parse { what: format!("server {path}"), source: e })
+        let resp = self.send_checked(self.http.get(self.url(path)).query(query), path).await?;
+        self.parse_json(resp, path).await
     }
 
     /// POST a JSON body and parse the JSON response; errors on non-2xx.
@@ -148,14 +170,8 @@ impl ServerClient {
         path: &str,
         body: &B,
     ) -> Result<T> {
-        let url = format!("{}{}", self.base, path);
-        let resp = self.http.post(&url).json(body).send().await?;
-        if !resp.status().is_success() {
-            return Err(CoreError::other(format!("server {} returned {}", path, resp.status())));
-        }
-        let bytes = resp.bytes().await?;
-        serde_json::from_slice(&bytes)
-            .map_err(|e| CoreError::Parse { what: format!("server {path}"), source: e })
+        let resp = self.send_checked(self.http.post(self.url(path)).json(body), path).await?;
+        self.parse_json(resp, path).await
     }
 
     /// POST expecting a JSON body, but treat **404** as a clean `None`
@@ -168,18 +184,13 @@ impl ServerClient {
         path: &str,
         body: &B,
     ) -> Result<Option<T>> {
-        let url = format!("{}{}", self.base, path);
-        let resp = self.http.post(&url).json(body).send().await?;
+        // 404 在 `checked` 之前判:这条路径把「资源不存在」当成干净的 None,不是错误。
+        let resp = self.http.post(self.url(path)).json(body).send().await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             return Ok(None);
         }
-        if !resp.status().is_success() {
-            return Err(CoreError::other(format!("server {} returned {}", path, resp.status())));
-        }
-        let bytes = resp.bytes().await?;
-        serde_json::from_slice(&bytes)
-            .map(Some)
-            .map_err(|e| CoreError::Parse { what: format!("server {path}"), source: e })
+        let resp = self.checked(resp, path)?;
+        self.parse_json(resp, path).await.map(Some)
     }
 
     /// POST a JSON body, discarding the (empty) response; errors on non-2xx.
@@ -188,47 +199,30 @@ impl ServerClient {
         path: &str,
         body: &B,
     ) -> Result<()> {
-        let url = format!("{}{}", self.base, path);
-        let resp = self.http.post(&url).json(body).send().await?;
-        if !resp.status().is_success() {
-            return Err(CoreError::other(format!("server {} returned {}", path, resp.status())));
-        }
+        self.send_checked(self.http.post(self.url(path)).json(body), path).await?;
         Ok(())
     }
 
     /// DELETE a resource, discarding the (empty) response; errors on non-2xx.
     pub(crate) async fn delete_no_content(&self, path: &str) -> Result<()> {
-        let url = format!("{}{}", self.base, path);
-        let resp = self.http.delete(&url).send().await?;
-        if !resp.status().is_success() {
-            return Err(CoreError::other(format!("server {} returned {}", path, resp.status())));
-        }
+        self.send_checked(self.http.delete(self.url(path)), path).await?;
         Ok(())
     }
 
     /// POST a raw binary body (e.g. the realm overrides zip); errors on non-2xx.
     pub(crate) async fn post_bytes(&self, path: &str, body: Vec<u8>) -> Result<()> {
-        let url = format!("{}{}", self.base, path);
-        let resp = self
+        let req = self
             .http
-            .post(&url)
+            .post(self.url(path))
             .header(reqwest::header::CONTENT_TYPE, "application/zip")
-            .body(body)
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(CoreError::other(format!("server {} returned {}", path, resp.status())));
-        }
+            .body(body);
+        self.send_checked(req, path).await?;
         Ok(())
     }
 
     /// GET a raw binary body (e.g. the realm overrides zip); errors on non-2xx.
     pub(crate) async fn get_bytes(&self, path: &str) -> Result<Vec<u8>> {
-        let url = format!("{}{}", self.base, path);
-        let resp = self.http.get(&url).send().await?;
-        if !resp.status().is_success() {
-            return Err(CoreError::other(format!("server {} returned {}", path, resp.status())));
-        }
+        let resp = self.send_checked(self.http.get(self.url(path)), path).await?;
         Ok(resp.bytes().await?.to_vec())
     }
 
@@ -248,9 +242,9 @@ impl ServerClient {
 
     /// Publish an instance for sharing; returns its short id.
     pub async fn share_instance(&self, inst: &SharedInstance) -> Result<String> {
-        let url = format!("{}/v1/instances/share", self.base);
-        let resp = self.http.post(&url).json(inst).send().await?;
-        let v: serde_json::Value = resp.json().await?;
+        let path = "/v1/instances/share";
+        let resp = self.send_checked(self.http.post(self.url(path)).json(inst), path).await?;
+        let v: serde_json::Value = self.parse_json(resp, path).await?;
         v.get("id")
             .and_then(|i| i.as_str())
             .map(|s| s.to_string())
@@ -278,39 +272,35 @@ impl ServerClient {
         Ok(r.user)
     }
 
+    // auth 动词的非 2xx 故意映射成 CoreError::Auth(中文文案),与标准 `checked` 策略不同,
+    // 是有意的领域差异,因此各自保留状态检查;URL 与 JSON 解析仍走共用 owner。
     async fn auth_post<T: serde::de::DeserializeOwned>(
         &self,
         path: &str,
         body: serde_json::Value,
     ) -> Result<T> {
-        let url = format!("{}{}", self.base, path);
-        let resp = self.http.post(&url).json(&body).send().await?;
+        let resp = self.http.post(self.url(path)).json(&body).send().await?;
         if !resp.status().is_success() {
             return Err(CoreError::Auth(format!("{} 返回 {}", path, resp.status())));
         }
-        let bytes = resp.bytes().await?;
-        serde_json::from_slice(&bytes)
-            .map_err(|e| CoreError::Parse { what: format!("server {path}"), source: e })
+        self.parse_json(resp, path).await
     }
 
     /// The current session's user (better-auth `get-session`, uses the cookie).
     /// Errors if not logged in / the session expired.
     pub async fn me(&self) -> Result<AuthUser> {
-        let url = format!("{}/v1/auth/get-session", self.base);
-        let resp = self.http.get(&url).send().await?;
+        let path = "/v1/auth/get-session";
+        let resp = self.http.get(self.url(path)).send().await?;
         if !resp.status().is_success() {
             return Err(CoreError::Auth(format!("会话无效({})", resp.status())));
         }
-        let bytes = resp.bytes().await?;
-        let s: SessionResponse = serde_json::from_slice(&bytes)
-            .map_err(|e| CoreError::Parse { what: "server get-session".into(), source: e })?;
+        let s: SessionResponse = self.parse_json(resp, path).await?;
         Ok(s.user)
     }
 
     /// Log out — clears the better-auth server-side session.
     pub async fn logout(&self) -> Result<()> {
-        let url = format!("{}/v1/auth/sign-out", self.base);
-        self.http.post(&url).send().await?;
+        self.http.post(self.url("/v1/auth/sign-out")).send().await?;
         Ok(())
     }
 }
