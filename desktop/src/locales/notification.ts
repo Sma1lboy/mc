@@ -7,6 +7,7 @@ const dict = {
     friendRequest: "{{ name }} 请求加你为好友",
     friendAccepted: "{{ name }} 接受了你的好友请求",
     realmInvite: "{{ name }} 邀请你加入领域「{{ realm }}」",
+    realmInviteGo: "前往",
   } as Record<string, string>,
   en: {
     title: "Notifications",
@@ -14,6 +15,7 @@ const dict = {
     friendRequest: "{{ name }} wants to add you as a friend",
     friendAccepted: "{{ name }} accepted your friend request",
     realmInvite: "{{ name }} invited you to the realm “{{ realm }}”",
+    realmInviteGo: "Go",
   } as Record<string, string>,
 };
 
