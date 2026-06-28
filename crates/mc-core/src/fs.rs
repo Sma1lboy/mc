@@ -122,6 +122,26 @@ pub fn has_blocking_path_issue(issues: &[PathIssue]) -> bool {
     issues.iter().any(|i| i.severity == PathSeverity::Error)
 }
 
+/// A unique sibling temp path for an atomic replace of `path`: same directory (so
+/// the follow-up `rename` stays on one filesystem and is atomic), with a name no
+/// concurrent writer in *this process* can collide on. The original filename is
+/// kept and `.<tag>-<pid>-<seq>` appended, so temps read clearly on disk
+/// (`foo.jar.part-…` for a streamed download, `cfg.json.tmp-…` for an atomic write).
+///
+/// Uniqueness is keyed by a process-global counter, NOT by the destination: two
+/// writers racing to replace the *same* path — e.g. two instances installing the
+/// same library into the shared `libraries/` store — get distinct temps, so
+/// neither truncates the other's bytes nor deletes its in-progress file on a
+/// verify-fail. This is the one owner of "temp name for an atomic file replace";
+/// both [`write_atomic`] and the download engine route through it.
+pub fn unique_temp_sibling(path: &Path, tag: &str) -> PathBuf {
+    static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = TMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mut name = path.to_path_buf().into_os_string();
+    name.push(format!(".{tag}-{}-{}", std::process::id(), seq));
+    PathBuf::from(name)
+}
+
 /// Atomically write `data` to `path`: write to a sibling temp file, fsync, then
 /// rename over the target. A crash mid-write leaves the old file intact instead
 /// of a truncated one. Ports the intent of PrismLauncher's safe `write`.
@@ -131,14 +151,7 @@ pub fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).with_path(parent)?;
     }
-    // Unique temp name beside the target (same filesystem → rename is atomic).
-    // PID alone collides when two writes share a dir within one process — either the
-    // same target written concurrently, or two siblings whose extension differs
-    // (`a.json` and `a.txt` both → `a.tmp-PID`). A process-global counter makes each
-    // call's temp name unique, so concurrent writers never clobber each other's temp.
-    static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let seq = TMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let tmp = path.with_extension(format!("tmp-{}-{}", std::process::id(), seq));
+    let tmp = unique_temp_sibling(path, "tmp");
 
     {
         let mut f = std::fs::File::create(&tmp).with_path(&tmp)?;

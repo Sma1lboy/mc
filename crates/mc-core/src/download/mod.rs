@@ -21,7 +21,7 @@ pub use checksum::Checksum;
 pub use mirror::MirrorResolver;
 
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -214,7 +214,9 @@ impl Downloader {
                 .map_err(|e| CoreError::io(parent.to_path_buf(), e))?;
         }
 
-        let part_path = part_path(&item.path);
+        // 唯一临时名:两个实例并发把同一个库写进共享 store 时,各自拿到不同的 .part,
+        // 不会互相截断字节、也不会在校验失败 remove_file 时删掉对方写到一半的文件。
+        let part_path = crate::fs::unique_temp_sibling(&item.path, "part");
         let candidates = self.candidate_urls(item);
         let mut last_err: Option<CoreError> = None;
 
@@ -446,13 +448,6 @@ impl Downloader {
     }
 }
 
-/// 计算 `<path>.part` 临时文件路径(在原扩展名后追加 `.part`)。
-fn part_path(path: &Path) -> PathBuf {
-    let mut s = path.to_path_buf().into_os_string();
-    s.push(".part");
-    PathBuf::from(s)
-}
-
 /// 判断一个 host 是否属于 CurseForge(其 CDN 自 2026-07-16 起要求 `x-api-key`)。
 /// 命中:`api.curseforge.com`、任何 `*.forgecdn.net`(含 `edge.` / `mediafilez.`)、
 /// 任何 `*.curseforge.com`。大小写无关。纯函数,可单测。
@@ -517,9 +512,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn part_path_appends_suffix() {
+    fn part_path_is_a_unique_sibling() {
         let p = PathBuf::from("/tmp/foo/client.jar");
-        assert_eq!(part_path(&p), PathBuf::from("/tmp/foo/client.jar.part"));
+        let a = crate::fs::unique_temp_sibling(&p, "part");
+        let b = crate::fs::unique_temp_sibling(&p, "part");
+        // Same directory (so the follow-up rename stays atomic on one filesystem).
+        assert_eq!(a.parent(), p.parent());
+        // Keeps the original filename and tags it (recognisable on disk).
+        assert!(a.file_name().unwrap().to_str().unwrap().starts_with("client.jar.part-"));
+        // Two writers racing on the SAME destination never collide.
+        assert_ne!(a, b);
     }
 
     #[test]
