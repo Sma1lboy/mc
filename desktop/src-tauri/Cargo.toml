@@ -1,6 +1,6 @@
 [package]
 name = "mc-launcher-desktop"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 description = "Tauri v2 desktop shell for mc-launcher: thin glue over mc-core."
 license = "MIT"
