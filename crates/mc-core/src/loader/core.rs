@@ -9,7 +9,7 @@ use tokio::sync::watch;
 use mc_types::{LoaderKind, Progress};
 
 use crate::download::Downloader;
-use crate::error::{CoreError, Result};
+use crate::error::Result;
 use crate::paths::GamePaths;
 
 use super::{install_fabric, install_forge, install_neoforge, install_quilt};
@@ -28,11 +28,8 @@ pub async fn install_core(
     loader: Option<&(LoaderKind, String)>,
     progress: Option<watch::Sender<Progress>>,
 ) -> Result<String> {
-    let manifest = crate::meta::fetch_manifest(dl).await?;
-    let vanilla_entry = manifest
-        .iter()
-        .find(|m| m.id == mc_version)
-        .ok_or_else(|| CoreError::other(format!("版本清单中找不到 Minecraft {mc_version}")))?;
+    let vanilla_entry = crate::meta::resolve_version(dl, mc_version).await?;
+    let vanilla_entry = &vanilla_entry;
 
     let core_id = match loader {
         None => {

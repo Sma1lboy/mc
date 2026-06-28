@@ -432,11 +432,8 @@ async fn cmd_install(cli: &Cli, id: &str) -> Result<()> {
     let paths = resolve_root(&cli.dir);
     let dl = downloader(cli.mirror)?;
     println!("正在拉取版本清单…");
-    let manifest = meta::fetch_manifest(&dl).await?;
-    let entry = manifest
-        .iter()
-        .find(|v| v.id == id)
-        .with_context(|| format!("版本 {id} 不在清单中"))?;
+    let entry = meta::resolve_version(&dl, id).await.with_context(|| format!("版本 {id} 不在清单中"))?;
+    let entry = &entry;
 
     println!("安装 {} 到 {} …", id, paths.root().display());
     let (tx, mut rx) = tokio::sync::watch::channel(mc_core::types::Progress::new("准备"));
@@ -504,11 +501,10 @@ async fn cmd_create(
 async fn cmd_fabric(cli: &Cli, mc_version: &str) -> Result<()> {
     let paths = resolve_root(&cli.dir);
     let dl = downloader(cli.mirror)?;
-    let manifest = meta::fetch_manifest(&dl).await?;
-    let entry = manifest
-        .iter()
-        .find(|v| v.id == mc_version)
+    let entry = meta::resolve_version(&dl, mc_version)
+        .await
         .with_context(|| format!("版本 {mc_version} 不在清单中"))?;
+    let entry = &entry;
 
     println!("为 {mc_version} 安装 Fabric…");
     let (tx, mut rx) = tokio::sync::watch::channel(mc_core::types::Progress::new("准备"));
@@ -532,11 +528,10 @@ async fn cmd_fabric(cli: &Cli, mc_version: &str) -> Result<()> {
 async fn cmd_quilt(cli: &Cli, mc_version: &str) -> Result<()> {
     let paths = resolve_root(&cli.dir);
     let dl = downloader(cli.mirror)?;
-    let manifest = meta::fetch_manifest(&dl).await?;
-    let entry = manifest
-        .iter()
-        .find(|v| v.id == mc_version)
+    let entry = meta::resolve_version(&dl, mc_version)
+        .await
         .with_context(|| format!("版本 {mc_version} 不在清单中"))?;
+    let entry = &entry;
     println!("为 {mc_version} 安装 Quilt…");
     let id = mc_core::loader::install_quilt(&dl, &paths, mc_version, entry, None, None).await?;
     println!("✓ Quilt 安装完成,实例 id: {id}");
@@ -561,10 +556,11 @@ fn live_progress() -> tokio::sync::watch::Sender<mc_core::types::Progress> {
 async fn cmd_forge(cli: &Cli, mc_version: &str, forge_build: &str) -> Result<()> {
     let paths = resolve_root(&cli.dir);
     let dl = downloader(cli.mirror)?;
-    let manifest = meta::fetch_manifest(&dl).await?;
-    let entry = manifest.iter().find(|v| v.id == mc_version).with_context(|| format!("版本 {mc_version} 不在清单中"))?;
+    let entry = meta::resolve_version(&dl, mc_version)
+        .await
+        .with_context(|| format!("版本 {mc_version} 不在清单中"))?;
     println!("为 {mc_version} 安装 Forge {forge_build}…");
-    let id = mc_core::loader::install_forge(&dl, &paths, mc_version, forge_build, entry, None, Some(live_progress())).await?;
+    let id = mc_core::loader::install_forge(&dl, &paths, mc_version, forge_build, &entry, None, Some(live_progress())).await?;
     println!("✓ Forge 安装完成,实例 id: {id}");
     Ok(())
 }
@@ -573,10 +569,11 @@ async fn cmd_neoforge(cli: &Cli, neo_version: &str) -> Result<()> {
     let paths = resolve_root(&cli.dir);
     let dl = downloader(cli.mirror)?;
     let mc = mc_core::loader::neoforge::mc_version_for(neo_version).context("无法推断 MC 版本")?;
-    let manifest = meta::fetch_manifest(&dl).await?;
-    let entry = manifest.iter().find(|v| v.id == mc).with_context(|| format!("版本 {mc} 不在清单中"))?;
+    let entry = meta::resolve_version(&dl, &mc)
+        .await
+        .with_context(|| format!("版本 {mc} 不在清单中"))?;
     println!("安装 NeoForge {neo_version} (MC {mc})…");
-    let id = mc_core::loader::install_neoforge(&dl, &paths, neo_version, entry, None, Some(live_progress())).await?;
+    let id = mc_core::loader::install_neoforge(&dl, &paths, neo_version, &entry, None, Some(live_progress())).await?;
     println!("✓ NeoForge 安装完成,实例 id: {id}");
     Ok(())
 }

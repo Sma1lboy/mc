@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use mc_types::{ManifestVersion, ReleaseKind};
 
 use crate::download::{DownloadItem, Downloader};
-use crate::error::Result;
+use crate::error::{CoreError, Result};
 use crate::paths::GamePaths;
 use crate::version::{
     AssetIndexRef, LaunchProfile, RuntimeContext, DEFAULT_LIBRARIES_MAVEN,
@@ -93,6 +93,19 @@ fn map_manifest(raw: RawManifest) -> Vec<ManifestVersion> {
 pub async fn fetch_manifest(dl: &Downloader) -> Result<Vec<ManifestVersion>> {
     let raw: RawManifest = dl.get_json(VERSION_MANIFEST_URL).await?;
     Ok(map_manifest(raw))
+}
+
+/// 拉取版本清单并取出 id 等于 `id` 的那一条,找不到则 [`CoreError::VersionNotFound`]。
+///
+/// 「fetch_manifest + 按 id 找 entry,否则报错」此前被各安装入口(CLI 的 vanilla/
+/// fabric/quilt/forge/neoforge 命令、core 装载流程)各自手抄一遍;这里收敛成唯一 owner。
+/// 调用方若想要本地化的上下文,在返回的 `Result` 上再 `.with_context(...)` 即可。
+pub async fn resolve_version(dl: &Downloader, id: &str) -> Result<ManifestVersion> {
+    fetch_manifest(dl)
+        .await?
+        .into_iter()
+        .find(|v| v.id == id)
+        .ok_or_else(|| CoreError::VersionNotFound(id.to_string()))
 }
 
 /// 拉取某个版本的 version json **原文字符串**。
