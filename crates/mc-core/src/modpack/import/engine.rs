@@ -354,10 +354,8 @@ impl ImportEngine {
         instance_id: &str,
         core_id: &str,
     ) -> Result<()> {
-        let json = serde_json::json!({ "id": instance_id, "inheritsFrom": core_id });
-        let raw = serde_json::to_string_pretty(&json)
-            .map_err(|e| CoreError::Parse { what: "instance version json".into(), source: e })?;
-        crate::fs::write_atomic(&paths.version_json(instance_id), raw.as_bytes())
+        // 与「创建实例 / 装核心」是同一动作,共用 lifecycle 的 owner,避免第四份副本。
+        crate::instance::lifecycle::relink_instance_stub(paths, instance_id, core_id)
     }
 
     /// 下载 `plan.files` 到 game_dir;**必备文件**任一失败即整体失败,**可选文件**失败仅记录

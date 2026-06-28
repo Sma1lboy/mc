@@ -65,10 +65,7 @@ pub async fn create_instance(
     // 3. 让实例本身成为可启动版本:写最小 {id, inheritsFrom: core_id}。
     //    unique_instance_id 已避开所有已存在目录,故 instance_id != core_id 必成立;留判防御。
     if instance_id != core_id {
-        let json = serde_json::json!({ "id": instance_id, "inheritsFrom": core_id });
-        let raw = serde_json::to_string_pretty(&json)
-            .map_err(|e| CoreError::Parse { what: "instance version json".into(), source: e })?;
-        crate::fs::write_atomic(&paths.version_json(&instance_id), raw.as_bytes())?;
+        relink_instance_stub(paths, &instance_id, &core_id)?;
     }
 
     // 4. 写实例配置:展示名 + 全局默认(内存/Java 取自全局设置,其余取 InstanceConfig::default)。
@@ -121,10 +118,7 @@ pub async fn materialize_core(
     }
     let core_id = crate::loader::install_core(dl, paths, mc_version, loader.as_ref(), progress).await?;
     if instance_id != core_id {
-        let json = serde_json::json!({ "id": instance_id, "inheritsFrom": core_id });
-        let raw = serde_json::to_string_pretty(&json)
-            .map_err(|e| CoreError::Parse { what: "instance version json".into(), source: e })?;
-        crate::fs::write_atomic(&paths.version_json(instance_id), raw.as_bytes())?;
+        relink_instance_stub(paths, instance_id, &core_id)?;
     }
     Ok(())
 }
@@ -270,11 +264,13 @@ fn rename_instance_dir(paths: &GamePaths, old_id: &str, new_id: &str) -> Result<
     reid_version_files(paths, old_id, new_id)
 }
 
-/// 把实例存根版本 json 重写为最小的 `{ id, inheritsFrom: core_id }`(原子写)。
+/// 把实例存根版本 json 写成最小的 `{ id, inheritsFrom: core_id }`(原子写)。**新建存根与
+/// 重指向已有存根是同一动作**(write_atomic 直接覆盖),所以创建实例 / 装核心 / 整合包导入
+/// 都走这同一个 owner——「写实例存根 json」此前被逐字内联/复制了四份。
 ///
 /// 实例是薄存根,除 id / inheritsFrom 外不承载版本元数据(库/参数都由继承链上的 core 提供),
 /// 故直接覆盖即可,无需保留其它字段。
-fn relink_instance_stub(paths: &GamePaths, instance_id: &str, core_id: &str) -> Result<()> {
+pub(crate) fn relink_instance_stub(paths: &GamePaths, instance_id: &str, core_id: &str) -> Result<()> {
     let json = serde_json::json!({ "id": instance_id, "inheritsFrom": core_id });
     let raw = serde_json::to_string_pretty(&json)
         .map_err(|e| CoreError::Parse { what: "instance version json".into(), source: e })?;
