@@ -223,9 +223,12 @@ pub fn library_download_items(
 /// profile 未声明客户端下载,会从其继承链的 vanilla 父级取得)。
 pub fn client_jar_item(profile: &LaunchProfile, paths: &GamePaths) -> Option<DownloadItem> {
     let art = profile.client_download.as_ref()?;
+    // Store the jar under the version that owns `downloads.client` (vanilla base),
+    // matching where `build_classpath` looks for it. See LaunchProfile::client_jar_id.
+    let jar_id = profile.client_jar_id.as_deref().unwrap_or(&profile.id);
     Some(DownloadItem {
         url: art.url.clone(),
-        path: paths.version_jar(&profile.id),
+        path: paths.version_jar(jar_id),
         sha1: art.sha1.clone(),
         size: art.size,
         ..Default::default()

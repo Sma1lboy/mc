@@ -21,6 +21,11 @@ pub struct LaunchProfile {
     pub asset_index: Option<AssetIndexRef>,
     pub assets_id: Option<String>,
     pub client_download: Option<Artifact>,
+    /// Id of the chain member that actually declared `downloads.client` (the
+    /// vanilla base). The client jar lives at `versions/<this>/<this>.jar`, which
+    /// is **not** necessarily the leaf `id` — modpack/loader instances are thin
+    /// stubs whose own dir holds no jar. Used to key the classpath + download.
+    pub client_jar_id: Option<String>,
     pub java_major: Option<u8>,
     pub logging: Logging,
 }
@@ -90,6 +95,9 @@ fn merge_one(p: &mut LaunchProfile, v: &VersionJson) {
     }
     if v.downloads.client.is_some() {
         p.client_download = v.downloads.client.clone();
+        // The jar belongs to *this* version's dir, not the leaf's. (末者胜:若多层
+        // 都声明 client,取最靠近 leaf 的那层,与 client_download 保持一致。)
+        p.client_jar_id = Some(v.id.clone());
     }
     if let Some(jv) = &v.java_version {
         p.java_major = Some(jv.major_version);
@@ -135,6 +143,22 @@ mod tests {
         let p = LaunchProfile::from_chain(&[base, loader]);
         assert_eq!(p.main_class, "net.fabricmc.loader.impl.launch.knot.KnotClient");
         assert_eq!(p.id, "fabric");
+    }
+
+    #[test]
+    fn client_jar_id_is_base_not_leaf() {
+        // 三层薄存根链:实例存根 → fabric-loader → 原版(后者独有 downloads.client)。
+        // client jar 应归属原版那层,而非 leaf 存根(其目录里根本没有 jar)。
+        let vanilla = vj(
+            r#"{"id":"26.2","mainClass":"net.minecraft.client.main.Main","libraries":[],
+                "downloads":{"client":{"url":"https://cdn/c.jar","sha1":"abc","size":10}}}"#,
+        );
+        let loader = vj(r#"{"id":"fabric-loader-0.19.3-26.2","inheritsFrom":"26.2","libraries":[]}"#);
+        let stub = vj(r#"{"id":"Fabulously Optimized","inheritsFrom":"fabric-loader-0.19.3-26.2"}"#);
+        let p = LaunchProfile::from_chain(&[vanilla, loader, stub]);
+        assert_eq!(p.id, "Fabulously Optimized");
+        assert_eq!(p.client_jar_id.as_deref(), Some("26.2"));
+        assert!(p.client_download.is_some());
     }
 
     #[test]
