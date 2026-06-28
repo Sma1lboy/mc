@@ -8,6 +8,8 @@ import {
   refreshNotifications,
   refreshFriendRequests,
   refreshFriends,
+  instances,
+  openInstance,
 } from "../store";
 import { t } from "../i18n";
 import type { Notification } from "../ipc/bindings";
@@ -153,6 +155,27 @@ export const NotificationCenter: Component = () => {
                           realm: n.realm_name || n.realm_id || "",
                         })}
                       </span>
+                      {/* 「前往」:仅当本地有实例绑定到该领域时出现 → 进实例(落到「领域」tab)并关闭下拉。
+                          被邀请但本地尚未加入(无绑定实例)时不渲染按钮,仅作信息提示。 */}
+                      {(() => {
+                        const bound = () =>
+                          n.realm_id ? (instances() ?? []).find((i) => i.realm?.realm_id === n.realm_id) : undefined;
+                        return (
+                          <Show when={bound()}>
+                            {(inst) => (
+                              <button
+                                class="text-[12px] text-accent hover:underline bg-transparent border-none cursor-pointer"
+                                onClick={() => {
+                                  openInstance(inst().id);
+                                  setOpen(false);
+                                }}
+                              >
+                                {t("notification.realmInviteGo")}
+                              </button>
+                            )}
+                          </Show>
+                        );
+                      })()}
                     </Match>
                   </Switch>
                 </div>

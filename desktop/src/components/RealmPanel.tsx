@@ -275,6 +275,10 @@ const RealmManage: Component<{ instance: InstanceSummary; onChanged?: () => void
   onMount(() => void refreshFriends());
   const memberIds = () => new Set((members() ?? []).map((m) => m.user_id));
   const friendIds = () => new Set((friends() ?? []).map((f) => f.id));
+  // 成员 → 好友映射(用于在成员行展示在线/活动);非好友成员取不到则无 pip。
+  const friendById = () => new Map((friends() ?? []).map((f) => [f.id, f] as const));
+  // 折叠头里的「在线 N」:统计同时是好友且在线的成员数。
+  const onlineMemberCount = () => (members() ?? []).filter((m) => friendById().get(m.user_id)?.online).length;
 
   // 在线好友优先,其次按用户名排序,便于优先邀请在线好友。
   const sortedFriends = () =>
@@ -453,28 +457,46 @@ const RealmManage: Component<{ instance: InstanceSummary; onChanged?: () => void
 
   return (
     <div class="flex flex-col gap-[12px]">
-      {/* 头部:加入码 + 角色 + 清单版本 */}
-      <Panel variant="sunken" class="p-[16px] flex items-center justify-between gap-[12px] flex-wrap">
-        <div class="flex items-center gap-[8px] flex-wrap min-w-0">
-          <Heading size="sub" as="h3" class="m-0 text-[14px]">
-            {summary()?.name ?? props.instance.realm!.name ?? t("realm.title")}
-          </Heading>
-          <Tag>{roleLabel(role())}</Tag>
-          <Show when={summary()}>
-            <span class="text-[11px] text-muted bg-window shadow-input px-[6px] py-[2px]">
-              {t("realm.manifestVersion", { version: summary()!.manifest_version })}
-            </span>
-          </Show>
-        </div>
-        <button
-          type="button"
-          class="font-mono text-[16px] text-accent tracking-[0.16em] bg-window shadow-input px-[12px] py-[5px] cursor-pointer hover:brightness-110"
-          title={t("realm.copyCode")}
-          onClick={() => void copyCode()}
-        >
-          {code()}
-        </button>
-      </Panel>
+      {/* 头部:领域身份(头像 + 名称 + 角色 + 版本·成员数副行)+ 可复制加入码 chip */}
+      {(() => {
+        const realmName = () => summary()?.name ?? props.instance.realm!.name ?? t("realm.title");
+        return (
+          <Panel variant="sunken" class="p-[16px] flex items-center justify-between gap-[12px] flex-wrap">
+            <div class="flex items-center gap-[10px] min-w-0">
+              <PersonTile name={realmName()} />
+              <div class="flex flex-col min-w-0 gap-[2px]">
+                <div class="flex items-center gap-[8px] min-w-0">
+                  <Heading size="sub" as="h3" class="m-0 text-[14px] truncate">
+                    {realmName()}
+                  </Heading>
+                  <Tag>{roleLabel(role())}</Tag>
+                </div>
+                <Show when={summary()}>
+                  <span class="text-[11px] text-muted tabular-nums">
+                    {t("realm.manifestVersion", { version: summary()!.manifest_version })}
+                    {" · "}
+                    {t("realm.memberCount", { n: (members() ?? []).length })}
+                  </span>
+                </Show>
+              </div>
+            </div>
+            <Show when={code()}>
+              <button
+                type="button"
+                class="inline-flex items-center gap-[8px] font-mono text-[14px] text-accent tracking-[0.16em] tabular-nums bg-window shadow-input px-[10px] py-[5px] cursor-pointer hover:brightness-110 [-webkit-app-region:no-drag]"
+                title={t("realm.copyCode")}
+                onClick={() => void copyCode()}
+              >
+                <span>{code()}</span>
+                <svg class="w-[13px] h-[13px] shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <rect x="9" y="9" width="11" height="11" rx="1.5" stroke="currentColor" stroke-width="1.8" />
+                  <path d="M5 15V5.5A1.5 1.5 0 0 1 6.5 4H15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                </svg>
+              </button>
+            </Show>
+          </Panel>
+        );
+      })()}
 
       {/* 同步状态(自动检测 + 自动同步;破坏性需确认) */}
       <Panel variant="sunken" class="p-[16px] flex flex-col gap-[10px]">
@@ -552,6 +574,9 @@ const RealmManage: Component<{ instance: InstanceSummary; onChanged?: () => void
           <Caret open={membersOpen()} />
           <span class="text-[12px] text-sub font-display tracking-[0.5px]">{t("realm.members")}</span>
           <span class="text-[11px] text-faint tabular-nums">{(members() ?? []).length}</span>
+          <Show when={onlineMemberCount() > 0}>
+            <span class="text-[11px] text-accent tabular-nums">{t("friend.onlineCount", { n: onlineMemberCount() })}</span>
+          </Show>
           {/* 折叠时:在标题行右侧叠展成员头像(peek)。 */}
           <Show when={!membersOpen()}>
             <span class="flex-1" />
@@ -582,9 +607,12 @@ const RealmManage: Component<{ instance: InstanceSummary; onChanged?: () => void
               <For each={members() ?? []}>
                 {(m: RealmMember) => {
                   const nm = m.username || m.user_id.slice(0, 8);
+                  // 同时是好友的成员:借好友列表(store 轮询维护在线/活动)展示在线状态。
+                  const friend = () => friendById().get(m.user_id);
+                  const isFriend = () => friend() !== undefined;
                   return (
                     <div class="flex items-center gap-[10px] px-[8px] py-[6px] group hover:bg-panel-2 transition-[background-color] duration-[var(--dur)] ease-app">
-                      <PersonTile name={nm} />
+                      <PersonTile name={nm} online={friend()?.online} pip={isFriend()} />
                       <div class="flex flex-col min-w-0 flex-1">
                         <span class="text-[13px] text-fg truncate">
                           {nm}
@@ -592,6 +620,13 @@ const RealmManage: Component<{ instance: InstanceSummary; onChanged?: () => void
                             <span class="text-muted"> {t("realm.you")}</span>
                           </Show>
                         </span>
+                        <Show when={friend()?.online ? friend() : undefined}>
+                          {(f) => (
+                            <span class="text-[11px] text-accent truncate">
+                              {f().activity ? t("friend.playing", { name: f().activity ?? "" }) : t("friend.idle")}
+                            </span>
+                          )}
+                        </Show>
                         <span class="text-[11px] text-faint truncate">
                           {m.synced_version > 0 ? t("realm.syncedTo", { version: m.synced_version }) : t("realm.notSynced")}
                         </span>

@@ -68,6 +68,7 @@ const dict = {
 
     // 成员
     members: "成员",
+    memberCount: "{{ n }} 名成员",
     you: "(你)",
     syncedTo: "已同步至 v{{ version }}",
     notSynced: "未同步",
@@ -151,6 +152,7 @@ const dict = {
     friendTag: "Friend",
 
     members: "Members",
+    memberCount: "{{ n }} members",
     you: "(you)",
     syncedTo: "Synced to v{{ version }}",
     notSynced: "Not synced",
