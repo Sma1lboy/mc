@@ -13,6 +13,7 @@ import home from "./home";
 import projectDetail from "./projectDetail";
 import kobe from "./kobe";
 import realm from "./realm";
+import lobby from "./lobby";
 import friend from "./friend";
 import notification from "./notification";
 import link from "./link";
@@ -37,6 +38,7 @@ export const dictionaries = {
     projectDetail: projectDetail.zh,
     kobe: kobe.zh,
     realm: realm.zh,
+    lobby: lobby.zh,
     friend: friend.zh,
     notification: notification.zh,
     link: link.zh,
@@ -60,6 +62,7 @@ export const dictionaries = {
     projectDetail: projectDetail.en,
     kobe: kobe.en,
     realm: realm.en,
+    lobby: lobby.en,
     friend: friend.en,
     notification: notification.en,
     link: link.en,

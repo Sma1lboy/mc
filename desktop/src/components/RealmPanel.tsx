@@ -30,7 +30,7 @@ import {
 } from "../store";
 import { avatarTone, avatarInitial } from "../util/avatar";
 import { t } from "../i18n";
-import type { InstanceSummary, RealmMember, SyncReport } from "../ipc/bindings";
+import type { InstanceSummary, RealmMember, SyncReport, LobbyStatus } from "../ipc/bindings";
 
 /** 折叠区标题左侧的 caret(展开时旋转 90°)。 */
 const Caret: Component<{ open: boolean }> = (props) => (
@@ -71,6 +71,153 @@ function roleLabel(role: string): string {
       ? t("realm.roleAdmin")
       : t("realm.roleMember");
 }
+
+/**
+ * LobbyBlock —— 领域里的「联机」块:一键开启 / 断开一个 EasyTier 虚拟局域网会话,运行时
+ * 轮询状态展示本机虚拟 IP、在线对端与各自的「直连 / 中继 + 延迟」。开启需要管理员 / root
+ * 授权(建 TUN);后端按平台提权拉起 easytier-core。EasyTier 未安装时后端返回清晰错误。
+ */
+const LobbyBlock: Component<{ realmId: string }> = (props) => {
+  const [mode, setMode] = createSignal("p2p");
+  const [status, setStatus] = createSignal<LobbyStatus | null>(null);
+  const [busy, setBusy] = createSignal(false);
+  let timer: number | undefined;
+
+  const running = () => status()?.running ?? false;
+  const peers = () => status()?.peers ?? [];
+
+  // creds 仅用于判断是否提供「我们的中继」线路(成员可见,含 secret 故不展示)。
+  const [creds] = createResource(
+    () => props.realmId,
+    (id) => api.realmLobby(id).catch(() => null),
+  );
+  const hasHosted = () => (creds()?.nodes ?? []).some((n) => n.kind === "hosted");
+  const modeOptions = () => [
+    { value: "p2p", label: t("lobby.modeP2p") },
+    ...(hasHosted() ? [{ value: "hosted", label: t("lobby.modeHosted") }] : []),
+  ];
+
+  async function poll() {
+    try {
+      setStatus(await api.lobbyStatus());
+    } catch {
+      /* 轮询偶发失败忽略,下一拍再试 */
+    }
+  }
+  function stopPolling() {
+    if (timer !== undefined) {
+      clearInterval(timer);
+      timer = undefined;
+    }
+  }
+  function startPolling() {
+    stopPolling();
+    timer = window.setInterval(() => void poll(), 3000);
+  }
+
+  // 进面板先探一次:可能已有会话在跑(切换实例 / 重开面板),据此恢复轮询。
+  onMount(() => {
+    void poll().then(() => {
+      if (running()) startPolling();
+    });
+  });
+  onCleanup(stopPolling);
+
+  async function start() {
+    if (busy()) return;
+    setBusy(true);
+    try {
+      await api.lobbyStart(props.realmId, mode());
+      await poll();
+      startPolling();
+    } catch (e) {
+      toast({ type: "error", message: t("lobby.startError", { err: String(e) }) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function stop() {
+    if (busy()) return;
+    setBusy(true);
+    stopPolling();
+    try {
+      await api.lobbyStop();
+      setStatus({ running: false, virtual_ip: null, peers: [] });
+    } catch (e) {
+      toast({ type: "error", message: t("lobby.stopError", { err: String(e) }) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Panel variant="sunken" class="p-[16px] flex flex-col gap-[10px]">
+      <div class="flex items-center justify-between gap-[10px] flex-wrap">
+        <div class="flex items-center gap-[8px] min-w-0">
+          <span class="text-[12px] text-sub font-display tracking-[0.5px]">{t("lobby.title")}</span>
+          <span class="text-[11px]" classList={{ "text-accent": running(), "text-faint": !running() }}>
+            {running() ? t("lobby.statusOn") : t("lobby.statusOff")}
+          </span>
+        </div>
+        <div class="flex items-center gap-[8px] shrink-0">
+          <Show when={!running()}>
+            <Select value={mode()} onChange={setMode} options={modeOptions()} />
+          </Show>
+          <Button
+            variant={running() ? "ghost" : "primary"}
+            disabled={busy()}
+            onClick={() => void (running() ? stop() : start())}
+          >
+            {busy()
+              ? running()
+                ? t("lobby.stopping")
+                : t("lobby.starting")
+              : running()
+                ? t("lobby.stop")
+                : t("lobby.start")}
+          </Button>
+        </div>
+      </div>
+
+      <Show when={running()}>
+        <div class="flex items-center gap-[10px] flex-wrap text-[12px]">
+          <Show when={status()?.virtual_ip}>
+            <span class="bg-window shadow-input px-[8px] py-[3px] font-mono tabular-nums">
+              {t("lobby.virtualIp")} · {status()!.virtual_ip}
+            </span>
+          </Show>
+          <span class="text-muted tabular-nums">{t("lobby.peerCount", { n: peers().length })}</span>
+        </div>
+        <Show when={peers().length > 0} fallback={<p class="text-[12px] text-faint">{t("lobby.noPeers")}</p>}>
+          <div class="flex flex-col gap-[2px]">
+            <For each={peers()}>
+              {(p) => {
+                const direct = () => p.cost !== "relay";
+                return (
+                  <div class="flex items-center gap-[8px] px-[6px] py-[4px] text-[12px]">
+                    <span class="text-fg truncate flex-1">{p.hostname}</span>
+                    <span
+                      classList={{ "text-accent": direct() }}
+                      style={direct() ? undefined : { color: "#c9a06a" }}
+                    >
+                      {direct() ? t("lobby.costDirect") : t("lobby.costRelay")}
+                    </span>
+                    <Show when={p.lat_ms != null}>
+                      <span class="text-faint tabular-nums">{t("lobby.latency", { ms: p.lat_ms ?? 0 })}</span>
+                    </Show>
+                  </div>
+                );
+              }}
+            </For>
+          </div>
+        </Show>
+      </Show>
+
+      <p class="text-[11px] text-muted leading-[1.6]">{t("lobby.hint")}</p>
+    </Panel>
+  );
+};
 
 /**
  * RealmPanel —— 实例详情里的「领域」段。把领域完全收进 instance 入口:
@@ -497,6 +644,11 @@ const RealmManage: Component<{ instance: InstanceSummary; onChanged?: () => void
           </Panel>
         );
       })()}
+
+      {/* 联机大厅(EasyTier 虚拟局域网):社交开启时出现 */}
+      <Show when={socialEnabled()}>
+        <LobbyBlock realmId={rid()} />
+      </Show>
 
       {/* 同步状态(自动检测 + 自动同步;破坏性需确认) */}
       <Panel variant="sunken" class="p-[16px] flex flex-col gap-[10px]">

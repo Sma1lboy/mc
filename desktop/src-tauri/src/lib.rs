@@ -118,6 +118,9 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::realm_begin,
             commands::realm_members,
             commands::realm_lobby,
+            commands::lobby_start,
+            commands::lobby_stop,
+            commands::lobby_status,
             commands::realm_push_manifest,
             commands::realm_plan_sync,
             commands::realm_sync,
@@ -201,6 +204,8 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(commands::RunningGames::default())
+        // EasyTier 联机会话状态(同一时刻最多一个会话)。
+        .manage(commands::LobbyState::default())
         // Shared mc-server client — kobeMC auth session cookie persists across calls.
         .manage(commands::kobe_client())
         .invoke_handler(builder.invoke_handler())

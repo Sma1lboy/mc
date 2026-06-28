@@ -340,6 +340,18 @@ export const commands = {
 	 *  external nodes (P2P public + optional our hosted relay). P1: fetch only.
 	 */
 	realmLobby: (realmId: string) => typedError<LobbyCreds, string>(__TAURI_INVOKE("realm_lobby", { realmId })),
+	/**
+	 *  开启某领域的 EasyTier 联机会话:取凭据 → 挑节点 → 构参 → **提权**拉起 easytier-core。
+	 *  幂等:先停掉任何旧会话再起新的。UI 随后轮询 [`lobby_status`]。
+	 */
+	lobbyStart: (realmId: string, mode: string) => typedError<null, string>(__TAURI_INVOKE("lobby_start", { realmId, mode })),
+	/**  断开当前 EasyTier 会话(容错:已停止也返回 Ok)。 */
+	lobbyStop: () => typedError<null, string>(__TAURI_INVOKE("lobby_stop")),
+	/**
+	 *  查询联机会话状态:无会话 → `running:false`;有会话则跑 `easytier-cli peer` 解析。
+	 *  cli 偶发失败不报错(返回 `running:true` + 空 peers),避免刚起步时 UI 抖动。
+	 */
+	lobbyStatus: () => typedError<LobbyStatus, string>(__TAURI_INVOKE("lobby_status")),
 	/**  Owner/admin republishes the manifest from an instance; returns new version. */
 	realmPushManifest: (realmId: string, root: string, instanceId: string, mcVersion: string, loader: string, loaderVersion: string | null) => typedError<number, string>(__TAURI_INVOKE("realm_push_manifest", { realmId, root, instanceId, mcVersion, loader, loaderVersion })),
 	/**  Dry-run: what syncing `instance_id` to the realm's manifest would change. */
@@ -801,6 +813,22 @@ export type LobbyNode = {
 	kind: string,
 	name: string,
 	addr: string,
+};
+
+/**  `easytier-cli peer` 表里的一行(一个对端,或本机自己那行)。 */
+export type LobbyPeer = {
+	ipv4: string | null,
+	hostname: string,
+	cost: string,
+	lat_ms: number | null,
+	nat_type: string | null,
+};
+
+/**  联机大厅当前状态:是否在跑、本机虚拟 IP、对端列表(不含本机自己那行)。 */
+export type LobbyStatus = {
+	running: boolean,
+	virtual_ip: string | null,
+	peers: LobbyPeer[],
 };
 
 /**  One entry from Mojang's version manifest. */
