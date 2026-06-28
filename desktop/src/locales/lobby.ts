@@ -20,6 +20,11 @@ const dict = {
     latency: "{{ ms }}ms",
     startError: "开启联机失败:{{ err }}",
     stopError: "断开失败:{{ err }}",
+    setupPrivileged: "免密一键",
+    settingUp: "设置中…",
+    privilegedReady: "已免密",
+    setupHint: "一次性提权后,以后开启联机不再弹管理员授权。",
+    setupError: "免密设置失败:{{ err }}",
   } as Record<string, string>,
   en: {
     title: "Lobby",
@@ -41,6 +46,11 @@ const dict = {
     latency: "{{ ms }}ms",
     startError: "Failed to start lobby: {{ err }}",
     stopError: "Failed to disconnect: {{ err }}",
+    setupPrivileged: "One-time setup",
+    settingUp: "Setting up…",
+    privilegedReady: "No password needed",
+    setupHint: "After a one-time elevation, starting the lobby no longer prompts for admin.",
+    setupError: "One-time setup failed: {{ err }}",
   } as Record<string, string>,
 };
 

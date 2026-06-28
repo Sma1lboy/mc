@@ -352,6 +352,13 @@ export const commands = {
 	 *  cli 偶发失败不报错(返回 `running:true` + 空 peers),避免刚起步时 UI 抖动。
 	 */
 	lobbyStatus: () => typedError<LobbyStatus, string>(__TAURI_INVOKE("lobby_status")),
+	/**
+	 *  一次性提权:装一个 root 拥有 + setuid 的 `easytier-core` 副本,让之后的「开启联机」免授权。
+	 *  返回安装后是否确已免密就绪。Windows 等暂不支持(返回 `false`)。
+	 */
+	lobbySetupPrivileged: () => typedError<boolean, string>(__TAURI_INVOKE("lobby_setup_privileged")),
+	/**  是否已「免密就绪」:特权核心存在 + owner 为 root + 带 setuid 位。 */
+	lobbyPrivilegedReady: () => typedError<boolean, string>(__TAURI_INVOKE("lobby_privileged_ready")),
 	/**  Owner/admin republishes the manifest from an instance; returns new version. */
 	realmPushManifest: (realmId: string, root: string, instanceId: string, mcVersion: string, loader: string, loaderVersion: string | null) => typedError<number, string>(__TAURI_INVOKE("realm_push_manifest", { realmId, root, instanceId, mcVersion, loader, loaderVersion })),
 	/**  Dry-run: what syncing `instance_id` to the realm's manifest would change. */

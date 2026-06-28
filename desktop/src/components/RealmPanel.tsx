@@ -81,6 +81,9 @@ const LobbyBlock: Component<{ realmId: string }> = (props) => {
   const [mode, setMode] = createSignal("p2p");
   const [status, setStatus] = createSignal<LobbyStatus | null>(null);
   const [busy, setBusy] = createSignal(false);
+  // 免密一键(一次性提权):就绪后开启联机不再弹管理员授权。
+  const [privReady, setPrivReady] = createSignal(false);
+  const [setupBusy, setSetupBusy] = createSignal(false);
   let timer: number | undefined;
 
   const running = () => status()?.running ?? false;
@@ -120,8 +123,25 @@ const LobbyBlock: Component<{ realmId: string }> = (props) => {
     void poll().then(() => {
       if (running()) startPolling();
     });
+    void api
+      .lobbyPrivilegedReady()
+      .then(setPrivReady)
+      .catch(() => setPrivReady(false));
   });
   onCleanup(stopPolling);
+
+  async function setupPrivileged() {
+    if (setupBusy()) return;
+    setSetupBusy(true);
+    try {
+      await api.lobbySetupPrivileged();
+      setPrivReady(await api.lobbyPrivilegedReady());
+    } catch (e) {
+      toast({ type: "error", message: t("lobby.setupError", { err: String(e) }) });
+    } finally {
+      setSetupBusy(false);
+    }
+  }
 
   async function start() {
     if (busy()) return;
@@ -162,6 +182,14 @@ const LobbyBlock: Component<{ realmId: string }> = (props) => {
         </div>
         <div class="flex items-center gap-[8px] shrink-0">
           <Show when={!running()}>
+            <Show
+              when={!privReady()}
+              fallback={<span class="text-[11px] text-faint">{t("lobby.privilegedReady")}</span>}
+            >
+              <Button variant="ghost" disabled={setupBusy()} onClick={() => void setupPrivileged()}>
+                {setupBusy() ? t("lobby.settingUp") : t("lobby.setupPrivileged")}
+              </Button>
+            </Show>
             <Select value={mode()} onChange={setMode} options={modeOptions()} />
           </Show>
           <Button
@@ -215,6 +243,9 @@ const LobbyBlock: Component<{ realmId: string }> = (props) => {
       </Show>
 
       <p class="text-[11px] text-muted leading-[1.6]">{t("lobby.hint")}</p>
+      <Show when={!running() && !privReady()}>
+        <p class="text-[11px] text-faint leading-[1.6]">{t("lobby.setupHint")}</p>
+      </Show>
     </Panel>
   );
 };

@@ -2801,7 +2801,8 @@ pub fn social_enabled() -> CmdResult<bool> {
 /// 让 `easytier-core` 脱离我们后台运行(GUI 管理员授权),只记 pid + pidfile,停止时再用
 /// osascript 提权 `kill`。Windows 等暂未支持(空枚举,`LobbyState` 永远为 `None`)。
 enum LobbyProc {
-    #[cfg(target_os = "linux")]
+    /// 直接持有的子进程(Linux 经 `pkexec` 提权,或任一平台用免密特权核心直接拉起)。
+    #[cfg(unix)]
     Child(std::process::Child),
     #[cfg(target_os = "macos")]
     DetachedPid { pid: u32, pidfile: PathBuf },
@@ -2811,7 +2812,7 @@ impl LobbyProc {
     /// 终止会话。容错:已退出 / kill 失败都不致命(stop 语义是「确保停了」)。
     fn kill(self) {
         match self {
-            #[cfg(target_os = "linux")]
+            #[cfg(unix)]
             LobbyProc::Child(mut c) => {
                 let _ = c.kill();
                 let _ = c.wait();
@@ -2859,7 +2860,7 @@ fn easytier_missing_err() -> String {
 }
 
 /// shell 单引号转义:把字符串包进 `'...'`,内部单引号写成 `'\''`。
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 fn sh_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
@@ -2957,14 +2958,19 @@ pub async fn lobby_start(
         .unwrap_or_else(|| "kobe-peer".to_string());
     let args = mc_core::lobby::easytier_core_args(&creds, &node.addr, &hostname);
 
-    let core = easytier_bin("easytier-core").ok_or_else(easytier_missing_err)?;
-
     let dir = data_dir().join("lobby");
     std::fs::create_dir_all(&dir).map_err(err)?;
     let pidfile = dir.join("easytier.pid");
     let logfile = dir.join("easytier.log");
 
-    let proc = spawn_elevated(&core, &args, &pidfile, &logfile)?;
+    // 免密一键已就绪(root 拥有 + setuid 的特权核心)→ 直接拉起,**不弹**管理员授权;
+    // 否则回退到每次开启都提权的方案(macOS osascript / Linux pkexec)。
+    let proc = if let Some(priv_core) = privileged_core() {
+        spawn_privileged_direct(&priv_core, &args, &logfile)?
+    } else {
+        let core = easytier_bin("easytier-core").ok_or_else(easytier_missing_err)?;
+        spawn_elevated(&core, &args, &pidfile, &logfile)?
+    };
     *lobby.inner.lock().unwrap() = Some(proc);
     tracing::info!(target: "daemon", "联机会话已开启(realm={realm_id}, mode={mode}, node={})", node.addr);
     Ok(())
@@ -2992,7 +2998,7 @@ pub fn lobby_status(lobby: State<'_, LobbyState>) -> CmdResult<mc_core::lobby::L
         return Ok(mc_core::lobby::LobbyStatus { running: false, virtual_ip: None, peers: vec![] });
     }
     let empty = || mc_core::lobby::LobbyStatus { running: true, virtual_ip: None, peers: vec![] };
-    let Some(cli) = easytier_bin("easytier-cli") else {
+    let Some(cli) = status_cli() else {
         return Ok(empty());
     };
     match std::process::Command::new(&cli).arg("peer").output() {
@@ -3003,4 +3009,147 @@ pub fn lobby_status(lobby: State<'_, LobbyState>) -> CmdResult<mc_core::lobby::L
         }
         _ => Ok(empty()),
     }
+}
+
+// ----------------------------------------------------------------------------
+// 联机大厅 —— 可选的「免密一键(一次性提权)」。
+//
+// 痛点:每次「开启联机」都弹一次管理员授权(建 TUN 需要 root)。这里提供**一次性**提权:
+// 把随附的 `easytier-core` 拷进一个 **root 拥有的受保护目录**,owner 设为 root 且打上 setuid
+// 位。之后开启联机便能 setuid-root 直接建 TUN,**不再弹授权**。
+//
+// 安全关键:**绝不**对「用户可写目录」里的二进制 setuid(那是本地提权漏洞 —— 任何进程都能改
+// 写那个文件再以 root 跑)。因此目标目录固定在 root 才能写的 `/usr/local/libexec/kobemc`,
+// 拷贝 + chown + chmod 全在同一次管理员授权的脚本里完成。
+// ----------------------------------------------------------------------------
+
+/// 免密特权核心安放的 root 拥有的受保护目录(macOS / Linux)。
+#[cfg(unix)]
+const PRIVILEGED_DIR: &str = "/usr/local/libexec/kobemc";
+
+#[cfg(target_os = "macos")]
+const ROOT_OWNER: &str = "root:wheel";
+#[cfg(target_os = "linux")]
+const ROOT_OWNER: &str = "root:root";
+
+/// 已就绪的免密特权核心:存在 + owner 为 root(uid 0)+ 带 setuid 位(`mode & 0o4000`)。
+/// 三者全满足才算「免密就绪」,据此 [`lobby_start`] 决定直接拉起还是回退提权。其他平台恒 `None`。
+#[cfg(unix)]
+fn privileged_core() -> Option<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    let p = PathBuf::from(PRIVILEGED_DIR).join("easytier-core");
+    let md = std::fs::metadata(&p).ok()?;
+    (md.uid() == 0 && (md.mode() & 0o4000) != 0).then_some(p)
+}
+
+#[cfg(not(unix))]
+fn privileged_core() -> Option<PathBuf> {
+    None
+}
+
+/// 取状态用的 `easytier-cli`:优先免密目录里的副本(若存在),否则随附 / PATH 里的那个。
+/// 查询 peer 不需要 root,所以这里不校验 owner / setuid,存在即用。
+fn status_cli() -> Option<PathBuf> {
+    #[cfg(unix)]
+    {
+        let p = PathBuf::from(PRIVILEGED_DIR).join("easytier-cli");
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    easytier_bin("easytier-cli")
+}
+
+/// 用免密特权核心**直接**(无 osascript / pkexec)拉起 easytier-core,stdout/stderr 进日志,
+/// 持有子进程句柄。setuid-root 让它有权建 TUN。
+#[cfg(unix)]
+fn spawn_privileged_direct(core: &Path, args: &[String], logfile: &Path) -> CmdResult<LobbyProc> {
+    let log = std::fs::File::create(logfile).map_err(err)?;
+    let log2 = log.try_clone().map_err(err)?;
+    let child = std::process::Command::new(core)
+        .args(args)
+        .stdout(std::process::Stdio::from(log))
+        .stderr(std::process::Stdio::from(log2))
+        .spawn()
+        .map_err(|e| format!("拉起免密 easytier-core 失败:{e}"))?;
+    Ok(LobbyProc::Child(child))
+}
+
+#[cfg(not(unix))]
+fn spawn_privileged_direct(_core: &Path, _args: &[String], _logfile: &Path) -> CmdResult<LobbyProc> {
+    Err("当前系统不支持免密直拉。".to_string())
+}
+
+/// 组装「拷贝 + chown root + setuid」的 shell 脚本(在一次管理员授权里执行)。
+#[cfg(unix)]
+fn privileged_install_script(core: &Path, cli: Option<&Path>) -> String {
+    let dir = PRIVILEGED_DIR;
+    let core_dst = format!("{dir}/easytier-core");
+    let mut parts = vec![
+        format!("mkdir -p {}", sh_quote(dir)),
+        format!("cp {} {}", sh_quote(&core.to_string_lossy()), sh_quote(&core_dst)),
+    ];
+    if let Some(cli) = cli {
+        let cli_dst = format!("{dir}/easytier-cli");
+        parts.push(format!("cp {} {}", sh_quote(&cli.to_string_lossy()), sh_quote(&cli_dst)));
+        parts.push(format!("chown {} {}", ROOT_OWNER, sh_quote(&cli_dst)));
+        parts.push(format!("chmod 0755 {}", sh_quote(&cli_dst)));
+    }
+    parts.push(format!("chown {} {}", ROOT_OWNER, sh_quote(&core_dst)));
+    parts.push(format!("chmod 4755 {}", sh_quote(&core_dst)));
+    parts.join(" && ")
+}
+
+/// macOS:一次 osascript 管理员授权,装好 root 拥有 + setuid 的特权核心。
+#[cfg(target_os = "macos")]
+fn setup_privileged_impl() -> CmdResult<bool> {
+    let core = easytier_bin("easytier-core").ok_or_else(easytier_missing_err)?;
+    let cli = easytier_bin("easytier-cli");
+    let shell = privileged_install_script(&core, cli.as_deref());
+    let esc = shell.replace('\\', "\\\\").replace('"', "\\\"");
+    let script = format!("do shell script \"{esc}\" with administrator privileges");
+    let out =
+        std::process::Command::new("osascript").arg("-e").arg(&script).output().map_err(err)?;
+    if !out.status.success() {
+        return Err("已取消授权或免密设置失败:需要管理员权限。".to_string());
+    }
+    Ok(privileged_core().is_some())
+}
+
+/// Linux:pkexec 一次授权,装好 root 拥有 + setuid 的特权核心(readiness 判定与 macOS 一致)。
+#[cfg(target_os = "linux")]
+fn setup_privileged_impl() -> CmdResult<bool> {
+    let core = easytier_bin("easytier-core").ok_or_else(easytier_missing_err)?;
+    let cli = easytier_bin("easytier-cli");
+    let shell = privileged_install_script(&core, cli.as_deref());
+    let out = std::process::Command::new("pkexec")
+        .arg("/bin/sh")
+        .arg("-c")
+        .arg(&shell)
+        .output()
+        .map_err(|e| format!("提权失败(需要 pkexec/Polkit):{e}"))?;
+    if !out.status.success() {
+        return Err("已取消授权或免密设置失败:需要管理员权限。".to_string());
+    }
+    Ok(privileged_core().is_some())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn setup_privileged_impl() -> CmdResult<bool> {
+    Ok(false)
+}
+
+/// 一次性提权:装一个 root 拥有 + setuid 的 `easytier-core` 副本,让之后的「开启联机」免授权。
+/// 返回安装后是否确已免密就绪。Windows 等暂不支持(返回 `false`)。
+#[tauri::command]
+#[specta::specta]
+pub fn lobby_setup_privileged() -> CmdResult<bool> {
+    setup_privileged_impl()
+}
+
+/// 是否已「免密就绪」:特权核心存在 + owner 为 root + 带 setuid 位。
+#[tauri::command]
+#[specta::specta]
+pub fn lobby_privileged_ready() -> CmdResult<bool> {
+    Ok(privileged_core().is_some())
 }

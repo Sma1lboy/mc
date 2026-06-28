@@ -121,6 +121,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::lobby_start,
             commands::lobby_stop,
             commands::lobby_status,
+            commands::lobby_setup_privileged,
+            commands::lobby_privileged_ready,
             commands::realm_push_manifest,
             commands::realm_plan_sync,
             commands::realm_sync,
