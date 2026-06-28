@@ -161,8 +161,12 @@ pub fn parse_peer_table(cli_output: &str) -> Vec<LobbyPeer> {
     let ipv4_i = col("ipv4");
     let host_i = col("hostname");
     let cost_i = col("cost");
-    // 延迟列名在不同版本里可能是 lat_ms / latency_ms / latency。
-    let lat_i = col("lat_ms").or_else(|| col("latency_ms")).or_else(|| col("latency"));
+    // 延迟列名随版本不同:实测 v2.6.4 是 `lat(ms)`;旧/别名也兼容。
+    let lat_i = col("lat(ms)")
+        .or_else(|| col("lat_ms"))
+        .or_else(|| col("latency_ms"))
+        .or_else(|| col("latency"))
+        .or_else(|| col("lat"));
     let nat_i = col("nat_type").or_else(|| col("nat"));
 
     // hostname 与 cost 是必需锚;缺失说明这不是我们认识的表 → 放弃。
@@ -350,5 +354,24 @@ p2p   | peer1    | 10.0.0.2   | 5      | FullCone";
         assert!(s.running);
         assert_eq!(s.virtual_ip, None);
         assert_eq!(s.peers.len(), 1);
+    }
+
+    /// Real `easytier-cli peer` header from v2.6.4 (observed): the latency column is
+    /// `lat(ms)` and NAT is `NAT` — make sure we extract both.
+    #[test]
+    fn parse_real_v2_6_4_header() {
+        let out = "\
+| ipv4 | hostname | cost  | lat(ms) | loss | rx | tx | tunnel | NAT            | version |
+|------|----------|-------|---------|------|----|----|--------|----------------|---------|
+| 10.0.0.1 | peerA | Local | -    | -    | -  | -  | -      | PortRestricted | 2.6.4 |
+| 10.0.0.2 | peerB | p2p   | 23   | 0    | 1k | 1k | udp    | FullCone       | 2.6.4 |";
+        let peers = parse_peer_table(out);
+        assert_eq!(peers.len(), 2);
+        let s = status_from_peers(peers);
+        assert_eq!(s.virtual_ip.as_deref(), Some("10.0.0.1"));
+        assert_eq!(s.peers.len(), 1);
+        assert_eq!(s.peers[0].lat_ms, Some(23));
+        assert_eq!(s.peers[0].nat_type.as_deref(), Some("FullCone"));
+        assert_eq!(s.peers[0].cost, "p2p");
     }
 }
