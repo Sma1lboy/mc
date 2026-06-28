@@ -29,6 +29,13 @@ const dict = {
     serverAddressPlaceholder: "服务器地址,如 mc.hypixel.net",
     serverAdd: "添加",
     serverAddFailed: "添加服务器失败:{{ error }}",
+    serverOnline: "在线",
+    serverOffline: "离线",
+    serverPlayers: "{{ online }}/{{ max }} 人",
+    serverLatency: "{{ ms }}ms",
+    serverMotdNone: "无简介",
+    serverPinging: "查询中…",
+    serverRefresh: "刷新状态",
 
     // 截图面板
     screenshots: "截图",
@@ -246,6 +253,13 @@ const dict = {
     serverAddressPlaceholder: "Server address, e.g. mc.hypixel.net",
     serverAdd: "Add",
     serverAddFailed: "Failed to add server: {{ error }}",
+    serverOnline: "Online",
+    serverOffline: "Offline",
+    serverPlayers: "{{ online }}/{{ max }}",
+    serverLatency: "{{ ms }}ms",
+    serverMotdNone: "No description",
+    serverPinging: "Pinging…",
+    serverRefresh: "Refresh status",
 
     screenshots: "Screenshots",
     reload: "Reload",

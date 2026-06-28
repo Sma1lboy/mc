@@ -300,6 +300,7 @@ pub async fn launch(
         classpath,
         launcher_name: spec.launcher_name.clone(),
         launcher_version: spec.launcher_version.clone(),
+        mc_version: mc_version.clone(),
     };
     let mut args = build_launch_command(&profile, &config, &spec.session, &vars, &ctx);
     // 注入额外 JVM 参数(如外置登录的 authlib-injector -javaagent):必须在主类**之前**,

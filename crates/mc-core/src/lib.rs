@@ -23,6 +23,7 @@ pub mod notification;
 pub mod paths;
 pub mod realm;
 pub mod server;
+pub mod server_ping;
 pub mod settings;
 pub mod skin;
 pub mod system;

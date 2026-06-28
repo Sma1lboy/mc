@@ -21,6 +21,9 @@ pub struct LaunchVars {
     pub classpath: String,
     pub launcher_name: String,
     pub launcher_version: String,
+    /// Resolved Minecraft version (e.g. `1.20.1`), used to pick the right
+    /// auto-join flag: `--quickPlayMultiplayer` (1.20+) vs legacy `--server`/`--port`.
+    pub mc_version: String,
 }
 
 /// Build the complete argument list that follows the java executable:
@@ -78,8 +81,17 @@ pub fn build_launch_command(
     }
     if let Some(server) = &config.server {
         if let Some((host, port)) = parse_server(server) {
-            out.push("--quickPlayMultiplayer".to_string());
-            out.push(format!("{host}:{port}"));
+            if supports_quick_play(&vars.mc_version) {
+                // 1.20+ 的一键进服参数,把地址直接交给游戏自动连接。
+                out.push("--quickPlayMultiplayer".to_string());
+                out.push(format!("{host}:{port}"));
+            } else {
+                // 1.20 之前没有 quickPlay,回退到 legacy 的 --server/--port。
+                out.push("--server".to_string());
+                out.push(host);
+                out.push("--port".to_string());
+                out.push(port.to_string());
+            }
         }
     }
 
@@ -197,6 +209,24 @@ fn parse_server(s: &str) -> Option<(String, u16)> {
     }
 }
 
+/// Whether this Minecraft version understands `--quickPlayMultiplayer` (added in
+/// 1.20 / 23w14a). Pre-1.20 releases must use the legacy `--server`/`--port` pair.
+/// Versions we can't parse as `1.x` (snapshots, exotic ids) default to the modern
+/// flag — the launcher overwhelmingly runs recent builds.
+fn supports_quick_play(mc_version: &str) -> bool {
+    let mut parts = mc_version.trim().split('.');
+    if parts.next().map(str::trim) != Some("1") {
+        return true;
+    }
+    match parts.next().and_then(|s| {
+        let digits: String = s.trim().chars().take_while(|c| c.is_ascii_digit()).collect();
+        digits.parse::<u32>().ok()
+    }) {
+        Some(minor) => minor >= 20,
+        None => true,
+    }
+}
+
 /// Helper to map a path to a string for variable use.
 pub fn path_str(p: &Path) -> String {
     p.to_string_lossy().into_owned()
@@ -227,6 +257,7 @@ mod tests {
             classpath: "/g/a.jar:/g/client.jar".into(),
             launcher_name: "mc-launcher".into(),
             launcher_version: "0.1".into(),
+            mc_version: "1.20.1".into(),
         }
     }
 
@@ -252,6 +283,50 @@ mod tests {
         assert_eq!(parse_server("1.2.3.4:25577"), Some(("1.2.3.4".to_string(), 25577)));
         // 裸 host，无端口 -> 默认端口
         assert_eq!(parse_server("mc.example.com"), Some(("mc.example.com".to_string(), 25565)));
+    }
+
+    #[test]
+    fn quick_play_gates_on_version() {
+        assert!(supports_quick_play("1.20.1"));
+        assert!(supports_quick_play("1.20"));
+        assert!(supports_quick_play("1.21.4"));
+        assert!(!supports_quick_play("1.19.4"));
+        assert!(!supports_quick_play("1.8.9"));
+        assert!(!supports_quick_play("1.16.5"));
+        // 无法解析为 1.x 的(快照/异常 id)默认现代标志。
+        assert!(supports_quick_play("23w14a"));
+    }
+
+    #[test]
+    fn server_uses_quick_play_for_modern() {
+        let vj = VersionJson::parse(
+            r#"{"id":"1.20.1","mainClass":"M","minecraftArguments":"--username ${auth_player_name}","libraries":[]}"#,
+        )
+        .unwrap();
+        let profile = LaunchProfile::from_chain(&[vj]);
+        let cfg = InstanceConfig { server: Some("mc.example.com:25577".into()), ..Default::default() };
+        let mut v = vars();
+        v.mc_version = "1.20.1".into();
+        let cmd = build_launch_command(&profile, &cfg, &session(), &v, &RuntimeContext::default());
+        let joined = cmd.join(" ");
+        assert!(joined.contains("--quickPlayMultiplayer mc.example.com:25577"));
+        assert!(!joined.contains("--server"));
+    }
+
+    #[test]
+    fn server_uses_legacy_for_old() {
+        let vj = VersionJson::parse(
+            r#"{"id":"1.8","mainClass":"M","minecraftArguments":"--username ${auth_player_name}","libraries":[]}"#,
+        )
+        .unwrap();
+        let profile = LaunchProfile::from_chain(&[vj]);
+        let cfg = InstanceConfig { server: Some("mc.example.com:25577".into()), ..Default::default() };
+        let mut v = vars();
+        v.mc_version = "1.8.9".into();
+        let cmd = build_launch_command(&profile, &cfg, &session(), &v, &RuntimeContext::default());
+        let joined = cmd.join(" ");
+        assert!(joined.contains("--server mc.example.com --port 25577"));
+        assert!(!joined.contains("--quickPlayMultiplayer"));
     }
 
     #[test]

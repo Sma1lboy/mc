@@ -838,6 +838,13 @@ pub fn add_instance_server(root: String, id: String, name: String, address: Stri
     mc_core::instance::add_server(&inst.game_dir(), &name, &address).map_err(err)
 }
 
+/// Ping 一个 Minecraft 服务器,返回在线/人数/延迟/MOTD(失败时返回离线状态,从不报错)。
+#[tauri::command]
+#[specta::specta]
+pub async fn ping_server(address: String) -> CmdResult<mc_core::server_ping::ServerStatus> {
+    Ok(mc_core::server_ping::ping_server(&address).await)
+}
+
 /// 删除一个存档世界(移入系统回收站,可找回)。
 #[tauri::command]
 #[specta::specta]

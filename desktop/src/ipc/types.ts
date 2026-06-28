@@ -29,6 +29,7 @@ export type {
   ProfileSkins,
   SkinInfo,
   CapeInfo,
+  ServerStatus,
 } from "./bindings";
 
 // serde 序列化/反序列化形状不同 → 取「读取(反序列化)」形状(字段齐全)给编辑器用。

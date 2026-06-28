@@ -128,6 +128,8 @@ export const commands = {
 	instanceServers: (root: string, id: string) => typedError<SavedServer[], string>(__TAURI_INVOKE("instance_servers", { root, id })),
 	/**  向某实例的 servers.dat 追加一条多人服务器(name 可空,address 必填)。 */
 	addInstanceServer: (root: string, id: string, name: string, address: string) => typedError<null, string>(__TAURI_INVOKE("add_instance_server", { root, id, name, address })),
+	/**  Ping 一个 Minecraft 服务器,返回在线/人数/延迟/MOTD(失败时返回离线状态,从不报错)。 */
+	pingServer: (address: string) => typedError<ServerStatus, string>(__TAURI_INVOKE("ping_server", { address })),
 	/**  删除一个存档世界(移入系统回收站,可找回)。 */
 	deleteWorld: (root: string, id: string, folder: string) => typedError<null, string>(__TAURI_INVOKE("delete_world", { root, id, folder })),
 	/**
@@ -1097,6 +1099,19 @@ export type SearchHit = {
 	 */
 	gallery_url?: string | null,
 	categories: string[],
+};
+
+/**
+ *  A server's reachability + status snapshot. Always returned (never an error):
+ *  on any failure `online` is `false` and the optional fields are `None`.
+ */
+export type ServerStatus = {
+	online: boolean,
+	players_online: number | null,
+	players_max: number | null,
+	motd: string | null,
+	version: string | null,
+	latency_ms: number | null,
 };
 
 /**  profile 里的一条皮肤。`url` 是可直接 `<img>` 的 PNG;`variant` 为 `classic` / `slim`。 */
