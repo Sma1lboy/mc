@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>kobeMC · 下载测试版</title>
+<meta name="description" content="kobeMC 启动器最新测试版下载(Windows / macOS / Linux)。" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400..700&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet" />
+<style>
+  /* tokens 取自 desktop/src/theme/tokens.css(dark);accent = 当前绿主题 */
+  :root{
+    --window:#16170f; --titlebar:#0c0d0a; --panel:#1d1f15; --panel-2:#2a2c20; --panel-3:#3a3d2c; --sidebar:#22241b;
+    --text:#f1ead8; --strong:#f3ecda; --sub:#a39f8e; --muted:#8f8f7e; --faint:#7c7c66;
+    --accent:#6aa84a; --accent-dim:#5b8f3a; --accent-text:#16170f; --tag:#c9a06a; --dirt:#7a5b3a; --danger:#e5848a;
+    --bevel-input:inset 2px 2px 0 rgba(0,0,0,.45);
+    --bevel-raised:inset 2px 2px 0 rgba(255,255,255,.3), inset -2px -2px 0 rgba(0,0,0,.35);
+    --font:"Noto Sans SC","PingFang SC",system-ui,sans-serif;
+    --display:"Pixelify Sans","Noto Sans SC",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;}
+  body{background:radial-gradient(130% 90% at 50% -10%,#1d1f15,var(--window) 60%);color:var(--text);font-family:var(--font);-webkit-font-smoothing:antialiased;min-height:100vh;padding:48px 20px 80px;}
+  .wrap{max-width:760px;margin:0 auto;}
+  /* header */
+  .brand{display:flex;align-items:center;gap:12px;margin-bottom:6px;}
+  .mark{width:30px;height:30px;display:grid;grid-template-rows:10px 1fr;box-shadow:var(--bevel-input);overflow:hidden;}
+  .mark .g{background:var(--accent);} .mark .d{background:var(--dirt);}
+  h1{font-family:var(--display);font-size:30px;color:var(--strong);letter-spacing:.5px;}
+  .tagline{color:var(--muted);font-size:15px;margin:6px 0 4px;line-height:1.6;}
+  .ver{display:inline-flex;align-items:center;gap:8px;margin-top:10px;font-size:13px;color:var(--accent);background:rgba(106,168,74,.14);padding:3px 10px;font-variant-numeric:tabular-nums;}
+  /* sections */
+  .sec{margin-top:34px;}
+  .sec h2{font-family:var(--display);font-size:14px;color:var(--sub);letter-spacing:.6px;text-transform:uppercase;margin-bottom:12px;}
+  /* primary windows */
+  .primary{display:flex;flex-wrap:wrap;gap:12px;}
+  .btn{display:inline-flex;align-items:center;gap:10px;text-decoration:none;font-family:var(--font);cursor:pointer;}
+  .btn.win{background:var(--accent);color:var(--accent-text);box-shadow:var(--bevel-raised);font-weight:600;font-size:16px;padding:14px 22px;}
+  .btn.win:hover{filter:brightness(1.08);}
+  .btn.win .os{font-family:var(--display);}
+  .btn.ghost{background:var(--panel-2);box-shadow:var(--bevel-input);color:var(--text);font-size:13px;padding:9px 14px;}
+  .btn.ghost:hover{background:var(--panel-3);}
+  .btn .sz{font-size:12px;opacity:.8;font-variant-numeric:tabular-nums;}
+  .others{display:flex;flex-wrap:wrap;gap:8px;}
+  .muted{color:var(--muted);} .faint{color:var(--faint);}
+  /* notes card */
+  .card{background:var(--panel);box-shadow:var(--bevel-input);padding:18px 20px;}
+  .card ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:9px;font-size:14px;line-height:1.6;}
+  .card b{color:var(--strong);}
+  .pill{display:inline-block;font-size:11px;color:var(--tag);background:var(--panel-2);box-shadow:var(--bevel-input);padding:1px 7px;margin:0 2px;}
+  .loading{color:var(--faint);font-size:14px;}
+  .err{color:var(--danger);font-size:14px;line-height:1.6;}
+  a.inline{color:var(--accent);}
+  footer{margin-top:48px;color:var(--faint);font-size:12px;line-height:1.7;}
+  .ic{width:18px;height:18px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">
+    <span class="mark" aria-hidden="true"><span class="g"></span><span class="d"></span></span>
+    <h1>kobeMC</h1>
+  </div>
+  <p class="tagline">从零写的跨平台 Minecraft 启动器 · 整合包一键装、私有领域共享、联机大厅、社交好友。</p>
+  <div id="ver" class="ver">正在获取最新版本…</div>
+
+  <div class="sec">
+    <h2>Windows 测试版</h2>
+    <div id="win" class="primary"><span class="loading">加载中…</span></div>
+  </div>
+
+  <div class="sec">
+    <h2>其它平台</h2>
+    <div id="others" class="others"><span class="loading">加载中…</span></div>
+  </div>
+
+  <div class="sec">
+    <h2>Windows 安装 / 测试提示</h2>
+    <div class="card">
+      <ol>
+        <li>下载后双击安装。应用<b>未签名</b>,SmartScreen 可能拦截 → 点<b>「更多信息 → 仍要运行」</b>即可。</li>
+        <li>首次登录 <b>kobeMC 账号</b>(右上角)才会出现 好友 / 通知 / 领域 等社交功能。</li>
+        <li>玩<b>联机大厅</b>:领域页点「开启联机」时会弹<b>管理员授权</b>(需要建虚拟网卡)——这是正常的;可点「免密一键」只授权一次。</li>
+        <li>测两台机:房主进游戏「<b>对局域网开放</b>」后,成员领域页会出现「<b>加入游戏</b>」直接进服。同一台机两个实例测不了联机(需两台机 / 一个 VM)。</li>
+        <li>有问题把 <span class="pill">设置 → 诊断 → 打开日志目录</span> 里的 <code>mc-launcher.log</code> 发我。</li>
+      </ol>
+    </div>
+  </div>
+
+  <footer>
+    本页始终指向 <a class="inline" href="https://github.com/Sma1lboy/mc/releases/latest" target="_blank" rel="noopener">最新发布</a>(自动拉取,无需更新本页)。
+    源码:<a class="inline" href="https://github.com/Sma1lboy/mc" target="_blank" rel="noopener">github.com/Sma1lboy/mc</a>
+  </footer>
+</div>
+
+<script>
+  const REPO = "Sma1lboy/mc";
+  const human = (n) => n ? (n/1048576).toFixed(1) + " MB" : "";
+  const DL = '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>';
+
+  function classify(name){
+    const n = name.toLowerCase();
+    if (n.endsWith("-setup.exe")) return { os:"win", label:"Windows 安装包 (.exe)", pri:0 };
+    if (n.endsWith(".msi"))       return { os:"win", label:"Windows (.msi)", pri:1 };
+    if (n.includes("aarch64.dmg"))return { os:"mac", label:"macOS · Apple 芯片 (.dmg)" };
+    if (n.includes("x64.dmg"))    return { os:"mac", label:"macOS · Intel (.dmg)" };
+    if (n.endsWith(".appimage"))  return { os:"linux", label:"Linux (.AppImage)" };
+    if (n.endsWith(".deb"))       return { os:"linux", label:"Linux (.deb)" };
+    if (n.endsWith(".rpm"))       return { os:"linux", label:"Linux (.rpm)" };
+    return null;
+  }
+
+  fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { headers:{ Accept:"application/vnd.github+json" }})
+    .then(r => { if(!r.ok) throw new Error("HTTP "+r.status); return r.json(); })
+    .then(rel => {
+      const d = new Date(rel.published_at);
+      document.getElementById("ver").textContent =
+        `最新 ${rel.tag_name} · ${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+
+      const assets = (rel.assets||[]).map(a => ({...a, cls: classify(a.name)})).filter(a => a.cls);
+      const win = assets.filter(a => a.cls.os==="win").sort((a,b)=>a.cls.pri-b.cls.pri);
+      const mac = assets.filter(a => a.cls.os==="mac");
+      const linux = assets.filter(a => a.cls.os==="linux");
+
+      const winEl = document.getElementById("win");
+      winEl.innerHTML = win.length ? "" : '<span class="err">这一版没有 Windows 安装包。</span>';
+      win.forEach((a,i) => {
+        const el = document.createElement("a");
+        el.href = a.browser_download_url; el.className = "btn win" + (i>0 ? " ghost" : "");
+        el.innerHTML = (i===0?DL:"") + `<span class="os">${a.cls.label}</span><span class="sz">${human(a.size)}</span>`;
+        winEl.appendChild(el);
+      });
+
+      const oEl = document.getElementById("others");
+      oEl.innerHTML = "";
+      [...mac, ...linux].forEach(a => {
+        const el = document.createElement("a");
+        el.href = a.browser_download_url; el.className = "btn ghost";
+        el.innerHTML = `${a.cls.label}<span class="sz">${human(a.size)}</span>`;
+        oEl.appendChild(el);
+      });
+      if(!mac.length && !linux.length) oEl.innerHTML = '<span class="faint">无</span>';
+    })
+    .catch(e => {
+      document.getElementById("ver").textContent = "获取失败";
+      document.getElementById("win").innerHTML =
+        `<span class="err">无法获取最新发布(${e.message})。直接去 <a class="inline" href="https://github.com/${REPO}/releases/latest" target="_blank" rel="noopener">Releases 页</a> 下载。</span>`;
+      document.getElementById("others").innerHTML = "";
+    });
+</script>
+</body>
+</html>
