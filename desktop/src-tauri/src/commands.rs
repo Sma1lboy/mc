@@ -63,16 +63,10 @@ fn custom_roots() -> Vec<PathBuf> {
     settings_global().custom_roots.iter().map(PathBuf::from).collect()
 }
 
-/// 解析最终生效的 CurseForge API key(设置 → 编译期 baked → 环境)。
-/// 既给注册表决定是否注册 CurseForge,也给下载器附 `x-api-key` 让 CF CDN 直链可下。
-fn cf_api_key() -> Option<String> {
-    mc_core::modplatform::provider::resolve_cf_api_key(settings_global().cf_api_key.as_deref())
-}
-
 /// 按用户设置/环境构造 Provider 注册表:总有 Modrinth;解析出 CurseForge key 才注册 CurseForge。
 /// 搜索 / 浏览安装 / 整合包导入导出共用同一份(让「设置里的 CF key」与环境 key 都生效)。
 fn make_registry() -> mc_core::modplatform::provider::ProviderRegistry {
-    mc_core::modplatform::provider::ProviderRegistry::with_defaults_keyed(cf_api_key())
+    settings_global().provider_registry()
 }
 
 /// 按平台标识取一个已注册的 provider;未注册(如无 CF key)时报清晰错误。
@@ -111,12 +105,9 @@ fn cf_blocked_dto(project_id: &str, file_id: &str, file_name: &str, target_dir: 
 
 /// 按全局设置构造下载器:并发数 + 镜像源(官方/BMCLAPI+McIM)+ CurseForge key 都来自
 /// 用户设置/环境,让「下载源/并发」这些全局设置真正生效、CF CDN 直链带上 `x-api-key`。
+/// 实际构造逻辑由 [`GlobalSettings::downloader`] 单一 owner 持有,与 CLI 共用。
 fn make_downloader() -> CmdResult<Downloader> {
-    let s = settings_global();
-    Ok(Downloader::new(s.concurrency.max(1))
-        .map_err(err)?
-        .with_mirror(s.mirror_resolver())
-        .with_cf_api_key(cf_api_key()))
+    settings_global().downloader().map_err(err)
 }
 
 // --- DTOs that differ from the core types --------------------------------

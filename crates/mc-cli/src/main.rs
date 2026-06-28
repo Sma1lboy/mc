@@ -285,13 +285,13 @@ fn resolve_root(dir: &Option<PathBuf>) -> GamePaths {
 
 /// Build a downloader from the persisted [`GlobalSettings`] — the SAME daemon
 /// state the desktop UI's settings page reads/writes — so CLI and UI download
-/// behavior stay identical (concurrency + mirror source). The global `--mirror`
-/// flag still force-enables the full China mirror set regardless of settings.
+/// behavior stay identical (concurrency + mirror source + CurseForge `x-api-key`).
+/// `GlobalSettings::downloader` is the one owner of that construction; the global
+/// `--mirror` flag then force-enables the full China mirror set on top.
 fn downloader(mirror: bool) -> Result<Downloader> {
     let settings = GlobalSettings::load(&data_dir()).unwrap_or_default();
-    let dl = Downloader::new(settings.concurrency.max(1)).context("building downloader")?;
-    let resolver = if mirror { MirrorResolver::china() } else { settings.mirror_resolver() };
-    Ok(dl.with_mirror(resolver))
+    let dl = settings.downloader().context("building downloader")?;
+    Ok(if mirror { dl.with_mirror(MirrorResolver::china()) } else { dl })
 }
 
 #[tokio::main]
@@ -1119,12 +1119,12 @@ async fn cmd_project(id: &str) -> Result<()> {
 fn cmd_modpack_detect(file: &Path) -> Result<()> {
     use mc_core::modpack::import::archive::PackArchive;
     use mc_core::modpack::import::ImportEngine;
-    use mc_core::modplatform::provider::ProviderRegistry;
 
     // PreparedIndex 预取 manifest 字节,使 detect() 的内容判别(CF vs MCBBS)可用。
     // PackArchive 同时支持 zip 文件与未解压的实例目录。
     let idx = PackArchive::open(file)?.into_prepared(&["manifest.json", "mcbbs.packmeta"]);
-    let engine = ImportEngine::with_defaults(Downloader::new(4)?, ProviderRegistry::with_defaults());
+    let settings = GlobalSettings::load(&data_dir()).unwrap_or_default();
+    let engine = ImportEngine::with_defaults(settings.downloader()?, settings.provider_registry());
     match engine.dispatch(&idx) {
         Some((_, m)) => println!(
             "✓ 识别格式: {}  (包根 '{}',置信度 {})",
@@ -1137,11 +1137,13 @@ fn cmd_modpack_detect(file: &Path) -> Result<()> {
 
 async fn cmd_modpack_import(cli: &Cli, file: &Path, id: Option<String>) -> Result<()> {
     use mc_core::modpack::import::{ImportEngine, ImportOptions, ImportSource};
-    use mc_core::modplatform::provider::ProviderRegistry;
 
     let paths = resolve_root(&cli.dir);
+    let settings = GlobalSettings::load(&data_dir()).unwrap_or_default();
     let dl = downloader(cli.mirror)?;
-    let engine = ImportEngine::with_defaults(dl, ProviderRegistry::with_defaults());
+    // 用带 CF key 的注册表:否则 CurseForge 整合包导入会拿到未注册的 CF provider,
+    // resolve 直接报「需配置 API key」。与下载器的 x-api-key 配套。
+    let engine = ImportEngine::with_defaults(dl, settings.provider_registry());
     let mut opts = ImportOptions::new(paths.root().to_path_buf());
     opts.instance_id = id;
 

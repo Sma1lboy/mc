@@ -13,8 +13,9 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::download::MirrorResolver;
+use crate::download::{Downloader, MirrorResolver};
 use crate::error::Result;
+use crate::modplatform::provider::{resolve_cf_api_key, ProviderRegistry};
 
 /// 设置文件名(位于 `data_dir` 下)。
 const SETTINGS_FILE: &str = "settings.json";
@@ -178,6 +179,30 @@ impl GlobalSettings {
         } else {
             MirrorResolver::none()
         }
+    }
+
+    /// 最终生效的 CurseForge API key(settings → 编译期 baked → 环境,见
+    /// [`resolve_cf_api_key`])。既决定是否注册 CurseForge provider,也作为下载器的
+    /// `x-api-key` 让 CF CDN 直链可下。**secret,勿打日志。**
+    pub fn resolved_cf_api_key(&self) -> Option<String> {
+        resolve_cf_api_key(self.cf_api_key.as_deref())
+    }
+
+    /// 按本设置构造下载器:并发数 + 镜像源 + CurseForge key 一处搞定。是「从设置造
+    /// Downloader」的唯一 owner——desktop 命令层与 CLI 都走它,任何调用方都不会再漏配
+    /// CF key(CF CDN 直链 403)或丢掉镜像源。需要强制走某镜像的调用方在返回值上再
+    /// `.with_mirror(...)` 覆盖即可(如 CLI 的 `--mirror`)。
+    pub fn downloader(&self) -> Result<Downloader> {
+        Ok(Downloader::new(self.concurrency.max(1))?
+            .with_mirror(self.mirror_resolver())
+            .with_cf_api_key(self.resolved_cf_api_key()))
+    }
+
+    /// 按本设置构造 Provider 注册表:总有 Modrinth;解析出 CF key 才注册 CurseForge。
+    /// 「从设置造 ProviderRegistry」的唯一 owner,搜索 / 浏览安装 / 整合包导入导出共用,
+    /// 杜绝某条路径用上无 key 的 `with_defaults()` 而让 CF 资源静默不可用。
+    pub fn provider_registry(&self) -> ProviderRegistry {
+        ProviderRegistry::with_defaults_keyed(self.resolved_cf_api_key())
     }
 }
 
