@@ -14,7 +14,7 @@ use tokio::sync::watch;
 
 use crate::download::{checksum, DownloadItem, Downloader};
 use crate::error::{CoreError, IoResultExt, Result};
-use crate::instance::Instance;
+use crate::instance::{Instance, InstanceConfig};
 use crate::java::{self, JavaInstall};
 use crate::meta;
 use crate::paths::{ensure_dir, GamePaths};
@@ -216,6 +216,7 @@ pub async fn install_version(
 /// only kicks in when [`LaunchSpec::runtimes_dir`] is set.
 async fn resolve_java(
     spec: &LaunchSpec,
+    config: &InstanceConfig,
     profile: &LaunchProfile,
     mc_version: &str,
     dl: &Downloader,
@@ -224,7 +225,9 @@ async fn resolve_java(
     if let Some(p) = &spec.java_path {
         return Ok(p.clone());
     }
-    let config = spec.instance.load_config()?;
+    // launch() already loaded (and partly mutated) the instance config; reuse that
+    // copy rather than re-reading instance.json here. java_path isn't touched by the
+    // server_override mutation, so this is the same value, one fewer disk read.
     if let Some(p) = &config.java_path {
         if !p.is_empty() {
             return Ok(PathBuf::from(p));
@@ -286,7 +289,7 @@ pub async fn launch(
     }
 
     // 3. Java (auto-provision a matching JRE if none is installed)
-    let java_path = resolve_java(&spec, &profile, &mc_version, dl, progress.as_ref()).await?;
+    let java_path = resolve_java(&spec, &config, &profile, &mc_version, dl, progress.as_ref()).await?;
 
     // 4. natives
     extract_natives(&profile, &paths, &ctx)?;
