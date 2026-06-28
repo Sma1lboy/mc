@@ -145,6 +145,30 @@ cd src-tauri && cargo build --release        # release embeds ../dist
 loader components; the download/task framework already supports any source) and
 are the natural next increments.
 
+## 品牌 / Brand
+
+The mark is an isometric grass block carrying a pixel **M** — Minecraft material,
+launcher identity. Assets live in [`docs/assets/brand/`](./docs/assets/brand/)
+(static PNGs at 512/1024 plus build-up GIFs).
+
+<table>
+  <tr>
+    <td align="center" width="25%"><img src="docs/assets/brand/iso-cube-tile.png" width="148" alt="App icon" /><br /><sub><b>App icon</b><br />iso grass-block + M</sub></td>
+    <td align="center" width="25%"><img src="docs/assets/brand/glyph-block.png" width="148" alt="Pixel block" /><br /><sub><b>Pixel block</b><br />top-down grass</sub></td>
+    <td align="center" width="25%"><img src="docs/assets/brand/glyph-m.png" width="148" alt="M glyph" /><br /><sub><b>Glyph</b><br />pixel “M”</sub></td>
+    <td align="center" width="25%"><img src="docs/assets/brand/iso-cube.png" width="148" alt="Logo mark" /><br /><sub><b>Logo mark</b><br />transparent cube</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/assets/brand/iso-cube-tile.gif" width="148" alt="Icon animation" /><br /><sub>icon build-up</sub></td>
+    <td align="center" colspan="2"><img src="docs/assets/brand/glyph-m.gif" width="90" alt="Glyph animation" /><br /><sub>glyph build-up</sub></td>
+    <td align="center"><img src=".github/assets/banner-light.png" width="148" alt="Light banner" /><br /><sub>light / classic banner</sub></td>
+  </tr>
+</table>
+
+The README banners ([`.github/assets/`](./.github/assets/)) are generated from these
+assets — edit `make-banners.py` and re-render with headless Chrome (command in the
+script's docstring).
+
 ## Docs
 
 Start at [`docs/README.md`](./docs/README.md): requirements, the launch chain,

@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Generate the kobeMC README banners (dark/workspace + light/classic).
 
+The right side shows the real brand logo (docs/assets/brand/iso-cube@1024.png),
+base64-embedded so headless Chrome renders it without file-access flags.
+
 Writes banner-<theme>.html next to this file; render to PNG with headless Chrome:
 
   CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
@@ -10,6 +13,7 @@ Writes banner-<theme>.html next to this file; render to PNG with headless Chrome
       "file://$PWD/.github/assets/banner-$t.html"
   done
 """
+import base64
 import os
 
 THEMES = {
@@ -19,6 +23,7 @@ THEMES = {
         card="rgba(255,255,255,.04)", cardb="rgba(255,255,255,.09)",
         text="#e9eef5", dim="#8a97a8",
         accent="#35c07d", accent2="#62da9d",
+        halo="rgba(53,192,125,.30)",
         chip="rgba(255,255,255,.05)", chipb="rgba(255,255,255,.10)", chipt="#c4cdda",
     ),
     "light": dict(
@@ -27,16 +32,10 @@ THEMES = {
         card="rgba(19,112,243,.04)", cardb="rgba(19,112,243,.14)",
         text="#16202e", dim="#5d6b7e",
         accent="#1370f3", accent2="#4890f5",
+        halo="rgba(19,112,243,.22)",
         chip="rgba(19,112,243,.07)", chipb="rgba(19,112,243,.18)", chipt="#3a567c",
     ),
 }
-
-# A loose constellation of pixel squares (echoes the in-app pixel spinner): col,row,opacity.
-PIXELS = [
-    (0, 2, .9), (1, 2, .55), (1, 1, .35), (2, 1, .85), (2, 0, .3),
-    (3, 0, .65), (3, 1, .25), (2, 2, .25), (0, 1, .2), (3, 2, .18),
-    (1, 0, .15), (0, 3, .3), (1, 3, .5), (2, 3, .22),
-]
 
 TEMPLATE = """<!doctype html><html><head><meta charset="utf-8"><style>
   * {{ margin: 0; box-sizing: border-box; }}
@@ -66,9 +65,12 @@ TEMPLATE = """<!doctype html><html><head><meta charset="utf-8"><style>
   .chip {{ font-size: 13px; font-weight: 600; color: {chipt};
            background: {chip}; border: 1px solid {chipb};
            padding: 7px 14px; border-radius: 999px; }}
-  .pix {{ position: relative; width: 240px; height: 280px; flex: 0 0 240px; }}
-  .px {{ position: absolute; width: 46px; height: 46px; border-radius: 7px;
-         background: {accent}; box-shadow: 0 6px 18px rgba(0,0,0,.12); }}
+  .logo {{ position: relative; width: 248px; height: 248px; flex: 0 0 248px;
+           display: flex; align-items: center; justify-content: center; }}
+  .logo::before {{ content: ""; position: absolute; width: 300px; height: 300px;
+                   border-radius: 50%; background: {halo}; filter: blur(46px); }}
+  .logo img {{ position: relative; width: 230px; height: 230px;
+               filter: drop-shadow(0 18px 34px rgba(0,0,0,.34)); }}
 </style></head><body>
   <div class="glow"></div>
   <div class="frame"></div>
@@ -84,20 +86,19 @@ TEMPLATE = """<!doctype html><html><head><meta charset="utf-8"><style>
         <span class="chip">SolidJS</span>
       </div>
     </div>
-    <div class="pix">{pixels}</div>
+    <div class="logo"><img src="data:image/png;base64,{logo}" alt="kobeMC" /></div>
   </div>
 </body></html>"""
 
 
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
+    repo = os.path.dirname(os.path.dirname(here))
+    logo_path = os.path.join(repo, "docs", "assets", "brand", "iso-cube@1024.png")
+    with open(logo_path, "rb") as f:
+        logo = base64.b64encode(f.read()).decode("ascii")
     for name, t in THEMES.items():
-        gap = 54
-        pixels = "".join(
-            f'<div class="px" style="left:{c*gap}px;top:{r*gap}px;opacity:{o}"></div>'
-            for (c, r, o) in PIXELS
-        )
-        html = TEMPLATE.format(pixels=pixels, **t)
+        html = TEMPLATE.format(logo=logo, **t)
         out = os.path.join(here, f"banner-{name}.html")
         with open(out, "w", encoding="utf-8") as f:
             f.write(html)
