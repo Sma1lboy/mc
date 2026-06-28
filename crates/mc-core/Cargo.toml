@@ -28,6 +28,7 @@ reflink-copy = { workspace = true }
 fs4 = { workspace = true }
 tracing = { workspace = true }
 dirs = { workspace = true }
+socket2 = { workspace = true }
 specta = { version = "=2.0.0-rc.25", features = ["derive"] }
 # 仅用于读取系统物理内存总量(推荐堆内存);只启 `system` 特性,剔除进程/磁盘/网络等重量模块。
 sysinfo = { version = "0.39", default-features = false, features = ["system"] }

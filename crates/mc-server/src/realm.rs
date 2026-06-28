@@ -400,6 +400,49 @@ impl RealmStore {
     pub async fn is_member(&self, realm_id: &str, user_id: &str) -> anyhow::Result<bool> {
         Ok(self.role_of(realm_id, user_id).await?.is_some())
     }
+
+    /// Publish (or heartbeat) `user_id` as the realm's host, reachable at `address`.
+    /// Caller must authorize membership first. Overwrites any previous host
+    /// (last writer wins) and stamps `host_at = NOW()` as the heartbeat.
+    pub async fn set_host(&self, realm_id: &str, user_id: &str, address: &str) -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE realms SET host_address = $3, host_user_id = $2, host_at = NOW() WHERE id = $1",
+        )
+        .bind(realm_id)
+        .bind(user_id)
+        .bind(address)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// The realm's *fresh* host (heartbeat within the last 90s) + its username,
+    /// or `(None, None)` if nobody is hosting / the heartbeat went stale.
+    pub async fn get_host(&self, realm_id: &str) -> anyhow::Result<(Option<String>, Option<String>)> {
+        let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT r.host_address, u.username \
+             FROM realms r LEFT JOIN users u ON u.id = r.host_user_id \
+             WHERE r.id = $1 AND r.host_at IS NOT NULL AND r.host_at > NOW() - INTERVAL '90 seconds'",
+        )
+        .bind(realm_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.unwrap_or((None, None)))
+    }
+
+    /// Stop hosting: clear the host record **iff** `user_id` is the current host.
+    /// Returns whether a row changed.
+    pub async fn clear_host(&self, realm_id: &str, user_id: &str) -> anyhow::Result<bool> {
+        let res = sqlx::query(
+            "UPDATE realms SET host_address = NULL, host_user_id = NULL, host_at = NULL \
+             WHERE id = $1 AND host_user_id = $2",
+        )
+        .bind(realm_id)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(res.rows_affected() > 0)
+    }
 }
 
 /* ---- handlers ---- */
@@ -587,6 +630,66 @@ pub async fn get_overrides(
     Ok((h, bytes))
 }
 
+/* ---------- lobby host (联机大厅 P3): who's hosting the LAN-opened world ---------- */
+
+#[derive(Deserialize)]
+pub struct SetHostReq {
+    pub address: String,
+}
+
+/// Who is currently hosting a realm's LAN-opened world (fresh only).
+#[derive(Serialize)]
+pub struct RealmHost {
+    pub address: Option<String>,
+    pub host_username: Option<String>,
+}
+
+/// `POST /v1/realms/{id}/host` — publish/heartbeat my reachable address
+/// (`<virtual_ip>:<lan_port>`). Membership-gated. Call ~every 30s while hosting.
+pub async fn set_host(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(req): Json<SetHostReq>,
+) -> Result<StatusCode, StatusCode> {
+    let user = require_user(&s.pool, &headers).await?;
+    if s.realms.summary_for(&id, &user).await.map_err(ise)?.is_none() {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    s.realms.set_host(&id, &user, &req.address).await.map_err(ise)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// `GET /v1/realms/{id}/host` — the realm's current (fresh) host, membership-gated.
+/// `{ address: null, host_username: null }` when nobody is hosting.
+pub async fn get_host(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<RealmHost>, StatusCode> {
+    let user = require_user(&s.pool, &headers).await?;
+    if s.realms.summary_for(&id, &user).await.map_err(ise)?.is_none() {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let (address, host_username) = s.realms.get_host(&id).await.map_err(ise)?;
+    Ok(Json(RealmHost { address, host_username }))
+}
+
+/// `DELETE /v1/realms/{id}/host` — stop hosting (clears my host record).
+/// Membership-gated; only clears if I'm the current host (else a harmless no-op).
+pub async fn clear_host(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<StatusCode, StatusCode> {
+    let user = require_user(&s.pool, &headers).await?;
+    if s.realms.summary_for(&id, &user).await.map_err(ise)?.is_none() {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    s.realms.clear_host(&id, &user).await.map_err(ise)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /* ---------- lobby (联机大厅): EasyTier room credentials ---------- */
 
 /// One EasyTier external/relay node the client can use for rendezvous (+ relay).
@@ -740,6 +843,17 @@ mod tests {
         let members = store.members(&realm.id, "t-realm-owner").await.unwrap().unwrap();
         assert_eq!(members.len(), 2);
         assert!(members.iter().any(|m| m.user_id == "t-realm-friend" && m.synced_version == 3));
+
+        // host publish (P3): nobody hosting yet → (None, None)
+        assert_eq!(store.get_host(&realm.id).await.unwrap(), (None, None));
+        // owner publishes a host address → fresh read returns it
+        store.set_host(&realm.id, "t-realm-owner", "10.144.0.1:52137").await.unwrap();
+        let (addr, _name) = store.get_host(&realm.id).await.unwrap();
+        assert_eq!(addr.as_deref(), Some("10.144.0.1:52137"));
+        // a non-host can't clear it; the host can, and then it reads empty again
+        assert!(!store.clear_host(&realm.id, "t-realm-friend").await.unwrap());
+        assert!(store.clear_host(&realm.id, "t-realm-owner").await.unwrap());
+        assert_eq!(store.get_host(&realm.id).await.unwrap(), (None, None));
 
         // friend leaves → 1 member; owner can't be removed
         assert!(store.leave_or_remove(&realm.id, "t-realm-friend", "t-realm-friend").await.unwrap());

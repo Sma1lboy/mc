@@ -1936,6 +1936,47 @@ pub async fn realm_lobby(
     client.realm_lobby(&realm_id).await.map_err(err)
 }
 
+/// 联机大厅 P3 —— host 发布我可达的地址(`<虚拟IP>:<端口>`),成员据此一键加入。
+/// 边开世界边每 ~30s 调一次作心跳(server 端 90s 过期)。
+#[tauri::command]
+#[specta::specta]
+pub async fn realm_set_host(
+    client: State<'_, mc_core::server::ServerClient>,
+    realm_id: String,
+    address: String,
+) -> CmdResult<()> {
+    client.realm_set_host(&realm_id, &address).await.map_err(err)
+}
+
+/// 联机大厅 P3 —— 查领域当前(新鲜的)host:有人在主持则返回 `address` + `host_username`,
+/// 否则两者皆 `None`。成员轮询它来决定能否「加入游戏」。
+#[tauri::command]
+#[specta::specta]
+pub async fn realm_get_host(
+    client: State<'_, mc_core::server::ServerClient>,
+    realm_id: String,
+) -> CmdResult<mc_core::realm::RealmHost> {
+    client.realm_get_host(&realm_id).await.map_err(err)
+}
+
+/// 联机大厅 P3 —— 停止主持(清掉我的 host 记录)。非 host 调用是无害空操作。
+#[tauri::command]
+#[specta::specta]
+pub async fn realm_clear_host(
+    client: State<'_, mc_core::server::ServerClient>,
+    realm_id: String,
+) -> CmdResult<()> {
+    client.realm_clear_host(&realm_id).await.map_err(err)
+}
+
+/// 联机大厅 P3 —— 探测本机 Minecraft 是否「对局域网开放」:加入 MC 局域网发现组播监听
+/// ~3s,读到端口则返回。未开 / 探测失败 → `None`(绝不 panic / 阻塞超过 ~3s)。
+#[tauri::command]
+#[specta::specta]
+pub async fn detect_lan_world() -> CmdResult<Option<u16>> {
+    Ok(mc_core::lan_world::detect_lan_port(std::time::Duration::from_secs(3)).await)
+}
+
 /// Member list (with synced-version progress).
 #[tauri::command]
 #[specta::specta]

@@ -25,6 +25,13 @@ const dict = {
     privilegedReady: "已免密",
     setupHint: "一次性提权后,以后开启联机不再弹管理员授权。",
     setupError: "免密设置失败:{{ err }}",
+    openWorldHint: "在游戏里「对局域网开放」后,好友即可加入。",
+    hostingNow: "正在主持 · 端口 {{ port }}",
+    hostedBy: "{{ name }} 正在主持",
+    someone: "好友",
+    join: "加入游戏",
+    joining: "进行中…",
+    joinError: "加入失败:{{ err }}",
   } as Record<string, string>,
   en: {
     title: "Lobby",
@@ -51,6 +58,13 @@ const dict = {
     privilegedReady: "No password needed",
     setupHint: "After a one-time elevation, starting the lobby no longer prompts for admin.",
     setupError: "One-time setup failed: {{ err }}",
+    openWorldHint: "Open your world to LAN in-game, and friends can join.",
+    hostingNow: "Hosting · port {{ port }}",
+    hostedBy: "{{ name }} is hosting",
+    someone: "A friend",
+    join: "Join game",
+    joining: "Joining…",
+    joinError: "Failed to join: {{ err }}",
   } as Record<string, string>,
 };
 

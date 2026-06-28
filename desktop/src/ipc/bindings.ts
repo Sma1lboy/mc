@@ -341,6 +341,23 @@ export const commands = {
 	 */
 	realmLobby: (realmId: string) => typedError<LobbyCreds, string>(__TAURI_INVOKE("realm_lobby", { realmId })),
 	/**
+	 *  联机大厅 P3 —— host 发布我可达的地址(`<虚拟IP>:<端口>`),成员据此一键加入。
+	 *  边开世界边每 ~30s 调一次作心跳(server 端 90s 过期)。
+	 */
+	realmSetHost: (realmId: string, address: string) => typedError<null, string>(__TAURI_INVOKE("realm_set_host", { realmId, address })),
+	/**
+	 *  联机大厅 P3 —— 查领域当前(新鲜的)host:有人在主持则返回 `address` + `host_username`,
+	 *  否则两者皆 `None`。成员轮询它来决定能否「加入游戏」。
+	 */
+	realmGetHost: (realmId: string) => typedError<RealmHost, string>(__TAURI_INVOKE("realm_get_host", { realmId })),
+	/**  联机大厅 P3 —— 停止主持(清掉我的 host 记录)。非 host 调用是无害空操作。 */
+	realmClearHost: (realmId: string) => typedError<null, string>(__TAURI_INVOKE("realm_clear_host", { realmId })),
+	/**
+	 *  联机大厅 P3 —— 探测本机 Minecraft 是否「对局域网开放」:加入 MC 局域网发现组播监听
+	 *  ~3s,读到端口则返回。未开 / 探测失败 → `None`(绝不 panic / 阻塞超过 ~3s)。
+	 */
+	detectLanWorld: () => typedError<number | null, string>(__TAURI_INVOKE("detect_lan_world")),
+	/**
 	 *  开启某领域的 EasyTier 联机会话:取凭据 → 挑节点 → 构参 → **提权**拉起 easytier-core。
 	 *  幂等:先停掉任何旧会话再起新的。UI 随后轮询 [`lobby_status`]。
 	 */
@@ -1043,6 +1060,16 @@ export type RealmFile = {
 	url?: string | null,
 	/**  `"modrinth"` | `"curseforge"` | `"manual"`. */
 	source?: string | null,
+};
+
+/**
+ *  Who is currently hosting a realm's LAN-opened world. Both fields are `None`
+ *  when nobody is hosting (or the host's heartbeat went stale). `address` is
+ *  `<virtual_ip>:<lan_port>` — pass it straight to Quick Play to join.
+ */
+export type RealmHost = {
+	address?: string | null,
+	host_username?: string | null,
 };
 
 /**  One realm member + how far they've synced. */

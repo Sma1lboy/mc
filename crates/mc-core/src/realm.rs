@@ -162,9 +162,24 @@ struct SyncedBody {
 struct InviteBody {
     user_id: String,
 }
+#[derive(Serialize)]
+struct SetHostBody {
+    address: String,
+}
 #[derive(Deserialize)]
 struct VersionResp {
     version: i32,
+}
+
+/// Who is currently hosting a realm's LAN-opened world. Both fields are `None`
+/// when nobody is hosting (or the host's heartbeat went stale). `address` is
+/// `<virtual_ip>:<lan_port>` — pass it straight to Quick Play to join.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+pub struct RealmHost {
+    #[serde(default)]
+    pub address: Option<String>,
+    #[serde(default)]
+    pub host_username: Option<String>,
 }
 
 /* ---------- client methods ---------- */
@@ -248,6 +263,29 @@ impl ServerClient {
     /// Download the realm's overrides blob (member).
     pub async fn download_overrides(&self, id: &str) -> Result<Vec<u8>> {
         self.get_bytes(&format!("/v1/realms/{id}/overrides")).await
+    }
+
+    /// Publish (or heartbeat) my reachable host address (`<virtual_ip>:<lan_port>`)
+    /// for a realm, so members can one-click join my LAN-opened world. Acts as a
+    /// heartbeat — call ~every 30s while hosting (the server expires it after 90s).
+    pub async fn realm_set_host(&self, realm_id: &str, address: &str) -> Result<()> {
+        self.post_no_content(
+            &format!("/v1/realms/{realm_id}/host"),
+            &SetHostBody { address: address.to_string() },
+        )
+        .await
+    }
+
+    /// Who (if anyone) is currently hosting a realm — only returns a *fresh*
+    /// host (server-side TTL). `address`/`host_username` are `None` when nobody
+    /// is hosting (or the last heartbeat went stale).
+    pub async fn realm_get_host(&self, realm_id: &str) -> Result<RealmHost> {
+        self.get_json(&format!("/v1/realms/{realm_id}/host")).await
+    }
+
+    /// Stop hosting (clears my host record). No-op if I wasn't the host.
+    pub async fn realm_clear_host(&self, realm_id: &str) -> Result<()> {
+        self.delete_no_content(&format!("/v1/realms/{realm_id}/host")).await
     }
 }
 

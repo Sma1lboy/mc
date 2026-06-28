@@ -112,6 +112,15 @@ CREATE INDEX IF NOT EXISTS idx_realms_code ON realms(code);
 CREATE INDEX IF NOT EXISTS idx_realm_members_user ON realm_members(user_id);
 "#;
 
+/// 联机大厅 host 发布(P3):某领域当前由谁主持、可达地址、最近一次心跳时间。三列幂等加到
+/// `realms` 上。host 每 ~30s `POST /host` 续约;读取时只在 `host_at` 90s 内才算新鲜(否则当作
+/// 无人主持)。临时态,无需独立表。
+const REALMS_HOST_SQL: &str = r#"
+ALTER TABLE realms ADD COLUMN IF NOT EXISTS host_address TEXT;
+ALTER TABLE realms ADD COLUMN IF NOT EXISTS host_user_id TEXT;
+ALTER TABLE realms ADD COLUMN IF NOT EXISTS host_at TIMESTAMPTZ;
+"#;
+
 /// Friendships — one **directed** row per request: `(requester, addressee, status)`.
 /// A→B request inserts `(A,B,'pending')`; B accepting flips it to `'accepted'`.
 /// Friends = any `accepted` row where the user is on either side; incoming
@@ -169,6 +178,7 @@ pub async fn connect() -> anyhow::Result<PgPool> {
     sqlx::raw_sql(BETTER_AUTH_CORE_SQL).execute(&pool).await.context("建 better-auth 表")?;
     sqlx::raw_sql(SHARES_SQL).execute(&pool).await.context("建 shares 表")?;
     sqlx::raw_sql(REALMS_SQL).execute(&pool).await.context("建 realms 表")?;
+    sqlx::raw_sql(REALMS_HOST_SQL).execute(&pool).await.context("加 realms host 列")?;
     sqlx::raw_sql(FRIENDS_SQL).execute(&pool).await.context("建 friendships 表")?;
     sqlx::raw_sql(PRESENCE_SQL).execute(&pool).await.context("加 presence 列")?;
     sqlx::raw_sql(NOTIFICATIONS_SQL).execute(&pool).await.context("建 notifications 表")?;
@@ -185,6 +195,7 @@ pub async fn test_pool() -> Option<PgPool> {
     sqlx::raw_sql(BETTER_AUTH_CORE_SQL).execute(&pool).await.ok()?;
     sqlx::raw_sql(SHARES_SQL).execute(&pool).await.ok()?;
     sqlx::raw_sql(REALMS_SQL).execute(&pool).await.ok()?;
+    sqlx::raw_sql(REALMS_HOST_SQL).execute(&pool).await.ok()?;
     sqlx::raw_sql(FRIENDS_SQL).execute(&pool).await.ok()?;
     sqlx::raw_sql(PRESENCE_SQL).execute(&pool).await.ok()?;
     sqlx::raw_sql(NOTIFICATIONS_SQL).execute(&pool).await.ok()?;

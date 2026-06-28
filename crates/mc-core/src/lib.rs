@@ -14,6 +14,7 @@ pub mod friend;
 pub mod fs;
 pub mod instance;
 pub mod java;
+pub mod lan_world;
 pub mod launch;
 pub mod loader;
 pub mod meta;

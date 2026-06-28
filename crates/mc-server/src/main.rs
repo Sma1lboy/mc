@@ -99,6 +99,10 @@ async fn main() {
         .route("/v1/realms/{id}/synced", post(realm::mark_synced))
         .route("/v1/realms/{id}/overrides", get(realm::get_overrides).post(realm::upload_overrides))
         .route("/v1/realms/{id}/lobby", get(realm::lobby))
+        .route(
+            "/v1/realms/{id}/host",
+            post(realm::set_host).get(realm::get_host).delete(realm::clear_host),
+        )
         // Friends (username search + request/accept; authed).
         .route("/v1/account/username", post(friend::set_username))
         .route("/v1/users/search", get(friend::search))

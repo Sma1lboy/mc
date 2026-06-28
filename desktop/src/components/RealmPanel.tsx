@@ -27,10 +27,13 @@ import {
   socialEnabled,
   friends,
   refreshFriends,
+  playInstance,
+  isRunning,
+  isLaunching,
 } from "../store";
 import { avatarTone, avatarInitial } from "../util/avatar";
 import { t } from "../i18n";
-import type { InstanceSummary, RealmMember, SyncReport, LobbyStatus } from "../ipc/bindings";
+import type { InstanceSummary, RealmMember, SyncReport, LobbyStatus, RealmHost } from "../ipc/bindings";
 
 /** 折叠区标题左侧的 caret(展开时旋转 90°)。 */
 const Caret: Component<{ open: boolean }> = (props) => (
@@ -77,17 +80,36 @@ function roleLabel(role: string): string {
  * 轮询状态展示本机虚拟 IP、在线对端与各自的「直连 / 中继 + 延迟」。开启需要管理员 / root
  * 授权(建 TUN);后端按平台提权拉起 easytier-core。EasyTier 未安装时后端返回清晰错误。
  */
-const LobbyBlock: Component<{ realmId: string }> = (props) => {
+const LobbyBlock: Component<{ realmId: string; instanceId: string }> = (props) => {
   const [mode, setMode] = createSignal("p2p");
   const [status, setStatus] = createSignal<LobbyStatus | null>(null);
   const [busy, setBusy] = createSignal(false);
   // 免密一键(一次性提权):就绪后开启联机不再弹管理员授权。
   const [privReady, setPrivReady] = createSignal(false);
   const [setupBusy, setSetupBusy] = createSignal(false);
+  // 联机大厅 P3:本机探到的 MC「对局域网开放」端口(我在主持);server 上当前的 host(谁在主持)。
+  const [lanPort, setLanPort] = createSignal<number | null>(null);
+  const [host, setHost] = createSignal<RealmHost | null>(null);
   let timer: number | undefined;
+  let hostTimer: number | undefined;
+  let lastHeartbeat = 0;
 
   const running = () => status()?.running ?? false;
   const peers = () => status()?.peers ?? [];
+  const virtualIp = () => status()?.virtual_ip ?? null;
+  // 「我就是 host」:本机正广播 LAN-open(探到端口),或 server 上的 host 地址正落在我的虚拟 IP 上。
+  const amHost = () => {
+    if (lanPort() != null) return true;
+    const ip = virtualIp();
+    const addr = host()?.address;
+    return !!(ip && addr && addr.startsWith(`${ip}:`));
+  };
+  // 成员侧:存在新鲜且非我的 host 地址 → 可一键加入。
+  const joinableHost = () => {
+    const addr = host()?.address;
+    return addr && !amHost() ? addr : null;
+  };
+  const joinDisabled = () => isLaunching(props.instanceId) || isRunning(props.instanceId);
 
   // creds 仅用于判断是否提供「我们的中继」线路(成员可见,含 secret 故不展示)。
   const [creds] = createResource(
@@ -118,17 +140,70 @@ const LobbyBlock: Component<{ realmId: string }> = (props) => {
     timer = window.setInterval(() => void poll(), 3000);
   }
 
+  // 联机大厅 P3 —— 一拍 host/member 闭环(联机运行时每 ~5s 跑一次):
+  //  · host 侧:探本机 MC「对局域网开放」端口;探到且有虚拟 IP → 发布 `虚拟IP:端口`,并每
+  //    ~30s 续约作心跳(server 90s 过期),让成员能看到我在主持。
+  //  · member 侧:拉 server 上当前(新鲜的)host;非我自己 → 显示「加入游戏」。
+  async function hostTick() {
+    if (!running()) return;
+    const ip = virtualIp();
+    // host 侧探测(只有拿到虚拟 IP 才有意义,地址要靠它拼)。
+    if (ip) {
+      try {
+        const port = await api.detectLanWorld();
+        setLanPort(port ?? null);
+        if (port != null) {
+          const now = Date.now();
+          if (now - lastHeartbeat > 30_000) {
+            await api.realmSetHost(props.realmId, `${ip}:${port}`);
+            lastHeartbeat = now;
+          }
+        }
+      } catch {
+        /* 探测/发布偶发失败忽略,下一拍再试 */
+      }
+    }
+    // member 侧:谁在主持。
+    try {
+      setHost(await api.realmGetHost(props.realmId));
+    } catch {
+      /* 忽略 */
+    }
+  }
+  function stopHostLoop() {
+    if (hostTimer !== undefined) {
+      clearInterval(hostTimer);
+      hostTimer = undefined;
+    }
+    setLanPort(null);
+    setHost(null);
+    lastHeartbeat = 0;
+  }
+  function startHostLoop() {
+    if (hostTimer !== undefined) return;
+    void hostTick();
+    hostTimer = window.setInterval(() => void hostTick(), 5000);
+  }
+
   // 进面板先探一次:可能已有会话在跑(切换实例 / 重开面板),据此恢复轮询。
   onMount(() => {
     void poll().then(() => {
-      if (running()) startPolling();
+      if (running()) {
+        startPolling();
+        startHostLoop();
+      }
     });
     void api
       .lobbyPrivilegedReady()
       .then(setPrivReady)
       .catch(() => setPrivReady(false));
   });
-  onCleanup(stopPolling);
+  onCleanup(() => {
+    stopPolling();
+    stopHostLoop();
+    // 卸载即停止主持(best-effort):告诉 server 我不再主持,成员不再看到我。
+    void api.realmClearHost(props.realmId).catch(() => {});
+  });
 
   async function setupPrivileged() {
     if (setupBusy()) return;
@@ -150,6 +225,7 @@ const LobbyBlock: Component<{ realmId: string }> = (props) => {
       await api.lobbyStart(props.realmId, mode());
       await poll();
       startPolling();
+      startHostLoop();
     } catch (e) {
       toast({ type: "error", message: t("lobby.startError", { err: String(e) }) });
     } finally {
@@ -161,13 +237,26 @@ const LobbyBlock: Component<{ realmId: string }> = (props) => {
     if (busy()) return;
     setBusy(true);
     stopPolling();
+    stopHostLoop();
     try {
+      // 断开前先停止主持,成员立刻不再看到我(否则要等 server 90s 过期)。
+      await api.realmClearHost(props.realmId).catch(() => {});
       await api.lobbyStop();
       setStatus({ running: false, virtual_ip: null, peers: [] });
     } catch (e) {
       toast({ type: "error", message: t("lobby.stopError", { err: String(e) }) });
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function join() {
+    const addr = joinableHost();
+    if (!addr || joinDisabled()) return;
+    try {
+      await playInstance(props.instanceId, addr);
+    } catch (e) {
+      toast({ type: "error", message: t("lobby.joinError", { err: String(e) }) });
     }
   }
 
@@ -240,6 +329,34 @@ const LobbyBlock: Component<{ realmId: string }> = (props) => {
             </For>
           </div>
         </Show>
+
+        {/* 联机大厅 P3:开世界 / 加入游戏闭环 */}
+        <div class="flex items-center gap-[10px] flex-wrap pt-[2px]">
+          <Show
+            when={joinableHost()}
+            fallback={
+              <Show
+                when={amHost()}
+                fallback={
+                  <span class="text-[12px] text-faint leading-[1.6]">{t("lobby.openWorldHint")}</span>
+                }
+              >
+                <span class="text-[12px] text-accent">
+                  {t("lobby.hostingNow", { port: lanPort() ?? 0 })}
+                </span>
+              </Show>
+            }
+          >
+            <span class="text-[12px] text-muted truncate min-w-0">
+              {t("lobby.hostedBy", { name: host()?.host_username ?? t("lobby.someone") })}
+            </span>
+            <Button variant="primary" disabled={joinDisabled()} onClick={() => void join()}>
+              {isRunning(props.instanceId) || isLaunching(props.instanceId)
+                ? t("lobby.joining")
+                : t("lobby.join")}
+            </Button>
+          </Show>
+        </div>
       </Show>
 
       <p class="text-[11px] text-muted leading-[1.6]">{t("lobby.hint")}</p>
@@ -678,7 +795,7 @@ const RealmManage: Component<{ instance: InstanceSummary; onChanged?: () => void
 
       {/* 联机大厅(EasyTier 虚拟局域网):社交开启时出现 */}
       <Show when={socialEnabled()}>
-        <LobbyBlock realmId={rid()} />
+        <LobbyBlock realmId={rid()} instanceId={props.instance.id} />
       </Show>
 
       {/* 同步状态(自动检测 + 自动同步;破坏性需确认) */}
