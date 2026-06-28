@@ -17,6 +17,7 @@ pub mod java;
 pub mod launch;
 pub mod loader;
 pub mod meta;
+pub mod lobby;
 pub mod modpack;
 pub mod modplatform;
 pub mod notification;

@@ -27,3 +27,4 @@ better-auth = { version = "0.10", default-features = false, features = ["axum", 
 # 持久化:Supabase(Postgres),TLS 用 rustls。share/db 仍直接用 sqlx 运行时查询。
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "macros"] }
 dotenvy = "0.15"
+sha2 = "0.10"

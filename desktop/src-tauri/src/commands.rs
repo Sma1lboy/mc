@@ -1925,6 +1925,17 @@ pub async fn realm_begin(
     Ok(report)
 }
 
+/// EasyTier lobby credentials for a realm (members only) — network name/secret +
+/// external nodes (P2P public + optional our hosted relay). P1: fetch only.
+#[tauri::command]
+#[specta::specta]
+pub async fn realm_lobby(
+    client: State<'_, mc_core::server::ServerClient>,
+    realm_id: String,
+) -> CmdResult<mc_core::lobby::LobbyCreds> {
+    client.realm_lobby(&realm_id).await.map_err(err)
+}
+
 /// Member list (with synced-version progress).
 #[tauri::command]
 #[specta::specta]

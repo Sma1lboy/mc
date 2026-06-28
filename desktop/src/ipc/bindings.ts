@@ -335,6 +335,11 @@ export const commands = {
 	realmBegin: (realmId: string, root: string, instanceId: string) => typedError<SyncReport, string>(__TAURI_INVOKE("realm_begin", { realmId, root, instanceId })),
 	/**  Member list (with synced-version progress). */
 	realmMembers: (realmId: string) => typedError<RealmMember[], string>(__TAURI_INVOKE("realm_members", { realmId })),
+	/**
+	 *  EasyTier lobby credentials for a realm (members only) — network name/secret +
+	 *  external nodes (P2P public + optional our hosted relay). P1: fetch only.
+	 */
+	realmLobby: (realmId: string) => typedError<LobbyCreds, string>(__TAURI_INVOKE("realm_lobby", { realmId })),
 	/**  Owner/admin republishes the manifest from an instance; returns new version. */
 	realmPushManifest: (realmId: string, root: string, instanceId: string, mcVersion: string, loader: string, loaderVersion: string | null) => typedError<number, string>(__TAURI_INVOKE("realm_push_manifest", { realmId, root, instanceId, mcVersion, loader, loaderVersion })),
 	/**  Dry-run: what syncing `instance_id` to the realm's manifest would change. */
@@ -779,6 +784,23 @@ export type LoaderKind = "vanilla" | "forge" | "neoforge" | "fabric" | "quilt" |
 export type LoaderTag = {
 	name: string,
 	supported_project_types: string[],
+};
+
+/**  某领域的联机大厅凭据(EasyTier 房间)。 */
+export type LobbyCreds = {
+	network_name: string,
+	network_secret: string,
+	nodes?: LobbyNode[],
+};
+
+/**
+ *  一个 EasyTier external/relay 节点。`kind`:`"p2p"` = 公共共享节点(打洞后直连,我们零成本);
+ *  `"hosted"` = 我们自建的中继(host 点,打洞失败时兜底)。
+ */
+export type LobbyNode = {
+	kind: string,
+	name: string,
+	addr: string,
 };
 
 /**  One entry from Mojang's version manifest. */

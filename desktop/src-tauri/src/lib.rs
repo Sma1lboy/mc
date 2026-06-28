@@ -117,6 +117,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::realm_join,
             commands::realm_begin,
             commands::realm_members,
+            commands::realm_lobby,
             commands::realm_push_manifest,
             commands::realm_plan_sync,
             commands::realm_sync,

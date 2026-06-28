@@ -587,6 +587,73 @@ pub async fn get_overrides(
     Ok((h, bytes))
 }
 
+/* ---------- lobby (联机大厅): EasyTier room credentials ---------- */
+
+/// One EasyTier external/relay node the client can use for rendezvous (+ relay).
+/// `kind`: `"p2p"` = a public shared node (direct after hole-punch, no cost to us);
+/// `"hosted"` = our own relay (our "host point", used when punch-through fails).
+#[derive(Serialize, Clone)]
+pub struct LobbyNode {
+    pub kind: String,
+    pub name: String,
+    pub addr: String,
+}
+
+/// EasyTier room credentials for a realm. All members of a realm get the SAME
+/// `network_name` + `network_secret`, so they land on one virtual LAN; the
+/// secret is derived from the server's AUTH_SECRET (never guessable by non-members,
+/// and the endpoint is membership-gated). `nodes` lists the external nodes to try.
+#[derive(Serialize, Clone)]
+pub struct LobbyCreds {
+    pub network_name: String,
+    pub network_secret: String,
+    pub nodes: Vec<LobbyNode>,
+}
+
+/// Derive a stable, unguessable network secret for a realm from the server secret.
+fn lobby_secret(realm_id: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let server_secret =
+        std::env::var("AUTH_SECRET").unwrap_or_else(|_| "dev-only-insecure-secret-change-me-0123456789".to_string());
+    let mut h = Sha256::new();
+    h.update(server_secret.as_bytes());
+    h.update(b":lobby:");
+    h.update(realm_id.as_bytes());
+    let digest = h.finalize();
+    digest.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// `GET /v1/realms/{id}/lobby` — EasyTier room credentials for a member.
+/// Members only (403 if not a member). The P2P node + (optional) our hosted relay
+/// come from env: `MC_LOBBY_P2P_NODE` (default EasyTier public), `MC_LOBBY_RELAY`.
+pub async fn lobby(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<LobbyCreds>, StatusCode> {
+    let user = require_user(&s.pool, &headers).await?;
+    // Membership gate: summary_for returns None when the user isn't a member.
+    if s.realms.summary_for(&id, &user).await.map_err(ise)?.is_none() {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let mut nodes = Vec::new();
+    let p2p = std::env::var("MC_LOBBY_P2P_NODE")
+        .unwrap_or_else(|_| "tcp://public.easytier.cn:11010".to_string());
+    if !p2p.trim().is_empty() {
+        nodes.push(LobbyNode { kind: "p2p".into(), name: "EasyTier Public".into(), addr: p2p });
+    }
+    if let Ok(relay) = std::env::var("MC_LOBBY_RELAY") {
+        if !relay.trim().is_empty() {
+            nodes.push(LobbyNode { kind: "hosted".into(), name: "kobeMC Relay".into(), addr: relay });
+        }
+    }
+    Ok(Json(LobbyCreds {
+        network_name: format!("kobe-{id}"),
+        network_secret: lobby_secret(&id),
+        nodes,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
