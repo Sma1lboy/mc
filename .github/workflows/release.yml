@@ -1,7 +1,7 @@
 name: Release
 
 # Push a tag like `v0.1.0` (use scripts/release.sh) to build platform bundles
-# and publish them to a DRAFT GitHub Release for review.
+# and publish them directly to a GitHub Release (never a draft; see releaseDraft below).
 on:
   push:
     tags:
