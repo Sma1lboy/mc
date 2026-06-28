@@ -46,6 +46,18 @@ impl LaunchProfile {
         p
     }
 
+    /// The id of the chain member whose `versions/<id>/` dir holds the Minecraft
+    /// jar: the member that declared `downloads.client` (the vanilla base), or the
+    /// leaf [`id`](Self::id) for a self-contained vanilla instance. The download
+    /// path ([`crate::meta::client_jar_item`]) and the classpath entry
+    /// ([`crate::launch::build_classpath`]) MUST agree on this id; routing both
+    /// through this one accessor is what keeps the "key a chain-inherited resource
+    /// by the leaf id" bug from resurfacing (the two used to hand-mirror the
+    /// `unwrap_or(&id)` fallback).
+    pub fn client_jar_id(&self) -> &str {
+        self.client_jar_id.as_deref().unwrap_or(&self.id)
+    }
+
     /// 按**显式组件列表顺序**合并(MultiMC/Prism 组件模型),复用与 [`from_chain`]
     /// 完全相同的合并逻辑([`merge_one`]),只把排序来源从父指针换成列表顺序。
     ///
@@ -159,6 +171,15 @@ mod tests {
         assert_eq!(p.id, "Fabulously Optimized");
         assert_eq!(p.client_jar_id.as_deref(), Some("26.2"));
         assert!(p.client_download.is_some());
+        // The accessor both the classpath read and the download write go through
+        // resolves to the base, NOT the leaf stub whose dir holds no jar.
+        assert_eq!(p.client_jar_id(), "26.2");
+
+        // When no chain member declared downloads.client the field stays None and
+        // the accessor falls back to the leaf id (exercises `unwrap_or(&self.id)`).
+        let no_client = LaunchProfile::from_chain(&[vj(r#"{"id":"1.20.1","libraries":[]}"#)]);
+        assert!(no_client.client_jar_id.is_none());
+        assert_eq!(no_client.client_jar_id(), "1.20.1");
     }
 
     #[test]

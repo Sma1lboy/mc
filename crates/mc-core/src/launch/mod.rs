@@ -77,9 +77,9 @@ pub fn build_classpath(profile: &LaunchProfile, paths: &GamePaths, ctx: &Runtime
     }
     // The Minecraft jar lives under the version that declared `downloads.client`
     // (the vanilla base), not the leaf id — a modpack/loader stub's own dir holds
-    // no jar. Falling back to `id` covers self-contained vanilla instances.
-    let jar_id = profile.client_jar_id.as_deref().unwrap_or(&profile.id);
-    jars.push(paths.version_jar(jar_id).to_string_lossy().into_owned());
+    // no jar. `client_jar_id()` owns that fallback so this read and the download
+    // write (`meta::client_jar_item`) can't drift apart.
+    jars.push(paths.version_jar(profile.client_jar_id()).to_string_lossy().into_owned());
     jars
 }
 

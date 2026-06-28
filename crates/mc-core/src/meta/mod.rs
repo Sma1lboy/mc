@@ -224,11 +224,10 @@ pub fn library_download_items(
 pub fn client_jar_item(profile: &LaunchProfile, paths: &GamePaths) -> Option<DownloadItem> {
     let art = profile.client_download.as_ref()?;
     // Store the jar under the version that owns `downloads.client` (vanilla base),
-    // matching where `build_classpath` looks for it. See LaunchProfile::client_jar_id.
-    let jar_id = profile.client_jar_id.as_deref().unwrap_or(&profile.id);
+    // matching where `build_classpath` looks for it — both via the one accessor.
     Some(DownloadItem {
         url: art.url.clone(),
-        path: paths.version_jar(jar_id),
+        path: paths.version_jar(profile.client_jar_id()),
         sha1: art.sha1.clone(),
         size: art.size,
         ..Default::default()
