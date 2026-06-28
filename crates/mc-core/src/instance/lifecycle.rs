@@ -145,40 +145,13 @@ pub fn set_instance_realm(
 /// 由展示名推一个文件系统安全、且当前 root 下唯一的实例 id(= 目录名)。
 fn unique_instance_id(paths: &GamePaths, name: &str) -> String {
     let base = slugify_instance_id(name);
-    if !paths.version_dir(&base).exists() {
-        return base;
-    }
-    (2u32..)
-        .map(|n| format!("{base}-{n}"))
-        .find(|cand| !paths.version_dir(cand).exists())
-        .unwrap_or(base)
+    crate::fs::unique_name(&base, |cand| paths.version_dir(cand).exists())
 }
 
-/// 把展示名化简成目录名:路径分隔符/保留字/控制字符与空白归一为 `-`,收尾去掉首尾 `-`。
-/// **保留 unicode**(中文名可直接作目录名);空结果回退 `instance`。
+/// 把展示名化简成目录名(保留 unicode,空回退 `instance`)。规则与世界文件夹共用
+/// [`crate::fs::slugify`] 这一份 owner。
 fn slugify_instance_id(name: &str) -> String {
-    let mut out = String::with_capacity(name.len());
-    let mut prev_dash = false;
-    for ch in name.trim().chars() {
-        let bad = ch.is_whitespace()
-            || ch.is_control()
-            || matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|');
-        if bad {
-            if !prev_dash && !out.is_empty() {
-                out.push('-');
-                prev_dash = true;
-            }
-        } else {
-            out.push(ch);
-            prev_dash = false;
-        }
-    }
-    let s = out.trim_matches('-').to_string();
-    if s.is_empty() {
-        "instance".to_string()
-    } else {
-        s
-    }
+    crate::fs::slugify(name, "instance")
 }
 
 // ===========================================================================

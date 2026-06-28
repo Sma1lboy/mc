@@ -51,6 +51,51 @@ pub fn sanitize_filename(input: &str, replacement: char) -> String {
     result
 }
 
+/// 把展示名清洗成一个文件系统安全的**目录**名:路径分隔符 / 保留字 / 控制符 / 空白都
+/// 归一为单个 `-`,去掉首尾 `-`;**保留 unicode**(中文名可直接作目录名)。空结果回退
+/// `fallback`。这是「展示名 → 安全目录名」的唯一 owner——实例 id 与世界文件夹共用同一套
+/// 规则(此前两处逐字符重复,只差回退串)。
+///
+/// 注意与 [`sanitize_filename`] 的分工:那个面向**任意文件名**(可配替换字符、处理 Windows
+/// 保留设备名与尾随点),这个面向**目录名**(空白折叠成 `-`、保留 unicode、可配空回退)。
+pub fn slugify(name: &str, fallback: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    let mut prev_dash = false;
+    for ch in name.trim().chars() {
+        let bad = ch.is_whitespace()
+            || ch.is_control()
+            || matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|');
+        if bad {
+            if !prev_dash && !out.is_empty() {
+                out.push('-');
+                prev_dash = true;
+            }
+        } else {
+            out.push(ch);
+            prev_dash = false;
+        }
+    }
+    let s = out.trim_matches('-').to_string();
+    if s.is_empty() {
+        fallback.to_string()
+    } else {
+        s
+    }
+}
+
+/// 给 `base` 找一个不冲突的名字:`base` 本身可用(`exists` 为 false)就用它,否则依次试
+/// `base-2`/`base-3`… 直到不冲突。`exists` 抽象掉「在哪检查冲突」——实例目录用
+/// `version_dir(c).exists()`,世界文件夹用 `saves.join(c).exists()`,共用同一套后缀逻辑。
+pub fn unique_name(base: &str, mut exists: impl FnMut(&str) -> bool) -> String {
+    if !exists(base) {
+        return base.to_string();
+    }
+    (2u32..)
+        .map(|n| format!("{base}-{n}"))
+        .find(|cand| !exists(cand))
+        .unwrap_or_else(|| base.to_string())
+}
+
 /// Build a unique directory name for `name` inside `parent`, sanitising and then
 /// appending `-2`, `-3`, … if a folder with that name already exists.
 ///
@@ -403,6 +448,27 @@ mod tests {
         assert_eq!(sanitize_filename("CON", '-'), "CON_");
         assert_eq!(sanitize_filename("nul.txt", '-'), "nul.txt_");
         assert_eq!(sanitize_filename("", '-'), "-");
+    }
+
+    #[test]
+    fn slugify_collapses_whitespace_keeps_unicode_and_falls_back() {
+        // Whitespace / illegal chars collapse to single dashes; ends trimmed.
+        assert_eq!(slugify("  My Cool / Pack  ", "x"), "My-Cool-Pack");
+        // Unicode is preserved (a Chinese name is a valid dir name).
+        assert_eq!(slugify("我的世界", "x"), "我的世界");
+        // Empty/garbage falls back to the caller-chosen default.
+        assert_eq!(slugify("   ///   ", "instance"), "instance");
+        assert_eq!(slugify("", "World"), "World");
+    }
+
+    #[test]
+    fn unique_name_suffixes_only_on_collision() {
+        let taken = ["pack", "pack-2"];
+        let exists = |c: &str| taken.contains(&c);
+        // Free name is used verbatim.
+        assert_eq!(unique_name("fresh", exists), "fresh");
+        // First free suffix wins, skipping taken ones.
+        assert_eq!(unique_name("pack", exists), "pack-3");
     }
 
     #[test]

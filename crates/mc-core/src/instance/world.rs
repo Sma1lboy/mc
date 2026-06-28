@@ -395,38 +395,15 @@ pub fn import_world_zip(inst: &Instance, source: &Path) -> Result<String> {
     Ok(folder)
 }
 
-/// 把任意字符串清洗成文件系统安全的世界文件夹名:路径分隔符/保留字/控制符与空白归一为
-/// `-`,去首尾 `-`;空结果回退 `World`。保留 unicode(中文世界名可直接作目录名)。
+/// 把任意字符串清洗成文件系统安全的世界文件夹名(保留 unicode,空回退 `World`)。规则与
+/// 实例 id 共用 [`crate::fs::slugify`] 这一份 owner。
 fn sanitize_world_folder(name: &str) -> String {
-    let mut out = String::with_capacity(name.len());
-    let mut prev_dash = false;
-    for ch in name.trim().chars() {
-        let bad = ch.is_whitespace()
-            || ch.is_control()
-            || matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|');
-        if bad {
-            if !prev_dash && !out.is_empty() {
-                out.push('-');
-                prev_dash = true;
-            }
-        } else {
-            out.push(ch);
-            prev_dash = false;
-        }
-    }
-    let s = out.trim_matches('-').to_string();
-    if s.is_empty() { "World".to_string() } else { s }
+    crate::fs::slugify(name, "World")
 }
 
 /// 在 `saves` 下为 `base` 找一个不冲突的文件夹名(冲突则追加 `-2`/`-3`…)。
 fn unique_world_folder(saves: &Path, base: &str) -> String {
-    if !saves.join(base).exists() {
-        return base.to_string();
-    }
-    (2u32..)
-        .map(|n| format!("{base}-{n}"))
-        .find(|cand| !saves.join(cand).exists())
-        .unwrap_or_else(|| base.to_string())
+    crate::fs::unique_name(base, |cand| saves.join(cand).exists())
 }
 
 #[cfg(test)]
