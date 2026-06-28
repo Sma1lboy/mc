@@ -219,8 +219,7 @@ pub async fn create_instance(
         None | Some(mc_core::types::LoaderKind::Vanilla) => None,
         Some(kind) => Some((kind, loader_version.unwrap_or_default())),
     };
-    let (tx, rx) = watch::channel(Progress::new("准备"));
-    forward_progress(app, "install://progress", rx);
+    let tx = progress_channel(app, "install://progress", "准备");
     // 新实例的默认内存/Java 取自全局设置,让设置页的「默认内存 / Java 路径」真正生效。
     let g = settings_global();
     mc_core::instance::lifecycle::create_instance(
@@ -259,8 +258,7 @@ pub async fn install_loader(
         }
         Some(kind) => kind,
     };
-    let (tx, rx) = watch::channel(Progress::new("准备"));
-    forward_progress(app, "install://progress", rx);
+    let tx = progress_channel(app, "install://progress", "准备");
     mc_core::instance::lifecycle::add_loader(
         &dl,
         &paths,
@@ -1260,6 +1258,15 @@ fn forward_progress(app: AppHandle, event: &'static str, mut rx: watch::Receiver
     });
 }
 
+/// Open a progress channel wired to a Tauri `event` and return just the sender to
+/// hand to an mc-core operation. One owner for the `watch::channel(...)` +
+/// `forward_progress(...)` pair every long-running command used to spell out.
+fn progress_channel(app: AppHandle, event: &'static str, initial: &str) -> watch::Sender<Progress> {
+    let (tx, rx) = watch::channel(Progress::new(initial));
+    forward_progress(app, event, rx);
+    tx
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn install_version(app: AppHandle, root: String, id: String) -> CmdResult<()> {
@@ -1271,8 +1278,7 @@ pub async fn install_version(app: AppHandle, root: String, id: String) -> CmdRes
         .find(|v| v.id == id)
         .ok_or_else(|| format!("版本 {id} 不在清单中"))?;
 
-    let (tx, rx) = watch::channel(Progress::new("准备"));
-    forward_progress(app, "install://progress", rx);
+    let tx = progress_channel(app, "install://progress", "准备");
     launch::install_version(&dl, &paths, &entry, Some(tx))
         .await
         .map_err(err)
@@ -1379,8 +1385,7 @@ pub async fn launch_instance(
         server_override: server,
     };
 
-    let (tx, rx) = watch::channel(Progress::new("准备"));
-    forward_progress(app.clone(), "launch://progress", rx);
+    let tx = progress_channel(app.clone(), "launch://progress", "准备");
 
     let mut child = launch::launch(spec, &dl, Some(tx)).await.map_err(err)?;
 
@@ -1886,8 +1891,7 @@ pub async fn realm_begin(
     let inst = instance_of(&root, &instance_id);
     let manifest = client.realm_manifest(&realm_id).await.map_err(err)?;
     let dl = make_downloader()?;
-    let (tx, rx) = watch::channel(Progress::new("准备"));
-    forward_progress(app, "realm://sync-progress", rx);
+    let tx = progress_channel(app, "realm://sync-progress", "准备");
 
     // 1) install the core (version + loader) — idempotent.
     let mc_version = manifest.mc_version.clone().unwrap_or_default();
@@ -2034,8 +2038,7 @@ pub async fn realm_sync(
     let plan = mc_core::realm::plan_sync(&inst, &manifest);
 
     let dl = make_downloader()?;
-    let (tx, rx) = watch::channel(Progress::new("同步领域"));
-    forward_progress(app, "realm://sync-progress", rx);
+    let tx = progress_channel(app, "realm://sync-progress", "同步领域");
     let report = mc_core::realm::apply_sync(&inst, &dl, &plan, remove_extras, Some(tx)).await.map_err(err)?;
 
     // Extract the overrides blob (config/scripts/icon/non-CDN content), if any.
@@ -2300,8 +2303,7 @@ pub async fn import_modpack(
     let mut opts = ImportOptions::new(paths.root().to_path_buf());
     opts.instance_id = instance_id;
 
-    let (tx, rx) = watch::channel(Progress::new("准备"));
-    forward_progress(app, "install://progress", rx);
+    let tx = progress_channel(app, "install://progress", "准备");
     let outcome = engine
         .import_with_progress(ImportSource::LocalFile(PathBuf::from(path)), opts, Some(tx))
         .await
@@ -2446,8 +2448,7 @@ pub async fn install_modrinth_modpack(
         project_id: project_id.clone(),
         version_id: Some(version_id),
     });
-    let (tx, rx) = watch::channel(Progress::new("准备"));
-    forward_progress(app, "install://progress", rx);
+    let tx = progress_channel(app, "install://progress", "准备");
     let outcome = engine
         .import_with_progress(ImportSource::Url(url), opts, Some(tx))
         .await
@@ -2617,8 +2618,7 @@ pub async fn apply_modpack_update(
 
     let engine = ImportEngine::with_defaults(make_downloader()?, make_registry());
     let index_dl = make_downloader()?;
-    let (tx, rx) = watch::channel(Progress::new("准备更新"));
-    forward_progress(app, "install://progress", rx);
+    let tx = progress_channel(app, "install://progress", "准备更新");
     let outcome = mc_core::modpack::update::apply_modpack_update(
         &engine,
         &index_dl,
@@ -2682,8 +2682,7 @@ pub async fn install_modpack_url(
     let engine = ImportEngine::with_defaults(dl, make_registry());
     let mut opts = ImportOptions::new(paths.root().to_path_buf());
     opts.instance_id = instance_id;
-    let (tx, rx) = watch::channel(Progress::new("准备"));
-    forward_progress(app, "install://progress", rx);
+    let tx = progress_channel(app, "install://progress", "准备");
     let outcome = engine
         .import_with_progress(ImportSource::Url(url), opts, Some(tx))
         .await
@@ -2782,8 +2781,7 @@ pub async fn install_modpack(
         project_id: project,
         version_id: Some(version_id),
     });
-    let (tx, rx) = watch::channel(Progress::new("准备"));
-    forward_progress(app, "install://progress", rx);
+    let tx = progress_channel(app, "install://progress", "准备");
     let outcome = engine
         .import_with_progress(ImportSource::Url(url), opts, Some(tx))
         .await
