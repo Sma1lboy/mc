@@ -230,6 +230,35 @@ fn unique_loader_instance_id(paths: &GamePaths, instance_id: &str, loader: Loade
     unique_instance_id(paths, &base)
 }
 
+/// 把版本目录 `versions/<new_id>/` 里仍沿用 `old_id` 命名的 id-绑定文件改名到 `new_id`:
+/// 版本 json(`<old_id>.json` → `<new_id>.json`,内部 `"id"` 字段同步改写)与客户端 jar
+/// (`<old_id>.jar` → `<new_id>.jar`,内容与 id 无关只改文件名)。复制([`copy_instance`])
+/// 与移动([`rename_instance_dir`])的收尾都走它,保证两条路径对「id-绑定文件」的处理一致——
+/// 这是「给一个版本目录里的 id-绑定文件改名」的唯一 owner。
+fn reid_version_files(paths: &GamePaths, old_id: &str, new_id: &str) -> Result<()> {
+    let dir = paths.version_dir(new_id);
+
+    // 版本 json:改写内部 id,落到新名文件,删掉沿用旧名的那份。
+    let old_json = dir.join(format!("{old_id}.json"));
+    let new_json = paths.version_json(new_id);
+    if old_json.is_file() {
+        let raw = std::fs::read_to_string(&old_json).with_path(&old_json)?;
+        let rewritten = rewrite_version_id(&raw, new_id)?;
+        crate::fs::write_atomic(&new_json, rewritten.as_bytes())?;
+        if old_json != new_json {
+            std::fs::remove_file(&old_json).with_path(&old_json)?;
+        }
+    }
+
+    // 客户端 jar:仅改名(内容与 id 无关)。
+    let old_jar = dir.join(format!("{old_id}.jar"));
+    let new_jar = paths.version_jar(new_id);
+    if old_jar.is_file() && old_jar != new_jar {
+        std::fs::rename(&old_jar, &new_jar).with_path(&old_jar)?;
+    }
+    Ok(())
+}
+
 /// 把版本目录 `versions/<old_id>/` 整体改名为 `versions/<new_id>/`,并把目录内随 id 命名的
 /// `<old_id>.json` / `<old_id>.jar` 一并改名为 `<new_id>.*`(json 内部 `id` 字段同步改写)。
 ///
@@ -245,26 +274,8 @@ fn rename_instance_dir(paths: &GamePaths, old_id: &str, new_id: &str) -> Result<
     // 1) 整目录改名。
     std::fs::rename(&old_dir, &new_dir).with_path(&old_dir)?;
 
-    // 2) 目录内随旧 id 命名的版本 json 改名并改写内部 id。改名后磁盘上是
-    //    versions/<new_id>/<old_id>.json(内容里 id 仍是 old_id)。
-    let moved_old_json = new_dir.join(format!("{old_id}.json"));
-    let new_json = paths.version_json(new_id);
-    if moved_old_json.is_file() {
-        let raw = std::fs::read_to_string(&moved_old_json).with_path(&moved_old_json)?;
-        let rewritten = rewrite_version_id(&raw, new_id)?;
-        crate::fs::write_atomic(&new_json, rewritten.as_bytes())?;
-        if moved_old_json != new_json {
-            std::fs::remove_file(&moved_old_json).with_path(&moved_old_json)?;
-        }
-    }
-
-    // 3) 客户端 jar 随 id 改名(内容与 id 无关,仅文件名需匹配)。
-    let moved_old_jar = new_dir.join(format!("{old_id}.jar"));
-    let new_jar = paths.version_jar(new_id);
-    if moved_old_jar.is_file() && moved_old_jar != new_jar {
-        std::fs::rename(&moved_old_jar, &new_jar).with_path(&moved_old_jar)?;
-    }
-    Ok(())
+    // 2) 目录内随旧 id 命名的 json / jar 改名并改写内部 id(与 copy_instance 共用 owner)。
+    reid_version_files(paths, old_id, new_id)
 }
 
 /// 把实例存根版本 json 重写为最小的 `{ id, inheritsFrom: core_id }`(原子写)。
@@ -315,26 +326,9 @@ pub fn copy_instance(paths: &GamePaths, src_id: &str, new_id: &str) -> Result<()
     // 1) 整目录递归复制(含 mods/saves/config/resourcepacks/instance.json 等)。
     crate::fs::copy_dir(&src_dir, &dst_dir)?;
 
-    // 2) 改写版本 json:把内部 id 改成 new_id 并落到新名文件,删掉沿用旧名的那份。
-    //    复制后此刻磁盘上是 versions/<new_id>/<src_id>.json(内容里 id 仍是 src_id)。
-    let copied_old_json = dst_dir.join(format!("{src_id}.json"));
-    let new_json = paths.version_json(new_id);
-    let raw = std::fs::read_to_string(&copied_old_json).with_path(&copied_old_json)?;
-    let rewritten = rewrite_version_id(&raw, new_id)?;
-    crate::fs::write_atomic(&new_json, rewritten.as_bytes())?;
-    // 删除旧名 json(若新旧同名则上一步已覆盖,无需也不会误删)。
-    if copied_old_json != new_json {
-        std::fs::remove_file(&copied_old_json).with_path(&copied_old_json)?;
-    }
-
-    // 3) 客户端 jar 随 id 改名(jar 内容与 id 无关,仅文件名需匹配 <new_id>.jar)。
-    let copied_old_jar = dst_dir.join(format!("{src_id}.jar"));
-    let new_jar = paths.version_jar(new_id);
-    if copied_old_jar.is_file() && copied_old_jar != new_jar {
-        std::fs::rename(&copied_old_jar, &new_jar).with_path(&copied_old_jar)?;
-    }
-
-    Ok(())
+    // 2) 复制出的目录里跟 id 绑定的 json / jar 改名并改写内部 id(与 rename_instance_dir
+    //    共用 owner)。复制后磁盘上是 versions/<new_id>/<src_id>.*。
+    reid_version_files(paths, src_id, new_id)
 }
 
 /// 按展示名把实例 `src_id` 复制为一个新实例:由 `new_name` 推出唯一安全的目录 id,
