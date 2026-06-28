@@ -8,8 +8,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 use mc_core::auth::{
-    self, offline_session, now_unix, AccountStore, MsaClient, StoredAccount, YggdrasilClient,
-    MC_TOKEN_TTL_SECS,
+    self, offline_session, AccountStore, MsaClient, StoredAccount, YggdrasilClient,
 };
 use mc_core::download::{Downloader, MirrorResolver};
 use mc_core::instance::Instance;
@@ -858,19 +857,7 @@ async fn cmd_login() -> Result<()> {
     let session = client.authenticate(&token.access_token).await?;
 
     let mut store = AccountStore::load(data_dir().join("accounts.json"))?;
-    store.add_and_select(StoredAccount {
-        kind: AccountKind::Microsoft,
-        username: session.username.clone(),
-        uuid: session.uuid.clone(),
-        access_token: session.access_token.clone(),
-        refresh_token: Some(token.refresh_token.clone()),
-        xuid: session.xuid.clone(),
-        user_type: session.user_type.clone(),
-        owns_game: true,
-        expires_at: Some(now_unix() + MC_TOKEN_TTL_SECS),
-        client_token: None,
-        yggdrasil_base: None,
-    })?;
+    store.add_and_select(StoredAccount::from_microsoft(&session, token.refresh_token.clone()))?;
     println!("\n✓ 登录成功:{} ({})", session.username, session.uuid);
     Ok(())
 }
@@ -883,19 +870,7 @@ fn cmd_login_offline(name: &str) -> Result<()> {
     }
     let session = offline_session(name);
     let mut store = AccountStore::load(data_dir().join("accounts.json"))?;
-    store.add_and_select(StoredAccount {
-        kind: AccountKind::Offline,
-        username: session.username.clone(),
-        uuid: session.uuid.clone(),
-        access_token: session.access_token,
-        refresh_token: None,
-        xuid: session.xuid,
-        user_type: session.user_type,
-        owns_game: false,
-        expires_at: None,
-        client_token: None,
-        yggdrasil_base: None,
-    })?;
+    store.add_and_select(StoredAccount::from_offline(&session))?;
     println!("✓ 已添加离线账号:{} ({})", session.username, session.uuid);
     Ok(())
 }
@@ -911,19 +886,7 @@ async fn cmd_login_yggdrasil(base: &str, username: &str, password: &str) -> Resu
     println!("在 {} 外置登录 {} …", client.base(), username.trim());
     let session = client.authenticate(username.trim(), password).await?;
     let mut store = AccountStore::load(data_dir().join("accounts.json"))?;
-    store.add_and_select(StoredAccount {
-        kind: AccountKind::Yggdrasil,
-        username: session.username.clone(),
-        uuid: session.uuid.clone(),
-        access_token: session.access_token,
-        refresh_token: None,
-        xuid: String::new(),
-        user_type: "msa".to_string(),
-        owns_game: true,
-        expires_at: None,
-        client_token: Some(session.client_token),
-        yggdrasil_base: Some(client.base().to_string()),
-    })?;
+    store.add_and_select(StoredAccount::from_yggdrasil(&session, client.base().to_string()))?;
     println!("\n✓ 外置登录成功:{} ({})", session.username, session.uuid);
     Ok(())
 }

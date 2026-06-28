@@ -972,20 +972,7 @@ pub async fn msa_login_poll(device_code: String, interval: u64) -> CmdResult<Acc
     let client = msa_client();
     let token = client.poll_token(&device_code, interval).await.map_err(err)?;
     let session = client.authenticate(&token.access_token).await.map_err(err)?;
-    store_and_select(StoredAccount {
-        kind: AccountKind::Microsoft,
-        username: session.username,
-        uuid: session.uuid,
-        access_token: session.access_token,
-        refresh_token: Some(token.refresh_token),
-        xuid: session.xuid,
-        user_type: session.user_type,
-        owns_game: true,
-        // Minecraft access token 约 24h 有效;到期前用 refresh_token 自动续期。
-        expires_at: Some(mc_core::auth::now_unix() + 86_400),
-        client_token: None,
-        yggdrasil_base: None,
-    })
+    store_and_select(StoredAccount::from_microsoft(&session, token.refresh_token))
 }
 
 /// Add (or update) an offline account from a username and select it.
@@ -997,19 +984,7 @@ pub fn add_offline_account(name: String) -> CmdResult<AccountSummary> {
         return Err("用户名不能为空".to_string());
     }
     let session = auth::offline_session(name);
-    store_and_select(StoredAccount {
-        kind: AccountKind::Offline,
-        username: session.username,
-        uuid: session.uuid,
-        access_token: session.access_token,
-        refresh_token: None,
-        xuid: session.xuid,
-        user_type: session.user_type,
-        owns_game: false,
-        expires_at: None,
-        client_token: None,
-        yggdrasil_base: None,
-    })
+    store_and_select(StoredAccount::from_offline(&session))
 }
 
 /// 外置登录(Yggdrasil / authlib-injector):用 base + 用户名 + 密码登录第三方皮肤站,
@@ -1028,20 +1003,7 @@ pub async fn yggdrasil_login(
     }
     let client = YggdrasilClient::new(base).with_http(make_downloader()?.client().clone());
     let session = client.authenticate(username.trim(), &password).await.map_err(err)?;
-    store_and_select(StoredAccount {
-        kind: AccountKind::Yggdrasil,
-        username: session.username,
-        uuid: session.uuid,
-        access_token: session.access_token,
-        refresh_token: None,
-        xuid: String::new(),
-        user_type: "msa".to_string(),
-        owns_game: true,
-        // 外置登录 token 由皮肤站签发,这里不预判过期;启动前若失效会被皮肤站拒绝。
-        expires_at: None,
-        client_token: Some(session.client_token),
-        yggdrasil_base: Some(client.base().to_string()),
-    })
+    store_and_select(StoredAccount::from_yggdrasil(&session, client.base().to_string()))
 }
 
 /// Switch the active account.

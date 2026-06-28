@@ -21,6 +21,8 @@ use mc_types::{AccountKind, AccountSummary, AuthSession};
 use serde::{Deserialize, Serialize};
 
 use super::secret;
+use super::yggdrasil::YggdrasilSession;
+use super::MC_TOKEN_TTL_SECS;
 use crate::error::{CoreError, IoResultExt, Result};
 
 /// 单个持久化账号。涵盖三种账号类型的全部字段(按需填充)。
@@ -60,6 +62,61 @@ pub struct StoredAccount {
 }
 
 impl StoredAccount {
+    /// 由微软登录结果构造一个可落库的微软账号。`expires_at` 统一用 [`MC_TOKEN_TTL_SECS`]
+    /// 计算 —— 这是「AuthSession → 微软 StoredAccount」的唯一 owner,desktop 与 CLI 共用,
+    /// 不再各处手抄字段、更不会再出现把 TTL 写成 `86_400` 字面量的漂移。
+    pub fn from_microsoft(session: &AuthSession, refresh_token: String) -> Self {
+        Self {
+            kind: AccountKind::Microsoft,
+            username: session.username.clone(),
+            uuid: session.uuid.clone(),
+            access_token: session.access_token.clone(),
+            refresh_token: Some(refresh_token),
+            xuid: session.xuid.clone(),
+            user_type: session.user_type.clone(),
+            owns_game: true,
+            expires_at: Some(now_unix() + MC_TOKEN_TTL_SECS),
+            client_token: None,
+            yggdrasil_base: None,
+        }
+    }
+
+    /// 由离线 session 构造离线账号(无 token 续期、不预判过期、不拥有正版)。
+    pub fn from_offline(session: &AuthSession) -> Self {
+        Self {
+            kind: AccountKind::Offline,
+            username: session.username.clone(),
+            uuid: session.uuid.clone(),
+            access_token: session.access_token.clone(),
+            refresh_token: None,
+            xuid: session.xuid.clone(),
+            user_type: session.user_type.clone(),
+            owns_game: false,
+            expires_at: None,
+            client_token: None,
+            yggdrasil_base: None,
+        }
+    }
+
+    /// 由外置(Yggdrasil)登录结果 + authserver `base` 构造外置账号:持久化 `client_token`
+    /// (续期所需)与 `base`(启动时注入 authlib-injector 所需)。token 由皮肤站签发,
+    /// 这里不预判过期。
+    pub fn from_yggdrasil(session: &YggdrasilSession, base: String) -> Self {
+        Self {
+            kind: AccountKind::Yggdrasil,
+            username: session.username.clone(),
+            uuid: session.uuid.clone(),
+            access_token: session.access_token.clone(),
+            refresh_token: None,
+            xuid: String::new(),
+            user_type: "msa".to_string(),
+            owns_game: true,
+            expires_at: None,
+            client_token: Some(session.client_token.clone()),
+            yggdrasil_base: Some(base),
+        }
+    }
+
     /// 从本账号构造启动用的 [`AuthSession`]。
     pub fn to_session(&self) -> AuthSession {
         AuthSession {
