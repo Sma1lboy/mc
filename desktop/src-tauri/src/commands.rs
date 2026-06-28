@@ -2326,18 +2326,9 @@ pub async fn import_modpack(
 }
 
 /// 把字符串解析成 loader 家族(导出时把 loader 依赖写进索引)。
+/// 走权威逆函数 [`LoaderKind::from_family`],与其余解析点同一份真相。
 fn parse_loader_kind(s: &str) -> Option<mc_core::types::LoaderKind> {
-    use mc_core::types::LoaderKind;
-    Some(match s.to_ascii_lowercase().as_str() {
-        "forge" => LoaderKind::Forge,
-        "neoforge" => LoaderKind::NeoForge,
-        "fabric" => LoaderKind::Fabric,
-        "quilt" => LoaderKind::Quilt,
-        "liteloader" => LoaderKind::LiteLoader,
-        "optifine" => LoaderKind::OptiFine,
-        "vanilla" => LoaderKind::Vanilla,
-        _ => return None,
-    })
+    mc_core::types::LoaderKind::from_family(s)
 }
 
 /// 把实例导出为整合包。`target` ∈ `modrinth` | `curseforge` | `modlist`

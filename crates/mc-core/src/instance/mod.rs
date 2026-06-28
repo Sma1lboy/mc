@@ -471,14 +471,10 @@ pub fn list_instances(paths: &GamePaths) -> Vec<InstanceSummary> {
 }
 
 /// 领域薄存根的 loader 字符串 → [`LoaderKind`](mc_types::LoaderKind)(未知 / 缺省视作原版)。
+/// 走权威逆函数 [`LoaderKind::from_family`],所以 liteloader / optifine 也能正确归桶
+/// (旧的手写 match 漏了它们,会把这些领域误判成原版)。
 fn loader_kind_from_str(s: Option<&str>) -> LoaderKind {
-    match s.unwrap_or("").to_ascii_lowercase().as_str() {
-        "fabric" => LoaderKind::Fabric,
-        "quilt" => LoaderKind::Quilt,
-        "forge" => LoaderKind::Forge,
-        "neoforge" => LoaderKind::NeoForge,
-        _ => LoaderKind::Vanilla,
-    }
+    s.and_then(LoaderKind::from_family).unwrap_or(LoaderKind::Vanilla)
 }
 
 #[cfg(test)]
@@ -486,6 +482,18 @@ mod tests {
     use super::*;
     use std::fs;
     use std::path::PathBuf;
+
+    #[test]
+    fn realm_loader_kind_buckets_every_family_not_just_the_old_four() {
+        // Regression: the hand-written match dropped liteloader/optifine into the
+        // Vanilla bucket. Routing through LoaderKind::from_family fixes that.
+        assert_eq!(loader_kind_from_str(Some("liteloader")), LoaderKind::LiteLoader);
+        assert_eq!(loader_kind_from_str(Some("optifine")), LoaderKind::OptiFine);
+        assert_eq!(loader_kind_from_str(Some("NeoForge")), LoaderKind::NeoForge);
+        // Unknown / absent still defaults to Vanilla (a realm stub need not name one).
+        assert_eq!(loader_kind_from_str(Some("rift")), LoaderKind::Vanilla);
+        assert_eq!(loader_kind_from_str(None), LoaderKind::Vanilla);
+    }
 
     /// 在临时目录里搭一个假的 game root,测试结束自动清理。
     struct TempRoot {

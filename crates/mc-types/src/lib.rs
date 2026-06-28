@@ -120,6 +120,25 @@ impl LoaderKind {
             LoaderKind::OptiFine => "optifine",
         }
     }
+
+    /// The exact inverse of [`as_str`](Self::as_str): parse a loader-family name
+    /// (case-insensitive, surrounding whitespace ignored) back into a `LoaderKind`,
+    /// or `None` if it isn't a known family. This is THE one owner of "family string
+    /// → kind"; every parser (realm stubs, modpack import, export commands) routes
+    /// through it instead of re-listing the arms and drifting (e.g. silently
+    /// dropping `liteloader`/`optifine` into a Vanilla bucket).
+    pub fn from_family(s: &str) -> Option<LoaderKind> {
+        Some(match s.trim().to_ascii_lowercase().as_str() {
+            "vanilla" => LoaderKind::Vanilla,
+            "forge" => LoaderKind::Forge,
+            "neoforge" => LoaderKind::NeoForge,
+            "fabric" => LoaderKind::Fabric,
+            "quilt" => LoaderKind::Quilt,
+            "liteloader" => LoaderKind::LiteLoader,
+            "optifine" => LoaderKind::OptiFine,
+            _ => return None,
+        })
+    }
 }
 
 /// The release channel of a Minecraft version.
@@ -224,5 +243,28 @@ impl Default for ThemeConfig {
     fn default() -> Self {
         // Modrinth-ish green default, see docs/06.
         Self { mode: "dark".into(), hue: 150.0, saturation: 60.0, lightness: 45.0 }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn loader_kind_from_family_is_exact_inverse_of_as_str() {
+        use LoaderKind::*;
+        // Every variant round-trips through as_str -> from_family.
+        for k in [Vanilla, Forge, NeoForge, Fabric, Quilt, LiteLoader, OptiFine] {
+            assert_eq!(LoaderKind::from_family(k.as_str()), Some(k));
+        }
+        // Case- and whitespace-insensitive.
+        assert_eq!(LoaderKind::from_family("  NeoForge "), Some(NeoForge));
+        // liteloader/optifine were the families the realm parser used to drop into
+        // the Vanilla bucket — they must resolve to themselves now.
+        assert_eq!(LoaderKind::from_family("liteloader"), Some(LiteLoader));
+        assert_eq!(LoaderKind::from_family("optifine"), Some(OptiFine));
+        // Unknown families are None (callers decide their own default).
+        assert_eq!(LoaderKind::from_family("rift"), None);
+        assert_eq!(LoaderKind::from_family(""), None);
     }
 }

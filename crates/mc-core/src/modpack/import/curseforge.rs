@@ -156,18 +156,14 @@ fn loader_from_manifest(manifest: &FlameManifest) -> Option<(LoaderKind, String)
     loader_kind_from_family(&family).map(|kind| (kind, version))
 }
 
-/// 把 loader 家族字符串(小写)映射到 [`LoaderKind`]。CF / MCBBS 共用。
+/// 把 loader 家族字符串映射到一个**组件** [`LoaderKind`]。CF / MCBBS 共用。
 ///
-/// 未知家族 → `None`(按原版处理,而非误装错 loader)。
+/// 走权威逆函数 [`LoaderKind::from_family`],但在其上加一条领域规则:`vanilla` 不是
+/// 组件 loader,和未知家族一样返回 `None`(按原版处理,而非误装错 loader)。
 pub(crate) fn loader_kind_from_family(family: &str) -> Option<LoaderKind> {
-    match family {
-        "forge" => Some(LoaderKind::Forge),
-        "neoforge" => Some(LoaderKind::NeoForge),
-        "fabric" => Some(LoaderKind::Fabric),
-        "quilt" => Some(LoaderKind::Quilt),
-        "liteloader" => Some(LoaderKind::LiteLoader),
-        "optifine" => Some(LoaderKind::OptiFine),
-        _ => None,
+    match LoaderKind::from_family(family)? {
+        LoaderKind::Vanilla => None,
+        kind => Some(kind),
     }
 }
 
