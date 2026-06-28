@@ -168,7 +168,7 @@ pub fn reveal_path(path: String) -> CmdResult<()> {
 #[tauri::command]
 #[specta::specta]
 pub fn instance_subdir(root: String, id: String, sub: String) -> CmdResult<String> {
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     let dir = match sub.as_str() {
         "mods" => inst.mods_dir(),
         "resourcepacks" => inst.resourcepacks_dir(),
@@ -296,7 +296,7 @@ pub async fn list_loader_versions(
 #[tauri::command]
 #[specta::specta]
 pub fn get_instance_config(root: String, id: String) -> CmdResult<mc_core::instance::InstanceConfig> {
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     inst.load_config().map_err(err)
 }
 
@@ -308,7 +308,7 @@ pub fn set_instance_config(
     id: String,
     config: mc_core::instance::InstanceConfig,
 ) -> CmdResult<()> {
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     inst.save_config(&config).map_err(err)
 }
 
@@ -331,7 +331,7 @@ pub fn system_memory() -> CmdResult<SystemMemory> {
 #[tauri::command]
 #[specta::specta]
 pub async fn suggest_instance_memory(root: String, id: String) -> CmdResult<u32> {
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     let mod_count = mc_core::instance::list_mods(&inst).len();
     let total = mc_core::system::system_total_mem_mb();
     Ok(mc_core::system::suggest_memory_mb(total, mod_count))
@@ -342,7 +342,7 @@ pub async fn suggest_instance_memory(root: String, id: String) -> CmdResult<u32>
 #[tauri::command]
 #[specta::specta]
 pub fn set_instance_tags(root: String, id: String, tags: Vec<String>) -> CmdResult<()> {
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     let mut config = inst.load_config().map_err(err)?;
     let mut seen = std::collections::HashSet::new();
     config.tags = tags
@@ -358,7 +358,7 @@ pub fn set_instance_tags(root: String, id: String, tags: Vec<String>) -> CmdResu
 #[tauri::command]
 #[specta::specta]
 pub fn set_instance_icon(root: String, id: String, source: String) -> CmdResult<()> {
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     inst.set_icon(std::path::Path::new(&source)).map_err(err)
 }
 
@@ -369,7 +369,7 @@ pub fn set_instance_icon(root: String, id: String, source: String) -> CmdResult<
 #[tauri::command]
 #[specta::specta]
 pub async fn backfill_instance_icon(root: String, id: String, icon_url: String) -> CmdResult<bool> {
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     if inst.has_icon() || icon_url.trim().is_empty() {
         return Ok(false);
     }
@@ -384,7 +384,7 @@ pub async fn backfill_instance_icon(root: String, id: String, icon_url: String) 
 #[tauri::command]
 #[specta::specta]
 pub async fn instance_mods(root: String, id: String) -> CmdResult<Vec<mc_core::instance::ModInfo>> {
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     Ok(mc_core::instance::list_mods(&inst))
 }
 
@@ -392,7 +392,7 @@ pub async fn instance_mods(root: String, id: String) -> CmdResult<Vec<mc_core::i
 #[tauri::command]
 #[specta::specta]
 pub fn set_mod_enabled(root: String, id: String, file_name: String, enabled: bool) -> CmdResult<()> {
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     mc_core::instance::mods::set_mod_enabled(&inst, &file_name, enabled).map_err(err)
 }
 
@@ -400,7 +400,7 @@ pub fn set_mod_enabled(root: String, id: String, file_name: String, enabled: boo
 #[tauri::command]
 #[specta::specta]
 pub fn delete_mod(root: String, id: String, file_name: String) -> CmdResult<()> {
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     mc_core::instance::mods::delete_mod(&inst, &file_name).map_err(err)
 }
 
@@ -443,7 +443,7 @@ pub async fn install_mod(
     loader: String,
     provider: Option<String>,
 ) -> CmdResult<ModInstallReport> {
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     let dl = make_downloader()?;
     match parse_provider(provider.as_deref())? {
         mc_core::modplatform::ProviderId::Modrinth => {
@@ -535,7 +535,7 @@ pub async fn install_version_file(
     provider: Option<String>,
     project: Option<String>,
 ) -> CmdResult<VersionInstallReport> {
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     let dl = make_downloader()?;
     let w = world.as_deref();
 
@@ -631,7 +631,7 @@ pub async fn check_mod_updates(
     mc_version: String,
     loader: String,
 ) -> CmdResult<Vec<mc_core::instance::ModUpdate>> {
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     let api = ModrinthApi::new();
     mc_core::instance::check_mod_updates(&api, &inst, &mc_version, &loader)
         .await
@@ -646,7 +646,7 @@ pub async fn apply_mod_update(
     id: String,
     update: mc_core::instance::ModUpdate,
 ) -> CmdResult<()> {
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     let dl = make_downloader()?;
     mc_core::instance::apply_mod_update(&inst, &dl, &update)
         .await
@@ -665,7 +665,7 @@ pub fn import_local_resource(
     world: Option<String>,
 ) -> CmdResult<String> {
     use mc_core::instance::PackKind;
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     let src = std::path::Path::new(&path);
     let w = world.as_deref();
     match target.as_str() {
@@ -692,7 +692,7 @@ pub fn instance_packs(
     kind: mc_core::instance::PackKind,
     world: Option<String>,
 ) -> CmdResult<Vec<mc_core::instance::PackInfo>> {
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     Ok(mc_core::instance::list_packs(&inst, kind, world.as_deref()))
 }
 
@@ -707,7 +707,7 @@ pub fn set_pack_enabled(
     enabled: bool,
     world: Option<String>,
 ) -> CmdResult<()> {
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     mc_core::instance::packs::set_pack_enabled(&inst, kind, &file_name, enabled, world.as_deref())
         .map_err(err)
 }
@@ -722,7 +722,7 @@ pub fn delete_pack(
     file_name: String,
     world: Option<String>,
 ) -> CmdResult<()> {
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     mc_core::instance::packs::delete_pack(&inst, kind, &file_name, world.as_deref()).map_err(err)
 }
 
@@ -742,7 +742,7 @@ pub async fn install_pack(
     provider: Option<String>,
 ) -> CmdResult<VersionInstallReport> {
     use mc_core::instance::PackKind;
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     let dl = make_downloader()?;
     let w = world.as_deref();
     match parse_provider(provider.as_deref())? {
@@ -790,7 +790,7 @@ pub async fn instance_screenshots(
     root: String,
     id: String,
 ) -> CmdResult<Vec<mc_core::instance::ScreenshotInfo>> {
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     Ok(mc_core::instance::list_screenshots(&inst))
 }
 
@@ -798,7 +798,7 @@ pub async fn instance_screenshots(
 #[tauri::command]
 #[specta::specta]
 pub fn read_screenshot(root: String, id: String, file_name: String) -> CmdResult<String> {
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     mc_core::instance::read_screenshot(&inst, &file_name).map_err(err)
 }
 
@@ -806,7 +806,7 @@ pub fn read_screenshot(root: String, id: String, file_name: String) -> CmdResult
 #[tauri::command]
 #[specta::specta]
 pub fn delete_screenshot(root: String, id: String, file_name: String) -> CmdResult<()> {
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     mc_core::instance::screenshots::delete_screenshot(&inst, &file_name).map_err(err)
 }
 
@@ -814,7 +814,7 @@ pub fn delete_screenshot(root: String, id: String, file_name: String) -> CmdResu
 #[tauri::command]
 #[specta::specta]
 pub async fn instance_worlds(root: String, id: String) -> CmdResult<Vec<mc_core::instance::WorldInfo>> {
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     Ok(mc_core::instance::list_worlds(&inst))
 }
 
@@ -822,7 +822,7 @@ pub async fn instance_worlds(root: String, id: String) -> CmdResult<Vec<mc_core:
 #[tauri::command]
 #[specta::specta]
 pub fn instance_servers(root: String, id: String) -> CmdResult<Vec<mc_core::instance::SavedServer>> {
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     mc_core::instance::read_servers(&inst.game_dir()).map_err(err)
 }
 
@@ -830,7 +830,7 @@ pub fn instance_servers(root: String, id: String) -> CmdResult<Vec<mc_core::inst
 #[tauri::command]
 #[specta::specta]
 pub fn add_instance_server(root: String, id: String, name: String, address: String) -> CmdResult<()> {
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     mc_core::instance::add_server(&inst.game_dir(), &name, &address).map_err(err)
 }
 
@@ -845,7 +845,7 @@ pub async fn ping_server(address: String) -> CmdResult<mc_core::server_ping::Ser
 #[tauri::command]
 #[specta::specta]
 pub fn delete_world(root: String, id: String, folder: String) -> CmdResult<()> {
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     mc_core::instance::world::delete_world(&inst, &folder).map_err(err)
 }
 
@@ -854,7 +854,7 @@ pub fn delete_world(root: String, id: String, folder: String) -> CmdResult<()> {
 #[tauri::command]
 #[specta::specta]
 pub fn backup_world(root: String, id: String, folder: String, dest_path: String) -> CmdResult<String> {
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     mc_core::instance::world::backup_world(&inst, &folder, std::path::Path::new(&dest_path))
         .map(|p| p.to_string_lossy().into_owned())
         .map_err(err)
@@ -864,7 +864,7 @@ pub fn backup_world(root: String, id: String, folder: String, dest_path: String)
 #[tauri::command]
 #[specta::specta]
 pub fn import_world_zip(root: String, id: String, path: String) -> CmdResult<String> {
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     mc_core::instance::import_world_zip(&inst, std::path::Path::new(&path)).map_err(err)
 }
 
@@ -872,7 +872,7 @@ pub fn import_world_zip(root: String, id: String, path: String) -> CmdResult<Str
 #[tauri::command]
 #[specta::specta]
 pub fn rename_world(root: String, id: String, folder: String, new_name: String) -> CmdResult<()> {
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     mc_core::instance::world::rename_world(&inst, &folder, &new_name).map_err(err)
 }
 
@@ -2543,7 +2543,7 @@ pub async fn check_modpack_updates(
     root: String,
     id: String,
 ) -> CmdResult<Vec<mc_core::modplatform::modrinth::VersionDetail>> {
-    let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
+    let inst = instance_of(&root, &id);
     let Some(src) = inst.load_config().map_err(err)?.source else {
         return Ok(Vec::new());
     };
