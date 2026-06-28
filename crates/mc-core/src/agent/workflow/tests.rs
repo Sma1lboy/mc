@@ -67,7 +67,7 @@ fn test_main_runtime() -> MainAgentRuntime {
 }
 
 fn approval_route_runtime(decision: serde_json::Value) -> MainAgentRuntime {
-    let body = openai_response_body(decision.to_string());
+    let body = openrouter_response_body(decision.to_string());
     let base_url = one_response_server(body);
     let mut cfg = crate::agent::AgentLlmConfig::new("test-api-key");
     cfg.base_url = base_url;
@@ -75,30 +75,26 @@ fn approval_route_runtime(decision: serde_json::Value) -> MainAgentRuntime {
     MainAgentRuntime::new(llm)
 }
 
-fn openai_response_body(output_text: String) -> Vec<u8> {
+fn openrouter_response_body(output_text: String) -> Vec<u8> {
     serde_json::json!({
-        "id": "resp_test",
-        "object": "response",
-        "created_at": 0,
-        "status": "completed",
+        "id": "chatcmpl_test",
+        "object": "chat.completion",
+        "created": 0,
         "model": "gpt-test",
-        "output": [{
-            "type": "message",
-            "id": "msg_test",
-            "status": "completed",
-            "role": "assistant",
-            "content": [{
-                "type": "output_text",
-                "annotations": [],
-                "text": output_text
-            }]
+        "choices": [{
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": output_text
+            },
+            "finish_reason": "stop",
+            "native_finish_reason": "stop"
         }],
         "usage": {
-            "input_tokens": 1,
-            "output_tokens": 1,
+            "prompt_tokens": 1,
+            "completion_tokens": 1,
             "total_tokens": 2
-        },
-        "tools": []
+        }
     })
     .to_string()
     .into_bytes()

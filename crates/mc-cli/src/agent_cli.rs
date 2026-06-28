@@ -20,8 +20,8 @@ pub(crate) enum AgentAction {
         /// Optional session id. Defaults to a generated agent-run-* id.
         #[arg(long)]
         session_id: Option<String>,
-        /// Override model for this run. Defaults to MC_AGENT_OPENAI_MODEL /
-        /// OPENAI_MODEL / the core default.
+        /// Override OpenRouter model for this run. Defaults to
+        /// MC_AGENT_OPENROUTER_MODEL / OPENROUTER_MODEL / the core default.
         #[arg(long)]
         model: Option<String>,
         /// Print where the local API key should be placed and exit.
@@ -156,8 +156,8 @@ async fn cmd_agent_start(
 ) -> Result<()> {
     let dir = data_dir();
     if show_key_path {
-        println!("OpenAI key lookup order:");
-        println!("  1. OPENAI_API_KEY");
+        println!("OpenRouter key lookup order:");
+        println!("  1. OPENROUTER_API_KEY");
         println!("  2. nearest .env files:");
         for path in mc_core::agent::AgentLlmConfig::local_env_paths(&dir) {
             if path.exists() {
@@ -181,7 +181,7 @@ fn local_agent_runtime(
     model: Option<String>,
 ) -> Result<mc_core::agent::MainAgentRuntime> {
     let mut cfg = mc_core::agent::AgentLlmConfig::from_local(dir).with_context(|| {
-        "Failed to read the OpenAI API key; set OPENAI_API_KEY or write it to desktop/src-tauri/.env"
+        "Failed to read the OpenRouter API key; set OPENROUTER_API_KEY or write it to desktop/src-tauri/.env"
     })?;
     if let Some(model) = model.filter(|s| !s.trim().is_empty()) {
         cfg.model = model;
@@ -1040,7 +1040,7 @@ mod tests {
     }
 
     fn approval_route_runtime(decision: serde_json::Value) -> mc_core::agent::MainAgentRuntime {
-        let body = openai_response_body(decision.to_string());
+        let body = openrouter_response_body(decision.to_string());
         let base_url = one_response_server(200, "application/json", body);
         let mut cfg = mc_core::agent::AgentLlmConfig::new("test-key");
         cfg.base_url = base_url;
@@ -1048,30 +1048,26 @@ mod tests {
         mc_core::agent::MainAgentRuntime::new(llm)
     }
 
-    fn openai_response_body(output_text: String) -> Vec<u8> {
+    fn openrouter_response_body(output_text: String) -> Vec<u8> {
         serde_json::json!({
-            "id": "resp_test",
-            "object": "response",
-            "created_at": 0,
-            "status": "completed",
+            "id": "chatcmpl_test",
+            "object": "chat.completion",
+            "created": 0,
             "model": "gpt-test",
-            "output": [{
-                "type": "message",
-                "id": "msg_test",
-                "status": "completed",
-                "role": "assistant",
-                "content": [{
-                    "type": "output_text",
-                    "annotations": [],
-                    "text": output_text
-                }]
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": output_text
+                },
+                "finish_reason": "stop",
+                "native_finish_reason": "stop"
             }],
             "usage": {
-                "input_tokens": 1,
-                "output_tokens": 1,
+                "prompt_tokens": 1,
+                "completion_tokens": 1,
                 "total_tokens": 2
-            },
-            "tools": []
+            }
         })
         .to_string()
         .into_bytes()
