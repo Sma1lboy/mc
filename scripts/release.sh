@@ -12,6 +12,11 @@
 # Nothing is pushed. Review, then:
 #   git push --follow-tags             # → triggers .github/workflows/release.yml
 #
+# Note: this script only prepares the version bump + tag. The platform bundles are
+# built in CI (.github/workflows/release.yml), which runs scripts/fetch-easytier.sh
+# to download + bundle the EasyTier binaries (联机大厅) before the tauri build. To
+# build a bundle locally, run `scripts/fetch-easytier.sh` first, then the tauri build.
+#
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

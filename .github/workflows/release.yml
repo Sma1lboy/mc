@@ -58,6 +58,11 @@ jobs:
         working-directory: desktop
         run: npm ci
 
+      # Download EasyTier into desktop/src-tauri/resources/easytier/ so it's bundled
+      # into the .app (联机大厅). Per-host binaries; gitignored, fetched at build time.
+      - name: Bundle EasyTier binaries
+        run: bash scripts/fetch-easytier.sh
+
       - name: Build app + publish to draft release
         uses: tauri-apps/tauri-action@v0
         env:

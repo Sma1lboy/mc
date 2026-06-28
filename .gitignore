@@ -12,6 +12,11 @@ desktop/node_modules
 desktop/src-tauri/target
 desktop/src-tauri/gen
 
+# Bundled EasyTier binaries (downloaded by scripts/fetch-easytier.sh, ~30MB; never
+# committed). Keep the dir + its README so the tauri `resources` glob always matches.
+desktop/src-tauri/resources/easytier/*
+!desktop/src-tauri/resources/easytier/README.md
+
 # Secrets / local env
 .env
 **/.env
