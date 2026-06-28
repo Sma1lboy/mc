@@ -306,15 +306,9 @@ pub async fn launch(
         launcher_version: spec.launcher_version.clone(),
         mc_version: mc_version.clone(),
     };
-    let mut args = build_launch_command(&profile, &config, &spec.session, &vars, &ctx);
-    // 注入额外 JVM 参数(如外置登录的 authlib-injector -javaagent):必须在主类**之前**,
-    // 否则 JVM 会把它当成程序参数。插到主类位置前一格。
-    if !spec.extra_jvm_args.is_empty() {
-        let main_pos = args.iter().position(|a| a == &profile.main_class).unwrap_or(0);
-        for (i, extra) in spec.extra_jvm_args.iter().enumerate() {
-            args.insert(main_pos + i, extra.clone());
-        }
-    }
+    // build_launch_command owns where extra JVM args land (right before the main
+    // class) — no after-the-fact re-scan / mis-splice here.
+    let args = build_launch_command(&profile, &config, &spec.session, &vars, &ctx, &spec.extra_jvm_args);
 
     // 6. spawn
     if let Some(tx) = &progress {

@@ -34,6 +34,7 @@ pub fn build_launch_command(
     session: &AuthSession,
     vars: &LaunchVars,
     ctx: &RuntimeContext,
+    extra_jvm_args: &[String],
 ) -> Vec<String> {
     let subst = placeholder_map(profile, session, vars);
     let mut out: Vec<String> = Vec::new();
@@ -53,6 +54,13 @@ pub fn build_launch_command(
 
     // User-provided extra JVM args always apply.
     out.extend(config.jvm_args.iter().cloned());
+
+    // Caller-injected JVM args (e.g. the authlib-injector `-javaagent` for
+    // Yggdrasil accounts) go here — immediately before the main class, so the JVM
+    // reads them as JVM args, not program args. Owning the splice here means the
+    // boundary is the `push(main_class)` two lines down, not a fragile after-the-fact
+    // `position(main_class)` re-scan in the caller.
+    out.extend(extra_jvm_args.iter().cloned());
 
     // ---- main class ----
     out.push(profile.main_class.clone());
@@ -307,7 +315,7 @@ mod tests {
         let cfg = InstanceConfig { server: Some("mc.example.com:25577".into()), ..Default::default() };
         let mut v = vars();
         v.mc_version = "1.20.1".into();
-        let cmd = build_launch_command(&profile, &cfg, &session(), &v, &RuntimeContext::default());
+        let cmd = build_launch_command(&profile, &cfg, &session(), &v, &RuntimeContext::default(), &[]);
         let joined = cmd.join(" ");
         assert!(joined.contains("--quickPlayMultiplayer mc.example.com:25577"));
         assert!(!joined.contains("--server"));
@@ -323,7 +331,7 @@ mod tests {
         let cfg = InstanceConfig { server: Some("mc.example.com:25577".into()), ..Default::default() };
         let mut v = vars();
         v.mc_version = "1.8.9".into();
-        let cmd = build_launch_command(&profile, &cfg, &session(), &v, &RuntimeContext::default());
+        let cmd = build_launch_command(&profile, &cfg, &session(), &v, &RuntimeContext::default(), &[]);
         let joined = cmd.join(" ");
         assert!(joined.contains("--server mc.example.com --port 25577"));
         assert!(!joined.contains("--quickPlayMultiplayer"));
@@ -337,11 +345,32 @@ mod tests {
         .unwrap();
         let profile = LaunchProfile::from_chain(&[vj]);
         let cfg = InstanceConfig::default();
-        let cmd = build_launch_command(&profile, &cfg, &session(), &vars(), &RuntimeContext::default());
+        let cmd = build_launch_command(&profile, &cfg, &session(), &vars(), &RuntimeContext::default(), &[]);
         assert!(cmd.contains(&"net.minecraft.client.main.Main".to_string()));
         let joined = cmd.join(" ");
         assert!(joined.contains("--username Steve"));
         assert!(joined.contains("--uuid 1234"));
         assert!(joined.contains("-Djava.library.path=/g/natives"));
+    }
+
+    #[test]
+    fn extra_jvm_args_land_right_before_main_class() {
+        let vj = VersionJson::parse(
+            r#"{"id":"1.20.1","mainClass":"net.minecraft.client.main.Main","minecraftArguments":"--username ${auth_player_name}","libraries":[]}"#,
+        )
+        .unwrap();
+        let profile = LaunchProfile::from_chain(&[vj]);
+        let cfg = InstanceConfig::default();
+        let extra = vec!["-javaagent:/p/authlib.jar=https://y".to_string()];
+        let cmd =
+            build_launch_command(&profile, &cfg, &session(), &vars(), &RuntimeContext::default(), &extra);
+        let agent = cmd.iter().position(|a| a == &extra[0]).expect("extra jvm arg present");
+        let main = cmd
+            .iter()
+            .position(|a| a == "net.minecraft.client.main.Main")
+            .expect("main class present");
+        // The injected -javaagent must sit immediately before the main class so the
+        // JVM reads it as a JVM arg, not a program arg.
+        assert_eq!(agent + 1, main);
     }
 }
