@@ -9,6 +9,24 @@ To cut a release, move the `[Unreleased]` notes into a stamped version section w
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-06-28
+
+### Fixed
+- Concurrent installs into the shared library/asset store could corrupt or delete each other's
+  in-progress downloads (the `.part` temp name was keyed only on the destination). Each writer now
+  gets a unique temp file.
+- CLI: CurseForge modpack imports failed with "需配置 API Key" even when a key was configured — the
+  CLI now applies the CurseForge API key to its downloader and provider registry, matching the desktop app.
+- Realm/server stubs declaring the `liteloader` or `optifine` loader were mis-detected as vanilla.
+- Sharing an instance now surfaces the real server error instead of "share response missing id" when
+  the publish request fails.
+
+### Changed
+- Internal: a 20-step architecture-deepening pass consolidated duplicated logic behind single owners
+  (download temp naming, settings→downloader/registry construction, the `ServerClient` HTTP verbs,
+  loader-family parsing, slug/collision naming, UUID formatting, account add→select→save, the
+  version-stub writer, progress-channel wiring, and more). Behavior-preserving aside from the fixes above.
+
 ## [0.1.5] - 2026-06-28
 
 ### Fixed
