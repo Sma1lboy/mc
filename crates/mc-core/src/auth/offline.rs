@@ -42,21 +42,8 @@ pub fn offline_uuid(username: &str) -> String {
     // 设置 variant=RFC4122:高两位置为 0b10。
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
 
-    format_uuid(&bytes)
-}
-
-/// 将 16 字节格式化为标准带连字符的 UUID 字符串。
-fn format_uuid(bytes: &[u8; 16]) -> String {
-    let hex = hex::encode(bytes);
-    // 8-4-4-4-12 分组。
-    format!(
-        "{}-{}-{}-{}-{}",
-        &hex[0..8],
-        &hex[8..12],
-        &hex[12..16],
-        &hex[16..20],
-        &hex[20..32],
-    )
+    // 16 字节 → 32 位 hex(永远是无连字符 ASCII hex)→ 共用 8-4-4-4-12 规整 owner。
+    super::dashify_uuid(&hex::encode(bytes))
 }
 
 #[cfg(test)]

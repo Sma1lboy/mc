@@ -21,6 +21,7 @@ use mc_types::AuthSession;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use super::dashify_uuid;
 use crate::error::{CoreError, Result};
 
 /// Vanilla launcher 公开的 Azure 应用 client id。设备码流要求该应用允许
@@ -494,23 +495,6 @@ fn xsts_hint(code: u64) -> String {
     }
 }
 
-/// 将 32 位无连字符 hex UUID 转为标准 8-4-4-4-12 形式;已带连字符则原样返回。
-fn dashify_uuid(raw: &str) -> String {
-    // 必须是恰好 32 个 ASCII 十六进制字符才分组:`len()` 是字节数,若 raw 含多字节
-    // 字符(异常/恶意服务端返回的 32 字节非 ASCII 串),按字节切片会在非字符边界 panic。
-    // 加 ASCII-hex 校验既排除该 panic,又对真实 UUID(永远是 ASCII hex)行为不变。
-    if raw.contains('-') || raw.len() != 32 || !raw.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return raw.to_string();
-    }
-    format!(
-        "{}-{}-{}-{}-{}",
-        &raw[0..8],
-        &raw[8..12],
-        &raw[12..16],
-        &raw[16..20],
-        &raw[20..32],
-    )
-}
 
 #[cfg(test)]
 mod tests {

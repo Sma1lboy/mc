@@ -28,6 +28,26 @@ use mc_types::AccountKind;
 /// Minecraft access token 的典型有效期(约 24 小时)。续期后据此重置 `expires_at`。
 pub const MC_TOKEN_TTL_SECS: i64 = 86_400;
 
+/// 将 32 位无连字符 hex UUID 转为标准 8-4-4-4-12 形式;已带连字符 / 非 32 位 ASCII-hex
+/// 则原样返回。微软、Yggdrasil、离线三种账号都把服务端 / 本地算出的裸 UUID 经此规整,
+/// 是「UUID 加连字符」的唯一 owner(此前三处各自手写一份)。
+pub(crate) fn dashify_uuid(raw: &str) -> String {
+    // 必须是恰好 32 个 ASCII 十六进制字符才分组:`len()` 是字节数,若 raw 含多字节字符
+    // (异常/恶意服务端返回的 32 字节非 ASCII 串),按字节切片会在非字符边界 panic。
+    // 加 ASCII-hex 校验既排除该 panic,又对真实 UUID(永远是 ASCII hex)行为不变。
+    if raw.contains('-') || raw.len() != 32 || !raw.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return raw.to_string();
+    }
+    format!(
+        "{}-{}-{}-{}-{}",
+        &raw[0..8],
+        &raw[8..12],
+        &raw[12..16],
+        &raw[16..20],
+        &raw[20..32],
+    )
+}
+
 /// 若当前选中的是(接近)过期的微软账号且有 refresh_token,就用它免浏览器续期,
 /// 刷新后的账号写回 `store` 并保持选中。返回是否真的执行了续期。
 ///
