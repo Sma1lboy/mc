@@ -9,7 +9,6 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
-use crate::paths::ensure_dir;
 
 /// 单个实例的启动设置。所有字段在 json 缺失时回退到 [`Default`],
 /// 因此向 `instance.json` 增量添加字段不会破坏旧文件。
@@ -93,11 +92,8 @@ impl InstanceConfig {
         }
     }
 
-    /// 将配置序列化为美化 json 写入 `path`,自动创建父目录。
+    /// 将配置序列化为美化 json 写入 `path`,自动创建父目录(由 write_atomic 负责)。
     pub fn save(&self, path: &Path) -> Result<()> {
-        if let Some(parent) = path.parent() {
-            ensure_dir(parent)?;
-        }
         // 用美化输出,方便用户手动编辑 instance.json。
         let json = serde_json::to_string_pretty(self)
             .map_err(|e| crate::error::CoreError::Parse { what: "instance.json".to_string(), source: e })?;

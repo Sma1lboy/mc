@@ -190,6 +190,10 @@ pub fn unique_temp_sibling(path: &Path, tag: &str) -> PathBuf {
 /// Atomically write `data` to `path`: write to a sibling temp file, fsync, then
 /// rename over the target. A crash mid-write leaves the old file intact instead
 /// of a truncated one. Ports the intent of PrismLauncher's safe `write`.
+///
+/// **Invariant — creates `path`'s parent directory if missing.** Callers need not
+/// `ensure_dir(path.parent())` before writing; the atomic write owns that. (Every
+/// `write_atomic` caller relies on this rather than re-`mkdir`-ing first.)
 pub fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
     use std::io::Write;
 

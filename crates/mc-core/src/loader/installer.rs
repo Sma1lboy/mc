@@ -162,7 +162,6 @@ pub async fn install_meta_profile(
     let vj = crate::version::VersionJson::parse(&raw)
         .map_err(|e| CoreError::Parse { what: format!("{name} profile json"), source: e })?;
     let id = vj.id.clone();
-    ensure_dir(&paths.version_dir(&id))?;
     crate::fs::write_atomic(&paths.version_json(&id), raw.as_bytes())?;
 
     if let Some(tx) = &progress {

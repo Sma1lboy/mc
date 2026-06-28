@@ -123,9 +123,7 @@ pub fn write_zip(dest: &Path, plan: &ZipPlan<'_>) -> Result<PathBuf> {
 ///
 /// 不打 zip、不带 overrides;同样在失败时删半成品(写入中途出错不留残文件)。
 pub fn write_text_file(dest: &Path, bytes: &[u8]) -> Result<PathBuf> {
-    if let Some(parent) = dest.parent() {
-        ensure_dir(parent)?;
-    }
+    // write_atomic creates dest's parent dir; no separate ensure_dir.
     let mut guard = PartialOutputGuard::new(dest.to_path_buf());
     crate::fs::write_atomic(dest, bytes)?;
     guard.disarm();

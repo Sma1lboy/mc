@@ -153,8 +153,8 @@ async fn ensure_assets(
     let index = meta::fetch_asset_index(dl, idx).await?;
 
     // Persist the index json the game reads from `assets/indexes/<id>.json`.
+    // write_atomic creates the indexes dir; no separate ensure_dir needed.
     let index_path = paths.asset_indexes_dir().join(format!("{}.json", idx.id));
-    ensure_dir(paths.asset_indexes_dir().as_path())?;
     let raw = serde_json::to_vec(&index).map_err(|e| CoreError::Parse { what: "asset index".into(), source: e })?;
     crate::fs::write_atomic(&index_path, &raw)?;
 
@@ -194,8 +194,7 @@ pub async fn install_version(
     progress: Option<watch::Sender<Progress>>,
 ) -> Result<()> {
     let raw = meta::fetch_version_json(dl, entry).await?;
-    let dir = paths.version_dir(&entry.id);
-    ensure_dir(&dir)?;
+    // write_atomic creates versions/<id>/ for us.
     let json_path = paths.version_json(&entry.id);
     crate::fs::write_atomic(&json_path, raw.as_bytes())?;
 

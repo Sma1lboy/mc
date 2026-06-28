@@ -100,9 +100,7 @@ impl ZipArchiveIndex {
             let Some(dest) = crate::fs::safe_join(base, &rel) else {
                 return Err(CoreError::other(format!("非法的归档路径(越权): {rel}")));
             };
-            if let Some(parent) = dest.parent() {
-                ensure_dir(parent)?;
-            }
+            // write_atomic (below) creates dest's parent dir.
             let mut entry = self.archive.by_index(i).map_err(|e| CoreError::Zip(e.to_string()))?;
             let mut buf = Vec::with_capacity(entry.size() as usize);
             entry

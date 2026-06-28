@@ -22,7 +22,6 @@ use serde::{Deserialize, Serialize};
 
 use super::secret;
 use crate::error::{CoreError, IoResultExt, Result};
-use crate::paths::ensure_dir;
 
 /// 单个持久化账号。涵盖三种账号类型的全部字段(按需填充)。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -242,11 +241,8 @@ impl AccountStore {
         Ok(store)
     }
 
-    /// 把当前账号列表与选中项写回磁盘(美化 JSON)。必要时创建父目录。
+    /// 把当前账号列表与选中项写回磁盘(美化 JSON)。父目录由 write_atomic 自动创建。
     pub fn save(&self) -> Result<()> {
-        if let Some(parent) = self.path.parent() {
-            ensure_dir(parent)?;
-        }
         // 敏感 token 写入 keyring(成功则文件里清空),只把元数据 + 标记落盘。
         let file = StoreFile {
             accounts: self.accounts.iter().map(to_on_disk).collect(),

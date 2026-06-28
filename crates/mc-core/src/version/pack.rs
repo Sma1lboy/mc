@@ -333,9 +333,8 @@ impl PackProfile {
         }
     }
 
-    /// 把组件模型写入实例目录的 `mmc-pack.json`(美化输出,自动建目录,原子落盘)。
+    /// 把组件模型写入实例目录的 `mmc-pack.json`(美化输出,原子落盘;父目录由 write_atomic 建)。
     pub fn save(&self, instance_dir: &Path) -> Result<()> {
-        crate::paths::ensure_dir(instance_dir)?;
         let path = instance_dir.join(PACK_FILE);
         let json = serde_json::to_string_pretty(self)
             .map_err(|e| CoreError::Parse { what: PACK_FILE.to_string(), source: e })?;
