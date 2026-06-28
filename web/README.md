@@ -11,4 +11,4 @@ app + backend and is not part of this site). Auto-deploys on push to `main`;
 `vercel.json`'s `ignoreCommand` skips the build when nothing under `web/` changed,
 so Rust-only commits don't redeploy the page.
 
-Live: https://mc.sma1lboy.me  ·  Local preview: `open web/index.html`
+Live: https://kobemc.sma1lboy.me  ·  Local preview: `open web/index.html`
