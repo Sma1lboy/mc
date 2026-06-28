@@ -92,10 +92,7 @@ pub async fn refresh_selected_microsoft(
         yggdrasil_base: None,
     };
 
-    let uuid = updated.uuid.clone();
-    store.add(updated); // 按 uuid 原地更新
-    let _ = store.select(&uuid); // 保持选中
-    store.save()?;
+    store.add_and_select(updated)?; // 原地更新 + 保持选中 + 落盘,一步到位
     Ok(true)
 }
 
@@ -130,10 +127,7 @@ pub async fn refresh_selected_yggdrasil(
                 client_token: Some(session.client_token),
                 ..acc
             };
-            let uuid = updated.uuid.clone();
-            store.add(updated);
-            let _ = store.select(&uuid);
-            store.save()?;
+            store.add_and_select(updated)?;
             Ok(true)
         }
     }

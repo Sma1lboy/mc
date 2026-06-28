@@ -909,9 +909,7 @@ fn store_and_select(account: StoredAccount) -> CmdResult<AccountSummary> {
     let _ = paths::ensure_dir(&data_dir());
     let mut store = AccountStore::load(accounts_path()).map_err(err)?;
     let uuid = account.uuid.clone();
-    store.add(account);
-    store.select(&uuid).map_err(err)?;
-    store.save().map_err(err)?;
+    store.add_and_select(account).map_err(err)?;
     store
         .list()
         .into_iter()

@@ -299,6 +299,17 @@ impl AccountStore {
         }
     }
 
+    /// 加入(或按 uuid 原地更新)一个账号、选中它、并落盘——这三步是登录 / 续期场景里
+    /// **一个不可分的动作**。此前每个调用方都得自己按 add → select → save 的顺序手写,漏一
+    /// 步或写错序就会出现「加了不选中」或「选了不保存」。`select` 必成功(刚 add 过该 uuid),
+    /// 这里把它的 `Err` 一并上抛而非各调用方时灵时不灵地忽略。
+    pub fn add_and_select(&mut self, account: StoredAccount) -> Result<()> {
+        let uuid = account.uuid.clone();
+        self.add(account);
+        self.select(&uuid)?;
+        self.save()
+    }
+
     /// 以 [`AccountSummary`] 形式列出全部账号(供账号切换器展示)。
     pub fn list(&self) -> Vec<AccountSummary> {
         self.accounts
@@ -423,6 +434,19 @@ mod tests {
         s.add(offline("alice", "uuid-a"));
         assert!(s.select("nope").is_err());
         assert!(s.select("uuid-a").is_ok());
+    }
+
+    #[test]
+    fn add_and_select_switches_selection_to_each_new_account() {
+        // 落盘到唯一临时路径,避免与并发测试争用固定文件。
+        let path = std::env::temp_dir()
+            .join(format!("mc-store-addsel-{}.json", std::process::id()));
+        let mut s = AccountStore { path, accounts: Vec::new(), selected: None };
+        s.add_and_select(offline("alice", "uuid-a")).unwrap();
+        s.add_and_select(offline("bob", "uuid-b")).unwrap();
+        // `add` 单独只在列表原本为空时自动选中第一个;add_and_select 必须把选中切到
+        // **每个**新加入的账号 —— 这正是所有登录调用方依赖、却各自手写易漏的那一步。
+        assert_eq!(s.selected.as_deref(), Some("uuid-b"));
     }
 
     #[test]
