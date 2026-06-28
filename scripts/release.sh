@@ -142,5 +142,5 @@ cat <<EOF
 
 Next:
   git push --follow-tags        # pushes the commit + tag → builds bundles via GitHub Actions
-                                # (the release is created as a DRAFT for you to review/publish)
+                                # (the release is published directly — never a draft)
 EOF
