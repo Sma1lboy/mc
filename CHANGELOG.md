@@ -9,6 +9,12 @@ To cut a release, move the `[Unreleased]` notes into a stamped version section w
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-06-28
+
+### Fixed
+- Fabric modpack/loader instances failed to launch ("Minecraft game provider couldn't locate the game!"): the Minecraft jar is now placed on the classpath by the vanilla base id instead of the leaf stub id.
+- UI freeze ("卡一下") when opening an instance/modpack: heavy instance read commands (`list_instances`, mods/worlds/screenshots, memory suggestion) now run off the UI thread.
+
 ## [0.1.4] - 2026-06-28
 
 ## [0.1.3] - 2026-06-27
