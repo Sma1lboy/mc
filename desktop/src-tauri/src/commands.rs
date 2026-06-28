@@ -139,9 +139,14 @@ pub fn list_roots() -> CmdResult<Vec<GameRoot>> {
     Ok(paths::discover_roots(&exe_dir(), &data_dir(), &custom_roots()))
 }
 
+// `async` so Tauri runs this on its async runtime rather than the main (UI)
+// thread: scanning every instance (read each version json + base64-encode each
+// icon) is heavy file I/O and would otherwise freeze the UI ("卡一下"), worst on
+// roots holding big foreign instances. Same reasoning for the other read
+// commands below marked async.
 #[tauri::command]
 #[specta::specta]
-pub fn list_instances(root: String) -> CmdResult<Vec<InstanceSummary>> {
+pub async fn list_instances(root: String) -> CmdResult<Vec<InstanceSummary>> {
     Ok(mc_core::instance::list_instances(&root_paths(&root)))
 }
 
@@ -334,7 +339,7 @@ pub fn system_memory() -> CmdResult<SystemMemory> {
 /// 纯启发式(见 [`mc_core::system::suggest_memory_mb`]),按需读取一次 mod 列表 + 系统内存。
 #[tauri::command]
 #[specta::specta]
-pub fn suggest_instance_memory(root: String, id: String) -> CmdResult<u32> {
+pub async fn suggest_instance_memory(root: String, id: String) -> CmdResult<u32> {
     let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
     let mod_count = mc_core::instance::list_mods(&inst).len();
     let total = mc_core::system::system_total_mem_mb();
@@ -387,7 +392,7 @@ pub async fn backfill_instance_icon(root: String, id: String, icon_url: String) 
 /// 列出某实例 mods 目录里的 mod(含启停态)。
 #[tauri::command]
 #[specta::specta]
-pub fn instance_mods(root: String, id: String) -> CmdResult<Vec<mc_core::instance::ModInfo>> {
+pub async fn instance_mods(root: String, id: String) -> CmdResult<Vec<mc_core::instance::ModInfo>> {
     let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
     Ok(mc_core::instance::list_mods(&inst))
 }
@@ -790,7 +795,7 @@ pub async fn install_pack(
 /// 列出某实例的截图(仅元数据,按修改时间倒序)。
 #[tauri::command]
 #[specta::specta]
-pub fn instance_screenshots(
+pub async fn instance_screenshots(
     root: String,
     id: String,
 ) -> CmdResult<Vec<mc_core::instance::ScreenshotInfo>> {
@@ -817,7 +822,7 @@ pub fn delete_screenshot(root: String, id: String, file_name: String) -> CmdResu
 /// 列出某实例的存档世界(名字/模式/大小/上次游玩…)。
 #[tauri::command]
 #[specta::specta]
-pub fn instance_worlds(root: String, id: String) -> CmdResult<Vec<mc_core::instance::WorldInfo>> {
+pub async fn instance_worlds(root: String, id: String) -> CmdResult<Vec<mc_core::instance::WorldInfo>> {
     let inst = Instance::new(&id, root_paths(&root).root().to_path_buf());
     Ok(mc_core::instance::list_worlds(&inst))
 }
