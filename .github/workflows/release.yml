@@ -63,7 +63,7 @@ jobs:
       - name: Bundle EasyTier binaries
         run: bash scripts/fetch-easytier.sh
 
-      - name: Build app + publish to draft release
+      - name: Build app + publish release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -76,6 +76,6 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'kobeMC ${{ github.ref_name }}'
           releaseBody: 'See [CHANGELOG.md](https://github.com/Sma1lboy/mc/blob/main/CHANGELOG.md).'
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
