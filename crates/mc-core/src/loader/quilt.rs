@@ -10,8 +10,7 @@ use mc_types::{ManifestVersion, Progress};
 use super::installer;
 use crate::download::Downloader;
 use crate::error::{CoreError, Result};
-use crate::paths::{ensure_dir, GamePaths};
-use crate::version::VersionJson;
+use crate::paths::GamePaths;
 
 const QUILT_META: &str = "https://meta.quiltmc.org/v3";
 
@@ -68,20 +67,6 @@ pub async fn install_quilt(
         },
     };
 
-    let profile_url =
-        format!("{QUILT_META}/versions/loader/{mc_version}/{loader_version}/profile/json");
-    let raw = dl.get_text(&profile_url).await?;
-
-    let vj = VersionJson::parse(&raw)
-        .map_err(|e| CoreError::Parse { what: "quilt profile json".into(), source: e })?;
-    let id = vj.id.clone();
-    ensure_dir(&paths.version_dir(&id))?;
-    crate::fs::write_atomic(&paths.version_json(&id), raw.as_bytes())?;
-
-    if let Some(tx) = &progress {
-        let _ = tx.send(Progress::new("下载 Quilt 依赖库"));
-    }
-    installer::finalize(dl, paths, &id, progress).await?;
-
-    Ok(id)
+    // fetch-profile → persist → finalize tail is identical to Fabric; one owner.
+    installer::install_meta_profile(dl, paths, "Quilt", QUILT_META, mc_version, &loader_version, progress).await
 }

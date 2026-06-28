@@ -137,6 +137,41 @@ pub async fn ensure_vanilla(
     Ok(())
 }
 
+/// Install a "meta-loader" profile (Fabric/Quilt-style): the loader's meta server
+/// returns a ready Mojang-format profile json that `inheritsFrom` vanilla, so the
+/// tail of the install is identical for both — fetch the profile json, persist it
+/// verbatim, then [`finalize`] to pull its extra libraries. The only per-loader
+/// variance stays in the caller: the meta base URL and how the loader *version* is
+/// picked (the caller passes the already-resolved `loader_version`).
+///
+/// `name` labels progress/errors ("Fabric"/"Quilt"). Vanilla must already be
+/// ensured by the caller (via [`ensure_vanilla`]).
+pub async fn install_meta_profile(
+    dl: &Downloader,
+    paths: &GamePaths,
+    name: &str,
+    meta_base: &str,
+    mc_version: &str,
+    loader_version: &str,
+    progress: Option<watch::Sender<Progress>>,
+) -> Result<String> {
+    let profile_url =
+        format!("{meta_base}/versions/loader/{mc_version}/{loader_version}/profile/json");
+    let raw = dl.get_text(&profile_url).await?;
+
+    let vj = crate::version::VersionJson::parse(&raw)
+        .map_err(|e| CoreError::Parse { what: format!("{name} profile json"), source: e })?;
+    let id = vj.id.clone();
+    ensure_dir(&paths.version_dir(&id))?;
+    crate::fs::write_atomic(&paths.version_json(&id), raw.as_bytes())?;
+
+    if let Some(tx) = &progress {
+        let _ = tx.send(Progress::new(format!("下载 {name} 依赖库")));
+    }
+    finalize(dl, paths, &id, progress).await?;
+    Ok(id)
+}
+
 /// 收尾:解析装好的 loader profile 的完整 `inheritsFrom` 链,确保它引用的库都到位。
 pub async fn finalize(
     dl: &Downloader,

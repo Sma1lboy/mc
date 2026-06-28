@@ -13,8 +13,7 @@ use mc_types::{ManifestVersion, Progress};
 use super::installer;
 use crate::download::Downloader;
 use crate::error::{CoreError, Result};
-use crate::paths::{ensure_dir, GamePaths};
-use crate::version::VersionJson;
+use crate::paths::GamePaths;
 
 const FABRIC_META: &str = "https://meta.fabricmc.net/v2";
 
@@ -66,7 +65,7 @@ pub async fn install_fabric(
     // 1. Ensure vanilla is installed (Fabric's profile inheritsFrom it).
     installer::ensure_vanilla(dl, paths, mc_version, vanilla_entry, &progress).await?;
 
-    // 2. Resolve the loader version and fetch its profile json.
+    // 2. Resolve the loader version (Fabric-specific pick: newest stable, else newest).
     if let Some(tx) = &progress {
         let _ = tx.send(Progress::new("解析 Fabric loader 版本"));
     }
@@ -74,24 +73,8 @@ pub async fn install_fabric(
         Some(pinned) => pinned.to_string(),
         None => pick_loader_version(dl, mc_version).await?,
     };
-    let profile_url =
-        format!("{FABRIC_META}/versions/loader/{mc_version}/{loader_version}/profile/json");
-    let raw = dl.get_text(&profile_url).await?;
 
-    // 3. Parse just enough to learn the profile id, then persist it verbatim.
-    let vj = VersionJson::parse(&raw)
-        .map_err(|e| CoreError::Parse { what: "fabric profile json".into(), source: e })?;
-    let id = vj.id.clone();
-    let dir = paths.version_dir(&id);
-    ensure_dir(&dir)?;
-    let json_path = paths.version_json(&id);
-    crate::fs::write_atomic(&json_path, raw.as_bytes())?;
-
-    // 4. Resolve the full chain and download Fabric's extra libraries.
-    if let Some(tx) = &progress {
-        let _ = tx.send(Progress::new("下载 Fabric 依赖库"));
-    }
-    installer::finalize(dl, paths, &id, progress).await?;
-
-    Ok(id)
+    // 3. The fetch-profile → persist → finalize tail is identical to Quilt; one owner.
+    installer::install_meta_profile(dl, paths, "Fabric", FABRIC_META, mc_version, &loader_version, progress)
+        .await
 }
