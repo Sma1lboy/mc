@@ -39,6 +39,7 @@ use mc_types::{InstanceSummary, LoaderKind};
 
 use crate::error::{CoreError, IoResultExt, Result};
 use crate::paths::GamePaths;
+use crate::version::VersionHead;
 
 /// `instance.json` 在实例目录下的固定文件名。
 const INSTANCE_CONFIG_FILE: &str = "instance.json";
@@ -189,15 +190,6 @@ fn infer_loader(id: &str, inherits_from: Option<&str>) -> LoaderKind {
     }
 }
 
-/// 仅提取 list 视图所需的几个字段,避免对每个实例都做完整 [`crate::version::VersionJson`]
-/// 反序列化(完整结构包含 libraries/arguments 等,代价高且与列表无关)。
-#[derive(serde::Deserialize)]
-struct VersionHead {
-    id: Option<String>,
-    #[serde(rename = "inheritsFrom")]
-    inherits_from: Option<String>,
-}
-
 /// 探测实例目录下的 `icon.png`,有则读出编码为 `data:` URL,供前端 `<img>` 直接用。
 ///
 /// 约定与导入器一致:实例图标固定落在 `versions/<id>/icon.png`(本模型下
@@ -293,7 +285,7 @@ fn resolve_base_mc_version(paths: &GamePaths, id: &str, inherits: Option<&str>) 
         } else {
             std::fs::read_to_string(paths.version_json(cur))
                 .ok()
-                .and_then(|raw| serde_json::from_str::<VersionHead>(&raw).ok())
+                .and_then(|raw| VersionHead::parse(&raw))
                 .and_then(|h| h.inherits_from)
         };
         Ok::<_, crate::error::CoreError>(crate::version::InheritNode {
@@ -317,7 +309,7 @@ pub fn resolve_loader_version(paths: &GamePaths, id: &str, mc_version: &str) -> 
     let chain = crate::version::walk_inherits(id, |cur| {
         let parent = std::fs::read_to_string(paths.version_json(cur))
             .ok()
-            .and_then(|raw| serde_json::from_str::<VersionHead>(&raw).ok())
+            .and_then(|raw| VersionHead::parse(&raw))
             .and_then(|h| h.inherits_from);
         Ok::<_, crate::error::CoreError>(crate::version::InheritNode {
             payload: cur.to_string(),

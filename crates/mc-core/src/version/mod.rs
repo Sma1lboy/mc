@@ -37,6 +37,24 @@ pub struct InheritNode<T> {
     pub parent: Option<String>,
 }
 
+/// 版本 json 的**轻量头部**:只取启动器在「列实例 / 走 inheritsFrom 链」时真正需要的
+/// 两个字段(`id` 与 `inheritsFrom`),避开完整 [`VersionJson`] 反序列化(含
+/// libraries/arguments/downloads,代价高且与这些场景无关)。是「只读 head」的唯一类型,
+/// 此前 instance 列表与 lifecycle 各自复制了一份同形结构。
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct VersionHead {
+    pub id: Option<String>,
+    #[serde(rename = "inheritsFrom")]
+    pub inherits_from: Option<String>,
+}
+
+impl VersionHead {
+    /// 从一段版本 json 文本里只解析出 head;非法 json 返回 `None`(损坏文件按缺失处理)。
+    pub fn parse(raw: &str) -> Option<VersionHead> {
+        serde_json::from_str(raw).ok()
+    }
+}
+
 /// 沿 `inheritsFrom` 链从 `leaf_id` 走到根,逐层用 `read_node` 取「载荷 + 父 id」,
 /// 返回 **leaf→base** 顺序的载荷序列。
 ///

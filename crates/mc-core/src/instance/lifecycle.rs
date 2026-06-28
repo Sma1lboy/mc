@@ -158,14 +158,6 @@ fn slugify_instance_id(name: &str) -> String {
 // 给已有实例加 loader(核心)
 // ===========================================================================
 
-/// 版本 json 里我们需要读的两个字段(id / inheritsFrom)。和 `instance/mod.rs::VersionHead`
-/// 同形,但本模块自留一份以免跨模块暴露私有类型。
-#[derive(serde::Deserialize)]
-struct InstanceHead {
-    #[serde(rename = "inheritsFrom")]
-    inherits_from: Option<String>,
-}
-
 /// 给一个**已存在**的实例追加 / 切换 mod 加载器(core)。
 ///
 /// 「版本即实例」模型下实例是个薄存根(`{ id, inheritsFrom: core_id }`),加 loader 就是
@@ -198,7 +190,7 @@ pub async fn add_loader(
     // 1. 读实例存根的 head(只取 id / inheritsFrom)。实例必须已存在。
     let inst_json = paths.version_json(instance_id);
     let raw = std::fs::read_to_string(&inst_json).with_path(&inst_json)?;
-    let head: InstanceHead = serde_json::from_str(&raw)
+    let head: crate::version::VersionHead = serde_json::from_str(&raw)
         .map_err(|e| CoreError::Parse { what: "instance version json".into(), source: e })?;
 
     // 2. 区分退化情形:无 inheritsFrom 且实例目录本身就是裸原版(id == mc_version)。
