@@ -33,3 +33,6 @@ supabase/.branches
 
 # Reference launchers (study only, not part of this project)
 ref/
+
+# Ephemeral agent worktrees (claude-code worktree isolation) — never commit
+.claude/worktrees/
