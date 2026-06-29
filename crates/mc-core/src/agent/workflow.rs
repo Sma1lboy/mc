@@ -22,14 +22,14 @@ use crate::modplatform::{
 
 use super::llm::AgentLlmClient;
 use super::state::{
-    AgentExecutionMetadata, AgentExecutionStatus, AgentIntent, AgentIntentKind, AgentMessageKind,
-    AgentPhase, AgentRunSnapshot, AgentStatus, AgentToolSpec, AgentWorkflowKind,
-    ApprovalDecisionSpec, ApprovalKind, ApprovalOption, ApprovalRequest, ApprovedModpackBuild,
-    BuildRestrictionChange, BuildRestrictionChangeSource, BuildRestrictionPatch, BuildRestrictions,
-    ExecutionBlocked, Goal, GoalKind, GoalQuery, GoalStatus, ModPlanState, ModProvenance,
-    ModpackAgentPlan, PlanArtifact, PlanReplanRequest, PlannedAction, ResolvedMod,
-    TargetCompatibility, UpdateBuildRestrictionsInput, UpdateBuildRestrictionsOutput, UserDecision,
-    UserDecisionKind,
+    AgentEntry, AgentExecutionMetadata, AgentExecutionStatus, AgentIntent, AgentIntentKind,
+    AgentLaunchContext, AgentMessageKind, AgentPhase, AgentRunSnapshot, AgentStatus, AgentToolSpec,
+    AgentWorkflowId, AgentWorkflowKind, ApprovalDecisionSpec, ApprovalKind, ApprovalOption,
+    ApprovalRequest, ApprovedModpackBuild, BuildRestrictionChange, BuildRestrictionChangeSource,
+    BuildRestrictionPatch, BuildRestrictions, ExecutionBlocked, Goal, GoalKind, GoalQuery,
+    GoalStatus, ModPlanState, ModProvenance, ModpackAgentPlan, PlanArtifact, PlanReplanRequest,
+    PlannedAction, ResolvedMod, TargetCompatibility, UpdateBuildRestrictionsInput,
+    UpdateBuildRestrictionsOutput, UserDecision, UserDecisionKind,
 };
 
 mod approvals;
@@ -147,11 +147,9 @@ Current capabilities and boundaries:
 - General mod/modpack how-to questions are not handled by this local workflow yet; route unsupported requests to unknown.
 - Keep outputs machine-readable when a subtask asks for a schema."#;
 
-const INTENT_ROUTING_PROMPT: &str = r#"Classify the user's request into exactly one intent:
-- build_modpack: create, customize, recommend, or generate a new modpack from requirements.
-- unknown: anything else, including crash diagnosis, instance management, export/share requests, general how-to questions, ambiguous requests, unsupported requests, or unrelated requests.
-
-Return an object matching the provided schema."#;
+const INTENT_ROUTING_PROMPT_HEADER: &str = r#"Classify the user's request into exactly one intent.
+Only choose from workflows listed as available for the current agent entry.
+Return unknown for unsupported, unavailable, ambiguous, or unrelated requests."#;
 
 const APPROVAL_DECISION_ROUTING_PROMPT: &str = r#"Convert the user's latest message into a decision for the current pending approval gate.
 Use only the current approval's kind, available decisions, options, and tool schemas.
@@ -199,6 +197,43 @@ Use multiple short queries instead of one long query that combines compatibility
 When no candidates are available for an open goal after short searches, explain the likely unresolved reason in rationale so it can be shown to the user; do not silently mark that goal covered.
 Return an object matching the provided schema."#;
 
+fn intent_routing_prompt(launch_context: &AgentLaunchContext) -> String {
+    let entry = match &launch_context.entry {
+        AgentEntry::Home => "home".to_string(),
+    };
+    let mut lines = vec![
+        INTENT_ROUTING_PROMPT_HEADER.to_string(),
+        String::new(),
+        format!("Current agent entry: {entry}"),
+        "Available workflows:".to_string(),
+    ];
+    for workflow in &launch_context.available_workflows {
+        lines.push(format!("- {}", workflow_prompt_line(workflow)));
+    }
+    lines.push(
+        "- unknown: anything else, including requests that require a workflow not listed above."
+            .to_string(),
+    );
+    lines.push(String::new());
+    lines.push("Return an object matching the provided schema.".to_string());
+    lines.join("\n")
+}
+
+fn workflow_prompt_line(workflow: &AgentWorkflowId) -> &'static str {
+    match workflow {
+        AgentWorkflowId::BuildModpack => {
+            "build_modpack: create, customize, recommend, or generate a new modpack from requirements."
+        }
+    }
+}
+
+fn intent_available_in_context(intent: &AgentIntent, launch_context: &AgentLaunchContext) -> bool {
+    intent
+        .kind
+        .workflow_id()
+        .is_some_and(|workflow| launch_context.allows_workflow(workflow))
+}
+
 /// Thin top-level agent facade.
 ///
 /// The current implementation exposes the modpack-build capability. Future
@@ -223,20 +258,51 @@ impl MainAgentRuntime {
     /// resumed through explicit continuation APIs so we do not re-route every
     /// approval turn as a new user intent.
     pub async fn start_new_run(&self, user_prompt: &str) -> Result<AgentRunSnapshot> {
-        let intent = self.classify_intent(user_prompt).await?;
+        self.start_new_run_with_entry(user_prompt, AgentEntry::Home)
+            .await
+    }
+
+    pub async fn start_new_run_with_entry(
+        &self,
+        user_prompt: &str,
+        entry: AgentEntry,
+    ) -> Result<AgentRunSnapshot> {
+        self.start_new_run_with_context(user_prompt, AgentLaunchContext::from_entry(entry))
+            .await
+    }
+
+    async fn start_new_run_with_context(
+        &self,
+        user_prompt: &str,
+        launch_context: AgentLaunchContext,
+    ) -> Result<AgentRunSnapshot> {
+        let intent = self.classify_intent(user_prompt, &launch_context).await?;
+        if !intent_available_in_context(&intent, &launch_context) {
+            return Ok(unsupported_intent_snapshot(
+                user_prompt,
+                intent,
+                launch_context,
+            ));
+        }
         match intent.kind {
             AgentIntentKind::BuildModpack => {
                 let mut run = self.modpack_build.start(user_prompt).await?;
+                run.launch_context = launch_context;
                 run.intent = Some(intent);
                 run.push_trace("main agent routed intent to modpack_build workflow");
                 Ok(run)
             }
-            _ => Ok(unsupported_intent_snapshot(user_prompt, intent)),
+            _ => Ok(unsupported_intent_snapshot(
+                user_prompt,
+                intent,
+                launch_context,
+            )),
         }
     }
 
     pub async fn start_modpack_build(&self, user_prompt: &str) -> Result<AgentRunSnapshot> {
         let mut run = self.modpack_build.start(user_prompt).await?;
+        run.launch_context = AgentLaunchContext::from_entry(AgentEntry::Home);
         run.intent = Some(AgentIntent {
             kind: AgentIntentKind::BuildModpack,
             confidence: 1.0,
@@ -397,11 +463,16 @@ impl MainAgentRuntime {
             .continue_after_execution_manifest_result(run, manifest)
     }
 
-    async fn classify_intent(&self, user_prompt: &str) -> Result<AgentIntent> {
+    async fn classify_intent(
+        &self,
+        user_prompt: &str,
+        launch_context: &AgentLaunchContext,
+    ) -> Result<AgentIntent> {
+        let routing_prompt = intent_routing_prompt(launch_context);
         let output = self
             .llm
             .prompt_typed::<AgentIntentOutput>(
-                &[MAIN_AGENT_SYSTEM_PROMPT, INTENT_ROUTING_PROMPT],
+                &[MAIN_AGENT_SYSTEM_PROMPT, routing_prompt.as_str()],
                 user_prompt.to_string(),
                 180,
                 0.0,
@@ -862,11 +933,24 @@ fn current_customization_base_pack(run: &AgentRunSnapshot) -> Result<serde_json:
             approval
                 .options
                 .iter()
-                .find(|option| option.id == "confirm:recommended_customization")
+                .find(|option| option.id == "back:choose_base_pack")
         })
         .and_then(|option| option.payload.as_ref())
         .and_then(|payload| payload.get("base_pack"))
         .cloned()
+        .or_else(|| {
+            run.pending_approval
+                .as_ref()
+                .and_then(|approval| {
+                    approval
+                        .options
+                        .iter()
+                        .find(|option| option.id == "confirm:recommended_customization")
+                })
+                .and_then(|option| option.payload.as_ref())
+                .and_then(|payload| payload.get("base_pack"))
+                .cloned()
+        })
         .or_else(|| {
             run.approved_build
                 .as_ref()
@@ -997,9 +1081,14 @@ fn nonempty_opt(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|s| !s.is_empty())
 }
 
-fn unsupported_intent_snapshot(user_prompt: &str, intent: AgentIntent) -> AgentRunSnapshot {
+fn unsupported_intent_snapshot(
+    user_prompt: &str,
+    intent: AgentIntent,
+    launch_context: AgentLaunchContext,
+) -> AgentRunSnapshot {
     let mut run = AgentRunSnapshot::new(user_prompt);
     run.workflow = AgentWorkflowKind::Unsupported;
+    run.launch_context = launch_context;
     run.intent = Some(intent.clone());
     run.status = AgentStatus::Completed;
     run.phase = AgentPhase::Completed;
@@ -1007,7 +1096,7 @@ fn unsupported_intent_snapshot(user_prompt: &str, intent: AgentIntent) -> AgentR
     run.push_message(
         AgentMessageKind::Assistant,
         format!(
-            "The main agent classified intent={:?}, but that capability is not wired into the workflow yet.",
+            "The main agent classified intent={:?}, but that capability is not available from the current agent entry or is not wired into a workflow yet.",
             intent.kind
         ),
     );

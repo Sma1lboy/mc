@@ -39,9 +39,7 @@ impl AgentLlmConfig {
     ///
     /// Key priority:
     /// 1. `OPENROUTER_API_KEY`
-    /// 2. `.env` in current directory or its parents
-    /// 3. `desktop/src-tauri/.env` under current directory or its parents
-    /// 4. `<data_dir>/.env`
+    /// 2. `.env` at the repository workspace root
     ///
     /// OpenRouter model override: `MC_AGENT_OPENROUTER_MODEL`, then
     /// `OPENROUTER_MODEL`.
@@ -139,24 +137,34 @@ fn env_value(name: &str, env_files: &[PathBuf]) -> Option<String> {
 }
 
 fn dotenv_candidates(data_dir: &Path) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    if let Ok(mut dir) = std::env::current_dir() {
-        loop {
-            push_unique(&mut out, dir.join(".env"));
-            push_unique(&mut out, dir.join("desktop").join("src-tauri").join(".env"));
-            if !dir.pop() {
-                break;
-            }
-        }
-    }
-    push_unique(&mut out, data_dir.join(".env"));
-    out
+    std::env::current_dir()
+        .ok()
+        .map(|dir| dotenv_candidates_from(&dir, data_dir))
+        .unwrap_or_default()
 }
 
-fn push_unique(out: &mut Vec<PathBuf>, path: PathBuf) {
-    if !out.iter().any(|existing| existing == &path) {
-        out.push(path);
+fn dotenv_candidates_from(current_dir: &Path, _data_dir: &Path) -> Vec<PathBuf> {
+    find_workspace_root(current_dir)
+        .map(|root| vec![root.join(".env")])
+        .unwrap_or_default()
+}
+
+fn find_workspace_root(start: &Path) -> Option<PathBuf> {
+    let mut dir = start.to_path_buf();
+    loop {
+        if is_workspace_root(&dir) {
+            return Some(dir);
+        }
+        if !dir.pop() {
+            return None;
+        }
     }
+}
+
+fn is_workspace_root(dir: &Path) -> bool {
+    std::fs::read_to_string(dir.join("Cargo.toml"))
+        .map(|toml| toml.contains("[workspace]"))
+        .unwrap_or(false)
 }
 
 fn dotenv_value_from_files(name: &str, paths: &[PathBuf]) -> Option<String> {
@@ -223,5 +231,22 @@ mod tests {
         assert_eq!(cfg.model, "openai/gpt-test");
 
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn dotenv_candidates_use_repo_root_env_only() {
+        let root = temp_data_dir();
+        let child = root.join("desktop").join("src-tauri");
+        let data_dir = temp_data_dir();
+        std::fs::create_dir_all(&child).unwrap();
+        std::fs::create_dir_all(&data_dir).unwrap();
+        std::fs::write(root.join("Cargo.toml"), "[workspace]\n").unwrap();
+
+        let paths = dotenv_candidates_from(&child, &data_dir);
+
+        assert_eq!(paths, vec![root.join(".env")]);
+
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(data_dir);
     }
 }

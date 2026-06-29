@@ -41,6 +41,58 @@ impl Default for AgentWorkflowKind {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum AgentWorkflowId {
+    BuildModpack,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AgentEntry {
+    Home,
+}
+
+impl Default for AgentEntry {
+    fn default() -> Self {
+        Self::Home
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentLaunchContext {
+    #[serde(default)]
+    pub entry: AgentEntry,
+    #[serde(default = "default_available_workflows")]
+    pub available_workflows: Vec<AgentWorkflowId>,
+}
+
+impl Default for AgentLaunchContext {
+    fn default() -> Self {
+        Self::from_entry(AgentEntry::Home)
+    }
+}
+
+impl AgentLaunchContext {
+    pub fn from_entry(entry: AgentEntry) -> Self {
+        let available_workflows = match &entry {
+            AgentEntry::Home => vec![AgentWorkflowId::BuildModpack],
+        };
+        Self {
+            entry,
+            available_workflows,
+        }
+    }
+
+    pub fn allows_workflow(&self, workflow: AgentWorkflowId) -> bool {
+        self.available_workflows.contains(&workflow)
+    }
+}
+
+fn default_available_workflows() -> Vec<AgentWorkflowId> {
+    AgentLaunchContext::default().available_workflows
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum AgentPhase {
     IntentExtraction,
     IntentRouting,
@@ -62,6 +114,15 @@ pub enum AgentPhase {
 pub enum AgentIntentKind {
     BuildModpack,
     Unknown,
+}
+
+impl AgentIntentKind {
+    pub fn workflow_id(&self) -> Option<AgentWorkflowId> {
+        match self {
+            Self::BuildModpack => Some(AgentWorkflowId::BuildModpack),
+            Self::Unknown => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -163,6 +224,8 @@ pub struct AgentRunSnapshot {
     pub id: String,
     #[serde(default)]
     pub workflow: AgentWorkflowKind,
+    #[serde(default)]
+    pub launch_context: AgentLaunchContext,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub intent: Option<AgentIntent>,
     pub status: AgentStatus,
@@ -196,6 +259,7 @@ impl AgentRunSnapshot {
             schema_version: AGENT_SNAPSHOT_SCHEMA_VERSION,
             id: new_id("agent-run"),
             workflow: AgentWorkflowKind::ModpackBuild,
+            launch_context: AgentLaunchContext::default(),
             intent: None,
             status: AgentStatus::Running,
             phase: AgentPhase::IntentExtraction,

@@ -1836,6 +1836,14 @@ fn parses_intent_and_approval_router_json() {
     assert_eq!(unsupported.kind, AgentIntentKind::Unknown);
     assert!((unsupported.confidence - 0.8).abs() < 0.001);
 
+    let wiki = parse_intent_response(r#"{"intent":"wiki_query","confidence":0.7}"#)
+        .expect("future wiki intent json should parse as unsupported");
+    assert_eq!(wiki.kind, AgentIntentKind::Unknown);
+
+    let upgrade = parse_intent_response(r#"{"intent":"upgrade_current_pack","confidence":0.7}"#)
+        .expect("future upgrade intent json should parse as unsupported");
+    assert_eq!(upgrade.kind, AgentIntentKind::Unknown);
+
     let approval = test_approval();
     let approve = parse_approval_decision_response(
             r#"{"decision":"approve","selected_option_id":"modrinth:second","message":null,"rationale":"user chose the second option"}"#,
@@ -1871,6 +1879,25 @@ fn parses_intent_and_approval_router_json() {
         revise_with_option.message.as_deref(),
         Some("Search explicitly for Fabulously Optimized")
     );
+}
+
+#[test]
+fn home_launch_context_injects_build_workflow_only() {
+    let home = AgentLaunchContext::from_entry(AgentEntry::Home);
+    assert_eq!(home.entry, AgentEntry::Home);
+    assert_eq!(
+        home.available_workflows,
+        vec![AgentWorkflowId::BuildModpack]
+    );
+    assert!(home.allows_workflow(AgentWorkflowId::BuildModpack));
+}
+
+#[test]
+fn home_intent_routing_prompt_lists_only_build_workflow() {
+    let home_prompt = intent_routing_prompt(&AgentLaunchContext::from_entry(AgentEntry::Home));
+    assert!(home_prompt.contains("- build_modpack:"));
+    assert!(!home_prompt.contains("- wiki_query:"));
+    assert!(!home_prompt.contains("- upgrade_current_pack:"));
 }
 
 #[test]
@@ -3164,6 +3191,65 @@ fn blocked_customization_gate_does_not_advertise_unusable_revise() {
             .any(|d| d.kind == UserDecisionKind::Revise),
         "blocked customization gate must not advertise a revise path without a recommended customization payload"
     );
+}
+
+#[test]
+fn blocked_customization_back_can_continue_without_model() {
+    let mut run = AgentRunSnapshot::new("make a pack");
+    run.status = AgentStatus::WaitingForUser;
+    run.phase = AgentPhase::ConfirmCustomizationApproval;
+    let base_pack = test_base_pack_payload(7);
+    let blocked = CustomizationPlanningBlocked {
+        reason: "mod planning reached round cap 6 with unresolved goals".to_string(),
+        replan_phase: AgentPhase::ConfirmCustomizationApproval,
+        details: serde_json::json!({
+            "round": 6,
+            "base_pack": base_pack,
+        }),
+    };
+
+    let blocked_run = block_customization_planning(run, blocked);
+    let approval = blocked_run
+        .pending_approval
+        .as_ref()
+        .expect("blocked approval should be present");
+    let back = approval
+        .options
+        .iter()
+        .find(|option| option.id == "back:choose_base_pack")
+        .expect("blocked approval should offer back to base-pack selection");
+    assert_eq!(
+        back.payload
+            .as_ref()
+            .and_then(|payload| payload.get("base_pack"))
+            .and_then(|base_pack| base_pack.get("project_id"))
+            .and_then(|project_id| project_id.as_str()),
+        Some("base-project-7")
+    );
+    let decision = UserDecision {
+        approval_id: approval.id.clone(),
+        kind: UserDecisionKind::Approve,
+        selected_option_id: Some("back:choose_base_pack".to_string()),
+        message: None,
+        edits: serde_json::Value::Null,
+    };
+
+    let next = continue_modpack_build_without_model(blocked_run, decision)
+        .expect("blocked back action should be a deterministic state transition")
+        .expect("blocked back action should not require the model");
+
+    assert_waiting_at(
+        &next,
+        AgentPhase::ChooseBasePackApproval,
+        ApprovalKind::ChooseBasePack,
+    );
+    let approval = next
+        .pending_approval
+        .expect("base-pack approval should exist");
+    assert!(approval
+        .options
+        .iter()
+        .any(|option| option.id == "modrinth:base-project-7"));
 }
 
 #[tokio::test]
