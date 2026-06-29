@@ -1874,6 +1874,14 @@ fn parses_intent_and_approval_router_json() {
 }
 
 #[test]
+fn scratch_prompt_contract_matches_supported_fallback() {
+    assert!(!MAIN_AGENT_SYSTEM_PROMPT.contains("Build-from-scratch is not available"));
+    assert!(!SEARCH_QUERY_PROMPT.contains("Build-from-scratch is not available"));
+    assert!(MAIN_AGENT_SYSTEM_PROMPT.contains("scratch"));
+    assert!(SEARCH_QUERY_PROMPT.contains("scratch"));
+}
+
+#[test]
 fn typed_approval_route_rejects_unknown_option() {
     let approval = test_approval();
     let text_err = parse_approval_decision_response(
@@ -3067,6 +3075,69 @@ fn final_customization_approval_can_continue_without_model() {
             .and_then(|v| v.as_str()),
         Some("mrpack")
     );
+}
+
+#[test]
+fn customization_back_can_continue_without_model() {
+    let base = test_selected_base_pack();
+    let target = TargetCompatibility {
+        minecraft_version: Some("1.20.1".to_string()),
+        loader: Some("fabric".to_string()),
+        version_id: Some("base-version".to_string()),
+        version_name: Some("Base Version".to_string()),
+        version_number: Some("1.0.0".to_string()),
+        game_versions: vec!["1.20.1".to_string()],
+        loaders: vec!["fabric".to_string()],
+        primary_file: None,
+        dependencies: Vec::new(),
+    };
+    let (_, approval) = customization_approval(
+        "make a pack",
+        &base,
+        &target,
+        test_base_pack_payload(1),
+        Vec::new(),
+    );
+    let mut run = AgentRunSnapshot::new("make a pack");
+    run.status = AgentStatus::WaitingForUser;
+    run.phase = AgentPhase::ConfirmCustomizationApproval;
+    run.pending_approval = Some(approval.clone());
+    run.approved_build = Some(test_approved_build(Vec::new()));
+    run.execution = Some(AgentExecutionMetadata {
+        status: AgentExecutionStatus::NotStarted,
+        manifest: None,
+        blocked: None,
+    });
+    let decision = UserDecision {
+        approval_id: approval.id,
+        kind: UserDecisionKind::Approve,
+        selected_option_id: Some("back:choose_base_pack".to_string()),
+        message: None,
+        edits: serde_json::Value::Null,
+    };
+
+    let next = continue_modpack_build_without_model(run, decision)
+        .expect("back action should be a deterministic state transition")
+        .expect("back action should not require the model");
+
+    assert_waiting_at(
+        &next,
+        AgentPhase::ChooseBasePackApproval,
+        ApprovalKind::ChooseBasePack,
+    );
+    assert!(next.approved_build.is_none());
+    assert!(next.execution.is_none());
+    let approval = next
+        .pending_approval
+        .expect("base-pack approval should exist");
+    assert!(approval
+        .options
+        .iter()
+        .any(|option| option.id == "modrinth:base-project-1"));
+    assert!(approval
+        .available_decisions
+        .iter()
+        .any(|decision| decision.kind == UserDecisionKind::Revise));
 }
 
 #[test]

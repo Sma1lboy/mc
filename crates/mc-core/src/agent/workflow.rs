@@ -141,7 +141,7 @@ Your job is to turn user requests into safe daemon-owned workflows, not to perfo
 Current capabilities and boundaries:
 - Route each user request before taking workflow action.
 - For modpack creation, prefer recommending an existing base modpack, then customize it with compatible existing mods.
-- Build-from-scratch is not available in this workflow yet; if no base pack is suitable, ask the user to revise requirements.
+- If no base pack is suitable, the workflow may offer a human-approved scratch fallback that starts from an empty base set and uses deterministic dependency resolution.
 - Search, import, install, export, and file writes are deterministic daemon tools; do not invent platform results, files, versions, or installation state.
 - Stop at human approval gates before choosing a base pack, approving customization, or starting any write/install/export execution.
 - General mod/modpack how-to questions are not handled by this local workflow yet; route unsupported requests to unknown.
@@ -185,7 +185,7 @@ Each query must be a concise platform search string, not a sentence.
 Use separate short queries instead of one long query that combines every requirement.
 Across the query set, cover every major user-requested feature instead of focusing on only one theme.
 Do not include generic words like "Minecraft", "modpack", "base pack", or "pack"; the search tool already filters for modpacks.
-Prefer mature base modpacks. Build-from-scratch is not available in this workflow yet.
+Prefer mature base modpacks. The scratch fallback is a later human-approved option, not a search query target.
 Return an object matching the provided schema."#;
 
 const MOD_PLAN_STEP_PROMPT: &str = r#"You are planning a compatible Minecraft mod set.
@@ -824,11 +824,102 @@ pub fn continue_modpack_build_without_model(
             if selected.id == "confirm:recommended_customization" {
                 return continue_after_customization_confirmation(run, selected).map(Some);
             }
+            if selected.id == "back:choose_base_pack" {
+                return return_to_base_pack_selection(run).map(Some);
+            }
             Ok(None)
         }
         other => Err(CoreError::other(format!(
             "continue for approval kind {other:?} is not implemented yet"
         ))),
+    }
+}
+
+fn return_to_base_pack_selection(mut run: AgentRunSnapshot) -> Result<AgentRunSnapshot> {
+    let base_pack = current_customization_base_pack(&run)?;
+    let approval = base_pack_reselection_approval(&run, base_pack);
+    let plan = approval.plan.clone();
+    run.status = AgentStatus::WaitingForUser;
+    run.phase = AgentPhase::ChooseBasePackApproval;
+    run.pending_approval = Some(approval);
+    run.plan = plan;
+    run.approved_build = None;
+    run.execution = None;
+    run.mod_plan = None;
+    run.tools = vec![update_build_restrictions_tool_spec()];
+    run.push_message(
+        AgentMessageKind::User,
+        "Returned to base-pack selection from customization",
+    );
+    run.push_trace("user returned from customization to base-pack selection");
+    Ok(run)
+}
+
+fn current_customization_base_pack(run: &AgentRunSnapshot) -> Result<serde_json::Value> {
+    run.pending_approval
+        .as_ref()
+        .and_then(|approval| {
+            approval
+                .options
+                .iter()
+                .find(|option| option.id == "confirm:recommended_customization")
+        })
+        .and_then(|option| option.payload.as_ref())
+        .and_then(|payload| payload.get("base_pack"))
+        .cloned()
+        .or_else(|| {
+            run.approved_build
+                .as_ref()
+                .map(|build| build.base_pack.clone())
+        })
+        .ok_or_else(|| {
+            CoreError::other("customization back action has no current base pack payload")
+        })
+}
+
+fn base_pack_reselection_approval(
+    run: &AgentRunSnapshot,
+    base_pack: serde_json::Value,
+) -> ApprovalRequest {
+    let title = optional_json_string(&base_pack, "title")
+        .or_else(|| optional_json_string(&base_pack, "slug"))
+        .unwrap_or_else(|| "Current base pack".to_string());
+    let provider =
+        optional_json_string(&base_pack, "provider").unwrap_or_else(|| "modrinth".to_string());
+    let project_id = optional_json_string(&base_pack, "project_id")
+        .or_else(|| optional_json_string(&base_pack, "slug"))
+        .unwrap_or_else(|| "current_base_pack".to_string());
+    ApprovalRequest {
+        id: crate::agent::state::new_id("approval"),
+        kind: ApprovalKind::ChooseBasePack,
+        title: "Choose a base modpack".to_string(),
+        message: "Returned from customization. Keep the current base pack, or search base packs again with revised requirements.".to_string(),
+        options: vec![ApprovalOption {
+            id: format!("{provider}:{project_id}"),
+            label: title,
+            description: Some("Current base pack from the customization plan.".to_string()),
+            payload: Some(base_pack),
+        }],
+        available_decisions: approval_decisions("Keep this base pack", "Search base packs again"),
+        tools: vec![update_build_restrictions_tool_spec()],
+        plan: Some(ModpackAgentPlan {
+            objective: run.user_prompt.clone(),
+            summary_markdown:
+                "Returned to base-pack selection from customization review.".to_string(),
+            risks: vec![
+                "Keeping the same base pack will rerun customization planning before execution."
+                    .to_string(),
+            ],
+            planned_actions: vec![PlannedAction {
+                id: "choose-base-pack-again".to_string(),
+                label: "Choose or revise the base pack before customization is planned again"
+                    .to_string(),
+                tool: "approval_gate".to_string(),
+                args: serde_json::json!({ "kind": "choose_base_pack", "source": "customization_back" }),
+                requires_approval: true,
+            }],
+            migration_notes: vec![],
+        }),
     }
 }
 
