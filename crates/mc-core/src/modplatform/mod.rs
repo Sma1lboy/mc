@@ -131,7 +131,7 @@ pub struct VersionFile {
     pub server_side: ProjectSideSupport,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum ProjectSideSupport {
     Required,
