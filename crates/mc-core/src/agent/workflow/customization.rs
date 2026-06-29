@@ -160,9 +160,7 @@ pub(super) fn continue_after_customization_confirmation(
     selected: ApprovalOption,
 ) -> Result<AgentRunSnapshot> {
     if selected.id == "back:choose_base_pack" {
-        return Err(CoreError::other(
-            "returning to base-pack selection is not implemented in the MVP session state",
-        ));
+        return return_to_base_pack_selection(run);
     }
     if selected.id != "confirm:recommended_customization" {
         return Err(CoreError::other(format!(
