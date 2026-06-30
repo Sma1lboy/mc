@@ -62,10 +62,26 @@ pub struct StoredAccount {
 }
 
 impl StoredAccount {
-    /// 由微软登录结果构造一个可落库的微软账号。`expires_at` 统一用 [`MC_TOKEN_TTL_SECS`]
-    /// 计算 —— 这是「AuthSession → 微软 StoredAccount」的唯一 owner,desktop 与 CLI 共用,
-    /// 不再各处手抄字段、更不会再出现把 TTL 写成 `86_400` 字面量的漂移。
+    /// 由微软登录结果构造一个可落库的微软账号。初次设备码登录意味着账号必然拥有正版,
+    /// 故 `owns_game` 恒为 `true`——其余字段布局与 TTL 全交给
+    /// [`from_microsoft_refreshed`](Self::from_microsoft_refreshed) 这个唯一 owner。
     pub fn from_microsoft(session: &AuthSession, refresh_token: String) -> Self {
+        Self::from_microsoft_refreshed(session, refresh_token, true)
+    }
+
+    /// 「AuthSession + refresh_token + owns_game → 微软 StoredAccount」的唯一字段布局 & TTL
+    /// owner:`expires_at` 统一用 [`MC_TOKEN_TTL_SECS`] 在构造时计算,desktop / CLI 初次登录
+    /// ([`from_microsoft`](Self::from_microsoft))与续期路径([`super::refresh_selected_microsoft`])
+    /// 共用同一份,不再各处手抄字段、更不会再出现把 TTL 写成 `86_400` 字面量的漂移。
+    ///
+    /// 与初次登录的唯一区别是 `owns_game` 由调用方显式给定(续期沿用旧账号,而非强制 `true`);
+    /// refresh_token 的「端点未返回新值则沿用旧值」回退也由调用方先解析好再传入,故这里只收
+    /// 已定稿的 token。
+    pub(crate) fn from_microsoft_refreshed(
+        session: &AuthSession,
+        refresh_token: String,
+        owns_game: bool,
+    ) -> Self {
         Self {
             kind: AccountKind::Microsoft,
             username: session.username.clone(),
@@ -74,7 +90,7 @@ impl StoredAccount {
             refresh_token: Some(refresh_token),
             xuid: session.xuid.clone(),
             user_type: session.user_type.clone(),
-            owns_game: true,
+            owns_game,
             expires_at: Some(now_unix() + MC_TOKEN_TTL_SECS),
             client_token: None,
             yggdrasil_base: None,
@@ -434,6 +450,57 @@ mod tests {
         // expires_at 未知 → 一律视为过期(促使续期)。
         a.expires_at = None;
         assert!(a.is_expired(0, 0));
+    }
+
+    fn ms_session() -> AuthSession {
+        AuthSession {
+            username: "msuser".to_string(),
+            uuid: "uuid-ms".to_string(),
+            access_token: "acc".to_string(),
+            user_type: "msa".to_string(),
+            xuid: "x1".to_string(),
+        }
+    }
+
+    /// 初次登录与续期两条路径用同样的输入(owns_game 对齐)应得到同样的字段布局 + 同样的 TTL。
+    /// 这是去重的核心保证:`from_microsoft` 只是 `from_microsoft_refreshed(.., true)` 的薄包装,
+    /// 字段布局 / TTL 只此一份。
+    #[test]
+    fn microsoft_initial_and_refresh_paths_match() {
+        let session = ms_session();
+        let before = now_unix();
+        let initial = StoredAccount::from_microsoft(&session, "refresh".to_string());
+        let refreshed =
+            StoredAccount::from_microsoft_refreshed(&session, "refresh".to_string(), true);
+        let after = now_unix();
+
+        // TTL:两条路径都把 expires_at 设为各自构造时刻 + MC_TOKEN_TTL_SECS。
+        for acc in [&initial, &refreshed] {
+            let exp = acc.expires_at.expect("微软账号应有 expires_at");
+            assert!(exp >= before + MC_TOKEN_TTL_SECS && exp <= after + MC_TOKEN_TTL_SECS);
+        }
+        // 除 expires_at(各自取构造时刻)外其余字段逐一相同 —— 字段布局只此一份。
+        let norm = |mut a: StoredAccount| {
+            a.expires_at = None;
+            a
+        };
+        assert_eq!(norm(initial.clone()), norm(refreshed.clone()));
+
+        // 字段布局 spot-check:确实是拥有正版、带 refresh_token、msa 的微软账号,且无外置字段。
+        assert_eq!(initial.kind, AccountKind::Microsoft);
+        assert!(initial.owns_game);
+        assert_eq!(initial.refresh_token.as_deref(), Some("refresh"));
+        assert_eq!(initial.user_type, "msa");
+        assert_eq!(initial.xuid, "x1");
+        assert!(initial.client_token.is_none());
+        assert!(initial.yggdrasil_base.is_none());
+    }
+
+    /// 续期路径相对初次登录的真实差异:`owns_game` 沿用旧账号(可能为 false),而非强制 `true`。
+    #[test]
+    fn microsoft_refreshed_carries_owns_game() {
+        let acc = StoredAccount::from_microsoft_refreshed(&ms_session(), "r".to_string(), false);
+        assert!(!acc.owns_game);
     }
 
     fn offline(name: &str, uuid: &str) -> StoredAccount {

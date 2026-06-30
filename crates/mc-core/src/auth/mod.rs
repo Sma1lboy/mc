@@ -73,24 +73,14 @@ pub async fn refresh_selected_microsoft(
     let token = msa.refresh(&refresh_token).await?;
     let session = msa.authenticate(&token.access_token).await?;
 
-    let updated = StoredAccount {
-        kind: AccountKind::Microsoft,
-        username: session.username.clone(),
-        uuid: session.uuid.clone(),
-        access_token: session.access_token.clone(),
-        // 刷新端点可能不返回新的 refresh_token,这种情况下继续沿用旧的。
-        refresh_token: Some(if token.refresh_token.is_empty() {
-            refresh_token
-        } else {
-            token.refresh_token
-        }),
-        xuid: session.xuid.clone(),
-        user_type: session.user_type.clone(),
-        owns_game,
-        expires_at: Some(now_unix() + MC_TOKEN_TTL_SECS),
-        client_token: None,
-        yggdrasil_base: None,
+    // 续期相对初次登录的唯一差异:刷新端点可能不返回新的 refresh_token,这种情况下继续沿用旧的。
+    // 解析定稿后,字段布局 / TTL / owns_game 语义都交还给 StoredAccount::from_microsoft_refreshed。
+    let refresh_token = if token.refresh_token.is_empty() {
+        refresh_token
+    } else {
+        token.refresh_token
     };
+    let updated = StoredAccount::from_microsoft_refreshed(&session, refresh_token, owns_game);
 
     store.add_and_select(updated)?; // 原地更新 + 保持选中 + 落盘,一步到位
     Ok(true)
