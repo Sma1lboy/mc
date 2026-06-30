@@ -18,7 +18,7 @@ use std::path::Path;
 use mc_types::LoaderKind;
 
 use crate::error::{CoreError, Result};
-use crate::modpack::formats::mrpack::{EnvSupport, MrpackIndex};
+use crate::modpack::formats::mrpack::{EnvSupport, MrpackIndex, MRPACK_DOWNLOAD_HOSTS};
 
 use super::{
     basename, depth, ArchiveIndex, DetectMatch, ImportPlan, ManagedPack, ModpackImporter,
@@ -32,26 +32,14 @@ pub(crate) const OVERRIDES: &str = "overrides";
 /// 客户端专属 override 根(盖在 `overrides` 上)。
 pub(crate) const CLIENT_OVERRIDES: &str = "client-overrides";
 
-/// 下载 host 白名单(对齐 mrpack 规范,见 `formats::mrpack` 模块文档)。
-/// 仅这些 host 及其子域可作下载源;恶意包指向任意 host 的源会被滤掉(纵深防御)。
-const ALLOWED_HOSTS: &[&str] =
-    &["cdn.modrinth.com", "github.com", "raw.githubusercontent.com", "gitlab.com"];
-
-/// URL 的 host 是否在白名单内(等于某 allowed host 或为其子域)。
-///
-/// 手工抽取 `scheme://host/` 前缀(避免引入 URL 解析依赖):取 `://` 之后、到下一个
-/// `/`(或字符串末尾)之前的片段,再去掉可能的 `user@` 与 `:port`。
+/// URL 的 host 是否在 mrpack 下载白名单内([`MRPACK_DOWNLOAD_HOSTS`]):等于某项或为其子域。
+/// 仅放行白名单 host;恶意包指向任意 host 的源会被滤掉(纵深防御)。解析与后缀匹配都委托给
+/// [`crate::host`](按字节比较,与重构前一致 —— 导入侧不做大小写归一)。
 fn host_allowed(url: &str) -> bool {
-    let Some(after_scheme) = url.split_once("://").map(|(_, rest)| rest) else {
-        return false;
-    };
-    let authority = after_scheme.split(['/', '?', '#']).next().unwrap_or("");
-    // 去掉 userinfo(`user@host`)与端口(`host:port`)。
-    let host = authority.rsplit('@').next().unwrap_or(authority);
-    let host = host.split(':').next().unwrap_or(host);
-    ALLOWED_HOSTS
-        .iter()
-        .any(|allowed| host == *allowed || host.ends_with(&format!(".{allowed}")))
+    match crate::host::host_of(url) {
+        Some(host) => crate::host::host_matches_suffix(host, MRPACK_DOWNLOAD_HOSTS),
+        None => false,
+    }
 }
 
 /// Modrinth `.mrpack` 导入器。

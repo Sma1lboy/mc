@@ -468,8 +468,7 @@ impl Downloader {
         for candidate in &candidates {
             for attempt in 0..MAX_ATTEMPTS {
                 match self
-                    .client
-                    .get(candidate)
+                    .apply_cf_auth(self.client.get(candidate), candidate)
                     .send()
                     .await
                     .and_then(|r| r.error_for_status())
@@ -551,38 +550,17 @@ impl Downloader {
 
 /// 判断一个 host 是否属于 CurseForge(其 CDN 自 2026-07-16 起要求 `x-api-key`)。
 /// 命中:`api.curseforge.com`、任何 `*.forgecdn.net`(含 `edge.` / `mediafilez.`)、
-/// 任何 `*.curseforge.com`。大小写无关。纯函数,可单测。
+/// 任何 `*.curseforge.com`。先 trim + 去尾点 + 转小写归一,再走共享的子域后缀匹配
+/// ([`crate::host::host_matches_suffix`])。纯函数,可单测。
 fn is_curseforge_host(host: &str) -> bool {
     let h = host.trim().trim_end_matches('.').to_ascii_lowercase();
-    h == "forgecdn.net"
-        || h == "curseforge.com"
-        || h.ends_with(".forgecdn.net")
-        || h.ends_with(".curseforge.com")
+    crate::host::host_matches_suffix(&h, &["forgecdn.net", "curseforge.com"])
 }
 
 /// 从一个 URL 抽出 host 并判断是否为 CurseForge host。无法解析出 host 的 URL 视作非 CF
-/// (绝不在不确定时附加 key)。不引 url crate:手解析 `scheme://host[:port]/...` 的 authority。
+/// (绝不在不确定时附加 key)。
 fn url_is_curseforge(url: &str) -> bool {
-    host_of(url).map(is_curseforge_host).unwrap_or(false)
-}
-
-/// 从 URL 取出 host(去掉 scheme、userinfo、端口、路径)。失败返回 `None`。
-fn host_of(url: &str) -> Option<&str> {
-    let after_scheme = url.split_once("://").map(|(_, rest)| rest)?;
-    // authority 到第一个 '/'、'?'、'#' 为止。
-    let authority = after_scheme
-        .split(['/', '?', '#'])
-        .next()
-        .unwrap_or(after_scheme);
-    // 去掉可能的 userinfo(`user:pass@host`)。
-    let host_port = authority.rsplit_once('@').map(|(_, h)| h).unwrap_or(authority);
-    // 去掉端口(IPv6 字面量不在我们的下载源里,无需处理 `[::1]`)。
-    let host = host_port.split(':').next().unwrap_or(host_port);
-    if host.is_empty() {
-        None
-    } else {
-        Some(host)
-    }
+    crate::host::host_of(url).map(is_curseforge_host).unwrap_or(false)
 }
 
 /// 判断错误是否值得重试。网络层错误(超时、连接重置、DNS、5xx 等)可重试;
@@ -712,17 +690,6 @@ mod tests {
         // Semaphore(0) 会永久阻塞;new 必须把 0 提升到 1。
         let d = Downloader::new(0).unwrap();
         assert!(d.sem.available_permits() >= 1);
-    }
-
-    #[test]
-    fn host_of_extracts_host() {
-        assert_eq!(host_of("https://edge.forgecdn.net/files/1/2/sodium.jar"), Some("edge.forgecdn.net"));
-        assert_eq!(host_of("https://api.curseforge.com/v1/mods/files"), Some("api.curseforge.com"));
-        assert_eq!(host_of("http://user:pass@mediafilez.forgecdn.net:8080/x"), Some("mediafilez.forgecdn.net"));
-        assert_eq!(host_of("https://cdn.modrinth.com/data/x/y.jar?foo=bar"), Some("cdn.modrinth.com"));
-        // 无 scheme / 无 host → None。
-        assert_eq!(host_of("not-a-url"), None);
-        assert_eq!(host_of("https:///path-only"), None);
     }
 
     #[test]

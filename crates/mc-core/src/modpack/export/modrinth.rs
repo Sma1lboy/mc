@@ -1,7 +1,8 @@
 //! Modrinth `.mrpack` 导出目标。
 //!
 //! - **反查**:sha512(`provider.resolve_by_hashes(Sha512, …)`)。
-//! - **远程引用门**:仅当解析出的下载 host 在 **mrpack 白名单**内([`MODRINTH_MRPACK_HOSTS`])
+//! - **远程引用门**:仅当解析出的下载 host 在 **mrpack 白名单**内
+//!   ([`MRPACK_DOWNLOAD_HOSTS`](crate::modpack::formats::mrpack::MRPACK_DOWNLOAD_HOSTS))
 //!   才允许写进索引;否则即便反查命中也回落 `overrides/`(Modrinth 规范只准从白名单 host 下载)。
 //! - **索引**:`modrinth.index.json`(`formatVersion=1`),`files[]` 取自 resolved 集
 //!   (path / hashes.sha512 / downloads / fileSize / env),`dependencies` 取自实例的
@@ -18,6 +19,7 @@ use mc_types::LoaderKind;
 use crate::error::{CoreError, Result};
 use crate::modpack::formats::mrpack::{
     EnvSupport, MrpackDependencies, MrpackEnv, MrpackFile, MrpackHashes, MrpackIndex,
+    MRPACK_DOWNLOAD_HOSTS,
 };
 use crate::modplatform::{HashAlgo, ProviderId, ResolvedFile};
 
@@ -26,15 +28,6 @@ use super::{ClassifiedSet, ExportInput, ExportTarget, Packaging};
 
 /// `modrinth.index.json` 在 `.mrpack` 内的固定路径。
 const MRPACK_INDEX_ENTRY: &str = "modrinth.index.json";
-
-/// Modrinth modpack 规范允许的下载 host 白名单(<https://docs.modrinth.com/modpacks/format/>)。
-/// resolved 文件的 host 不在其中则不能远程引用,回落 overrides。后缀匹配(子域名也算)。
-pub const MODRINTH_MRPACK_HOSTS: &[&str] = &[
-    "cdn.modrinth.com",
-    "github.com",
-    "raw.githubusercontent.com",
-    "gitlab.com",
-];
 
 /// Modrinth `.mrpack` 导出目标。
 #[derive(Debug, Clone, Default)]
@@ -83,28 +76,15 @@ impl ExportTarget for ModrinthExportTarget {
     }
 }
 
-/// 判断一个 URL 的 host 是否在 mrpack 白名单内(后缀匹配,子域名也算)。
+/// 判断一个 URL 的 host 是否在 mrpack 白名单内([`MRPACK_DOWNLOAD_HOSTS`]):等于某项或为其
+/// 子域。解析与后缀匹配都委托给 [`crate::host`];导出侧把 host 归一为小写后再匹配(与重构前
+/// `extract_host` 的行为一致),避免 `evilmodrinth.com` 蒙混。
 pub fn host_in_whitelist(url: &str) -> bool {
-    match extract_host(url) {
-        Some(host) => MODRINTH_MRPACK_HOSTS.iter().any(|w| {
-            // 完整等于或以 `.<w>` 结尾(子域名),避免 `evilmodrinth.com` 蒙混。
-            host == *w || host.ends_with(&format!(".{w}"))
-        }),
+    match crate::host::host_of(url) {
+        Some(host) => {
+            crate::host::host_matches_suffix(&host.to_ascii_lowercase(), MRPACK_DOWNLOAD_HOSTS)
+        }
         None => false,
-    }
-}
-
-/// 从 `https://host/path` 取 host(小写);非法 URL 返回 None。
-fn extract_host(url: &str) -> Option<String> {
-    let rest = url.split("://").nth(1)?;
-    let host = rest.split('/').next()?;
-    // 去掉可能的端口 / userinfo。
-    let host = host.rsplit('@').next().unwrap_or(host);
-    let host = host.split(':').next().unwrap_or(host);
-    if host.is_empty() {
-        None
-    } else {
-        Some(host.to_ascii_lowercase())
     }
 }
 

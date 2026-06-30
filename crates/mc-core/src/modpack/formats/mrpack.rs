@@ -13,6 +13,19 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Modrinth modpack 规范允许的下载 host 白名单(<https://docs.modrinth.com/modpacks/format/>)。
+///
+/// **单一真相源**:导入侧用它过滤 `files[].downloads[]` 的源(纵深防御,丢弃指向任意
+/// host 的恶意源),导出侧用它作远程引用门(host 不在其中则回落 `overrides/`)。匹配规则
+/// 是「等于某项或为其子域」(见 [`crate::host::host_matches_suffix`]),不是裸后缀,避免
+/// `evilmodrinth.com` 蒙混。
+pub const MRPACK_DOWNLOAD_HOSTS: &[&str] = &[
+    "cdn.modrinth.com",
+    "github.com",
+    "raw.githubusercontent.com",
+    "gitlab.com",
+];
+
 /// `modrinth.index.json` 顶层结构。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MrpackIndex {

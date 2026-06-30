@@ -13,6 +13,7 @@ pub mod download;
 pub mod error;
 pub mod friend;
 pub mod fs;
+pub(crate) mod host;
 pub mod instance;
 pub mod java;
 pub mod lan_world;
