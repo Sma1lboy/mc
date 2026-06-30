@@ -78,8 +78,8 @@ fn config_from_env_files(env_files: &[PathBuf]) -> Result<AgentLlmConfig> {
 
 #[derive(Clone)]
 pub struct AgentLlmClient {
-    config: AgentLlmConfig,
-    client: openrouter::Client,
+    pub(crate) config: AgentLlmConfig,
+    pub(crate) client: openrouter::Client,
 }
 
 impl AgentLlmClient {

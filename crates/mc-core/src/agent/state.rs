@@ -30,6 +30,7 @@ pub enum AgentStatus {
 pub enum AgentWorkflowKind {
     MainRouting,
     ModpackBuild,
+    WikiQuery,
     Unsupported,
 }
 
@@ -43,12 +44,18 @@ impl Default for AgentWorkflowKind {
 #[serde(rename_all = "snake_case")]
 pub enum AgentWorkflowId {
     BuildModpack,
+    WikiQuery,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AgentEntry {
     Home,
+    Modpack {
+        modpack_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        instance_id: Option<String>,
+    },
 }
 
 impl Default for AgentEntry {
@@ -75,6 +82,7 @@ impl AgentLaunchContext {
     pub fn from_entry(entry: AgentEntry) -> Self {
         let available_workflows = match &entry {
             AgentEntry::Home => vec![AgentWorkflowId::BuildModpack],
+            AgentEntry::Modpack { .. } => vec![AgentWorkflowId::WikiQuery],
         };
         Self {
             entry,
@@ -96,6 +104,7 @@ fn default_available_workflows() -> Vec<AgentWorkflowId> {
 pub enum AgentPhase {
     IntentExtraction,
     IntentRouting,
+    WikiQuery,
     ConfigureRequirementsApproval,
     BasePackSearch,
     BasePackRanking,
@@ -113,6 +122,7 @@ pub enum AgentPhase {
 #[serde(rename_all = "snake_case")]
 pub enum AgentIntentKind {
     BuildModpack,
+    WikiQuery,
     Unknown,
 }
 
@@ -120,6 +130,7 @@ impl AgentIntentKind {
     pub fn workflow_id(&self) -> Option<AgentWorkflowId> {
         match self {
             Self::BuildModpack => Some(AgentWorkflowId::BuildModpack),
+            Self::WikiQuery => Some(AgentWorkflowId::WikiQuery),
             Self::Unknown => None,
         }
     }
@@ -247,6 +258,8 @@ pub struct AgentRunSnapshot {
     pub approved_build: Option<ApprovedModpackBuild>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub execution: Option<AgentExecutionMetadata>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wiki: Option<WikiThreadState>,
     #[serde(default)]
     pub replans: Vec<PlanReplanRequest>,
     #[serde(default)]
@@ -272,6 +285,7 @@ impl AgentRunSnapshot {
             mod_plan: None,
             approved_build: None,
             execution: None,
+            wiki: None,
             replans: Vec::new(),
             trace: Vec::new(),
         }
@@ -398,6 +412,52 @@ pub struct AgentTraceEvent {
     pub duration_ms: Option<u128>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WikiScope {
+    pub modpack_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance_id: Option<String>,
+    pub corpus_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index_version: Option<String>,
+}
+
+impl WikiScope {
+    pub fn from_modpack_entry(modpack_id: String, instance_id: Option<String>) -> Self {
+        let corpus_id = match instance_id.as_deref().filter(|s| !s.trim().is_empty()) {
+            Some(instance_id) => format!("modpack:{modpack_id}:instance:{instance_id}"),
+            None => format!("modpack:{modpack_id}"),
+        };
+        Self {
+            modpack_id,
+            instance_id,
+            corpus_id,
+            index_version: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WikiThreadState {
+    pub scope: WikiScope,
+    #[serde(default)]
+    pub source_uris: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_query: Option<String>,
+    #[serde(default)]
+    pub focused_entities: Vec<String>,
+    #[serde(default)]
+    pub cited_chunk_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WikiCitation {
+    pub chunk_id: String,
+    pub title: String,
+    pub source_label: String,
+    pub location: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

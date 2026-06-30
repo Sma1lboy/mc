@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use clap::{Subcommand, ValueEnum};
@@ -6,14 +7,14 @@ use clap::{Subcommand, ValueEnum};
 use mc_core::agent::{
     AgentEntry, AgentIntentKind, AgentMessageKind, AgentPhase, AgentRunSnapshot, AgentSessionStore,
     AgentSessionSummary, AgentStatus, ApprovalKind, ApprovalRequest, BuildRestrictions,
-    UserDecisionKind,
+    LocalWikiCorpus, UserDecisionKind, WikiScope,
 };
 
 use crate::data_dir;
 
 #[derive(Subcommand)]
 pub(crate) enum AgentAction {
-    /// Start the main agent; supported build-modpack requests stop at an approval gate.
+    /// Start the main agent from a supported launcher surface.
     #[command(alias = "plan")]
     Start {
         /// Natural-language user request.
@@ -34,6 +35,15 @@ pub(crate) enum AgentAction {
         /// UI surface that launched this agent run.
         #[arg(long, value_enum, default_value_t = AgentStartSurface::Home)]
         surface: AgentStartSurface,
+        /// Current modpack id when --surface modpack is used.
+        #[arg(long)]
+        modpack_id: Option<String>,
+        /// Optional current installed instance id when --surface modpack is used.
+        #[arg(long)]
+        instance_id: Option<String>,
+        /// Local wiki source file or directory for the current modpack.
+        #[arg(long = "wiki-source")]
+        wiki_sources: Vec<PathBuf>,
     },
     /// Show a saved local agent session snapshot.
     Show {
@@ -47,9 +57,12 @@ pub(crate) enum AgentAction {
     Continue {
         #[arg(long)]
         session_id: String,
-        /// Natural-language response; the agent routes it to approve/revise/cancel.
+        /// Natural-language response for the current agent session.
         #[arg(long)]
         message: String,
+        /// Additional local wiki source file or directory for wiki sessions.
+        #[arg(long = "wiki-source")]
+        wiki_sources: Vec<PathBuf>,
         /// Print the full raw AgentRunSnapshot JSON.
         #[arg(long)]
         json: bool,
@@ -109,6 +122,9 @@ pub(crate) async fn cmd_agent(action: &AgentAction) -> Result<()> {
             show_key_path,
             json,
             surface,
+            modpack_id,
+            instance_id,
+            wiki_sources,
         } => {
             cmd_agent_start(
                 prompt,
@@ -117,6 +133,9 @@ pub(crate) async fn cmd_agent(action: &AgentAction) -> Result<()> {
                 *show_key_path,
                 *json,
                 *surface,
+                modpack_id.clone(),
+                instance_id.clone(),
+                wiki_sources.clone(),
             )
             .await
         }
@@ -124,8 +143,9 @@ pub(crate) async fn cmd_agent(action: &AgentAction) -> Result<()> {
         AgentAction::Continue {
             session_id,
             message,
+            wiki_sources,
             json,
-        } => cmd_agent_continue(session_id, message, *json).await,
+        } => cmd_agent_continue(session_id, message, wiki_sources, *json).await,
         AgentAction::Execute {
             session_id,
             output,
@@ -156,6 +176,7 @@ pub(crate) enum AgentExecSmokeOutcome {
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub(crate) enum AgentStartSurface {
     Home,
+    Modpack,
 }
 
 async fn cmd_agent_start(
@@ -165,6 +186,9 @@ async fn cmd_agent_start(
     show_key_path: bool,
     json: bool,
     surface: AgentStartSurface,
+    modpack_id: Option<String>,
+    instance_id: Option<String>,
+    wiki_sources: Vec<PathBuf>,
 ) -> Result<()> {
     let dir = data_dir();
     if show_key_path {
@@ -177,9 +201,17 @@ async fn cmd_agent_start(
         return Ok(());
     }
 
-    let agent = local_agent_runtime(&dir, model)?;
-    let entry = agent_entry_from_start_flags(surface)?;
+    let entry = agent_entry_from_start_flags(surface, modpack_id.as_deref(), instance_id)?;
+    let wiki_scope = wiki_scope_from_entry(&entry);
+    let agent = local_agent_runtime(
+        &dir,
+        model,
+        wiki_scope
+            .clone()
+            .map(|scope| (scope, wiki_sources.clone())),
+    )?;
     let mut snapshot = agent.start_new_run_with_entry(prompt, entry).await?;
+    apply_wiki_source_uris(&mut snapshot, &wiki_sources);
     if let Some(session_id) = session_id.filter(|s| !s.trim().is_empty()) {
         snapshot.id = session_id;
     }
@@ -187,15 +219,74 @@ async fn cmd_agent_start(
     persist_and_print_agent_snapshot(&store, snapshot, json).map(|_| ())
 }
 
-fn agent_entry_from_start_flags(surface: AgentStartSurface) -> Result<AgentEntry> {
+fn agent_entry_from_start_flags(
+    surface: AgentStartSurface,
+    modpack_id: Option<&str>,
+    instance_id: Option<String>,
+) -> Result<AgentEntry> {
     match surface {
         AgentStartSurface::Home => Ok(AgentEntry::Home),
+        AgentStartSurface::Modpack => {
+            let modpack_id = modpack_id
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| anyhow::anyhow!("--surface modpack requires --modpack-id"))?;
+            Ok(AgentEntry::Modpack {
+                modpack_id: modpack_id.to_string(),
+                instance_id: instance_id.filter(|s| !s.trim().is_empty()),
+            })
+        }
     }
+}
+
+fn wiki_scope_from_entry(entry: &AgentEntry) -> Option<WikiScope> {
+    match entry {
+        AgentEntry::Home => None,
+        AgentEntry::Modpack {
+            modpack_id,
+            instance_id,
+        } => Some(WikiScope::from_modpack_entry(
+            modpack_id.clone(),
+            instance_id.clone(),
+        )),
+    }
+}
+
+fn apply_wiki_source_uris(snapshot: &mut AgentRunSnapshot, wiki_sources: &[PathBuf]) {
+    let Some(wiki) = snapshot.wiki.as_mut() else {
+        return;
+    };
+    for path in wiki_sources {
+        let uri = path.to_string_lossy().to_string();
+        if !wiki.source_uris.contains(&uri) {
+            wiki.source_uris.push(uri);
+        }
+    }
+}
+
+fn wiki_sources_for_snapshot(
+    snapshot: &AgentRunSnapshot,
+    extra_sources: &[PathBuf],
+) -> Option<(WikiScope, Vec<PathBuf>)> {
+    let wiki = snapshot.wiki.as_ref()?;
+    let mut sources = wiki
+        .source_uris
+        .iter()
+        .filter(|source| !source.trim().is_empty())
+        .map(PathBuf::from)
+        .collect::<Vec<_>>();
+    for source in extra_sources {
+        if !sources.iter().any(|existing| existing == source) {
+            sources.push(source.clone());
+        }
+    }
+    Some((wiki.scope.clone(), sources))
 }
 
 fn local_agent_runtime(
     dir: &Path,
     model: Option<String>,
+    wiki_sources: Option<(WikiScope, Vec<PathBuf>)>,
 ) -> Result<mc_core::agent::MainAgentRuntime> {
     let mut cfg = mc_core::agent::AgentLlmConfig::from_local(dir).with_context(|| {
         "Failed to read the OpenRouter API key; set OPENROUTER_API_KEY or write it to the repository root .env"
@@ -205,6 +296,13 @@ fn local_agent_runtime(
     }
 
     let llm = mc_core::agent::AgentLlmClient::new(cfg)?;
+    if let Some((scope, sources)) = wiki_sources {
+        let corpus = LocalWikiCorpus::from_paths(scope, &sources)?;
+        return Ok(mc_core::agent::MainAgentRuntime::with_wiki_retriever(
+            llm,
+            Arc::new(corpus),
+        ));
+    }
     Ok(mc_core::agent::MainAgentRuntime::new(llm))
 }
 
@@ -220,7 +318,12 @@ fn cmd_agent_show_with_dir(dir: &Path, session_id: &str, json: bool) -> Result<A
     Ok(snapshot)
 }
 
-async fn cmd_agent_continue(session_id: &str, message: &str, json: bool) -> Result<()> {
+async fn cmd_agent_continue(
+    session_id: &str,
+    message: &str,
+    wiki_sources: &[PathBuf],
+    json: bool,
+) -> Result<()> {
     let user_message = message.trim();
     if user_message.is_empty() {
         anyhow::bail!("--message must not be empty");
@@ -228,9 +331,14 @@ async fn cmd_agent_continue(session_id: &str, message: &str, json: bool) -> Resu
 
     let dir = data_dir();
     let store = AgentSessionStore::new(&dir);
-    let snapshot = load_agent_snapshot(&store, session_id)?;
+    let mut snapshot = load_agent_snapshot(&store, session_id)?;
+    apply_wiki_source_uris(&mut snapshot, wiki_sources);
     ensure_session_can_continue(&snapshot)?;
-    let agent = local_agent_runtime(&dir, None)?;
+    let agent = local_agent_runtime(
+        &dir,
+        None,
+        wiki_sources_for_snapshot(&snapshot, wiki_sources),
+    )?;
     cmd_agent_continue_snapshot_with_runtime(&dir, &agent, snapshot, user_message, json)
         .await
         .map(|_| ())
@@ -490,6 +598,7 @@ fn print_agent_snapshot_summary(snapshot: &AgentRunSnapshot) {
         AgentPhase::ExecutionReady | AgentPhase::Executing | AgentPhase::Verifying => {
             print_execution_summary(snapshot)
         }
+        AgentPhase::WikiQuery => print_wiki_summary(snapshot),
         AgentPhase::Completed | AgentPhase::Failed => {
             if let Some(last) = snapshot.messages.last() {
                 println!("message: {}", last.text);
@@ -694,6 +803,28 @@ fn customization_unresolved_request_lines(payload: &serde_json::Value) -> Vec<St
             })
         })
         .collect()
+}
+
+fn print_wiki_summary(snapshot: &AgentRunSnapshot) {
+    if let Some(wiki) = snapshot.wiki.as_ref() {
+        println!("modpack: {}", wiki.scope.modpack_id);
+        if let Some(instance_id) = wiki.scope.instance_id.as_deref() {
+            println!("instance: {instance_id}");
+        }
+        println!("wiki sources: {}", wiki.source_uris.len());
+        if !wiki.cited_chunk_ids.is_empty() {
+            println!("citations: {}", wiki.cited_chunk_ids.join(", "));
+        }
+    }
+    if let Some(last) = snapshot
+        .messages
+        .iter()
+        .rev()
+        .find(|message| message.kind == AgentMessageKind::Assistant)
+    {
+        println!("answer:");
+        print_indented(&last.text, 2);
+    }
 }
 
 fn print_execution_summary(snapshot: &AgentRunSnapshot) {
@@ -909,6 +1040,7 @@ fn agent_status_label(status: &AgentStatus) -> &'static str {
 fn agent_intent_label(kind: &AgentIntentKind) -> &'static str {
     match kind {
         AgentIntentKind::BuildModpack => "build_modpack",
+        AgentIntentKind::WikiQuery => "wiki_query",
         AgentIntentKind::Unknown => "unknown",
     }
 }
@@ -917,6 +1049,7 @@ fn agent_phase_label(phase: &AgentPhase) -> &'static str {
     match phase {
         AgentPhase::IntentExtraction => "intent_extraction",
         AgentPhase::IntentRouting => "intent_routing",
+        AgentPhase::WikiQuery => "wiki_query",
         AgentPhase::ConfigureRequirementsApproval => "configure_requirements_approval",
         AgentPhase::BasePackSearch => "base_pack_search",
         AgentPhase::BasePackRanking => "base_pack_ranking",
@@ -1322,21 +1455,38 @@ mod tests {
     }
 
     #[test]
-    fn agent_start_surface_supports_home_only_for_now() {
+    fn agent_start_surface_supports_home_and_modpack() {
         let variants: Vec<_> = AgentStartSurface::value_variants()
             .iter()
             .filter_map(|surface| surface.to_possible_value())
             .map(|value| value.get_name().to_string())
             .collect();
-        assert_eq!(variants, vec!["home"]);
+        assert_eq!(variants, vec!["home", "modpack"]);
     }
 
     #[test]
-    fn agent_entry_from_start_flags_accepts_home_only() {
+    fn agent_entry_from_start_flags_accepts_home() {
         assert_eq!(
-            agent_entry_from_start_flags(AgentStartSurface::Home).unwrap(),
+            agent_entry_from_start_flags(AgentStartSurface::Home, None, None).unwrap(),
             AgentEntry::Home
         );
+    }
+
+    #[test]
+    fn agent_entry_from_start_flags_accepts_modpack() {
+        assert_eq!(
+            agent_entry_from_start_flags(
+                AgentStartSurface::Modpack,
+                Some("better-mc"),
+                Some("instance-1".to_string())
+            )
+            .unwrap(),
+            AgentEntry::Modpack {
+                modpack_id: "better-mc".to_string(),
+                instance_id: Some("instance-1".to_string()),
+            }
+        );
+        assert!(agent_entry_from_start_flags(AgentStartSurface::Modpack, None, None).is_err());
     }
 
     #[tokio::test]
