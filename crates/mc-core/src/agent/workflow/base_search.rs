@@ -557,19 +557,66 @@ pub(super) fn base_pack_provider_supported_for_execution(provider: ProviderId) -
     matches!(provider, ProviderId::Modrinth)
 }
 
-pub(super) fn rank_base_packs(mut candidates: Vec<BasePackCandidate>) -> Vec<BasePackCandidate> {
-    candidates.sort_by(|a, b| {
-        base_archive_rank_bucket(a)
-            .cmp(&base_archive_rank_bucket(b))
+// Per-rank weight for the cross-query Modrinth relevance order (discovery rank).
+const BASE_RELEVANCE_WEIGHT: i64 = 2;
+// Per-tier weight for log10-scaled download popularity.
+const BASE_POPULARITY_WEIGHT: i64 = 3;
+// Bonus when the matched query directly echoes the candidate title.
+const BASE_TITLE_MATCH_BONUS: i64 = 3;
+
+pub(super) fn rank_base_packs(candidates: Vec<BasePackCandidate>) -> Vec<BasePackCandidate> {
+    // Capture each candidate's discovery order (its cross-query Modrinth relevance
+    // rank, deduped to the first surfacing query) before sorting, then rank by
+    // match quality + popularity. Archive size is demoted to a soft signal: we
+    // still sink genuinely oversized (> cap, unexecutable) packs to the bottom and
+    // break score ties toward smaller archives, but a merely-larger size never
+    // buries a popular, directly-matching pack behind a tiny obscure one.
+    let mut indexed: Vec<(usize, BasePackCandidate)> =
+        candidates.into_iter().enumerate().collect();
+    indexed.sort_by(|(a_rank, a), (b_rank, b)| {
+        base_archive_oversized(a)
+            .cmp(&base_archive_oversized(b))
+            .then_with(|| base_match_score(*b_rank, b).cmp(&base_match_score(*a_rank, a)))
             .then_with(|| {
                 base_archive_size(a)
                     .unwrap_or(u64::MAX)
                     .cmp(&base_archive_size(b).unwrap_or(u64::MAX))
             })
-            .then_with(|| b.hit.downloads.cmp(&a.hit.downloads))
+            .then_with(|| a_rank.cmp(b_rank))
             .then_with(|| a.hit.title.cmp(&b.hit.title))
     });
-    candidates
+    indexed
+        .into_iter()
+        .map(|(_, candidate)| candidate)
+        .collect()
+}
+
+fn base_match_score(discovery_rank: usize, candidate: &BasePackCandidate) -> i64 {
+    let relevance = (BASE_SEARCH_MAX_CANDIDATES as i64
+        - discovery_rank.min(BASE_SEARCH_MAX_CANDIDATES) as i64)
+        * BASE_RELEVANCE_WEIGHT;
+    let popularity = base_popularity_tier(candidate.hit.downloads) * BASE_POPULARITY_WEIGHT;
+    let matched = if base_matched_query_hits_title(candidate) {
+        BASE_TITLE_MATCH_BONUS
+    } else {
+        0
+    };
+    relevance + popularity + matched
+}
+
+fn base_popularity_tier(downloads: u64) -> i64 {
+    downloads
+        .checked_ilog10()
+        .map_or(0, |digits| i64::from(digits) + 1)
+}
+
+fn base_matched_query_hits_title(candidate: &BasePackCandidate) -> bool {
+    let title = candidate.hit.title.to_lowercase();
+    candidate
+        .matched_query
+        .split_whitespace()
+        .filter(|token| token.len() >= 3)
+        .any(|token| title.contains(&token.to_lowercase()))
 }
 
 fn target_compatibility_from_version(
@@ -595,12 +642,10 @@ fn target_compatibility_from_version(
     }
 }
 
-fn base_archive_rank_bucket(candidate: &BasePackCandidate) -> u8 {
-    match base_archive_size(candidate) {
-        Some(size) if size <= MAX_BASE_ARCHIVE_BYTES as u64 => 0,
-        None => 1,
-        Some(_) => 2,
-    }
+fn base_archive_oversized(candidate: &BasePackCandidate) -> bool {
+    // Only demote packs we can prove exceed the executable cap; unknown sizes are
+    // not penalised here so the unconstrained case stays purely relevance-driven.
+    base_archive_size(candidate).is_some_and(|size| size > MAX_BASE_ARCHIVE_BYTES as u64)
 }
 
 fn base_archive_size(candidate: &BasePackCandidate) -> Option<u64> {
@@ -628,5 +673,120 @@ pub(super) fn next_base_search_mode(count: usize) -> BaseSearchMode {
         BaseSearchMode::Loose
     } else {
         BaseSearchMode::Tight
+    }
+}
+
+#[cfg(test)]
+mod ranking_tests {
+    use super::*;
+
+    fn ranking_candidate(
+        title: &str,
+        downloads: u64,
+        archive_size: Option<u64>,
+        query: &str,
+    ) -> BasePackCandidate {
+        let resolved_target = archive_size.map(|size| TargetCompatibility {
+            minecraft_version: Some("1.20.1".to_string()),
+            loader: Some("fabric".to_string()),
+            version_id: Some(format!("{title}-version")),
+            version_name: Some(format!("{title} Version")),
+            version_number: Some("1.0.0".to_string()),
+            game_versions: vec!["1.20.1".to_string()],
+            loaders: vec!["fabric".to_string()],
+            primary_file: Some(VersionFile {
+                url: format!("https://example.test/{title}.mrpack"),
+                filename: format!("{title}.mrpack"),
+                sha1: None,
+                sha512: None,
+                size: Some(size),
+                primary: true,
+                client_side: ProjectSideSupport::Unknown,
+                server_side: ProjectSideSupport::Unknown,
+            }),
+            dependencies: Vec::new(),
+        });
+        BasePackCandidate {
+            provider: ProviderId::Modrinth,
+            hit: SearchHit {
+                id: title.to_ascii_lowercase().replace(' ', "-"),
+                slug: title.to_ascii_lowercase().replace(' ', "-"),
+                title: title.to_string(),
+                description: "test base pack".to_string(),
+                author: "author".to_string(),
+                downloads,
+                icon_url: None,
+                gallery_url: None,
+                categories: Vec::new(),
+                client_side: ProjectSideSupport::Unknown,
+                server_side: ProjectSideSupport::Unknown,
+            },
+            matched_query: query.to_string(),
+            resolved_target,
+        }
+    }
+
+    #[test]
+    fn popular_match_outranks_tiny_low_download_pack() {
+        // The exact regression: both packs are well under the archive cap, the
+        // tiny one is far smaller, yet the popular directly-matching pack
+        // (discovered first, vastly more downloads) must rank first. Under the old
+        // size-ascending comparator the tiny pack would have buried it.
+        let popular = ranking_candidate(
+            "Adventure Plus",
+            500_000,
+            Some(40 * 1024 * 1024),
+            "fabric adventure",
+        );
+        let tiny = ranking_candidate("Tiny Obscure", 120, Some(256 * 1024), "fabric adventure");
+
+        let ranked = rank_base_packs(vec![popular, tiny]);
+
+        assert_eq!(ranked[0].hit.title, "Adventure Plus");
+        assert_eq!(ranked[1].hit.title, "Tiny Obscure");
+    }
+
+    #[test]
+    fn big_download_gap_overrides_a_single_relevance_rank() {
+        // Popularity genuinely combines with discovery order: the hugely popular
+        // pack discovered second still beats a low-download pack discovered first.
+        let obscure_first = ranking_candidate("Obscure First", 90, Some(2 * 1024 * 1024), "fabric");
+        let popular_second =
+            ranking_candidate("Popular Second", 800_000, Some(2 * 1024 * 1024), "fabric");
+
+        let ranked = rank_base_packs(vec![obscure_first, popular_second]);
+
+        assert_eq!(ranked[0].hit.title, "Popular Second");
+    }
+
+    #[test]
+    fn oversized_pack_is_demoted_below_executable_one() {
+        // Keep the > cap (unexecutable) concern as a hard demotion even when the
+        // oversized pack is more popular.
+        let huge = ranking_candidate(
+            "Huge Popular Pack",
+            1_000_000,
+            Some(MAX_BASE_ARCHIVE_BYTES as u64 + 1),
+            "fabric",
+        );
+        let small = ranking_candidate("Small Pack", 500, Some(1024 * 1024), "fabric");
+
+        let ranked = rank_base_packs(vec![huge, small]);
+
+        assert_eq!(ranked[0].hit.title, "Small Pack");
+        assert_eq!(ranked[1].hit.title, "Huge Popular Pack");
+    }
+
+    #[test]
+    fn unconstrained_unknown_sizes_rank_by_relevance_then_downloads() {
+        // No resolved_target → all sizes unknown → ranking must not no-op; it
+        // falls back to discovery order + downloads rather than degrading.
+        let first = ranking_candidate("First Found", 1_000, None, "fabric");
+        let second = ranking_candidate("Second Found", 800, None, "fabric");
+
+        let ranked = rank_base_packs(vec![first, second]);
+
+        assert_eq!(ranked[0].hit.title, "First Found");
+        assert_eq!(ranked[1].hit.title, "Second Found");
     }
 }
