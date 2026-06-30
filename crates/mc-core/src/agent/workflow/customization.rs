@@ -32,14 +32,22 @@ fn customization_planning_blocked_approval(
     run: &AgentRunSnapshot,
     blocked: &CustomizationPlanningBlocked,
 ) -> ApprovalRequest {
+    let unresolved_lines = blocked_unresolved_lines(blocked);
+    let conflict_lines = blocked_conflict_lines(blocked);
+    let mut message = format!(
+        "Could not produce a verified compatible extra-mod plan: {}. Change the extra-mod requirements or return to base-pack selection.",
+        blocked.reason
+    );
+    append_message_section(&mut message, "Unresolved goals", &unresolved_lines);
+    append_message_section(&mut message, "Rejected candidates", &conflict_lines);
+    let mut migration_notes = unresolved_lines.clone();
+    migration_notes.extend(conflict_lines.clone());
+
     ApprovalRequest {
         id: crate::agent::state::new_id("approval"),
         kind: ApprovalKind::ConfirmCustomization,
         title: "Customization planning is blocked".to_string(),
-        message: format!(
-            "Could not produce a verified compatible extra-mod plan: {}. Change the extra-mod requirements or return to base-pack selection.",
-            blocked.reason
-        ),
+        message,
         options: vec![ApprovalOption {
             id: "back:choose_base_pack".to_string(),
             label: "Back to base-pack selection".to_string(),
@@ -83,8 +91,67 @@ fn customization_planning_blocked_approval(
                 args: serde_json::json!({ "kind": "confirm_customization", "planning_blocked": true }),
                 requires_approval: true,
             }],
-            migration_notes: vec![],
+            migration_notes,
         }),
+    }
+}
+
+fn append_message_section(message: &mut String, title: &str, lines: &[String]) {
+    if lines.is_empty() {
+        return;
+    }
+    message.push('\n');
+    message.push_str(title);
+    message.push_str(":\n");
+    message.push_str(&lines.join("\n"));
+}
+
+fn blocked_unresolved_lines(blocked: &CustomizationPlanningBlocked) -> Vec<String> {
+    blocked
+        .details
+        .get("unresolved_goals")
+        .and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let label = item.get("label").and_then(|v| v.as_str())?;
+            let diagnosis = item.get("diagnosis").and_then(|v| v.as_str()).unwrap_or("");
+            Some(blocked_detail_line(label, diagnosis))
+        })
+        .collect()
+}
+
+fn blocked_conflict_lines(blocked: &CustomizationPlanningBlocked) -> Vec<String> {
+    let mut lines = blocked
+        .details
+        .get("last_blockers")
+        .and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let project_id = item.get("project_id").and_then(|v| v.as_str())?;
+            let reason = item.get("reason").and_then(|v| v.as_str()).unwrap_or("");
+            Some(blocked_detail_line(project_id, reason))
+        })
+        .collect::<Vec<_>>();
+    if lines.is_empty() {
+        lines = blocked
+            .details
+            .get("blocked_project_ids")
+            .and_then(|v| v.as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|item| item.as_str().map(|project_id| format!("- {project_id}")))
+            .collect();
+    }
+    lines
+}
+
+fn blocked_detail_line(label: &str, detail: &str) -> String {
+    if detail.trim().is_empty() {
+        format!("- {label}")
+    } else {
+        format!("- {label}: {detail}")
     }
 }
 
@@ -93,9 +160,7 @@ pub(super) fn continue_after_customization_confirmation(
     selected: ApprovalOption,
 ) -> Result<AgentRunSnapshot> {
     if selected.id == "back:choose_base_pack" {
-        return Err(CoreError::other(
-            "returning to base-pack selection is not implemented in the MVP session state",
-        ));
+        return return_to_base_pack_selection(run);
     }
     if selected.id != "confirm:recommended_customization" {
         return Err(CoreError::other(format!(
@@ -394,6 +459,7 @@ async fn generate_mod_plan_step(
     target: &TargetCompatibility,
     state: &ModPlanState,
     candidates: &[ModCandidate],
+    last_blockers: &[serde_json::Value],
 ) -> Result<ModPlanStep> {
     let candidate_project_ids = candidates
         .iter()
@@ -407,59 +473,78 @@ async fn generate_mod_plan_step(
     let output = llm
         .prompt_typed::<ModPlanStep>(
             &[MAIN_AGENT_SYSTEM_PROMPT, MOD_PLAN_STEP_PROMPT],
-            serde_json::json!({
-                "user_prompt": user_prompt,
-                "selected_base_pack": {
-                    "provider": provider_slug(base.provider),
-                    "project_id": base.project_id.clone(),
-                    "slug": base.slug.clone(),
-                    "title": base.title.clone(),
-                    "description": base.description.clone(),
-                },
-                "target": {
-                    "minecraft_version": target.minecraft_version.clone(),
-                    "loader": target.loader.clone(),
-                    "base_version_id": target.version_id.clone(),
-                    "base_version_name": target.version_name.clone(),
-                },
-                "round": state.round,
-                "open_goals": state.goals.iter()
-                    .filter(|goal| goal.status == GoalStatus::Open)
-                    .map(|goal| serde_json::json!({
-                        "id": goal.id,
-                        "label": goal.label,
-                        "kind": goal.kind,
-                    }))
-                    .collect::<Vec<_>>(),
-                "current_mod_set": state.additions.iter()
-                    .map(|m| serde_json::json!({
-                        "provider": m.provider,
-                        "project_id": m.project_id,
-                        "title": m.title,
-                        "goal_id": m.goal_id,
-                        "provenance": m.provenance,
-                    }))
-                    .collect::<Vec<_>>(),
-                "candidate_pool": candidates.iter()
-                    .map(|candidate| serde_json::json!({
-                        "provider": provider_slug(candidate.provider),
-                        "project_id": candidate.hit.id,
-                        "slug": candidate.hit.slug,
-                        "title": candidate.hit.title,
-                        "description": candidate.hit.description,
-                        "downloads": candidate.hit.downloads,
-                        "matched_query": candidate.matched_query,
-                        "client_side": candidate.hit.client_side,
-                        "server_side": candidate.hit.server_side,
-                    }))
-                    .collect::<Vec<_>>(),
-            })
+            mod_plan_step_prompt_payload(
+                user_prompt,
+                base,
+                target,
+                state,
+                candidates,
+                last_blockers,
+            )
             .to_string(),
             600,
             0.1,
         )
         .await?;
     Ok(output.normalized(&candidate_project_ids, &goal_ids))
+}
+
+pub(super) fn mod_plan_step_prompt_payload(
+    user_prompt: &str,
+    base: &SelectedBasePack,
+    target: &TargetCompatibility,
+    state: &ModPlanState,
+    candidates: &[ModCandidate],
+    last_blockers: &[serde_json::Value],
+) -> serde_json::Value {
+    serde_json::json!({
+        "user_prompt": user_prompt,
+        "selected_base_pack": {
+            "provider": provider_slug(base.provider),
+            "project_id": base.project_id.clone(),
+            "slug": base.slug.clone(),
+            "title": base.title.clone(),
+            "description": base.description.clone(),
+        },
+        "target": {
+            "minecraft_version": target.minecraft_version.clone(),
+            "loader": target.loader.clone(),
+            "base_version_id": target.version_id.clone(),
+            "base_version_name": target.version_name.clone(),
+        },
+        "round": state.round,
+        "open_goals": state.goals.iter()
+            .filter(|goal| goal.status == GoalStatus::Open)
+            .map(|goal| serde_json::json!({
+                "id": goal.id,
+                "label": goal.label,
+                "kind": goal.kind,
+            }))
+            .collect::<Vec<_>>(),
+        "current_mod_set": state.additions.iter()
+            .map(|m| serde_json::json!({
+                "provider": m.provider,
+                "project_id": m.project_id,
+                "title": m.title,
+                "goal_id": m.goal_id,
+                "provenance": m.provenance,
+            }))
+            .collect::<Vec<_>>(),
+        "last_blockers": last_blockers,
+        "candidate_pool": candidates.iter()
+            .map(|candidate| serde_json::json!({
+                "provider": provider_slug(candidate.provider),
+                "project_id": candidate.hit.id,
+                "slug": candidate.hit.slug,
+                "title": candidate.hit.title,
+                "description": candidate.hit.description,
+                "downloads": candidate.hit.downloads,
+                "matched_query": candidate.matched_query,
+                "client_side": candidate.hit.client_side,
+                "server_side": candidate.hit.server_side,
+            }))
+            .collect::<Vec<_>>(),
+    })
 }
 
 pub(super) async fn run_customization_planning_loop(
@@ -507,11 +592,10 @@ pub(super) async fn run_customization_planning_loop(
             .collect();
     }
     let mut last_blockers = Vec::<serde_json::Value>::new();
-    let loop_round_limit = state.round.saturating_add(MOD_PLAN_ROUND_CAP);
-    let mut empty_candidate_rounds = 0_u32;
+    let mut stopped_by_round_cap = state.round >= MOD_PLAN_ROUND_CAP;
     let mut last_unresolved_diagnosis: Option<String> = None;
 
-    while state.round < loop_round_limit {
+    while state.round < MOD_PLAN_ROUND_CAP {
         let iteration = state.round + 1;
         if state.round == 0 {
             let started = Instant::now();
@@ -582,6 +666,7 @@ pub(super) async fn run_customization_planning_loop(
                     "loader": target.loader.clone(),
                 },
                 "current_project_ids": current_project_ids(&state).into_iter().collect::<Vec<_>>(),
+                "blocked_project_ids": state.blocked.clone(),
             }),
             output: serde_json::json!({
                 "count": candidate_pool.len(),
@@ -618,9 +703,9 @@ pub(super) async fn run_customization_planning_loop(
             }
         }
         if candidate_pool.is_empty() {
-            empty_candidate_rounds = empty_candidate_rounds.saturating_add(1);
+            state.empty_candidate_rounds = state.empty_candidate_rounds.saturating_add(1);
         } else {
-            empty_candidate_rounds = 0;
+            state.empty_candidate_rounds = 0;
         }
 
         let started = Instant::now();
@@ -632,7 +717,7 @@ pub(super) async fn run_customization_planning_loop(
                 control: ModPlanControl::Done,
                 rationale: "all goals are covered".to_string(),
             }
-        } else if candidate_pool.is_empty() && empty_candidate_rounds > 1 {
+        } else if candidate_pool.is_empty() && state.empty_candidate_rounds > 1 {
             ModPlanStep {
                 selections: Vec::new(),
                 removals: Vec::new(),
@@ -643,8 +728,16 @@ pub(super) async fn run_customization_planning_loop(
                         .to_string(),
             }
         } else {
-            generate_mod_plan_step(llm, planning_input, base, target, &state, &candidate_pool)
-                .await?
+            generate_mod_plan_step(
+                llm,
+                planning_input,
+                base,
+                target,
+                &state,
+                &candidate_pool,
+                &last_blockers,
+            )
+            .await?
         };
         run.push_tool_trace(AgentToolTrace {
             event: "modplan reducer model_step".into(),
@@ -707,15 +800,24 @@ pub(super) async fn run_customization_planning_loop(
 
         state.round += 1;
         run.mod_plan = Some(state.clone());
-        if control == ModPlanControl::Done
-            || state.round >= loop_round_limit
-            || !has_open_goals(&state)
-        {
+        if state.round >= MOD_PLAN_ROUND_CAP {
+            stopped_by_round_cap = true;
+        }
+        if control == ModPlanControl::Done || stopped_by_round_cap || !has_open_goals(&state) {
             break;
         }
     }
 
     let extra_mods = active_addition_payloads(&state);
+    let unresolved_goals = unresolved_mod_plan_goals(&state, last_unresolved_diagnosis);
+    if stopped_by_round_cap && !unresolved_goals.is_empty() {
+        run.mod_plan = Some(state.clone());
+        return Ok(round_cap_blocked_result(
+            &state,
+            unresolved_goals,
+            last_blockers,
+        ));
+    }
     let validation = serde_json::json!({
         "status": "validated",
         "base_modlist": {
@@ -726,17 +828,18 @@ pub(super) async fn run_customization_planning_loop(
         "mod_plan": {
             "round": state.round,
             "round_cap": MOD_PLAN_ROUND_CAP,
-            "round_limit": loop_round_limit,
+            "round_limit": MOD_PLAN_ROUND_CAP,
             "goals": state.goals.clone(),
             "removals": state.removals.clone(),
+            "blocked_project_ids": state.blocked.clone(),
             "last_blockers": last_blockers,
         },
-            "auto_added_dependencies": extra_mods
+        "auto_added_dependencies": extra_mods
             .iter()
             .filter(|m| m.get("auto_added").and_then(|v| v.as_bool()).unwrap_or(false))
             .cloned()
             .collect::<Vec<_>>(),
-        "unresolved_goals": unresolved_mod_plan_goals(&state, last_unresolved_diagnosis),
+        "unresolved_goals": unresolved_goals,
     });
     Ok(CustomizationPlanningResult::Validated(
         ValidatedCustomizationPlan {
@@ -744,6 +847,26 @@ pub(super) async fn run_customization_planning_loop(
             validation,
         },
     ))
+}
+
+fn round_cap_blocked_result(
+    state: &ModPlanState,
+    unresolved_goals: Vec<serde_json::Value>,
+    last_blockers: Vec<serde_json::Value>,
+) -> CustomizationPlanningResult {
+    CustomizationPlanningResult::Blocked(CustomizationPlanningBlocked {
+        reason: format!(
+            "mod planning reached round cap {MOD_PLAN_ROUND_CAP} with unresolved goals"
+        ),
+        replan_phase: AgentPhase::ConfirmCustomizationApproval,
+        details: serde_json::json!({
+            "round": state.round,
+            "round_cap": MOD_PLAN_ROUND_CAP,
+            "unresolved_goals": unresolved_goals,
+            "blocked_project_ids": state.blocked.clone(),
+            "last_blockers": last_blockers,
+        }),
+    })
 }
 
 #[derive(Debug, Clone, Default)]
@@ -815,7 +938,9 @@ pub(super) fn initialize_mod_plan_state(
         goals,
         additions: Vec::new(),
         removals: Vec::new(),
+        blocked: Vec::new(),
         round: 0,
+        empty_candidate_rounds: 0,
         pending_queries,
     }
 }
@@ -912,10 +1037,13 @@ pub(super) fn prefilter_mod_candidates(
 ) -> Vec<ModCandidate> {
     let current = current_project_ids(state);
     let removed = state.removals.iter().cloned().collect::<HashSet<_>>();
+    let blocked = state.blocked.iter().cloned().collect::<HashSet<_>>();
     candidates
         .into_iter()
         .filter(|candidate| {
-            !current.contains(&candidate.hit.id) && !removed.contains(&candidate.hit.id)
+            !current.contains(&candidate.hit.id)
+                && !removed.contains(&candidate.hit.id)
+                && !blocked.contains(&candidate.hit.id)
         })
         .collect()
 }
@@ -940,54 +1068,50 @@ pub(super) async fn apply_mod_plan_step(
         .iter()
         .map(|candidate| (candidate.hit.id.as_str(), candidate))
         .collect::<HashMap<_, _>>();
-    let mut roots = Vec::new();
-    let mut root_goal_by_key = HashMap::new();
-    let mut selected_project_ids = Vec::new();
-    for selection in step.selections {
-        let Some(candidate) = candidate_by_project.get(selection.project_id.as_str()) else {
-            continue;
-        };
-        if current_project_ids(state).contains(&candidate.hit.id) {
-            continue;
-        }
-        let root = mod_ref_from_candidate(candidate);
-        root_goal_by_key.insert(root.key(), selection.goal_id);
-        selected_project_ids.push(candidate.hit.id.clone());
-        roots.push(root);
-    }
-    roots = dedupe_mod_refs(roots);
-    if roots.is_empty() {
-        return Ok(AppliedModPlanStep {
-            selected_project_ids,
-            blockers: Vec::new(),
-        });
-    }
-
-    let installed = installed_mod_keys(state);
-    let resolution = resolve_dependencies(registry, &roots, mc_version, loader, &installed).await?;
-    let blockers = customization_blockers(&resolution);
-    if !blockers.is_empty() {
-        return Ok(AppliedModPlanStep {
-            selected_project_ids,
-            blockers,
-        });
-    }
-
     let root_hits = candidates
         .iter()
         .map(|candidate| (mod_ref_from_candidate(candidate).key(), candidate))
         .collect::<HashMap<_, _>>();
-    append_dependency_resolution(
-        state,
-        &resolution,
-        &roots,
-        &root_hits,
-        &root_goal_by_key,
-        ModProvenance::Selected,
-    );
+    let mut selected_project_ids = Vec::new();
+    let mut all_blockers = Vec::new();
+    for selection in step.selections {
+        let Some(candidate) = candidate_by_project.get(selection.project_id.as_str()) else {
+            continue;
+        };
+        remove_project_id(&mut state.removals, &candidate.hit.id);
+        if current_project_ids(state).contains(&candidate.hit.id) {
+            continue;
+        }
+        let root = mod_ref_from_candidate(candidate);
+        selected_project_ids.push(candidate.hit.id.clone());
+        let roots = vec![root.clone()];
+        let mut root_goal_by_key = HashMap::new();
+        root_goal_by_key.insert(root.key(), selection.goal_id.clone());
+
+        let installed = installed_mod_keys(state);
+        let resolution =
+            resolve_dependencies(registry, &roots, mc_version, loader, &installed).await?;
+        let blockers = customization_blockers(&resolution);
+        if !blockers.is_empty() {
+            push_unique_string(&mut state.blocked, candidate.hit.id.clone());
+            mark_goal_status(state, &selection.goal_id, GoalStatus::Open);
+            all_blockers.extend(blockers);
+            continue;
+        }
+
+        remove_project_id(&mut state.blocked, &candidate.hit.id);
+        append_dependency_resolution(
+            state,
+            &resolution,
+            &roots,
+            &root_hits,
+            &root_goal_by_key,
+            ModProvenance::Selected,
+        );
+    }
     Ok(AppliedModPlanStep {
         selected_project_ids,
-        blockers: Vec::new(),
+        blockers: all_blockers,
     })
 }
 
@@ -1002,6 +1126,7 @@ pub(super) fn append_dependency_resolution(
     let root_keys = roots.iter().map(ModRef::key).collect::<HashSet<_>>();
     let mut current = current_project_ids(state);
     for resolved in &resolution.to_install {
+        remove_project_id(&mut state.removals, &resolved.project_id);
         if current.contains(&resolved.project_id) {
             continue;
         }
@@ -1029,6 +1154,16 @@ pub(super) fn append_dependency_resolution(
             state.additions.push(mod_entry);
         }
     }
+}
+
+fn push_unique_string(values: &mut Vec<String>, value: String) {
+    if !values.iter().any(|existing| existing == &value) {
+        values.push(value);
+    }
+}
+
+fn remove_project_id(values: &mut Vec<String>, project_id: &str) {
+    values.retain(|existing| existing != project_id);
 }
 
 fn ensure_dependency_goal(state: &mut ModPlanState, project_id: &str) -> String {
@@ -1183,17 +1318,6 @@ pub(super) fn unresolved_mod_plan_goals(
 
 fn mod_ref_from_candidate(candidate: &ModCandidate) -> ModRef {
     ModRef::new(candidate.provider, candidate.hit.id.clone())
-}
-
-fn dedupe_mod_refs(refs: Vec<ModRef>) -> Vec<ModRef> {
-    let mut seen = HashSet::new();
-    let mut out = Vec::new();
-    for r in refs {
-        if seen.insert(r.key()) {
-            out.push(r);
-        }
-    }
-    out
 }
 
 fn dependency_resolution_payload(

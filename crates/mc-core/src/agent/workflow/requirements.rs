@@ -463,6 +463,9 @@ pub(super) fn invalidate_downstream(
     if invalidates.contains(&PlanArtifact::ExecutionMetadata) {
         run.execution = None;
     }
+    if clears_mod_plan(changed) {
+        run.mod_plan = None;
+    }
 
     let duplicate = run.replans.iter().any(|existing| {
         existing.from_phase == from_phase
@@ -480,6 +483,17 @@ pub(super) fn invalidate_downstream(
             invalidates,
         });
     }
+}
+
+fn clears_mod_plan(changed: ChangedField) -> bool {
+    matches!(
+        changed,
+        ChangedField::MinecraftVersion
+            | ChangedField::Loader
+            | ChangedField::VersionRequirement
+            | ChangedField::SearchPreference
+            | ChangedField::BasePack
+    )
 }
 
 pub(super) fn apply_requirements_replan(

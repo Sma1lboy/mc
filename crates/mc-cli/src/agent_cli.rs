@@ -4,8 +4,8 @@ use anyhow::{Context, Result};
 use clap::{Subcommand, ValueEnum};
 
 use mc_core::agent::{
-    AgentIntentKind, AgentMessageKind, AgentPhase, AgentRunSnapshot, AgentSessionSummary,
-    AgentStatus, ApprovalKind, ApprovalRequest, BuildRestrictions,
+    AgentIntentKind, AgentMessageKind, AgentPhase, AgentRunSnapshot, AgentSessionStore,
+    AgentSessionSummary, AgentStatus, ApprovalKind, ApprovalRequest, BuildRestrictions,
 };
 
 use crate::data_dir;
@@ -20,8 +20,8 @@ pub(crate) enum AgentAction {
         /// Optional session id. Defaults to a generated agent-run-* id.
         #[arg(long)]
         session_id: Option<String>,
-        /// Override model for this run. Defaults to MC_AGENT_OPENAI_MODEL /
-        /// OPENAI_MODEL / the core default.
+        /// Override OpenRouter model for this run. Defaults to
+        /// MC_AGENT_OPENROUTER_MODEL / OPENROUTER_MODEL / the core default.
         #[arg(long)]
         model: Option<String>,
         /// Print where the local API key should be placed and exit.
@@ -156,8 +156,8 @@ async fn cmd_agent_start(
 ) -> Result<()> {
     let dir = data_dir();
     if show_key_path {
-        println!("OpenAI key lookup order:");
-        println!("  1. OPENAI_API_KEY");
+        println!("OpenRouter key lookup order:");
+        println!("  1. OPENROUTER_API_KEY");
         println!("  2. nearest .env files:");
         for path in mc_core::agent::AgentLlmConfig::local_env_paths(&dir) {
             if path.exists() {
@@ -172,10 +172,8 @@ async fn cmd_agent_start(
     if let Some(session_id) = session_id.filter(|s| !s.trim().is_empty()) {
         snapshot.id = session_id;
     }
-    snapshot.push_trace("saved local agent session");
-    mc_core::agent::AgentSessionStore::new(&dir).save_snapshot(&snapshot)?;
-    print_agent_snapshot(&snapshot, json)?;
-    Ok(())
+    let store = AgentSessionStore::new(&dir);
+    persist_and_print_agent_snapshot(&store, snapshot, json).map(|_| ())
 }
 
 fn local_agent_runtime(
@@ -183,7 +181,7 @@ fn local_agent_runtime(
     model: Option<String>,
 ) -> Result<mc_core::agent::MainAgentRuntime> {
     let mut cfg = mc_core::agent::AgentLlmConfig::from_local(dir).with_context(|| {
-        "Failed to read the OpenAI API key; set OPENAI_API_KEY or write it to desktop/src-tauri/.env"
+        "Failed to read the OpenRouter API key; set OPENROUTER_API_KEY or write it to desktop/src-tauri/.env"
     })?;
     if let Some(model) = model.filter(|s| !s.trim().is_empty()) {
         cfg.model = model;
@@ -199,7 +197,7 @@ fn cmd_agent_show(session_id: &str, json: bool) -> Result<()> {
 }
 
 fn cmd_agent_show_with_dir(dir: &Path, session_id: &str, json: bool) -> Result<AgentRunSnapshot> {
-    let store = mc_core::agent::AgentSessionStore::new(dir);
+    let store = AgentSessionStore::new(dir);
     let snapshot = load_agent_snapshot(&store, session_id)?;
     print_agent_snapshot(&snapshot, json)?;
     Ok(snapshot)
@@ -212,7 +210,7 @@ async fn cmd_agent_continue(session_id: &str, message: &str, json: bool) -> Resu
     }
 
     let dir = data_dir();
-    let store = mc_core::agent::AgentSessionStore::new(&dir);
+    let store = AgentSessionStore::new(&dir);
     let snapshot = load_agent_snapshot(&store, session_id)?;
     ensure_session_can_continue(&snapshot)?;
     let agent = local_agent_runtime(&dir, None)?;
@@ -229,7 +227,7 @@ async fn cmd_agent_continue_with_runtime(
     user_message: &str,
     json: bool,
 ) -> Result<AgentRunSnapshot> {
-    let store = mc_core::agent::AgentSessionStore::new(dir);
+    let store = AgentSessionStore::new(dir);
     let snapshot = load_agent_snapshot(&store, session_id)?;
     cmd_agent_continue_snapshot_with_runtime(dir, agent, snapshot, user_message, json).await
 }
@@ -242,14 +240,11 @@ async fn cmd_agent_continue_snapshot_with_runtime(
     json: bool,
 ) -> Result<AgentRunSnapshot> {
     ensure_session_can_continue(&snapshot)?;
-    let store = mc_core::agent::AgentSessionStore::new(dir);
-    let mut next = agent
+    let store = AgentSessionStore::new(dir);
+    let next = agent
         .continue_from_user_message(snapshot, user_message)
         .await?;
-    next.push_trace("saved local agent session");
-    store.save_snapshot(&next)?;
-    print_agent_snapshot(&next, json)?;
-    Ok(next)
+    persist_and_print_agent_snapshot(&store, next, json)
 }
 
 async fn cmd_agent_execute(session_id: &str, output: &Path, json: bool) -> Result<()> {
@@ -265,28 +260,30 @@ async fn cmd_agent_execute_with_dir(
     output: &Path,
     json: bool,
 ) -> Result<AgentRunSnapshot> {
-    let store = mc_core::agent::AgentSessionStore::new(dir);
+    let store = AgentSessionStore::new(dir);
     let snapshot = load_agent_snapshot(&store, session_id)?;
     if execution_completed(&snapshot) {
-        let mut next = copy_completed_artifact_to_output(snapshot, output)?;
-        next.push_trace("saved local agent session");
-        store.save_snapshot(&next)?;
-        print_agent_snapshot(&next, json)?;
-        return Ok(next);
+        let next = copy_completed_artifact_to_output(snapshot, output)?;
+        return persist_and_print_agent_snapshot(&store, next, json);
     }
     ensure_session_is_executable(&snapshot)?;
     let agent = deterministic_agent_runtime()?;
-    let mut next = agent.advance(snapshot, output).await?;
-    next.push_trace("saved local agent session");
-    store.save_snapshot(&next)?;
-    print_agent_snapshot(&next, json)?;
-    Ok(next)
+    let next = agent.advance(snapshot, output).await?;
+    persist_and_print_agent_snapshot(&store, next, json)
 }
 
-fn load_agent_snapshot(
-    store: &mc_core::agent::AgentSessionStore,
-    session_id: &str,
+fn persist_and_print_agent_snapshot(
+    store: &AgentSessionStore,
+    mut snapshot: AgentRunSnapshot,
+    json: bool,
 ) -> Result<AgentRunSnapshot> {
+    snapshot.push_trace("saved local agent session");
+    store.save_snapshot(&snapshot)?;
+    print_agent_snapshot(&snapshot, json)?;
+    Ok(snapshot)
+}
+
+fn load_agent_snapshot(store: &AgentSessionStore, session_id: &str) -> Result<AgentRunSnapshot> {
     match store.load_snapshot(session_id) {
         Ok(snapshot) => Ok(snapshot),
         Err(mc_core::CoreError::Io { source, .. })
@@ -416,18 +413,15 @@ fn cmd_agent_exec_smoke(
     json: bool,
 ) -> Result<()> {
     let dir = data_dir();
-    let store = mc_core::agent::AgentSessionStore::new(&dir);
+    let store = AgentSessionStore::new(&dir);
     let snapshot = load_agent_snapshot(&store, session_id)?;
     let manifest = exec_smoke_manifest(outcome, reason);
-    let mut next = mc_core::agent::continue_after_execution_manifest_result(snapshot, manifest)?;
-    next.push_trace("saved local agent session");
-    store.save_snapshot(&next)?;
-    print_agent_snapshot(&next, json)?;
-    Ok(())
+    let next = mc_core::agent::continue_after_execution_manifest_result(snapshot, manifest)?;
+    persist_and_print_agent_snapshot(&store, next, json).map(|_| ())
 }
 
 fn cmd_agent_list(json: bool, all: bool, limit: usize) -> Result<()> {
-    let sessions = mc_core::agent::AgentSessionStore::new(data_dir()).list_sessions()?;
+    let sessions = AgentSessionStore::new(data_dir()).list_sessions()?;
     if json {
         println!("{}", serde_json::to_string_pretty(&sessions)?);
     } else {
@@ -437,7 +431,7 @@ fn cmd_agent_list(json: bool, all: bool, limit: usize) -> Result<()> {
 }
 
 fn cmd_agent_delete(session_id: &str, json: bool) -> Result<()> {
-    let deleted = mc_core::agent::AgentSessionStore::new(data_dir()).delete_session(session_id)?;
+    let deleted = AgentSessionStore::new(data_dir()).delete_session(session_id)?;
     if json {
         println!(
             "{}",
@@ -1046,7 +1040,7 @@ mod tests {
     }
 
     fn approval_route_runtime(decision: serde_json::Value) -> mc_core::agent::MainAgentRuntime {
-        let body = openai_response_body(decision.to_string());
+        let body = openrouter_response_body(decision.to_string());
         let base_url = one_response_server(200, "application/json", body);
         let mut cfg = mc_core::agent::AgentLlmConfig::new("test-key");
         cfg.base_url = base_url;
@@ -1054,30 +1048,26 @@ mod tests {
         mc_core::agent::MainAgentRuntime::new(llm)
     }
 
-    fn openai_response_body(output_text: String) -> Vec<u8> {
+    fn openrouter_response_body(output_text: String) -> Vec<u8> {
         serde_json::json!({
-            "id": "resp_test",
-            "object": "response",
-            "created_at": 0,
-            "status": "completed",
+            "id": "chatcmpl_test",
+            "object": "chat.completion",
+            "created": 0,
             "model": "gpt-test",
-            "output": [{
-                "type": "message",
-                "id": "msg_test",
-                "status": "completed",
-                "role": "assistant",
-                "content": [{
-                    "type": "output_text",
-                    "annotations": [],
-                    "text": output_text
-                }]
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": output_text
+                },
+                "finish_reason": "stop",
+                "native_finish_reason": "stop"
             }],
             "usage": {
-                "input_tokens": 1,
-                "output_tokens": 1,
+                "prompt_tokens": 1,
+                "completion_tokens": 1,
                 "total_tokens": 2
-            },
-            "tools": []
+            }
         })
         .to_string()
         .into_bytes()
@@ -1195,6 +1185,33 @@ mod tests {
         run
     }
 
+    fn base_archive_server() -> (Vec<u8>, String) {
+        let archive = base_archive_for_cli_execute();
+        let server = one_response_server(200, "application/octet-stream", archive.clone());
+        (archive, format!("{server}/base.mrpack"))
+    }
+
+    fn save_snapshot(data_dir: &Path, run: &AgentRunSnapshot) -> mc_core::agent::AgentSessionStore {
+        let store = mc_core::agent::AgentSessionStore::new(data_dir);
+        store.save_snapshot(run).unwrap();
+        store
+    }
+
+    fn assert_mrpack_contains_index(path: &Path) {
+        assert!(path.exists());
+        let file = std::fs::File::open(path).unwrap();
+        let mut archive = zip::ZipArchive::new(file).unwrap();
+        assert!(archive.by_name("modrinth.index.json").is_ok());
+    }
+
+    fn assert_missing_session_error(err: anyhow::Error, data_dir: &Path) {
+        let text = err.to_string();
+        assert!(text.contains("Session 'missing-session' was not found"));
+        assert!(text.contains("mc agent list"));
+        assert!(!text.contains("snapshot.json"));
+        assert!(!text.contains(data_dir.to_string_lossy().as_ref()));
+    }
+
     #[test]
     fn default_agent_output_path_uses_agent_data_dir() {
         let data_dir =
@@ -1212,25 +1229,13 @@ mod tests {
         assert!(output.is_absolute());
     }
 
-    #[test]
-    fn show_missing_session_returns_friendly_error_without_internal_path() {
+    #[tokio::test]
+    async fn missing_session_returns_friendly_error_without_internal_path() {
         let data_dir = temp_data_dir("missing-show");
         let err = cmd_agent_show_with_dir(&data_dir, "missing-session", true)
             .expect_err("missing session should be user-facing");
-        let text = err.to_string();
-
-        assert!(text.contains("Session 'missing-session' was not found"));
-        assert!(text.contains("mc agent list"));
-        assert!(!text.contains("snapshot.json"));
-        assert!(!text.contains(data_dir.to_string_lossy().as_ref()));
-        let _ = std::fs::remove_dir_all(data_dir);
-    }
-
-    #[tokio::test]
-    async fn continue_missing_session_returns_friendly_error_without_internal_path() {
-        let data_dir = temp_data_dir("missing-continue");
+        assert_missing_session_error(err, &data_dir);
         let runtime = deterministic_agent_runtime().unwrap();
-
         let err = cmd_agent_continue_with_runtime(
             &data_dir,
             &runtime,
@@ -1240,12 +1245,8 @@ mod tests {
         )
         .await
         .expect_err("missing session should be user-facing");
-        let text = err.to_string();
 
-        assert!(text.contains("Session 'missing-session' was not found"));
-        assert!(text.contains("mc agent list"));
-        assert!(!text.contains("snapshot.json"));
-        assert!(!text.contains(data_dir.to_string_lossy().as_ref()));
+        assert_missing_session_error(err, &data_dir);
         let _ = std::fs::remove_dir_all(data_dir);
     }
 
@@ -1257,9 +1258,7 @@ mod tests {
         run.id = session_id.to_string();
         run.status = AgentStatus::Completed;
         run.phase = AgentPhase::Completed;
-        mc_core::agent::AgentSessionStore::new(&data_dir)
-            .save_snapshot(&run)
-            .unwrap();
+        save_snapshot(&data_dir, &run);
         let runtime = deterministic_agent_runtime().unwrap();
 
         let err =
@@ -1292,16 +1291,9 @@ mod tests {
     async fn continue_to_execution_ready_does_not_write_artifact() {
         let data_dir = temp_data_dir("continue-ready");
         let session_id = "continue-ready-session";
-        let base_archive = base_archive_for_cli_execute();
-        let base_server =
-            one_response_server(200, "application/octet-stream", base_archive.clone());
-        let run = customization_approval_snapshot(
-            session_id,
-            &format!("{base_server}/base.mrpack"),
-            base_archive.len(),
-        );
-        let store = mc_core::agent::AgentSessionStore::new(&data_dir);
-        store.save_snapshot(&run).unwrap();
+        let (base_archive, base_url) = base_archive_server();
+        let run = customization_approval_snapshot(session_id, &base_url, base_archive.len());
+        let store = save_snapshot(&data_dir, &run);
         let output = default_agent_output_path(&data_dir, session_id);
         let runtime = approval_route_runtime(serde_json::json!({
             "decision": "approve",
@@ -1331,16 +1323,9 @@ mod tests {
     async fn continue_with_unrelated_approval_message_stays_at_gate_without_artifact() {
         let data_dir = temp_data_dir("continue-unrelated");
         let session_id = "continue-unrelated-session";
-        let base_archive = base_archive_for_cli_execute();
-        let base_server =
-            one_response_server(200, "application/octet-stream", base_archive.clone());
-        let run = customization_approval_snapshot(
-            session_id,
-            &format!("{base_server}/base.mrpack"),
-            base_archive.len(),
-        );
-        let store = mc_core::agent::AgentSessionStore::new(&data_dir);
-        store.save_snapshot(&run).unwrap();
+        let (base_archive, base_url) = base_archive_server();
+        let run = customization_approval_snapshot(session_id, &base_url, base_archive.len());
+        let store = save_snapshot(&data_dir, &run);
         let output = default_agent_output_path(&data_dir, session_id);
         let runtime = approval_route_runtime(serde_json::json!({
             "decision": "needs_clarification",
@@ -1435,16 +1420,9 @@ mod tests {
     async fn execute_writes_artifact_to_requested_output() {
         let data_dir = temp_data_dir("execute-ready");
         let session_id = "execute-ready-session";
-        let base_archive = base_archive_for_cli_execute();
-        let base_server =
-            one_response_server(200, "application/octet-stream", base_archive.clone());
-        let run = execution_ready_snapshot(
-            session_id,
-            &format!("{base_server}/base.mrpack"),
-            base_archive.len(),
-        );
-        let store = mc_core::agent::AgentSessionStore::new(&data_dir);
-        store.save_snapshot(&run).unwrap();
+        let (base_archive, base_url) = base_archive_server();
+        let run = execution_ready_snapshot(session_id, &base_url, base_archive.len());
+        save_snapshot(&data_dir, &run);
         let output = temp_mrpack_path("explicit-output");
 
         let next = cmd_agent_execute_with_dir(&data_dir, session_id, &output, true)
@@ -1452,10 +1430,7 @@ mod tests {
             .expect("execute should write requested output");
 
         assert_eq!(next.status, AgentStatus::Completed);
-        assert!(output.exists());
-        let file = std::fs::File::open(&output).unwrap();
-        let mut archive = zip::ZipArchive::new(file).unwrap();
-        assert!(archive.by_name("modrinth.index.json").is_ok());
+        assert_mrpack_contains_index(&output);
         let default_output = default_agent_output_path(&data_dir, session_id);
         assert!(
             !default_output.exists(),
@@ -1473,9 +1448,7 @@ mod tests {
         run.id = session_id.to_string();
         run.status = AgentStatus::WaitingForUser;
         run.phase = AgentPhase::ConfirmCustomizationApproval;
-        mc_core::agent::AgentSessionStore::new(&data_dir)
-            .save_snapshot(&run)
-            .unwrap();
+        save_snapshot(&data_dir, &run);
         let output = temp_mrpack_path("unapproved-output");
 
         let err = cmd_agent_execute_with_dir(&data_dir, session_id, &output, true)
@@ -1516,19 +1489,14 @@ mod tests {
             })),
             blocked: None,
         });
-        mc_core::agent::AgentSessionStore::new(&data_dir)
-            .save_snapshot(&run)
-            .unwrap();
+        save_snapshot(&data_dir, &run);
 
         let next = cmd_agent_execute_with_dir(&data_dir, session_id, &output, true)
             .await
             .expect("completed execute should copy recorded artifact");
 
         assert_eq!(next.status, AgentStatus::Completed);
-        assert!(output.exists());
-        let file = std::fs::File::open(&output).unwrap();
-        let mut archive = zip::ZipArchive::new(file).unwrap();
-        assert!(archive.by_name("modrinth.index.json").is_ok());
+        assert_mrpack_contains_index(&output);
         let manifest = next
             .execution
             .as_ref()
@@ -1545,43 +1513,37 @@ mod tests {
 
     #[test]
     fn exec_smoke_manifest_builds_ready_retry_failed_and_blocked_outcomes() {
-        let ready = exec_smoke_manifest(AgentExecSmokeOutcome::Ready, None);
-        assert_eq!(ready.get("status").and_then(|v| v.as_str()), Some("ready"));
+        let cases = [
+            (AgentExecSmokeOutcome::Ready, None, "status", "ready"),
+            (
+                AgentExecSmokeOutcome::Retry,
+                Some("cdn timed out"),
+                "error_kind",
+                "network_timeout",
+            ),
+            (
+                AgentExecSmokeOutcome::Failed,
+                Some("corrupt archive"),
+                "reason",
+                "corrupt archive",
+            ),
+            (
+                AgentExecSmokeOutcome::Completed,
+                None,
+                "status",
+                "completed",
+            ),
+            (
+                AgentExecSmokeOutcome::BlockedRequirements,
+                Some("target mismatch"),
+                "replan_phase",
+                "requirements",
+            ),
+        ];
 
-        let retry = exec_smoke_manifest(AgentExecSmokeOutcome::Retry, Some("cdn timed out"));
-        assert_eq!(retry.get("status").and_then(|v| v.as_str()), Some("retry"));
-        assert_eq!(
-            retry.get("error_kind").and_then(|v| v.as_str()),
-            Some("network_timeout")
-        );
-
-        let failed = exec_smoke_manifest(AgentExecSmokeOutcome::Failed, Some("corrupt archive"));
-        assert_eq!(
-            failed.get("status").and_then(|v| v.as_str()),
-            Some("failed")
-        );
-        assert_eq!(
-            failed.get("reason").and_then(|v| v.as_str()),
-            Some("corrupt archive")
-        );
-
-        let completed = exec_smoke_manifest(AgentExecSmokeOutcome::Completed, None);
-        assert_eq!(
-            completed.get("status").and_then(|v| v.as_str()),
-            Some("completed")
-        );
-
-        let blocked = exec_smoke_manifest(
-            AgentExecSmokeOutcome::BlockedRequirements,
-            Some("target mismatch"),
-        );
-        assert_eq!(
-            blocked.get("status").and_then(|v| v.as_str()),
-            Some("blocked")
-        );
-        assert_eq!(
-            blocked.get("replan_phase").and_then(|v| v.as_str()),
-            Some("requirements")
-        );
+        for (outcome, reason, field, expected) in cases {
+            let manifest = exec_smoke_manifest(outcome, reason);
+            assert_eq!(manifest.get(field).and_then(|v| v.as_str()), Some(expected));
+        }
     }
 }

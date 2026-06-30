@@ -346,7 +346,7 @@ pub(super) fn selection_plan(
         summary_markdown,
         risks: vec![
             "Candidates still need Minecraft version, loader, and extra-mod compatibility checks in the next step.".to_string(),
-            "Base-pack selection is a HITL gate; import/install/write does not run before confirmation.".to_string(),
+            "Base-pack selection is a HITL gate; .mrpack export/write work does not run before confirmation.".to_string(),
         ],
         planned_actions: vec![
             PlannedAction {
@@ -396,7 +396,7 @@ pub(super) fn customization_approval_with_validation(
         id: crate::agent::state::new_id("approval"),
         kind: ApprovalKind::ConfirmCustomization,
         title: "Confirm customization plan".to_string(),
-        message: "After confirmation, deterministic execution can write the artifact. This step only prepares the plan.".to_string(),
+        message: "After confirmation, deterministic execution can write the .mrpack artifact. This step only prepares the plan.".to_string(),
         options: vec![
             ApprovalOption {
                 id: "confirm:recommended_customization".to_string(),
@@ -476,7 +476,7 @@ fn customization_plan(
         ),
         risks: vec![
             "Extra mods come from provider search results and still need final version-file resolution before execution.".to_string(),
-            "Import/install/write does not run before the customization plan is confirmed.".to_string(),
+            "The .mrpack export does not run before the customization plan is confirmed.".to_string(),
         ],
         planned_actions: vec![
             PlannedAction {
@@ -487,9 +487,9 @@ fn customization_plan(
                 requires_approval: true,
             },
             PlannedAction {
-                id: "execute-install".to_string(),
-                label: "Import base modpack and install approved extra mods".to_string(),
-                tool: "install_modpack_with_mod_overrides".to_string(),
+                id: "export-mrpack".to_string(),
+                label: "Export approved .mrpack artifact".to_string(),
+                tool: "export_mrpack_artifact".to_string(),
                 args: serde_json::json!({ "after": "customization_confirmed" }),
                 requires_approval: false,
             },
