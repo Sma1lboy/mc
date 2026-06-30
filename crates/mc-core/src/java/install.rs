@@ -26,6 +26,7 @@
 
 use std::path::{Path, PathBuf};
 
+use super::java_exe_name;
 use crate::error::{CoreError, IoResultExt, Result};
 
 /// 把当前平台映射为 Adoptium API 的操作系统标识。
@@ -63,15 +64,6 @@ fn adoptium_url(major: u8, os: &str, arch: &str) -> String {
     format!(
         "https://api.adoptium.net/v3/binary/latest/{major}/ga/{os}/{arch}/jre/hotspot/normal/eclipse"
     )
-}
-
-/// 当前平台上 java 可执行文件名 (`java.exe` on Windows, 否则 `java`)。
-fn java_exe_name() -> &'static str {
-    if cfg!(windows) {
-        "java.exe"
-    } else {
-        "java"
-    }
 }
 
 /// 返回某个大版本对应的解压目标目录: `dest_root/jre-{major}`。

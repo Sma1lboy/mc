@@ -17,6 +17,17 @@ pub use version::JavaVersion;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// 当前平台上 java 可执行文件名 (`java.exe` on Windows, 否则 `java`)。
+///
+/// detect 与 install 两层都要这同一份"平台 → 可执行名"知识; 统一在此处, 避免两处定义漂移。
+pub(crate) fn java_exe_name() -> &'static str {
+    if cfg!(windows) {
+        "java.exe"
+    } else {
+        "java"
+    }
+}
+
 /// 一处已发现的 Java 安装。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JavaInstall {
@@ -189,5 +200,14 @@ mod tests {
     #[test]
     fn select_empty_is_none() {
         assert!(select(&[], 17).is_none());
+    }
+
+    #[test]
+    fn java_exe_name_matches_platform() {
+        if cfg!(windows) {
+            assert_eq!(java_exe_name(), "java.exe");
+        } else {
+            assert_eq!(java_exe_name(), "java");
+        }
     }
 }

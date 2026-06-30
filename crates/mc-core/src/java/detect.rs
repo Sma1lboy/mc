@@ -15,7 +15,7 @@ use futures::future::join_all;
 use tokio::process::Command;
 
 use super::version::JavaVersion;
-use super::JavaInstall;
+use super::{java_exe_name, JavaInstall};
 
 /// 在某个具体路径上运行 `java -version` 并解析结果。
 ///
@@ -129,15 +129,6 @@ pub async fn detect_all() -> Vec<JavaInstall> {
     installs
 }
 
-/// 当前平台上 java 可执行文件名。
-fn java_exe_name() -> &'static str {
-    if cfg!(windows) {
-        "java.exe"
-    } else {
-        "java"
-    }
-}
-
 /// 展开各平台常见的 JDK 安装目录, 返回其中所有候选 `.../bin/java[.exe]`。
 ///
 /// 这里手写 glob (只支持一层 `*`), 避免引入额外依赖。
@@ -226,15 +217,6 @@ mod tests {
     fn defaults_to_64bit_when_unknown() {
         // 没有任何位数线索时默认 64 位。
         assert!(infer_64bit("openjdk version \"17.0.14\""));
-    }
-
-    #[test]
-    fn exe_name_matches_platform() {
-        if cfg!(windows) {
-            assert_eq!(java_exe_name(), "java.exe");
-        } else {
-            assert_eq!(java_exe_name(), "java");
-        }
     }
 
     #[test]
