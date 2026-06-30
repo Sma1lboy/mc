@@ -221,6 +221,7 @@ async fn cmd_agent_continue(session_id: &str, message: &str, json: bool) -> Resu
         .map(|_| ())
 }
 
+#[cfg(test)]
 async fn cmd_agent_continue_with_runtime(
     dir: &Path,
     agent: &mc_core::agent::MainAgentRuntime,
@@ -228,7 +229,7 @@ async fn cmd_agent_continue_with_runtime(
     user_message: &str,
     json: bool,
 ) -> Result<AgentRunSnapshot> {
-    let store = mc_core::agent::AgentSessionStore::new(&dir);
+    let store = mc_core::agent::AgentSessionStore::new(dir);
     let snapshot = load_agent_snapshot(&store, session_id)?;
     cmd_agent_continue_snapshot_with_runtime(dir, agent, snapshot, user_message, json).await
 }
@@ -264,7 +265,7 @@ async fn cmd_agent_execute_with_dir(
     output: &Path,
     json: bool,
 ) -> Result<AgentRunSnapshot> {
-    let store = mc_core::agent::AgentSessionStore::new(&dir);
+    let store = mc_core::agent::AgentSessionStore::new(dir);
     let snapshot = load_agent_snapshot(&store, session_id)?;
     if execution_completed(&snapshot) {
         let mut next = copy_completed_artifact_to_output(snapshot, output)?;
@@ -304,6 +305,7 @@ fn ensure_session_can_continue(snapshot: &AgentRunSnapshot) -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 fn default_agent_output_path(data_dir: &Path, session_id: &str) -> PathBuf {
     data_dir
         .join("agent")

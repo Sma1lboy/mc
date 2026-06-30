@@ -22,18 +22,13 @@ pub enum AgentStatus {
     Failed,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentWorkflowKind {
     MainRouting,
+    #[default]
     ModpackBuild,
     Unsupported,
-}
-
-impl Default for AgentWorkflowKind {
-    fn default() -> Self {
-        Self::ModpackBuild
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -230,27 +225,17 @@ impl AgentRunSnapshot {
         self.trim_trace();
     }
 
-    pub fn push_tool_trace(
-        &mut self,
-        event: impl Into<String>,
-        stage: AgentPhase,
-        iteration: u32,
-        tool: impl Into<String>,
-        input: Value,
-        output: Value,
-        duration_ms: u128,
-        status: impl Into<String>,
-    ) {
+    pub fn push_tool_trace(&mut self, trace: AgentToolTrace) {
         self.trace.push(AgentTraceEvent {
             at_ms: now_ms(),
-            event: event.into(),
-            stage: Some(stage),
-            iteration: Some(iteration),
-            tool: Some(tool.into()),
-            input: Some(input),
-            output: Some(output),
-            duration_ms: Some(duration_ms),
-            status: Some(status.into()),
+            event: trace.event,
+            stage: Some(trace.stage),
+            iteration: Some(trace.iteration),
+            tool: Some(trace.tool),
+            input: Some(trace.input),
+            output: Some(trace.output),
+            duration_ms: Some(trace.duration_ms),
+            status: Some(trace.status),
         });
         self.trim_trace();
     }
@@ -330,6 +315,18 @@ pub struct AgentTraceEvent {
     pub status: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct AgentToolTrace {
+    pub event: String,
+    pub stage: AgentPhase,
+    pub iteration: u32,
+    pub tool: String,
+    pub input: Value,
+    pub output: Value,
+    pub duration_ms: u128,
+    pub status: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModpackAgentPlan {
     pub objective: String,
@@ -357,7 +354,7 @@ pub struct PlannedAction {
     pub requires_approval: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct BuildRestrictions {
     pub revision: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -398,20 +395,6 @@ impl BuildRestrictions {
             loader: self.loader.clone(),
             feature_tags: self.feature_tags.clone(),
             notes: self.notes.clone(),
-        }
-    }
-}
-
-impl Default for BuildRestrictions {
-    fn default() -> Self {
-        Self {
-            revision: 0,
-            minecraft_version: None,
-            minecraft_version_requirement: None,
-            loader: None,
-            feature_tags: Vec::new(),
-            notes: None,
-            history: Vec::new(),
         }
     }
 }

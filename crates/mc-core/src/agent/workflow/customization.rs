@@ -496,12 +496,12 @@ pub(super) async fn run_customization_planning_loop(
         let started = Instant::now();
         let mut mods = search_customization_mods(&queries, target).await?;
         mods.retain(|candidate| !excluded_project_ids.contains(&candidate.hit.id));
-        run.push_tool_trace(
-            "customization loop search_mods",
-            AgentPhase::CustomizationPlanning,
+        run.push_tool_trace(AgentToolTrace {
+            event: "customization loop search_mods".into(),
+            stage: AgentPhase::CustomizationPlanning,
             iteration,
-            "search_mods",
-            serde_json::json!({
+            tool: "search_mods".into(),
+            input: serde_json::json!({
                 "queries": queries,
                 "target": {
                     "minecraft_version": target.minecraft_version.clone(),
@@ -509,10 +509,10 @@ pub(super) async fn run_customization_planning_loop(
                 },
                 "excluded_project_ids": excluded_project_ids.iter().cloned().collect::<Vec<_>>(),
             }),
-            serde_json::json!({ "count": mods.len() }),
-            started.elapsed().as_millis(),
-            "ok",
-        );
+            output: serde_json::json!({ "count": mods.len() }),
+            duration_ms: started.elapsed().as_millis(),
+            status: "ok".into(),
+        });
 
         let mut roots = mods.iter().map(mod_ref_from_candidate).collect::<Vec<_>>();
         if generated_plan.retain_existing_mods {
@@ -534,34 +534,34 @@ pub(super) async fn run_customization_planning_loop(
         let dep_resolution =
             resolve_dependencies(&registry, &roots, mc_version, loader, &already_installed).await?;
         let dependency_validation = dependency_resolution_payload(&dep_resolution);
-        run.push_tool_trace(
-            "customization loop resolve_dependencies",
-            AgentPhase::CustomizationPlanning,
+        run.push_tool_trace(AgentToolTrace {
+            event: "customization loop resolve_dependencies".into(),
+            stage: AgentPhase::CustomizationPlanning,
             iteration,
-            "resolve_dependencies",
-            serde_json::json!({
+            tool: "resolve_dependencies".into(),
+            input: serde_json::json!({
                 "roots": mod_ref_payloads(&roots),
                 "already_installed": mod_ref_payloads(&base_modlist.refs),
                 "mc_version": mc_version,
                 "loader": loader,
             }),
-            dependency_validation.clone(),
-            started.elapsed().as_millis(),
-            "ok",
-        );
+            output: dependency_validation.clone(),
+            duration_ms: started.elapsed().as_millis(),
+            status: "ok".into(),
+        });
 
         let started = Instant::now();
         let blockers = customization_blockers(&dep_resolution);
-        run.push_tool_trace(
-            "customization loop detect_conflicts",
-            AgentPhase::CustomizationPlanning,
+        run.push_tool_trace(AgentToolTrace {
+            event: "customization loop detect_conflicts".into(),
+            stage: AgentPhase::CustomizationPlanning,
             iteration,
-            "detect_conflicts",
-            serde_json::json!({ "resolved": dependency_validation }),
-            serde_json::json!({ "blockers": blockers }),
-            started.elapsed().as_millis(),
-            if blockers.is_empty() { "ok" } else { "blocked" },
-        );
+            tool: "detect_conflicts".into(),
+            input: serde_json::json!({ "resolved": dependency_validation }),
+            output: serde_json::json!({ "blockers": blockers }),
+            duration_ms: started.elapsed().as_millis(),
+            status: if blockers.is_empty() { "ok" } else { "blocked" }.into(),
+        });
 
         if !blockers.is_empty() {
             last_blockers = blockers
@@ -616,16 +616,16 @@ pub(super) async fn run_customization_planning_loop(
             &validation,
         )
         .await?;
-        run.push_tool_trace(
-            "customization loop self_critique",
-            AgentPhase::CustomizationPlanning,
+        run.push_tool_trace(AgentToolTrace {
+            event: "customization loop self_critique".into(),
+            stage: AgentPhase::CustomizationPlanning,
             iteration,
-            "self_critique",
-            serde_json::json!({
+            tool: "self_critique".into(),
+            input: serde_json::json!({
                 "extra_mods": existing_mod_summaries(&extra_mods),
                 "validation": validation.clone(),
             }),
-            serde_json::json!({
+            output: serde_json::json!({
                 "model": critique.model.clone(),
                 "verdict": match critique.verdict {
                     CustomizationCritiqueVerdict::Pass => "pass",
@@ -635,12 +635,13 @@ pub(super) async fn run_customization_planning_loop(
                 "additional_queries": critique.additional_queries.clone(),
                 "rationale": critique.rationale.clone(),
             }),
-            started.elapsed().as_millis(),
-            match critique.verdict {
+            duration_ms: started.elapsed().as_millis(),
+            status: match critique.verdict {
                 CustomizationCritiqueVerdict::Pass => "ok",
                 CustomizationCritiqueVerdict::Revise => "revise",
-            },
-        );
+            }
+            .into(),
+        });
 
         if critique.verdict == CustomizationCritiqueVerdict::Pass {
             return Ok(CustomizationPlanningResult::Validated(

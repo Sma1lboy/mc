@@ -183,15 +183,14 @@ pub(super) fn update_build_restrictions(
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .map(|s| {
+        .and_then(|s| {
             if is_minecraft_version(s) {
                 Some(s.to_string())
             } else {
                 warnings.push(format!("ignored invalid minecraft_version: {s}"));
                 None
             }
-        })
-        .flatten();
+        });
     let minecraft_version_requirement = input
         .patch
         .minecraft_version_requirement

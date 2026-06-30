@@ -35,32 +35,32 @@ pub(super) async fn fetch_base_modlist_cache(
             reason: "base archive fetch timed out".to_string(),
         })??;
     ensure_base_archive_size(url, bytes.len())?;
-    run.push_tool_trace(
-        "customization planning fetched base archive once",
-        AgentPhase::CustomizationPlanning,
-        0,
-        "fetch_base_archive",
-        serde_json::json!({ "url": url }),
-        serde_json::json!({ "bytes": bytes.len() }),
-        started.elapsed().as_millis(),
-        "ok",
-    );
+    run.push_tool_trace(AgentToolTrace {
+        event: "customization planning fetched base archive once".into(),
+        stage: AgentPhase::CustomizationPlanning,
+        iteration: 0,
+        tool: "fetch_base_archive".into(),
+        input: serde_json::json!({ "url": url }),
+        output: serde_json::json!({ "bytes": bytes.len() }),
+        duration_ms: started.elapsed().as_millis(),
+        status: "ok".into(),
+    });
 
     let started = Instant::now();
     let cache = base_modlist_cache_from_archive_bytes(&bytes)?;
-    run.push_tool_trace(
-        "customization planning parsed base modlist",
-        AgentPhase::CustomizationPlanning,
-        0,
-        "parse_base_modlist",
-        serde_json::json!({ "archive_bytes": bytes.len() }),
-        serde_json::json!({
+    run.push_tool_trace(AgentToolTrace {
+        event: "customization planning parsed base modlist".into(),
+        stage: AgentPhase::CustomizationPlanning,
+        iteration: 0,
+        tool: "parse_base_modlist".into(),
+        input: serde_json::json!({ "archive_bytes": bytes.len() }),
+        output: serde_json::json!({
             "source_format": cache.source_format.clone(),
             "mod_refs": mod_ref_payloads(&cache.refs),
         }),
-        started.elapsed().as_millis(),
-        "ok",
-    );
+        duration_ms: started.elapsed().as_millis(),
+        status: "ok".into(),
+    });
 
     Ok(cache)
 }
