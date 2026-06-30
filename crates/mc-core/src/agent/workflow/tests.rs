@@ -29,13 +29,20 @@ fn zip_bytes_with_dirs(dirs: &[&str], files: &[(&str, &[u8])]) -> Vec<u8> {
 }
 
 fn one_response_server(body: Vec<u8>) -> String {
+    response_sequence_server(vec![body])
+}
+
+fn response_sequence_server(bodies: Vec<Vec<u8>>) -> String {
     use std::io::{Read, Write};
     use std::net::TcpListener;
 
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     std::thread::spawn(move || {
-        if let Ok((mut stream, _)) = listener.accept() {
+        for body in bodies {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
             let mut buf = [0_u8; 16384];
             let _ = stream.read(&mut buf);
             let headers = format!(
@@ -89,6 +96,39 @@ fn openrouter_response_body(output_text: String) -> Vec<u8> {
             },
             "finish_reason": "stop",
             "native_finish_reason": "stop"
+        }],
+        "usage": {
+            "prompt_tokens": 1,
+            "completion_tokens": 1,
+            "total_tokens": 2
+        }
+    })
+    .to_string()
+    .into_bytes()
+}
+
+fn openrouter_tool_call_response_body(tool_name: &str, arguments: serde_json::Value) -> Vec<u8> {
+    serde_json::json!({
+        "id": "chatcmpl_tool_test",
+        "object": "chat.completion",
+        "created": 0,
+        "model": "gpt-test",
+        "choices": [{
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": tool_name,
+                        "arguments": arguments
+                    }
+                }]
+            },
+            "finish_reason": "tool_calls",
+            "native_finish_reason": "tool_calls"
         }],
         "usage": {
             "prompt_tokens": 1,
@@ -1837,8 +1877,8 @@ fn parses_intent_and_approval_router_json() {
     assert!((unsupported.confidence - 0.8).abs() < 0.001);
 
     let wiki = parse_intent_response(r#"{"intent":"wiki_query","confidence":0.7}"#)
-        .expect("future wiki intent json should parse as unsupported");
-    assert_eq!(wiki.kind, AgentIntentKind::Unknown);
+        .expect("wiki intent json should parse");
+    assert_eq!(wiki.kind, AgentIntentKind::WikiQuery);
 
     let upgrade = parse_intent_response(r#"{"intent":"upgrade_current_pack","confidence":0.7}"#)
         .expect("future upgrade intent json should parse as unsupported");
@@ -1890,6 +1930,28 @@ fn home_launch_context_injects_build_workflow_only() {
         vec![AgentWorkflowId::BuildModpack]
     );
     assert!(home.allows_workflow(AgentWorkflowId::BuildModpack));
+    assert!(!home.allows_workflow(AgentWorkflowId::WikiQuery));
+}
+
+#[test]
+fn modpack_launch_context_injects_wiki_workflow_only() {
+    let modpack = AgentLaunchContext::from_entry(AgentEntry::Modpack {
+        modpack_id: "better-mc".to_string(),
+        instance_id: Some("local-instance".to_string()),
+    });
+    assert_eq!(
+        modpack.entry,
+        AgentEntry::Modpack {
+            modpack_id: "better-mc".to_string(),
+            instance_id: Some("local-instance".to_string()),
+        }
+    );
+    assert_eq!(
+        modpack.available_workflows,
+        vec![AgentWorkflowId::WikiQuery]
+    );
+    assert!(!modpack.allows_workflow(AgentWorkflowId::BuildModpack));
+    assert!(modpack.allows_workflow(AgentWorkflowId::WikiQuery));
 }
 
 #[test]
@@ -1898,6 +1960,166 @@ fn home_intent_routing_prompt_lists_only_build_workflow() {
     assert!(home_prompt.contains("- build_modpack:"));
     assert!(!home_prompt.contains("- wiki_query:"));
     assert!(!home_prompt.contains("- upgrade_current_pack:"));
+}
+
+#[test]
+fn modpack_intent_routing_prompt_lists_only_wiki_workflow() {
+    let modpack_prompt =
+        intent_routing_prompt(&AgentLaunchContext::from_entry(AgentEntry::Modpack {
+            modpack_id: "better-mc".to_string(),
+            instance_id: None,
+        }));
+    assert!(modpack_prompt.contains("Current agent entry: modpack:better-mc"));
+    assert!(modpack_prompt.contains("- wiki_query:"));
+    assert!(!modpack_prompt.contains("- build_modpack:"));
+    assert!(!modpack_prompt.contains("- upgrade_current_pack:"));
+}
+
+#[tokio::test]
+async fn local_wiki_retriever_searches_scoped_chunks() {
+    let scope = WikiScope::from_modpack_entry("better-mc".to_string(), None);
+    let corpus = crate::agent::wiki::LocalWikiCorpus::from_texts(
+        scope.clone(),
+        [(
+            "quests/the_aether.snbt",
+            "The Aether portal is built with Glowstone and lit with a water bucket.",
+        )],
+    );
+
+    let hits = corpus.search(&scope, "aether portal", 5).await.unwrap();
+
+    assert_eq!(hits.len(), 1);
+    assert!(hits[0].snippet.contains("Aether portal"));
+    assert_eq!(hits[0].source_label, "quests/the_aether.snbt");
+    let opened = corpus.open(&scope, &hits[0].chunk_id).await.unwrap();
+    assert!(opened.content.contains("Glowstone"));
+}
+
+#[tokio::test]
+async fn local_wiki_corpus_reads_text_from_mrpack_sources() {
+    let scope = WikiScope::from_modpack_entry("better-mc".to_string(), None);
+    let archive = temp_mrpack_path("wiki-source");
+    let bytes = zip_bytes(&[
+        (
+            "overrides/config/ftbquests/quests/chapters/the_aether.snbt",
+            b"The Aether portal uses Glowstone and a water bucket.",
+        ),
+        ("overrides/mods/ignored.toml", b"should not be indexed"),
+    ]);
+    std::fs::write(&archive, bytes).unwrap();
+
+    let corpus =
+        crate::agent::wiki::LocalWikiCorpus::from_paths(scope.clone(), &[archive.clone()]).unwrap();
+    let hits = corpus.search(&scope, "glowstone portal", 5).await.unwrap();
+    let ignored = corpus.search(&scope, "indexed", 5).await.unwrap();
+
+    assert_eq!(hits.len(), 1);
+    assert!(hits[0].source_label.contains("the_aether.snbt"));
+    assert!(ignored.is_empty());
+
+    let _ = std::fs::remove_file(archive);
+}
+
+#[tokio::test]
+async fn wiki_workflow_runs_rig_tool_loop_with_scoped_search() {
+    let scope = WikiScope::from_modpack_entry("better-mc".to_string(), None);
+    let corpus = crate::agent::wiki::LocalWikiCorpus::from_texts(
+        scope.clone(),
+        [(
+            "quests/the_aether.snbt",
+            "The Aether portal is built with Glowstone and lit with a water bucket.",
+        )],
+    );
+    let base_url = response_sequence_server(vec![
+        openrouter_tool_call_response_body(
+            "wiki_search",
+            serde_json::json!({ "query": "aether portal", "top_k": 5 }),
+        ),
+        openrouter_response_body("Use Glowstone and a water bucket [chunk:0:0].".to_string()),
+    ]);
+    let mut cfg = crate::agent::AgentLlmConfig::new("test-api-key");
+    cfg.base_url = base_url;
+    cfg.model = "openai/gpt-test".to_string();
+    let llm = crate::agent::AgentLlmClient::new(cfg).unwrap();
+    let workflow = crate::agent::WikiQueryWorkflow::new(llm, std::sync::Arc::new(corpus));
+
+    let run = workflow
+        .start("How do I open the Aether portal?", scope)
+        .await
+        .unwrap();
+
+    assert_eq!(run.workflow, AgentWorkflowKind::WikiQuery);
+    assert_eq!(run.status, AgentStatus::WaitingForUser);
+    assert!(run.messages.last().unwrap().text.contains("Glowstone"));
+    assert_eq!(
+        run.wiki.as_ref().unwrap().cited_chunk_ids,
+        vec!["chunk:0:0".to_string()]
+    );
+    assert!(run.trace.iter().any(|event| {
+        event.tool.as_deref() == Some("wiki_search")
+            && event
+                .output
+                .as_ref()
+                .is_some_and(|output| output.to_string().contains("Aether portal"))
+    }));
+}
+
+#[tokio::test]
+async fn wiki_workflow_rejects_answer_without_retrieved_evidence() {
+    let scope = WikiScope::from_modpack_entry("better-mc".to_string(), None);
+    let base_url =
+        one_response_server(openrouter_response_body("Use Glowstone and water.".to_string()));
+    let mut cfg = crate::agent::AgentLlmConfig::new("test-api-key");
+    cfg.base_url = base_url;
+    cfg.model = "openai/gpt-test".to_string();
+    let llm = crate::agent::AgentLlmClient::new(cfg).unwrap();
+    let workflow = crate::agent::WikiQueryWorkflow::new(
+        llm,
+        std::sync::Arc::new(crate::agent::LocalWikiCorpus::empty()),
+    );
+
+    let run = workflow
+        .start("How do I open the Aether portal?", scope)
+        .await
+        .unwrap();
+
+    assert_eq!(run.status, AgentStatus::WaitingForUser);
+    assert_eq!(
+        run.messages.last().unwrap().text,
+        "I could not find an answer in the indexed wiki data."
+    );
+    assert!(run.wiki.as_ref().unwrap().cited_chunk_ids.is_empty());
+}
+
+#[tokio::test]
+async fn wiki_workflow_keeps_session_waiting_for_follow_up() {
+    let scope = WikiScope::from_modpack_entry("better-mc".to_string(), Some("demo".to_string()));
+    let mut run = crate::agent::wiki::completed_wiki_turn_snapshot(
+        "How do I open the portal?",
+        scope.clone(),
+        crate::agent::wiki::WikiTurnOutput {
+            answer_markdown: "Use Glowstone [chunk:0:0].".to_string(),
+            citations: vec![crate::agent::WikiCitation {
+                chunk_id: "chunk:0:0".to_string(),
+                title: "quests/the_aether.snbt".to_string(),
+                source_label: "quests/the_aether.snbt".to_string(),
+                location: "lines 1-1".to_string(),
+            }],
+            not_found: false,
+        },
+    );
+
+    assert_eq!(run.workflow, AgentWorkflowKind::WikiQuery);
+    assert_eq!(run.phase, AgentPhase::WikiQuery);
+    assert_eq!(run.status, AgentStatus::WaitingForUser);
+    assert_eq!(run.wiki.as_ref().unwrap().scope, scope);
+    assert_eq!(
+        run.messages.last().unwrap().text,
+        "Use Glowstone [chunk:0:0]."
+    );
+
+    run.push_message(AgentMessageKind::User, "what item lights it?");
+    assert_eq!(run.messages.last().unwrap().kind, AgentMessageKind::User);
 }
 
 #[test]

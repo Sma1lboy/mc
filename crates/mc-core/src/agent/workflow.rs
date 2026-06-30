@@ -9,6 +9,7 @@
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::error::{CoreError, Result};
@@ -29,8 +30,9 @@ use super::state::{
     BuildRestrictionPatch, BuildRestrictions, ExecutionBlocked, Goal, GoalKind, GoalQuery,
     GoalStatus, ModPlanState, ModProvenance, ModpackAgentPlan, PlanArtifact, PlanReplanRequest,
     PlannedAction, ResolvedMod, TargetCompatibility, UpdateBuildRestrictionsInput,
-    UpdateBuildRestrictionsOutput, UserDecision, UserDecisionKind,
+    UpdateBuildRestrictionsOutput, UserDecision, UserDecisionKind, WikiScope,
 };
+use super::wiki::{LocalWikiCorpus, WikiQueryWorkflow, WikiRetriever};
 
 mod approvals;
 mod artifacts;
@@ -144,7 +146,7 @@ Current capabilities and boundaries:
 - If no base pack is suitable, the workflow may offer a human-approved scratch fallback that starts from an empty base set and uses deterministic dependency resolution.
 - Search, import, install, export, and file writes are deterministic daemon tools; do not invent platform results, files, versions, or installation state.
 - Stop at human approval gates before choosing a base pack, approving customization, or starting any write/install/export execution.
-- General mod/modpack how-to questions are not handled by this local workflow yet; route unsupported requests to unknown.
+- Current-modpack wiki questions are handled only when the modpack entry exposes the wiki_query workflow.
 - Keep outputs machine-readable when a subtask asks for a schema."#;
 
 const INTENT_ROUTING_PROMPT_HEADER: &str = r#"Classify the user's request into exactly one intent.
@@ -200,6 +202,16 @@ Return an object matching the provided schema."#;
 fn intent_routing_prompt(launch_context: &AgentLaunchContext) -> String {
     let entry = match &launch_context.entry {
         AgentEntry::Home => "home".to_string(),
+        AgentEntry::Modpack {
+            modpack_id,
+            instance_id,
+        } => {
+            let mut label = format!("modpack:{modpack_id}");
+            if let Some(instance_id) = instance_id.as_deref().filter(|s| !s.trim().is_empty()) {
+                label.push_str(&format!(" instance:{instance_id}"));
+            }
+            label
+        }
     };
     let mut lines = vec![
         INTENT_ROUTING_PROMPT_HEADER.to_string(),
@@ -224,6 +236,9 @@ fn workflow_prompt_line(workflow: &AgentWorkflowId) -> &'static str {
         AgentWorkflowId::BuildModpack => {
             "build_modpack: create, customize, recommend, or generate a new modpack from requirements."
         }
+        AgentWorkflowId::WikiQuery => {
+            "wiki_query: answer questions about the current modpack using its scoped wiki corpus."
+        }
     }
 }
 
@@ -242,12 +257,21 @@ fn intent_available_in_context(intent: &AgentIntent, launch_context: &AgentLaunc
 pub struct MainAgentRuntime {
     llm: AgentLlmClient,
     modpack_build: ModpackBuildWorkflow,
+    wiki_query: WikiQueryWorkflow,
 }
 
 impl MainAgentRuntime {
     pub fn new(llm: AgentLlmClient) -> Self {
+        Self::with_wiki_retriever(llm, Arc::new(LocalWikiCorpus::empty()))
+    }
+
+    pub fn with_wiki_retriever(
+        llm: AgentLlmClient,
+        wiki_retriever: Arc<dyn WikiRetriever>,
+    ) -> Self {
         Self {
             modpack_build: ModpackBuildWorkflow::new(llm.clone()),
+            wiki_query: WikiQueryWorkflow::new(llm.clone(), wiki_retriever),
             llm,
         }
     }
@@ -292,6 +316,14 @@ impl MainAgentRuntime {
                 run.push_trace("main agent routed intent to modpack_build workflow");
                 Ok(run)
             }
+            AgentIntentKind::WikiQuery => {
+                let scope = wiki_scope_from_launch_context(&launch_context)?;
+                let mut run = self.wiki_query.start(user_prompt, scope).await?;
+                run.launch_context = launch_context;
+                run.intent = Some(intent);
+                run.push_trace("main agent routed intent to wiki_query workflow");
+                Ok(run)
+            }
             _ => Ok(unsupported_intent_snapshot(
                 user_prompt,
                 intent,
@@ -324,6 +356,11 @@ impl MainAgentRuntime {
         run: AgentRunSnapshot,
         user_message: &str,
     ) -> Result<AgentRunSnapshot> {
+        if run.workflow == AgentWorkflowKind::WikiQuery || run.phase == AgentPhase::WikiQuery {
+            let mut next = self.wiki_query.continue_run(run, user_message).await?;
+            next.push_trace("main agent routed wiki follow-up message");
+            return Ok(next);
+        }
         let approval = pending_approval(&run)?;
         let route = self
             .route_approval_decision(&approval, user_message)
@@ -500,6 +537,21 @@ impl MainAgentRuntime {
             )
             .await?;
         output.into_route(approval)
+    }
+}
+
+fn wiki_scope_from_launch_context(launch_context: &AgentLaunchContext) -> Result<WikiScope> {
+    match &launch_context.entry {
+        AgentEntry::Modpack {
+            modpack_id,
+            instance_id,
+        } => Ok(WikiScope::from_modpack_entry(
+            modpack_id.clone(),
+            instance_id.clone(),
+        )),
+        AgentEntry::Home => Err(CoreError::other(
+            "wiki_query requires a modpack agent entry with modpack_id",
+        )),
     }
 }
 

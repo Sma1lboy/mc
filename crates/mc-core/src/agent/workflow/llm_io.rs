@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub(super) enum AgentIntentOutputKind {
     BuildModpack,
+    WikiQuery,
     Unknown,
 }
 
@@ -22,6 +23,7 @@ impl AgentIntentOutput {
         AgentIntent {
             kind: match self.intent {
                 AgentIntentOutputKind::BuildModpack => AgentIntentKind::BuildModpack,
+                AgentIntentOutputKind::WikiQuery => AgentIntentKind::WikiQuery,
                 AgentIntentOutputKind::Unknown => AgentIntentKind::Unknown,
             },
             confidence: self.confidence.clamp(0.0, 1.0),
@@ -94,6 +96,7 @@ pub(super) fn parse_first_json_object(text: &str) -> Option<serde_json::Value> {
 fn intent_kind(value: &str) -> AgentIntentKind {
     match value.trim().to_ascii_lowercase().as_str() {
         "build_modpack" | "modpack_build" | "create_modpack" => AgentIntentKind::BuildModpack,
+        "wiki_query" | "query_wiki" | "modpack_wiki" => AgentIntentKind::WikiQuery,
         _ => AgentIntentKind::Unknown,
     }
 }

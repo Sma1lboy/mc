@@ -9,6 +9,7 @@
 pub mod llm;
 pub mod session;
 pub mod state;
+pub mod wiki;
 pub mod workflow;
 
 pub use llm::{AgentLlmClient, AgentLlmConfig};
@@ -20,8 +21,10 @@ pub use state::{
     ApprovalOption, ApprovalRequest, ApprovedModpackBuild, BuildRestrictionChange,
     BuildRestrictionChangeSource, BuildRestrictionPatch, BuildRestrictions, ExecutionBlocked,
     ModpackAgentPlan, PlanArtifact, PlanReplanRequest, PlannedAction, UpdateBuildRestrictionsInput,
-    UpdateBuildRestrictionsOutput, UserDecision, UserDecisionKind,
+    UpdateBuildRestrictionsOutput, UserDecision, UserDecisionKind, WikiCitation, WikiScope,
+    WikiThreadState,
 };
+pub use wiki::{LocalWikiCorpus, WikiQueryWorkflow, WikiRetriever, WikiTurnOutput};
 pub use workflow::{
     compile_mrpack_execution_metadata, continue_after_execution_manifest_result,
     continue_modpack_build_without_model, execute_mrpack_build_to_path, MainAgentRuntime,
