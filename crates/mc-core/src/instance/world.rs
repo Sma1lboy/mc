@@ -294,11 +294,8 @@ pub fn backup_world(inst: &Instance, folder: &str, dest_path: &Path) -> Result<P
 pub fn delete_world(inst: &Instance, folder: &str) -> Result<()> {
     let dir = world_dir(inst, folder)?;
 
-    if trash::delete(&dir).is_ok() {
-        return Ok(());
-    }
-    // 回收站不可用:回退到永久删除。
-    std::fs::remove_dir_all(&dir).with_path(&dir)
+    // 删除走统一 owner:优先回收站,失败回退硬删除(世界恒为目录)。
+    crate::fs::trash_or_delete(&dir)
 }
 
 /// 重命名世界的**显示名**(`Data.LevelName`),不改变其文件夹名。

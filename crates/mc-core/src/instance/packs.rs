@@ -255,17 +255,8 @@ pub fn delete_pack(inst: &Instance, kind: PackKind, file_name: &str, world: Opti
         return Ok(());
     }
 
-    // 首选回收站:可恢复,符合"删除资源"这类用户可逆操作的预期。
-    if trash::delete(&path).is_ok() {
-        return Ok(());
-    }
-
-    // 回退:不可逆删除。区分文件 / 目录。
-    if path.is_dir() {
-        std::fs::remove_dir_all(&path).with_path(&path)
-    } else {
-        std::fs::remove_file(&path).with_path(&path)
-    }
+    // 删除走统一 owner:优先回收站,失败回退按文件 / 目录硬删除。
+    crate::fs::trash_or_delete(&path)
 }
 
 /// 从一个平台版本安装包到对应目录,返回落盘的文件名。

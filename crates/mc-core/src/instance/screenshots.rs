@@ -120,10 +120,8 @@ pub fn delete_screenshot(inst: &Instance, file_name: &str) -> Result<()> {
     if !path.exists() {
         return Ok(()); // 幂等。
     }
-    if trash::delete(&path).is_ok() {
-        return Ok(());
-    }
-    std::fs::remove_file(&path).with_path(&path)
+    // 删除走统一 owner:优先回收站,失败回退硬删除(此处恒为文件)。
+    crate::fs::trash_or_delete(&path)
 }
 
 #[cfg(test)]

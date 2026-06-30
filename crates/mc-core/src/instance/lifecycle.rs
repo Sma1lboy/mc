@@ -363,10 +363,8 @@ pub fn delete_instance(paths: &GamePaths, id: &str) -> Result<()> {
     if !dir.exists() {
         return Ok(());
     }
-    if trash::delete(&dir).is_ok() {
-        return Ok(());
-    }
-    std::fs::remove_dir_all(&dir).with_path(&dir)
+    // 删除走统一 owner:优先回收站,失败回退硬删除(实例目录恒为目录)。
+    crate::fs::trash_or_delete(&dir)
 }
 
 // ===========================================================================

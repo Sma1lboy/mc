@@ -165,11 +165,8 @@ pub fn delete_mod(inst: &Instance, file_name: &str) -> Result<()> {
         None => return Ok(()),
     };
 
-    // trash::delete 失败(平台不支持/无回收站)时回退硬删除。
-    if trash::delete(&target).is_err() {
-        std::fs::remove_file(&target).with_path(&target)?;
-    }
-    Ok(())
+    // 删除走统一 owner:优先回收站,失败回退硬删除(此处恒为文件)。
+    crate::fs::trash_or_delete(&target)
 }
 
 /// 读取单个 jar 的内部 `mod_id`(读不出 / 无该字段时返回 `None`)。
@@ -218,9 +215,7 @@ pub fn remove_superseded(inst: &Instance, keep_file_name: &str) -> Result<Vec<St
             continue;
         }
         if read_mod_id(&path).as_deref() == Some(keep_id.as_str()) {
-            if trash::delete(&path).is_err() {
-                std::fs::remove_file(&path).with_path(&path)?;
-            }
+            crate::fs::trash_or_delete(&path)?;
             removed.push(name);
         }
     }

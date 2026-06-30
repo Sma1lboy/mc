@@ -300,6 +300,31 @@ pub fn move_with_fallback(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Delete `path`, preferring the OS recycle bin so the user can recover it.
+///
+/// Try [`trash::delete`] first (reversible); only when that fails — headless /
+/// containerised hosts with no trash backend, CI — fall back to an irreversible
+/// in-place removal, choosing [`remove_dir_all`](std::fs::remove_dir_all) for a
+/// directory and [`remove_file`](std::fs::remove_file) otherwise. IO errors on
+/// the hard-delete fallback carry the offending path via [`IoResultExt`].
+///
+/// The one owner of "trash, else hard-delete (dir vs file)". Every resource
+/// delete — mods, packs, screenshots, worlds, instances — routes through it.
+/// Callers keep their own `if !path.exists() { return Ok(()) }` idempotence
+/// guard before calling (the not-found / path-resolution semantics differ per
+/// module); this helper assumes `path` is the resolved thing to remove.
+pub fn trash_or_delete(path: &Path) -> Result<()> {
+    if trash::delete(path).is_ok() {
+        return Ok(());
+    }
+    // Trash unavailable: irreversible removal, branching on what's on disk.
+    if path.is_dir() {
+        std::fs::remove_dir_all(path).with_path(path)
+    } else {
+        std::fs::remove_file(path).with_path(path)
+    }
+}
+
 /// Walk up until an existing ancestor is found (for stat-ing a not-yet-created
 /// path). Ports `nearestExistentAncestor`.
 pub fn nearest_existent_ancestor(path: &Path) -> Option<PathBuf> {
@@ -599,6 +624,33 @@ mod tests {
         override_folder(&dir.join("overrides"), &target).unwrap();
         assert!(target.join("config/a.cfg").exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn trash_or_delete_removes_file_and_dir() {
+        // Whether the host has a trash backend (delete moves it) or not (hard
+        // fallback removes it), the resolved target must be gone afterwards —
+        // and the dir/file branch must vanish a directory tree as well as a file.
+        let base = std::env::temp_dir().join(format!("mc-core-trash-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+
+        // A regular file → remove_file path.
+        let file = base.join("doomed.txt");
+        std::fs::write(&file, b"bye").unwrap();
+        assert!(file.exists());
+        trash_or_delete(&file).unwrap();
+        assert!(!file.exists(), "file should be gone (trash or hard delete)");
+
+        // A directory with contents → remove_dir_all path.
+        let dir = base.join("doomed-dir");
+        std::fs::create_dir_all(dir.join("nested")).unwrap();
+        std::fs::write(dir.join("nested/inner.bin"), b"x").unwrap();
+        assert!(dir.exists());
+        trash_or_delete(&dir).unwrap();
+        assert!(!dir.exists(), "directory tree should be gone");
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]
