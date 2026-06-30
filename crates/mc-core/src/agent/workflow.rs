@@ -167,7 +167,7 @@ Only set minecraft_version when the user explicitly gives a concrete Minecraft v
 Set minecraft_version_requirement to the raw user-facing version requirement when present, including concrete versions and ranges such as 1.20.x, <=1.19.x, or 1.20.1/1.20.4.
 Only set loader to fabric, forge, neoforge, or quilt when the user explicitly asks for that loader.
 Use null when the loader is absent or ambiguous.
-Feature tags should be short search/use-case tags from the user's request, not full sentences.
+Feature tags must be short, lowercase English search keywords (for example: exploration, dungeons, magic, minimap, inventory-management), even when the user writes in Chinese or another language — these tags are used verbatim as English mod-search queries against Modrinth. Translate the user's intent into English keywords; never emit tags in the user's language, and never write full sentences.
 The patch represents the full desired BuildRestrictions state after applying the latest user message, not only a delta.
 Return an object matching the provided tool input schema."#;
 
@@ -190,7 +190,7 @@ const MOD_PLAN_STEP_PROMPT: &str = r#"You are planning a compatible Minecraft mo
 The runtime has already searched provider candidates and filtered obvious duplicates.
 Select only project_id values from the provided candidate pool. Do not invent URLs, version ids, filenames, hashes, or environment metadata.
 Use selections to cover open goals, removals to drop unwanted current additions, next_queries for the next deterministic search round, and control=done only when the current set is coherent enough for the final human approval gate.
-When candidate_pool is empty or insufficient, next_queries must be short provider search terms: canonical mod/project names or 2-5 keyword phrases.
+When candidate_pool is empty or insufficient, next_queries must be short English provider search terms: canonical mod/project names or 2-5 English keyword phrases, even when the user writes in another language.
 Do not put Minecraft versions, loader names, the selected base-pack name, "compatible with", "Modrinth", or sentence-style requirements in next_queries.query; those constraints are already applied by deterministic filters.
 Prefer "Immersive Portals" over "Immersive Portals Fabric 1.20.1 compatibility with SpaceCraft Pluto".
 Use multiple short queries instead of one long query that combines compatibility and theme constraints.
