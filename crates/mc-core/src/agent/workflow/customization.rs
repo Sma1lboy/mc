@@ -287,10 +287,10 @@ pub(super) async fn continue_after_customization_feedback(
     };
     run.push_message(
         AgentMessageKind::Tool,
-        format!(
-            "customization planning produced {} validated installable files using cached {} base modlist",
+        customization_planning_summary(
             validated.extra_mods.len(),
-            base_modlist.source_format
+            &validated.validation,
+            &base_modlist.source_format,
         ),
     );
     let (plan, approval) = customization_approval_with_validation(
@@ -307,6 +307,31 @@ pub(super) async fn continue_after_customization_feedback(
     run.plan = Some(plan);
     run.push_trace("paused at updated customization confirmation gate");
     Ok(run)
+}
+
+/// Honest Tool-channel summary of a customization-planning result. A
+/// zero-addition plan that the base pack already covers reads as success, not
+/// as "produced 0 installable files".
+fn customization_planning_summary(
+    extra_mod_count: usize,
+    validation: &serde_json::Value,
+    source_format: &str,
+) -> String {
+    let base_covered = validation
+        .get("base_pack_coverage")
+        .and_then(|v| v.get("covered_goal_ids"))
+        .and_then(|v| v.as_array())
+        .map(|ids| ids.len())
+        .unwrap_or(0);
+    if extra_mod_count == 0 && base_covered > 0 {
+        format!(
+            "customization planning added no extra mods: the {source_format} base pack already covers {base_covered} requested feature(s)"
+        )
+    } else {
+        format!(
+            "customization planning produced {extra_mod_count} validated installable files using cached {source_format} base modlist"
+        )
+    }
 }
 
 fn selected_base_from_customization_payload(
@@ -580,6 +605,7 @@ pub(super) async fn run_customization_planning_loop(
     };
 
     let registry = ProviderRegistry::with_defaults();
+    let fresh_plan = run.mod_plan.is_none();
     let mut state = run.mod_plan.clone().unwrap_or_else(|| {
         initialize_mod_plan_state(target, base_modlist, run.restrictions.as_ref())
     });
@@ -591,6 +617,24 @@ pub(super) async fn run_customization_planning_loop(
             })
             .collect();
     }
+
+    // Before the search/select loop, credit the base pack for goals it already
+    // covers. Only on a fresh plan and only for real (non-scratch) base packs:
+    // the scratch path starts from an empty base set, so there is nothing to
+    // credit and no reason to spend an LLM round-trip.
+    if fresh_plan && !state.base_set.is_empty() && has_open_theme_goals(&state) {
+        let base_meta = enrich_base_set_metadata(&registry, &state.base_set).await;
+        if !base_meta.is_empty() {
+            apply_base_set_metadata(&mut state, &base_meta);
+        }
+        if let Err(err) =
+            analyze_base_pack_coverage(llm, run, planning_input, base, &mut state).await
+        {
+            run.push_trace(format!("base-pack coverage analysis skipped: {err}"));
+        }
+        run.mod_plan = Some(state.clone());
+    }
+
     let mut last_blockers = Vec::<serde_json::Value>::new();
     let mut stopped_by_round_cap = state.round >= MOD_PLAN_ROUND_CAP;
     let mut last_unresolved_diagnosis: Option<String> = None;
@@ -803,7 +847,8 @@ pub(super) async fn run_customization_planning_loop(
         if state.round >= MOD_PLAN_ROUND_CAP {
             stopped_by_round_cap = true;
         }
-        if control == ModPlanControl::Done || stopped_by_round_cap || !has_open_goals(&state) {
+        let honor_done = should_honor_done(control, &state, candidate_pool.is_empty());
+        if honor_done || stopped_by_round_cap || !has_open_goals(&state) {
             break;
         }
     }
@@ -839,6 +884,7 @@ pub(super) async fn run_customization_planning_loop(
             .filter(|m| m.get("auto_added").and_then(|v| v.as_bool()).unwrap_or(false))
             .cloned()
             .collect::<Vec<_>>(),
+        "base_pack_coverage": base_pack_coverage_payload(&state),
         "unresolved_goals": unresolved_goals,
     });
     Ok(CustomizationPlanningResult::Validated(
@@ -942,6 +988,7 @@ pub(super) fn initialize_mod_plan_state(
         round: 0,
         empty_candidate_rounds: 0,
         pending_queries,
+        base_covered_goals: Vec::new(),
     }
 }
 
@@ -991,6 +1038,284 @@ fn has_open_goals(state: &ModPlanState) -> bool {
         .goals
         .iter()
         .any(|goal| goal.status == GoalStatus::Open)
+}
+
+fn has_open_theme_goals(state: &ModPlanState) -> bool {
+    state
+        .goals
+        .iter()
+        .any(|goal| goal.kind == GoalKind::Theme && goal.status == GoalStatus::Open)
+}
+
+/// Deterministic guard over the model's `control=Done`. The model may only
+/// finish the loop when there is no still-open theme goal that has candidates
+/// available to search/select right now. A `Done` with an open theme goal and a
+/// non-empty candidate pool is treated as premature and ignored, so the planner
+/// keeps working (bounded by `MOD_PLAN_ROUND_CAP`). The deterministic
+/// empty-candidate `Done` short-circuits pass an empty pool here, so they are
+/// always honored.
+fn should_honor_done(
+    control: ModPlanControl,
+    state: &ModPlanState,
+    candidate_pool_empty: bool,
+) -> bool {
+    if control != ModPlanControl::Done {
+        return false;
+    }
+    candidate_pool_empty || !has_open_theme_goals(state)
+}
+
+fn provider_id_from_slug(slug: &str) -> Option<ProviderId> {
+    match slug.trim().to_ascii_lowercase().as_str() {
+        "modrinth" => Some(ProviderId::Modrinth),
+        "curseforge" => Some(ProviderId::CurseForge),
+        _ => None,
+    }
+}
+
+/// Best-effort batch fetch of each base-pack mod's metadata (title, slug,
+/// categories, description) keyed by `provider:project_id`. Any provider error
+/// (or an unregistered provider, e.g. CurseForge without an API key) simply
+/// yields fewer entries; the caller falls back to ids-only behavior.
+async fn enrich_base_set_metadata(
+    registry: &ProviderRegistry,
+    base_set: &[ResolvedMod],
+) -> HashMap<String, SearchHit> {
+    const BATCH: usize = 100;
+    let mut by_provider: HashMap<ProviderId, Vec<String>> = HashMap::new();
+    let mut seen = HashSet::new();
+    for entry in base_set {
+        let Some(provider_id) = provider_id_from_slug(&entry.provider) else {
+            continue;
+        };
+        let key = provider_project_key(&entry.provider, &entry.project_id);
+        if !seen.insert(key) {
+            continue;
+        }
+        by_provider
+            .entry(provider_id)
+            .or_default()
+            .push(entry.project_id.clone());
+    }
+
+    let mut out = HashMap::new();
+    for (provider_id, ids) in by_provider {
+        let Some(provider) = registry.get(provider_id) else {
+            continue;
+        };
+        for chunk in ids.chunks(BATCH) {
+            let Ok(hits) = provider.get_projects(chunk).await else {
+                continue;
+            };
+            for hit in hits {
+                out.insert(provider_project_key(provider_slug(provider_id), &hit.id), hit);
+            }
+        }
+    }
+    out
+}
+
+/// Fill enriched metadata onto the `base_set` entries (title/slug fields plus a
+/// richer payload), without overwriting any value that is already present.
+fn apply_base_set_metadata(state: &mut ModPlanState, meta: &HashMap<String, SearchHit>) {
+    for entry in state.base_set.iter_mut() {
+        let key = provider_project_key(&entry.provider, &entry.project_id);
+        let Some(hit) = meta.get(&key) else {
+            continue;
+        };
+        if entry.title.as_deref().map(str::trim).unwrap_or("").is_empty()
+            && !hit.title.trim().is_empty()
+        {
+            entry.title = Some(hit.title.trim().to_string());
+        }
+        if entry.slug.as_deref().map(str::trim).unwrap_or("").is_empty()
+            && !hit.slug.trim().is_empty()
+        {
+            entry.slug = Some(hit.slug.trim().to_string());
+        }
+        if let Some(obj) = entry.payload.as_object_mut() {
+            if !hit.title.trim().is_empty() {
+                obj.insert("title".to_string(), serde_json::json!(hit.title));
+            }
+            if !hit.slug.trim().is_empty() {
+                obj.insert("slug".to_string(), serde_json::json!(hit.slug));
+            }
+            if !hit.categories.is_empty() {
+                obj.insert("categories".to_string(), serde_json::json!(hit.categories));
+            }
+            if !hit.description.trim().is_empty() {
+                obj.insert("description".to_string(), serde_json::json!(hit.description));
+            }
+        }
+    }
+}
+
+/// The base-pack modlist entries (title + categories) fed to the coverage
+/// analysis. Entries with neither a title nor categories carry no signal and
+/// are dropped; the list is capped to keep the prompt bounded for large packs.
+fn base_modlist_coverage_entries(state: &ModPlanState) -> Vec<serde_json::Value> {
+    const MAX_ENTRIES: usize = 80;
+    state
+        .base_set
+        .iter()
+        .filter_map(|m| {
+            let title = m
+                .title
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            let categories = m
+                .payload
+                .get("categories")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+            if title.is_none() && categories.is_empty() {
+                return None;
+            }
+            Some(serde_json::json!({
+                "project_id": m.project_id,
+                "title": title,
+                "categories": categories,
+            }))
+        })
+        .take(MAX_ENTRIES)
+        .collect()
+}
+
+fn base_coverage_prompt_payload(
+    user_prompt: &str,
+    base: &SelectedBasePack,
+    open_theme_goals: &[&Goal],
+    base_mods: &[serde_json::Value],
+) -> serde_json::Value {
+    serde_json::json!({
+        "user_prompt": user_prompt,
+        "selected_base_pack": {
+            "title": base.title.clone(),
+            "description": base.description.clone(),
+        },
+        "theme_goals": open_theme_goals
+            .iter()
+            .map(|goal| serde_json::json!({ "id": goal.id, "label": goal.label }))
+            .collect::<Vec<_>>(),
+        "base_pack_modlist": base_mods,
+    })
+}
+
+/// One LLM round-trip that asks which open theme goals the base pack already
+/// covers, then marks those goals `Covered` (recording them in
+/// `base_covered_goals`) and drops their pending search queries so the loop
+/// never searches for them. Model-agnostic: a cheaper model swap just works.
+async fn analyze_base_pack_coverage(
+    llm: &AgentLlmClient,
+    run: &mut AgentRunSnapshot,
+    user_prompt: &str,
+    base: &SelectedBasePack,
+    state: &mut ModPlanState,
+) -> Result<()> {
+    let open_theme_goals = state
+        .goals
+        .iter()
+        .filter(|goal| goal.kind == GoalKind::Theme && goal.status == GoalStatus::Open)
+        .cloned()
+        .collect::<Vec<_>>();
+    if open_theme_goals.is_empty() {
+        return Ok(());
+    }
+    let base_mods = base_modlist_coverage_entries(state);
+    if base_mods.is_empty() {
+        return Ok(());
+    }
+    let goal_ids = open_theme_goals
+        .iter()
+        .map(|goal| goal.id.clone())
+        .collect::<HashSet<_>>();
+
+    let started = Instant::now();
+    let payload = base_coverage_prompt_payload(
+        user_prompt,
+        base,
+        &open_theme_goals.iter().collect::<Vec<_>>(),
+        &base_mods,
+    );
+    let output = llm
+        .prompt_typed::<BaseCoverageOutput>(
+            &[MAIN_AGENT_SYSTEM_PROMPT, BASE_COVERAGE_PROMPT],
+            payload.to_string(),
+            300,
+            0.0,
+        )
+        .await?;
+    let covered = output.covered_goal_ids(&goal_ids);
+
+    run.push_tool_trace(AgentToolTrace {
+        event: "modplan reducer base_pack_coverage".into(),
+        stage: AgentPhase::CustomizationPlanning,
+        iteration: 0,
+        tool: "analyze_base_pack_coverage".into(),
+        input: serde_json::json!({
+            "theme_goals": open_theme_goals
+                .iter()
+                .map(|goal| goal.id.clone())
+                .collect::<Vec<_>>(),
+            "base_modlist_count": base_mods.len(),
+        }),
+        output: serde_json::json!({
+            "model": llm.model(),
+            "covered_goal_ids": covered.clone(),
+            "covered_goals": output.trace_payload(),
+        }),
+        duration_ms: started.elapsed().as_millis(),
+        status: "ok".into(),
+    });
+
+    for goal_id in &covered {
+        mark_goal_status(state, goal_id, GoalStatus::Covered);
+        push_unique_string(&mut state.base_covered_goals, goal_id.clone());
+    }
+    state
+        .pending_queries
+        .retain(|query| !covered.contains(&query.goal_id));
+    Ok(())
+}
+
+/// Honest, schema-stable summary of which goals the base pack covered, for the
+/// ConfirmCustomization validation. A zero-addition plan that covers goals reads
+/// as "the base pack already covers your requirements", not as a failure.
+fn base_pack_coverage_payload(state: &ModPlanState) -> serde_json::Value {
+    let covered_goals = state
+        .goals
+        .iter()
+        .filter(|goal| state.base_covered_goals.contains(&goal.id))
+        .map(|goal| serde_json::json!({ "goal_id": goal.id, "label": goal.label }))
+        .collect::<Vec<_>>();
+    let theme_added = state
+        .goals
+        .iter()
+        .filter(|goal| {
+            goal.kind == GoalKind::Theme
+                && goal.status == GoalStatus::Covered
+                && !state.base_covered_goals.contains(&goal.id)
+        })
+        .count();
+    let covered_count = state.base_covered_goals.len();
+    let summary = if covered_count == 0 {
+        String::new()
+    } else if theme_added == 0 {
+        format!(
+            "The selected base pack already covers your requested features ({covered_count} satisfied by base-pack mods); no extra mods are needed for them."
+        )
+    } else {
+        format!(
+            "The selected base pack already covers {covered_count} requested feature(s); {theme_added} extra mod(s) were planned for the rest."
+        )
+    };
+    serde_json::json!({
+        "covered_goal_ids": state.base_covered_goals.clone(),
+        "covered_goals": covered_goals,
+        "summary": summary,
+    })
 }
 
 fn open_goal_queries(state: &ModPlanState) -> Vec<GoalQuery> {
@@ -1446,4 +1771,259 @@ fn resolved_file_mod_payload(
             "file": version_file_payload(&file),
         },
     })
+}
+
+#[cfg(test)]
+mod base_coverage_tests {
+    use super::*;
+    use crate::agent::{AgentLlmClient, AgentLlmConfig};
+    use std::io::{Read as _, Write as _};
+    use std::net::TcpListener;
+
+    fn openrouter_body(content: serde_json::Value) -> Vec<u8> {
+        serde_json::json!({
+            "id": "chatcmpl_test",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "gpt-test",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": content.to_string() },
+                "finish_reason": "stop",
+                "native_finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
+        })
+        .to_string()
+        .into_bytes()
+    }
+
+    fn one_response_server(body: Vec<u8>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0_u8; 16384];
+                let _ = stream.read(&mut buf);
+                let headers = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(headers.as_bytes());
+                let _ = stream.write_all(&body);
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    fn coverage_llm(content: serde_json::Value) -> AgentLlmClient {
+        let mut cfg = AgentLlmConfig::new("test-key");
+        cfg.base_url = one_response_server(openrouter_body(content));
+        AgentLlmClient::new(cfg).unwrap()
+    }
+
+    fn dummy_llm() -> AgentLlmClient {
+        AgentLlmClient::new(AgentLlmConfig::new("test-key")).unwrap()
+    }
+
+    fn forge_target() -> TargetCompatibility {
+        TargetCompatibility {
+            minecraft_version: Some("1.20.1".to_string()),
+            loader: Some("forge".to_string()),
+            version_id: None,
+            version_name: None,
+            version_number: None,
+            game_versions: vec!["1.20.1".to_string()],
+            loaders: vec!["forge".to_string()],
+            primary_file: None,
+            dependencies: Vec::new(),
+        }
+    }
+
+    fn base_modlist_with_two_mods() -> BaseModlistCache {
+        BaseModlistCache {
+            refs: vec![
+                ModRef::new(ProviderId::Modrinth, "aqua"),
+                ModRef::new(ProviderId::Modrinth, "arcane"),
+            ],
+            source_format: "modrinth".to_string(),
+            fetch_count: 1,
+        }
+    }
+
+    fn restrictions(tags: &[&str]) -> BuildRestrictions {
+        BuildRestrictions {
+            feature_tags: tags.iter().map(|t| (*t).to_string()).collect(),
+            ..Default::default()
+        }
+    }
+
+    fn enrich_titles(state: &mut ModPlanState, entries: &[(&str, &[&str])]) {
+        for (entry, (title, cats)) in state.base_set.iter_mut().zip(entries.iter()) {
+            entry.title = Some((*title).to_string());
+            if let Some(obj) = entry.payload.as_object_mut() {
+                obj.insert("categories".to_string(), serde_json::json!(cats));
+            }
+        }
+    }
+
+    fn test_base() -> SelectedBasePack {
+        SelectedBasePack {
+            provider: ProviderId::Modrinth,
+            project_id: "ocean-pack".to_string(),
+            slug: "ocean-pack".to_string(),
+            title: "Ocean Pack".to_string(),
+            description: Some("An ocean exploration base pack".to_string()),
+        }
+    }
+
+    fn goal_status(state: &ModPlanState, id: &str) -> GoalStatus {
+        state
+            .goals
+            .iter()
+            .find(|goal| goal.id == id)
+            .map(|goal| goal.status.clone())
+            .unwrap()
+    }
+
+    // (a) A base pack whose mods cover a theme goal -> that goal is marked
+    // Covered, with no addition and its search query dropped.
+    #[tokio::test]
+    async fn base_pack_coverage_marks_goal_covered_without_addition() {
+        let target = forge_target();
+        let base_modlist = base_modlist_with_two_mods();
+        let mut state = initialize_mod_plan_state(
+            &target,
+            &base_modlist,
+            Some(&restrictions(&["ocean", "magic"])),
+        );
+        enrich_titles(
+            &mut state,
+            &[
+                ("Aquaculture", &["adventure", "food"]),
+                ("Arcane Arts", &["magic", "technology"]),
+            ],
+        );
+
+        let llm = coverage_llm(serde_json::json!({
+            "covered_goals": [{
+                "goal_id": "theme:ocean",
+                "covering_mods": ["Aquaculture"],
+                "rationale": "Aquaculture already provides ocean content"
+            }]
+        }));
+        let mut run = AgentRunSnapshot::new("ocean pack with magic");
+
+        analyze_base_pack_coverage(&llm, &mut run, "ocean pack with magic", &test_base(), &mut state)
+            .await
+            .unwrap();
+
+        assert_eq!(goal_status(&state, "theme:ocean"), GoalStatus::Covered);
+        assert_eq!(goal_status(&state, "theme:magic"), GoalStatus::Open);
+        assert_eq!(state.base_covered_goals, vec!["theme:ocean".to_string()]);
+        assert!(!state
+            .pending_queries
+            .iter()
+            .any(|query| query.goal_id == "theme:ocean"));
+        assert!(state
+            .pending_queries
+            .iter()
+            .any(|query| query.goal_id == "theme:magic"));
+        assert!(state.additions.is_empty());
+    }
+
+    // (b) When every theme goal is covered by the base pack, the loop finishes
+    // with no extra mods and returns Validated (not Blocked).
+    #[tokio::test]
+    async fn all_goals_covered_yields_empty_validated_plan() {
+        let target = forge_target();
+        let base_modlist = base_modlist_with_two_mods();
+        let mut state = initialize_mod_plan_state(
+            &target,
+            &base_modlist,
+            Some(&restrictions(&["ocean", "magic"])),
+        );
+        for id in ["theme:ocean", "theme:magic"] {
+            mark_goal_status(&mut state, id, GoalStatus::Covered);
+            state.base_covered_goals.push(id.to_string());
+        }
+        state.pending_queries.clear();
+
+        let mut run = AgentRunSnapshot::new("ocean pack with magic");
+        run.mod_plan = Some(state);
+
+        let result = run_customization_planning_loop(
+            &dummy_llm(),
+            &mut run,
+            "ocean pack with magic",
+            &test_base(),
+            &target,
+            &[],
+            &base_modlist,
+        )
+        .await
+        .unwrap();
+
+        let CustomizationPlanningResult::Validated(validated) = result else {
+            panic!("all-covered plan should validate, not block");
+        };
+        assert!(
+            validated.extra_mods.is_empty(),
+            "base pack covers everything; no extra mods should be added"
+        );
+        let coverage = &validated.validation["base_pack_coverage"];
+        assert_eq!(
+            coverage["covered_goal_ids"].as_array().map(Vec::len),
+            Some(2)
+        );
+        assert!(validated.validation["unresolved_goals"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+    }
+
+    // (c) Base-covered goals are absent from the unresolved-goals list.
+    #[test]
+    fn base_covered_goals_absent_from_unresolved_goals() {
+        let target = forge_target();
+        let base_modlist = base_modlist_with_two_mods();
+        let mut state = initialize_mod_plan_state(
+            &target,
+            &base_modlist,
+            Some(&restrictions(&["ocean", "magic"])),
+        );
+        mark_goal_status(&mut state, "theme:ocean", GoalStatus::Covered);
+        state.base_covered_goals.push("theme:ocean".to_string());
+
+        let unresolved = unresolved_mod_plan_goals(&state, None);
+
+        assert!(unresolved
+            .iter()
+            .any(|goal| goal.get("goal_id").and_then(|v| v.as_str()) == Some("theme:magic")));
+        assert!(!unresolved
+            .iter()
+            .any(|goal| goal.get("goal_id").and_then(|v| v.as_str()) == Some("theme:ocean")));
+    }
+
+    // (#B) The deterministic Done guard: the model cannot complete while a theme
+    // goal is still open with candidates available, but the empty-candidate
+    // short-circuits (empty pool) are preserved.
+    #[test]
+    fn done_guard_blocks_premature_completion_but_keeps_empty_short_circuits() {
+        let target = forge_target();
+        let base_modlist = base_modlist_with_two_mods();
+        let open = initialize_mod_plan_state(&target, &base_modlist, Some(&restrictions(&["ocean"])));
+
+        // Open theme goal + candidates available -> Done is premature, not honored.
+        assert!(!should_honor_done(ModPlanControl::Done, &open, false));
+        // Open theme goal + no candidates available -> empty-candidate Done is honored.
+        assert!(should_honor_done(ModPlanControl::Done, &open, true));
+        // Continue is never a completion.
+        assert!(!should_honor_done(ModPlanControl::Continue, &open, false));
+
+        // No open theme goals -> Done honored regardless of candidate pool.
+        let mut covered = open.clone();
+        mark_goal_status(&mut covered, "theme:ocean", GoalStatus::Covered);
+        assert!(should_honor_done(ModPlanControl::Done, &covered, false));
+    }
 }

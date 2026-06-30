@@ -91,8 +91,8 @@ use llm_io::CustomizationCritiqueVerdictOutput;
 use llm_io::ModSelection;
 use llm_io::{
     dedupe_queries, normalize_mod_search_query, update_build_restrictions_tool_spec,
-    AgentIntentOutput, ApprovalRoute, ApprovalRouteOutput, ModPlanControl, ModPlanStep,
-    SearchQueryOutput,
+    AgentIntentOutput, ApprovalRoute, ApprovalRouteOutput, BaseCoverageOutput, ModPlanControl,
+    ModPlanStep, SearchQueryOutput,
 };
 #[cfg(test)]
 use llm_io::{parse_intent_response, parse_mod_query_response, search_queries};
@@ -198,6 +198,13 @@ Prefer "Immersive Portals" over "Immersive Portals Fabric 1.20.1 compatibility w
 Use multiple short queries instead of one long query that combines compatibility and theme constraints.
 When no candidates are available for an open goal after short searches, explain the likely unresolved reason in rationale so it can be shown to the user; do not silently mark that goal covered.
 Return an object matching the provided schema."#;
+
+const BASE_COVERAGE_PROMPT: &str = r#"You are auditing whether a selected Minecraft base modpack already satisfies the user's requested features before any extra mods are searched.
+You are given the user's request, the base pack's title/description, the requested theme goals (each with an id and a short label), and the base pack's own modlist (each base mod's title and provider categories).
+Decide, for each theme goal, whether the base pack's existing mods already deliver that feature well enough that adding another mod would be redundant.
+Mark a goal covered only when one or more named base-pack mods clearly provide it; cite those mods in covering_mods and explain briefly in rationale.
+Be conservative: if the base modlist does not clearly cover a goal, leave it out so the planner can search for a dedicated mod. Do not invent base mods that are not listed.
+Only return goal_id values from the provided theme goals. Return an object matching the provided schema; covered_goals may be empty."#;
 
 /// Thin top-level agent facade.
 ///

@@ -491,6 +491,14 @@ pub struct ModPlanState {
     pub empty_candidate_rounds: u32,
     #[serde(default)]
     pub pending_queries: Vec<GoalQuery>,
+    /// Theme goal ids that a base-pack coverage analysis judged already
+    /// satisfied by the selected base pack's own modlist. These goals are
+    /// marked [`GoalStatus::Covered`] without adding a new mod, so the planner
+    /// never searches for them. Tracked separately from goal status so the
+    /// confirmation/validation can distinguish "covered by the base pack" from
+    /// "covered by an added mod".
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub base_covered_goals: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

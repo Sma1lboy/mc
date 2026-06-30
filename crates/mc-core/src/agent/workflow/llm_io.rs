@@ -475,6 +475,56 @@ pub(super) enum ModPlanControl {
     Done,
 }
 
+/// Typed output of the base-pack coverage analysis step. Given the requested
+/// theme goals and the selected base pack's own (enriched) modlist, the model
+/// reports which goals the base pack already satisfies so the planner can skip
+/// searching for them.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub(super) struct BaseCoverageOutput {
+    #[serde(default)]
+    pub covered_goals: Vec<BaseCoveredGoal>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub(super) struct BaseCoveredGoal {
+    pub goal_id: String,
+    /// Titles (or project ids) of the base-pack mods that satisfy this goal.
+    #[serde(default)]
+    pub covering_mods: Vec<String>,
+    #[serde(default)]
+    pub rationale: String,
+}
+
+impl BaseCoverageOutput {
+    /// Distinct, trimmed goal ids that are both reported covered and still an
+    /// open theme goal we asked about. Hallucinated or duplicate ids are
+    /// dropped so the model can only ever close goals that actually exist.
+    pub(super) fn covered_goal_ids(&self, open_theme_goal_ids: &HashSet<String>) -> Vec<String> {
+        let mut seen = HashSet::new();
+        self.covered_goals
+            .iter()
+            .map(|goal| goal.goal_id.trim().to_string())
+            .filter(|id| {
+                !id.is_empty() && open_theme_goal_ids.contains(id) && seen.insert(id.clone())
+            })
+            .collect()
+    }
+
+    /// Compact, trace-friendly view of the raw model verdict.
+    pub(super) fn trace_payload(&self) -> Vec<serde_json::Value> {
+        self.covered_goals
+            .iter()
+            .map(|goal| {
+                serde_json::json!({
+                    "goal_id": goal.goal_id.trim(),
+                    "covering_mods": goal.covering_mods,
+                    "rationale": goal.rationale.trim(),
+                })
+            })
+            .collect()
+    }
+}
+
 impl ModPlanStep {
     pub(super) fn normalized(
         self,
