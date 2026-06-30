@@ -21,7 +21,7 @@ use crate::modplatform::{
 use super::openai::{OpenAiClient, OpenAiTextFormat, OpenAiTextRequest};
 use super::state::{
     AgentExecutionMetadata, AgentExecutionStatus, AgentIntent, AgentIntentKind, AgentMessageKind,
-    AgentPhase, AgentRunSnapshot, AgentStatus, AgentToolSpec, AgentWorkflowKind,
+    AgentPhase, AgentRunSnapshot, AgentStatus, AgentToolSpec, AgentToolTrace, AgentWorkflowKind,
     ApprovalDecisionSpec, ApprovalKind, ApprovalOption, ApprovalRequest, ApprovedModpackBuild,
     BuildRestrictionChange, BuildRestrictionChangeSource, BuildRestrictionPatch, BuildRestrictions,
     ExecutionBlocked, ModpackAgentPlan, PlanArtifact, PlanReplanRequest, PlannedAction,
