@@ -166,7 +166,7 @@ fn build_dependencies(mc_version: &str, loader: Option<&(LoaderKind, String)>) -
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modplatform::VersionFile;
+    use crate::modplatform::{ProjectSideSupport, VersionFile};
     use std::path::PathBuf;
 
     fn resolved(rel: &str, url: &str, sha512: &str) -> (PathBuf, ResolvedFile) {
@@ -183,6 +183,8 @@ mod tests {
                     sha512: Some(sha512.into()),
                     size: Some(4096),
                     primary: true,
+                    client_side: ProjectSideSupport::Unknown,
+                    server_side: ProjectSideSupport::Unknown,
                 },
                 project_name: Some("Sodium".into()),
                 project_slug: Some("sodium".into()),

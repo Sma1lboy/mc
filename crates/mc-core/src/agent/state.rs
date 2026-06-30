@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub const AGENT_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
+const MAX_AGENT_MESSAGES: usize = 300;
+const MAX_AGENT_TRACE_EVENTS: usize = 300;
+const MAX_AGENT_REPLANS: usize = 200;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -161,6 +164,8 @@ pub struct AgentRunSnapshot {
     pub messages: Vec<AgentMessage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_approval: Option<ApprovalRequest>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<AgentToolSpec>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan: Option<ModpackAgentPlan>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -187,6 +192,7 @@ impl AgentRunSnapshot {
             user_prompt: user_prompt.into(),
             messages: Vec::new(),
             pending_approval: None,
+            tools: Vec::new(),
             plan: None,
             restrictions: None,
             approved_build: None,
@@ -201,6 +207,7 @@ impl AgentRunSnapshot {
             kind,
             text: text.into(),
         });
+        self.trim_messages();
     }
 
     pub fn push_trace(&mut self, event: impl Into<String>) {
@@ -215,6 +222,7 @@ impl AgentRunSnapshot {
             duration_ms: None,
             status: None,
         });
+        self.trim_trace();
     }
 
     pub fn push_tool_trace(&mut self, trace: AgentToolTrace) {
@@ -229,6 +237,42 @@ impl AgentRunSnapshot {
             duration_ms: Some(trace.duration_ms),
             status: Some(trace.status),
         });
+        self.trim_trace();
+    }
+
+    pub fn push_replan(&mut self, request: PlanReplanRequest) {
+        self.replans.push(request);
+        self.trim_replans();
+    }
+
+    fn trim_messages(&mut self) {
+        if self.messages.len() <= MAX_AGENT_MESSAGES {
+            return;
+        }
+        let keep_original_prompt = self.messages.first().is_some_and(|message| {
+            message.kind == AgentMessageKind::User && message.text == self.user_prompt
+        });
+        while self.messages.len() > MAX_AGENT_MESSAGES {
+            if keep_original_prompt && self.messages.len() > 1 {
+                self.messages.remove(1);
+            } else {
+                self.messages.remove(0);
+            }
+        }
+    }
+
+    fn trim_trace(&mut self) {
+        let excess = self.trace.len().saturating_sub(MAX_AGENT_TRACE_EVENTS);
+        if excess > 0 {
+            self.trace.drain(0..excess);
+        }
+    }
+
+    fn trim_replans(&mut self) {
+        let excess = self.replans.len().saturating_sub(MAX_AGENT_REPLANS);
+        if excess > 0 {
+            self.replans.drain(0..excess);
+        }
     }
 }
 
@@ -325,6 +369,34 @@ pub struct BuildRestrictions {
     pub notes: Option<String>,
     #[serde(default)]
     pub history: Vec<BuildRestrictionChange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BuildRestrictionsLlmView {
+    pub revision: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minecraft_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minecraft_version_requirement: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loader: Option<String>,
+    #[serde(default)]
+    pub feature_tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+}
+
+impl BuildRestrictions {
+    pub fn llm_view(&self) -> BuildRestrictionsLlmView {
+        BuildRestrictionsLlmView {
+            revision: self.revision,
+            minecraft_version: self.minecraft_version.clone(),
+            minecraft_version_requirement: self.minecraft_version_requirement.clone(),
+            loader: self.loader.clone(),
+            feature_tags: self.feature_tags.clone(),
+            notes: self.notes.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -471,5 +543,61 @@ mod tests {
         assert!(run.pending_approval.is_none());
         assert!(run.restrictions.is_none());
         assert!(run.id.starts_with("agent-run-"));
+    }
+
+    #[test]
+    fn snapshot_messages_are_soft_capped_and_keep_original_prompt() {
+        let mut run = AgentRunSnapshot::new("original prompt");
+        run.push_message(AgentMessageKind::User, "original prompt");
+
+        for idx in 0..(MAX_AGENT_MESSAGES + 25) {
+            run.push_message(AgentMessageKind::Assistant, format!("revision {idx}"));
+        }
+
+        assert_eq!(run.messages.len(), MAX_AGENT_MESSAGES);
+        assert_eq!(run.messages[0].kind, AgentMessageKind::User);
+        assert_eq!(run.messages[0].text, "original prompt");
+        assert_eq!(
+            run.messages.last().map(|message| message.text.as_str()),
+            Some(format!("revision {}", MAX_AGENT_MESSAGES + 24).as_str())
+        );
+    }
+
+    #[test]
+    fn snapshot_trace_and_replans_are_soft_capped() {
+        let mut run = AgentRunSnapshot::new("make a pack");
+
+        for idx in 0..(MAX_AGENT_TRACE_EVENTS + 10) {
+            run.push_trace(format!("trace {idx}"));
+        }
+        for idx in 0..(MAX_AGENT_REPLANS + 10) {
+            run.push_replan(PlanReplanRequest {
+                id: format!("replan-{idx}"),
+                reason: format!("reason {idx}"),
+                from_phase: AgentPhase::ChooseBasePackApproval,
+                target_phase: AgentPhase::ConfigureRequirementsApproval,
+                restriction_patch: None,
+                invalidates: vec![PlanArtifact::BasePack],
+            });
+        }
+
+        assert_eq!(run.trace.len(), MAX_AGENT_TRACE_EVENTS);
+        assert_eq!(
+            run.trace.first().map(|event| event.event.as_str()),
+            Some("trace 10")
+        );
+        assert_eq!(
+            run.trace.last().map(|event| event.event.as_str()),
+            Some(format!("trace {}", MAX_AGENT_TRACE_EVENTS + 9).as_str())
+        );
+        assert_eq!(run.replans.len(), MAX_AGENT_REPLANS);
+        assert_eq!(
+            run.replans.first().map(|replan| replan.id.as_str()),
+            Some("replan-10")
+        );
+        assert_eq!(
+            run.replans.last().map(|replan| replan.id.as_str()),
+            Some(format!("replan-{}", MAX_AGENT_REPLANS + 9).as_str())
+        );
     }
 }

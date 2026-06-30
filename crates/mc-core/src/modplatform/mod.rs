@@ -81,6 +81,10 @@ pub struct SearchHit {
     #[serde(default)]
     pub gallery_url: Option<String>,
     pub categories: Vec<String>,
+    #[serde(default)]
+    pub client_side: ProjectSideSupport,
+    #[serde(default)]
+    pub server_side: ProjectSideSupport,
 }
 
 /// 一个项目的某个具体版本(release)。
@@ -93,6 +97,10 @@ pub struct ProjectVersion {
     pub loaders: Vec<String>,
     pub files: Vec<VersionFile>,
     pub dependencies: Vec<Dependency>,
+    #[serde(default)]
+    pub client_side: ProjectSideSupport,
+    #[serde(default)]
+    pub server_side: ProjectSideSupport,
 }
 
 impl ProjectVersion {
@@ -117,6 +125,45 @@ pub struct VersionFile {
     pub sha512: Option<String>,
     pub size: Option<u64>,
     pub primary: bool,
+    #[serde(default)]
+    pub client_side: ProjectSideSupport,
+    #[serde(default)]
+    pub server_side: ProjectSideSupport,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ProjectSideSupport {
+    Required,
+    Optional,
+    Unsupported,
+    #[default]
+    Unknown,
+}
+
+impl ProjectSideSupport {
+    pub fn from_modrinth(value: Option<&str>) -> Self {
+        match value.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
+            Some("required") => Self::Required,
+            Some("optional") => Self::Optional,
+            Some("unsupported") => Self::Unsupported,
+            Some("unknown") | None => Self::Unknown,
+            Some(_) => Self::Unknown,
+        }
+    }
+
+    pub fn as_mrpack_env(self) -> &'static str {
+        match self {
+            Self::Required => "required",
+            Self::Optional => "optional",
+            Self::Unsupported => "unsupported",
+            Self::Unknown => "optional",
+        }
+    }
+
+    pub fn is_unknown(self) -> bool {
+        self == Self::Unknown
+    }
 }
 
 /// 一个版本对其它项目/版本的依赖关系。

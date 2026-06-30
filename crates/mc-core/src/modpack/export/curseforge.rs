@@ -253,7 +253,7 @@ fn url_file_id(url: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modplatform::VersionFile;
+    use crate::modplatform::{ProjectSideSupport, VersionFile};
     use std::path::PathBuf;
 
     fn cf_resolved(rel: &str, project_id: &str, version_id: &str, file_id_url: &str, slug: &str) -> (PathBuf, ResolvedFile) {
@@ -270,6 +270,8 @@ mod tests {
                     sha512: None,
                     size: Some(10),
                     primary: true,
+                    client_side: ProjectSideSupport::Unknown,
+                    server_side: ProjectSideSupport::Unknown,
                 },
                 project_name: Some("Sodium".into()),
                 project_slug: Some(slug.into()),

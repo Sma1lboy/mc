@@ -82,6 +82,8 @@ pub(super) fn version_file_payload(file: &VersionFile) -> serde_json::Value {
         "sha512": file.sha512.clone(),
         "size": file.size,
         "primary": file.primary,
+        "client_side": file.client_side,
+        "server_side": file.server_side,
     })
 }
 
@@ -91,7 +93,8 @@ pub(super) fn resolved_mod_payload(resolved: &ResolvedModCandidate) -> serde_jso
     let provider = provider_slug(candidate.provider);
     let hit = &candidate.hit;
     let describe = project_describe(candidate.provider, hit, &candidate.matched_query);
-    let file_payload = version_file_payload(&resolved.file);
+    let file = version_file_with_project_side(&resolved.file, hit);
+    let file_payload = version_file_payload(&file);
     let review_reason = format!("matched {}", candidate.matched_query);
     serde_json::json!({
         "provider": provider,
@@ -112,7 +115,7 @@ pub(super) fn resolved_mod_payload(resolved: &ResolvedModCandidate) -> serde_jso
         "review_source": "selected_candidate",
         "review_reason": review_reason,
         "review_version": resolved.version.version_number.clone(),
-        "review_file": resolved.file.filename.clone(),
+        "review_file": file.filename.clone(),
         "resolved_version": {
             "version_id": resolved.version.id.clone(),
             "version_name": resolved.version.name.clone(),
@@ -127,7 +130,7 @@ pub(super) fn resolved_mod_payload(resolved: &ResolvedModCandidate) -> serde_jso
             "provider": provider,
             "project_id": hit.id.clone(),
             "version_id": resolved.version.id.clone(),
-            "file": version_file_payload(&resolved.file),
+            "file": version_file_payload(&file),
         },
     })
 }
@@ -198,10 +201,17 @@ pub(super) fn mrpack_file_payload_with_filename(
         },
         "fileSize": file.size,
         "env": {
-            "client": "required",
-            "server": "required",
+            "client": file.client_side.as_mrpack_env(),
+            "server": file.server_side.as_mrpack_env(),
         }
     }))
+}
+
+pub(super) fn version_file_with_project_side(file: &VersionFile, hit: &SearchHit) -> VersionFile {
+    let mut file = file.clone();
+    file.client_side = hit.client_side;
+    file.server_side = hit.server_side;
+    file
 }
 
 fn project_describe(provider: ProviderId, hit: &SearchHit, matched_query: &str) -> String {

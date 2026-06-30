@@ -34,8 +34,8 @@ use serde::Deserialize;
 use crate::error::{CoreError, Result};
 
 use super::{
-    HashAlgo, ProjectVersion, ProviderCaps, ProviderId, ResolvedFile, ResourceKind, SearchHit,
-    SearchQuery, SortMethod, VersionFile,
+    HashAlgo, ProjectSideSupport, ProjectVersion, ProviderCaps, ProviderId, ResolvedFile,
+    ResourceKind, SearchHit, SearchQuery, SortMethod, VersionFile,
 };
 
 /// CurseForge Flame API v1 根地址。
@@ -473,6 +473,8 @@ fn map_version_file(f: &FlameApiFile) -> VersionFile {
         sha512: None,
         size: f.file_length,
         primary: true,
+        client_side: ProjectSideSupport::Unknown,
+        server_side: ProjectSideSupport::Unknown,
     }
 }
 
@@ -491,6 +493,8 @@ fn map_file_to_version(f: FlameApiFile) -> ProjectVersion {
         loaders,
         files: vec![file],
         dependencies: Vec::new(),
+        client_side: ProjectSideSupport::Unknown,
+        server_side: ProjectSideSupport::Unknown,
     }
 }
 
@@ -519,6 +523,8 @@ fn map_project(p: FlameApiProject) -> SearchHit {
         icon_url,
         gallery_url,
         categories: p.categories.into_iter().map(|c| c.name).collect(),
+        client_side: ProjectSideSupport::Unknown,
+        server_side: ProjectSideSupport::Unknown,
     }
 }
 

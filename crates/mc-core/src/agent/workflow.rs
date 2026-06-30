@@ -7,6 +7,8 @@
 //! planning subworkflow.
 
 use std::collections::{HashMap, HashSet};
+use std::future::Future;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::error::{CoreError, Result};
@@ -14,8 +16,8 @@ use crate::modpack::export::modrinth::host_in_whitelist;
 use crate::modplatform::dependency::{resolve_dependencies, ModRef};
 use crate::modplatform::provider::ProviderRegistry;
 use crate::modplatform::{
-    Dependency, ProviderId, ResolvedFile, ResourceKind, SearchHit, SearchQuery, SortMethod,
-    VersionFile,
+    Dependency, ProjectSideSupport, ProviderId, ResolvedFile, ResourceKind, SearchHit, SearchQuery,
+    SortMethod, VersionFile,
 };
 
 use super::openai::{OpenAiClient, OpenAiTextFormat, OpenAiTextRequest};
@@ -42,6 +44,7 @@ use artifacts::{
     customization_approval_with_validation, json_str_or, mrpack_file_payload_with_filename,
     project_url, provider_label, provider_slug, safe_provider_filename,
     scratch_fallback_unavailable_plan, selection_plan, source_ref_payload, version_file_payload,
+    version_file_with_project_side,
 };
 
 use approvals::{
@@ -76,7 +79,10 @@ use llm_io::{
     update_build_restrictions_tool_spec,
 };
 #[cfg(test)]
-use requirements::{apply_requirements_replan, parse_restriction_update_response};
+use requirements::{
+    apply_requirements_replan, parse_restriction_update_response,
+    restriction_update_request_payload,
+};
 use requirements::{
     changed_restriction_field, continue_after_requirements_confirmation,
     continue_after_requirements_feedback, generate_restriction_update, invalidate_downstream,
@@ -93,8 +99,10 @@ pub use execution::{
     continue_after_execution_manifest_result, execute_mrpack_build_to_path, MrpackExecutionBuild,
     MrpackOverrideFile,
 };
+use execution::verify_written_mrpack;
 
 const UPDATE_BUILD_RESTRICTIONS_TOOL: &str = "update_build_restrictions";
+const BUILD_MRPACK_ARTIFACT_TOOL: &str = "build_mrpack_artifact";
 const BASE_SEARCH_MAX_ITERATIONS: u32 = 4;
 const BASE_SEARCH_MIN_CANDIDATES: usize = 3;
 const BASE_SEARCH_MAX_CANDIDATES: usize = 12;
@@ -103,6 +111,9 @@ const CUSTOMIZATION_MAX_ITERATIONS: u32 = 5;
 const BASE_ARCHIVE_FETCH_TIMEOUT: Duration = Duration::from_secs(25);
 const MAX_BASE_ARCHIVE_BYTES: usize = 128 * 1024 * 1024;
 const MAX_BASE_MANIFEST_BYTES: u64 = 4 * 1024 * 1024;
+const EXECUTION_MAX_RETRIES: u32 = 3;
+const EXECUTION_RETRY_BACKOFF_BASE: Duration = Duration::from_millis(500);
+const EXECUTION_RETRY_BACKOFF_MAX: Duration = Duration::from_secs(4);
 
 const MAIN_AGENT_SYSTEM_PROMPT: &str = r#"You are the local AI agent for a Minecraft launcher.
 Your job is to turn user requests into safe daemon-owned workflows, not to perform game file writes directly.
@@ -246,6 +257,141 @@ impl MainAgentRuntime {
         Ok(next)
     }
 
+    /// Drive deterministic runtime work after planning has reached an execution
+    /// phase. This dispatch is intentionally phase/status based; the model does
+    /// not decide whether execution should run.
+    pub async fn advance(
+        &self,
+        run: AgentRunSnapshot,
+        output_path: impl AsRef<Path>,
+    ) -> Result<AgentRunSnapshot> {
+        self.advance_with_executor(
+            run,
+            output_path,
+            |approved, output_path| async move {
+                execute_mrpack_build_to_path(&approved, &output_path).await
+            },
+            EXECUTION_RETRY_BACKOFF_BASE,
+        )
+        .await
+    }
+
+    async fn advance_with_executor<F, Fut>(
+        &self,
+        mut run: AgentRunSnapshot,
+        output_path: impl AsRef<Path>,
+        mut executor: F,
+        retry_backoff_base: Duration,
+    ) -> Result<AgentRunSnapshot>
+    where
+        F: FnMut(ApprovedModpackBuild, PathBuf) -> Fut,
+        Fut: Future<Output = Result<serde_json::Value>>,
+    {
+        let output_path = output_path.as_ref().to_path_buf();
+        let mut retry_count = 0;
+        let mut dispatch_iteration = 0;
+        loop {
+            if run.status != AgentStatus::Running {
+                return Ok(run);
+            }
+            if !matches!(
+                run.phase,
+                AgentPhase::ExecutionReady | AgentPhase::Executing | AgentPhase::Verifying
+            ) {
+                return Ok(run);
+            }
+            match run.execution.as_ref().map(|execution| &execution.status) {
+                Some(AgentExecutionStatus::Completed) => return Ok(run),
+                Some(AgentExecutionStatus::Blocked | AgentExecutionStatus::Failed) => {
+                    return Ok(run);
+                }
+                _ => {}
+            }
+
+            let approved = run
+                .approved_build
+                .clone()
+                .ok_or_else(|| CoreError::other("execution requires an approved build"))?;
+            if run.phase == AgentPhase::Verifying {
+                let started = Instant::now();
+                let manifest = match verify_written_mrpack(&output_path, &approved) {
+                    Ok(()) => execution_verification_completed_manifest(&run, &output_path),
+                    Err(err) => execution_verification_failed_manifest(&err.to_string()),
+                };
+                let status = manifest
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                let input = serde_json::json!({
+                    "output_path": output_path.to_string_lossy().to_string(),
+                });
+                let output = serde_json::json!({ "manifest": manifest.clone() });
+                let dispatch_phase = run.phase.clone();
+                let mut next = continue_after_execution_manifest_result(run, manifest)?;
+                next.push_tool_trace(AgentToolTrace {
+                    event: "deterministic verification dispatched".into(),
+                    stage: dispatch_phase,
+                    iteration: dispatch_iteration,
+                    tool: "verify_mrpack_artifact".into(),
+                    input,
+                    output,
+                    duration_ms: started.elapsed().as_millis(),
+                    status,
+                });
+                dispatch_iteration += 1;
+                retry_count = 0;
+                run = next;
+                continue;
+            }
+            let started = Instant::now();
+            let manifest = executor(approved, output_path.clone()).await?;
+            let status = manifest
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let input = serde_json::json!({
+                "output_path": output_path.to_string_lossy().to_string(),
+            });
+            let output = serde_json::json!({ "manifest": manifest.clone() });
+            let dispatch_phase = run.phase.clone();
+            let mut next = continue_after_execution_manifest_result(run, manifest)?;
+            next.push_tool_trace(AgentToolTrace {
+                event: "deterministic execution tool dispatched".into(),
+                stage: dispatch_phase,
+                iteration: dispatch_iteration,
+                tool: BUILD_MRPACK_ARTIFACT_TOOL.into(),
+                input,
+                output,
+                duration_ms: started.elapsed().as_millis(),
+                status,
+            });
+            dispatch_iteration += 1;
+
+            if next.execution.as_ref().map(|execution| &execution.status)
+                == Some(&AgentExecutionStatus::Retry)
+            {
+                retry_count += 1;
+                let reason = execution_retry_reason(&next);
+                if retry_count >= EXECUTION_MAX_RETRIES {
+                    let manifest = execution_retry_exhausted_manifest(&reason, retry_count);
+                    run = continue_after_execution_manifest_result(next, manifest)?;
+                    continue;
+                }
+
+                run = next;
+                let backoff = execution_retry_backoff(retry_count, retry_backoff_base);
+                if !backoff.is_zero() {
+                    tokio::time::sleep(backoff).await;
+                }
+            } else {
+                retry_count = 0;
+                run = next;
+            }
+        }
+    }
+
     pub fn continue_after_execution_manifest_result(
         &self,
         run: AgentRunSnapshot,
@@ -300,6 +446,111 @@ impl MainAgentRuntime {
             })
             .await?;
         parse_approval_decision_response(&response.text, approval)
+    }
+}
+
+fn execution_retry_reason(run: &AgentRunSnapshot) -> String {
+    run.execution
+        .as_ref()
+        .and_then(|execution| execution.blocked.as_ref())
+        .map(|blocked| blocked.reason.clone())
+        .or_else(|| {
+            run.execution
+                .as_ref()
+                .and_then(|execution| execution.manifest.as_ref())
+                .and_then(|manifest| manifest.get("reason"))
+                .and_then(|reason| reason.as_str())
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| "execution should retry".to_string())
+}
+
+fn execution_retry_exhausted_manifest(reason: &str, attempts: u32) -> serde_json::Value {
+    serde_json::json!({
+        "schema_version": 1,
+        "status": "failed",
+        "format": "mrpack",
+        "reason": format!("execution exceeded max retries: {reason}"),
+        "error_kind": "retry_exhausted",
+        "retryable": false,
+        "attempts": attempts,
+    })
+}
+
+fn execution_verification_completed_manifest(
+    run: &AgentRunSnapshot,
+    output_path: &Path,
+) -> serde_json::Value {
+    let mut manifest = run
+        .execution
+        .as_ref()
+        .and_then(|execution| execution.manifest.clone())
+        .unwrap_or_else(|| serde_json::json!({ "schema_version": 1, "format": "mrpack" }));
+    set_manifest_field(&mut manifest, "status", serde_json::json!("completed"));
+    set_manifest_field(&mut manifest, "verified", serde_json::json!(true));
+    set_manifest_field(
+        &mut manifest,
+        "output_path",
+        serde_json::json!(output_path.to_string_lossy().to_string()),
+    );
+    manifest
+}
+
+fn set_manifest_field(value: &mut serde_json::Value, key: &str, next: serde_json::Value) {
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert(key.to_string(), next);
+    }
+}
+
+fn execution_verification_failed_manifest(reason: &str) -> serde_json::Value {
+    let reason = if reason.starts_with("mrpack verification failed:") {
+        reason.to_string()
+    } else {
+        format!("mrpack verification failed: {reason}")
+    };
+    serde_json::json!({
+        "schema_version": 1,
+        "status": "failed",
+        "format": "mrpack",
+        "reason": reason,
+        "error_kind": "verification_failed",
+        "retryable": false,
+    })
+}
+
+fn execution_retry_backoff(attempt: u32, base: Duration) -> Duration {
+    let multiplier = 1_u32 << attempt.saturating_sub(1).min(8);
+    let delay = base.saturating_mul(multiplier);
+    delay.min(EXECUTION_RETRY_BACKOFF_MAX)
+}
+
+pub(super) fn build_mrpack_artifact_tool_spec() -> AgentToolSpec {
+    AgentToolSpec {
+        name: BUILD_MRPACK_ARTIFACT_TOOL.to_string(),
+        description: "Build the approved Modrinth .mrpack artifact at the requested output path."
+            .to_string(),
+        input_schema: serde_json::json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["output_path"],
+            "properties": {
+                "output_path": {
+                    "type": "string",
+                    "description": "Destination .mrpack path to write."
+                }
+            }
+        }),
+        output_schema: serde_json::json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["manifest"],
+            "properties": {
+                "manifest": {
+                    "type": "object",
+                    "description": "Deterministic execution manifest returned by the mrpack executor."
+                }
+            }
+        }),
     }
 }
 
@@ -738,6 +989,7 @@ enum CustomizationPlanningResult {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ExecutionOutcomeKind {
     Ready,
+    Verifying,
     Completed,
     Blocked,
     Retry,
@@ -822,6 +1074,12 @@ fn version_file_from_payload(value: &serde_json::Value) -> Option<VersionFile> {
             .get("primary")
             .and_then(|v| v.as_bool())
             .unwrap_or(true),
+        client_side: ProjectSideSupport::from_modrinth(
+            value.get("client_side").and_then(|v| v.as_str()),
+        ),
+        server_side: ProjectSideSupport::from_modrinth(
+            value.get("server_side").and_then(|v| v.as_str()),
+        ),
     })
 }
 

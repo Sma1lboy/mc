@@ -25,6 +25,107 @@ fn zip_bytes_with_dirs(dirs: &[&str], files: &[(&str, &[u8])]) -> Vec<u8> {
     cursor.into_inner()
 }
 
+fn one_response_server(body: Vec<u8>) -> String {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let mut buf = [0_u8; 1024];
+            let _ = stream.read(&mut buf);
+            let headers = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream.write_all(headers.as_bytes());
+            let _ = stream.write_all(&body);
+        }
+    });
+    format!("http://{addr}")
+}
+
+fn temp_mrpack_path(tag: &str) -> std::path::PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    std::env::temp_dir().join(format!(
+        "mc-agent-{tag}-{}-{nanos}.mrpack",
+        std::process::id()
+    ))
+}
+
+fn test_main_runtime() -> MainAgentRuntime {
+    let cfg = crate::agent::OpenAiConfig::new("test-api-key");
+    let openai = crate::agent::OpenAiClient::new(cfg).unwrap();
+    MainAgentRuntime::new(openai)
+}
+
+fn base_archive_for_advance() -> Vec<u8> {
+    use crate::modpack::formats::mrpack::MrpackDependencies;
+
+    let base_index = MrpackIndex {
+        format_version: 1,
+        game: "minecraft".to_string(),
+        version_id: "base-1.0.0".to_string(),
+        name: "Base Pack".to_string(),
+        summary: None,
+        dependencies: MrpackDependencies {
+            minecraft: Some("1.20.1".to_string()),
+            fabric_loader: Some("0.15.7".to_string()),
+            ..Default::default()
+        },
+        files: Vec::new(),
+    };
+    let base_index_json = serde_json::to_vec(&base_index).unwrap();
+    zip_bytes(&[("modrinth.index.json", &base_index_json)])
+}
+
+fn execution_ready_run(base_archive_url: &str, base_archive_size: u64) -> AgentRunSnapshot {
+    let base_file = VersionFile {
+        url: base_archive_url.to_string(),
+        filename: "base.mrpack".to_string(),
+        sha1: None,
+        sha512: None,
+        size: Some(base_archive_size),
+        primary: true,
+        client_side: ProjectSideSupport::Unknown,
+        server_side: ProjectSideSupport::Unknown,
+    };
+    let option = ApprovalOption {
+        id: "confirm:recommended_customization".to_string(),
+        label: "确认推荐方案".to_string(),
+        description: None,
+        payload: Some(serde_json::json!({
+            "base_pack": {
+                "provider": "modrinth",
+                "project_id": "base-project",
+                "slug": "base-pack",
+                "title": "Base Pack"
+            },
+            "target": {
+                "minecraft_version": "1.20.1",
+                "loader": "fabric"
+            },
+            "extra_mods": [],
+            "execution_recipe": {
+                "schema_version": 1,
+                "kind": "mrpack_from_base_modpack",
+                "format": "mrpack",
+                "base_pack_ref": {
+                    "source_ref": {
+                        "archive_file": version_file_payload(&base_file)
+                    }
+                },
+                "extra_mod_refs": []
+            }
+        })),
+    };
+    continue_after_customization_confirmation(AgentRunSnapshot::new("make a pack"), option).unwrap()
+}
+
 fn test_approval() -> ApprovalRequest {
     ApprovalRequest {
         id: "approval-test".to_string(),
@@ -135,6 +236,8 @@ fn base_search_candidate(
         sha512: None,
         size: Some(size),
         primary: true,
+        client_side: ProjectSideSupport::Unknown,
+        server_side: ProjectSideSupport::Unknown,
     });
     BasePackCandidate {
         provider: ProviderId::Modrinth,
@@ -148,6 +251,8 @@ fn base_search_candidate(
             icon_url: None,
             gallery_url: None,
             categories: vec!["fabric".to_string(), "adventure".to_string()],
+            client_side: ProjectSideSupport::Unknown,
+            server_side: ProjectSideSupport::Unknown,
         },
         matched_query: "Fabric 1.20.1 adventure".to_string(),
         resolved_target: Some(TargetCompatibility {
@@ -922,6 +1027,58 @@ fn rejects_repeated_restriction_tool_schema_instances() {
 }
 
 #[test]
+fn restriction_update_llm_payload_omits_restriction_history() {
+    let mut restrictions = BuildRestrictions {
+        revision: 7,
+        minecraft_version: Some("1.20.1".to_string()),
+        minecraft_version_requirement: Some("1.20.1".to_string()),
+        loader: Some("fabric".to_string()),
+        feature_tags: vec!["adventure".to_string()],
+        notes: Some("prefer exploration".to_string()),
+        history: Vec::new(),
+    };
+    restrictions.history.push(BuildRestrictionChange {
+        revision: 7,
+        source: BuildRestrictionChangeSource::UserRevise,
+        patch: BuildRestrictionPatch {
+            minecraft_version: Some("1.20.1".to_string()),
+            minecraft_version_requirement: Some("1.20.1".to_string()),
+            loader: Some("fabric".to_string()),
+            feature_tags: vec!["adventure".to_string()],
+            notes: Some("prefer exploration".to_string()),
+        },
+        summary: "large audit history entry".to_string(),
+    });
+
+    let payload = restriction_update_request_payload(
+        "make a pack",
+        &restrictions,
+        "改成偏探索",
+        BuildRestrictionChangeSource::UserRevise,
+        None,
+        None,
+    );
+
+    assert_eq!(
+        payload.get("base_revision").and_then(|v| v.as_u64()),
+        Some(7)
+    );
+    let current = payload
+        .get("current_restrictions")
+        .and_then(|v| v.as_object())
+        .expect("current restrictions should be an object");
+    assert_eq!(
+        current.get("minecraft_version").and_then(|v| v.as_str()),
+        Some("1.20.1")
+    );
+    assert!(!current.contains_key("history"), "payload: {payload}");
+    assert!(
+        !payload.to_string().contains("large audit history entry"),
+        "payload: {payload}"
+    );
+}
+
+#[test]
 fn complete_requirements_allow_approve_decision() {
     let input = parse_restriction_update_response(
             r#"{"base_revision":0,"patch":{"minecraft_version":"1.20.1","loader":"fabric","feature_tags":["industrial","automation"],"notes":null}}"#,
@@ -993,6 +1150,29 @@ fn preserves_raw_version_requirement_without_concrete_target() {
         Some("1.20.x")
     );
     assert_eq!(output.missing_fields, vec!["minecraft_version"]);
+}
+
+#[test]
+fn requirement_summary_does_not_echo_invalid_version_as_accepted_target() {
+    let input = parse_restriction_update_response(
+            r#"{"base_revision":0,"patch":{"minecraft_version":"99.99","minecraft_version_requirement":"99.99","loader":"fabric","feature_tags":["adventure"],"notes":null}}"#,
+        )
+        .expect("restriction tool json should parse invalid raw version requirement");
+    let output = update_build_restrictions(
+        Some(BuildRestrictions::default()),
+        input,
+        BuildRestrictionChangeSource::InitialPrompt,
+        "initial",
+    )
+    .expect("restriction update should apply");
+
+    assert!(output.restrictions.minecraft_version.is_none());
+    let summary = requirement_summary_message(&output);
+    assert!(!summary.contains("99.99"), "unexpected summary: {summary}");
+    assert!(
+        summary.contains("缺少: Minecraft version"),
+        "unexpected summary: {summary}"
+    );
 }
 
 #[test]
@@ -1177,6 +1357,8 @@ fn base_pack_and_mod_payloads_include_describe() {
         icon_url: None,
         gallery_url: None,
         categories: vec!["tech".to_string()],
+        client_side: ProjectSideSupport::Unknown,
+        server_side: ProjectSideSupport::Unknown,
     };
 
     let base_option = candidate_option(&BasePackCandidate {
@@ -1215,6 +1397,8 @@ fn resolved_mod_payload_contains_source_metadata_not_execution_manifest() {
         icon_url: None,
         gallery_url: None,
         categories: vec!["adventure".to_string()],
+        client_side: ProjectSideSupport::Unknown,
+        server_side: ProjectSideSupport::Unknown,
     };
     let file = VersionFile {
         url: "https://cdn.modrinth.com/data/mod-project/versions/v/mod.jar".to_string(),
@@ -1223,6 +1407,8 @@ fn resolved_mod_payload_contains_source_metadata_not_execution_manifest() {
         sha512: Some("sha512".to_string()),
         size: Some(1234),
         primary: true,
+        client_side: ProjectSideSupport::Unknown,
+        server_side: ProjectSideSupport::Unknown,
     };
     let resolved = ResolvedModCandidate {
         candidate: ModCandidate {
@@ -1238,6 +1424,8 @@ fn resolved_mod_payload_contains_source_metadata_not_execution_manifest() {
             loaders: vec!["fabric".to_string()],
             files: vec![file.clone()],
             dependencies: Vec::new(),
+            client_side: ProjectSideSupport::Unknown,
+            server_side: ProjectSideSupport::Unknown,
         },
         file,
     };
@@ -1296,6 +1484,8 @@ fn mrpack_file_payload_sanitizes_provider_filename() {
         sha512: Some("sha512".to_string()),
         size: Some(1234),
         primary: true,
+        client_side: ProjectSideSupport::Unknown,
+        server_side: ProjectSideSupport::Unknown,
     };
 
     let payload = mrpack_file_payload(&file).expect("remote file should be eligible");
@@ -1308,6 +1498,68 @@ fn mrpack_file_payload_sanitizes_provider_filename() {
     assert!(!path.contains(".."));
     assert!(!path["mods/".len()..].contains('/'));
     assert!(!path["mods/".len()..].contains('\\'));
+}
+
+#[test]
+fn mrpack_file_payload_maps_project_side_env() {
+    let file = VersionFile {
+        url: "https://cdn.modrinth.com/data/mod-project/versions/v/mod.jar".to_string(),
+        filename: "mod.jar".to_string(),
+        sha1: Some("sha1".to_string()),
+        sha512: Some("sha512".to_string()),
+        size: Some(123),
+        primary: true,
+        client_side: ProjectSideSupport::Required,
+        server_side: ProjectSideSupport::Unsupported,
+    };
+
+    let payload = mrpack_file_payload(&file).expect("remote payload should compile");
+
+    assert_eq!(
+        payload
+            .get("env")
+            .and_then(|v| v.get("client"))
+            .and_then(|v| v.as_str()),
+        Some("required")
+    );
+    assert_eq!(
+        payload
+            .get("env")
+            .and_then(|v| v.get("server"))
+            .and_then(|v| v.as_str()),
+        Some("unsupported")
+    );
+}
+
+#[test]
+fn mrpack_file_payload_falls_back_unknown_env_to_optional() {
+    let file = VersionFile {
+        url: "https://cdn.modrinth.com/data/mod-project/versions/v/mod.jar".to_string(),
+        filename: "mod.jar".to_string(),
+        sha1: Some("sha1".to_string()),
+        sha512: Some("sha512".to_string()),
+        size: Some(123),
+        primary: true,
+        client_side: ProjectSideSupport::Unknown,
+        server_side: ProjectSideSupport::Unknown,
+    };
+
+    let payload = mrpack_file_payload(&file).expect("remote payload should compile");
+
+    assert_eq!(
+        payload
+            .get("env")
+            .and_then(|v| v.get("client"))
+            .and_then(|v| v.as_str()),
+        Some("optional")
+    );
+    assert_eq!(
+        payload
+            .get("env")
+            .and_then(|v| v.get("server"))
+            .and_then(|v| v.as_str()),
+        Some("optional")
+    );
 }
 
 #[test]
@@ -1348,6 +1600,8 @@ fn exec_compile_metadata_merges_base_index_and_extra_mod_refs() {
         sha512: Some("extra-sha512".to_string()),
         size: Some(200),
         primary: true,
+        client_side: ProjectSideSupport::Unknown,
+        server_side: ProjectSideSupport::Unknown,
     };
     let approved = ApprovedModpackBuild {
         base_pack: serde_json::json!({ "title": "Base Pack" }),
@@ -1385,12 +1639,23 @@ fn exec_compile_metadata_merges_base_index_and_extra_mod_refs() {
             .map(Vec::len),
         Some(2)
     );
+    let extra_remote_files = metadata
+        .get("extra_remote_files")
+        .and_then(|v| v.as_array())
+        .expect("extra remote files should be listed");
+    assert_eq!(extra_remote_files.len(), 1);
     assert_eq!(
-        metadata
-            .get("extra_remote_files")
-            .and_then(|v| v.as_array())
-            .map(Vec::len),
-        Some(1)
+        extra_remote_files[0]
+            .get("project_side")
+            .and_then(|v| v.get("fallback"))
+            .and_then(|v| v.as_bool()),
+        Some(true)
+    );
+    assert_eq!(
+        extra_remote_files[0]
+            .get("env_fallback")
+            .and_then(|v| v.as_str()),
+        Some("unknown project side metadata mapped to optional")
     );
     assert!(approved
         .execution_recipe
@@ -1423,6 +1688,8 @@ fn exec_compile_metadata_sanitizes_override_source_paths() {
         sha512: Some("extra-sha512".to_string()),
         size: Some(200),
         primary: true,
+        client_side: ProjectSideSupport::Unknown,
+        server_side: ProjectSideSupport::Unknown,
     };
     let approved = ApprovedModpackBuild {
         base_pack: serde_json::json!({ "title": "Base Pack" }),
@@ -1460,6 +1727,82 @@ fn exec_compile_metadata_sanitizes_override_source_paths() {
     assert_eq!(
         source.get("archive_path").and_then(|v| v.as_str()),
         Some("overrides/mods/evil.jar")
+    );
+}
+
+#[test]
+fn exec_compile_metadata_blocks_unverifiable_override_source() {
+    use crate::modpack::formats::mrpack::{MrpackDependencies, MrpackIndex};
+
+    let base_index = MrpackIndex {
+        format_version: 1,
+        game: "minecraft".to_string(),
+        version_id: "base-1.0.0".to_string(),
+        name: "Base Pack".to_string(),
+        summary: None,
+        dependencies: MrpackDependencies {
+            minecraft: Some("1.20.1".to_string()),
+            fabric_loader: Some("0.15.7".to_string()),
+            ..Default::default()
+        },
+        files: Vec::new(),
+    };
+    let extra_file = VersionFile {
+        url: "https://example.com/download/extra.jar".to_string(),
+        filename: "extra.jar".to_string(),
+        sha1: None,
+        sha512: None,
+        size: None,
+        primary: true,
+        client_side: ProjectSideSupport::Unknown,
+        server_side: ProjectSideSupport::Unknown,
+    };
+    let approved = ApprovedModpackBuild {
+        base_pack: serde_json::json!({ "title": "Base Pack" }),
+        target: serde_json::json!({ "minecraft_version": "1.20.1", "loader": "fabric" }),
+        extra_mods: Vec::new(),
+        execution_recipe: Some(serde_json::json!({
+            "schema_version": 1,
+            "kind": "mrpack_from_base_modpack",
+            "format": "mrpack",
+            "extra_mod_refs": [{
+                "title": "Unverified Override",
+                "project_id": "extra-project",
+                "source_ref": {
+                    "kind": "mod_file",
+                    "provider": "modrinth",
+                    "project_id": "extra-project",
+                    "version_id": "extra-version",
+                    "file": version_file_payload(&extra_file)
+                }
+            }]
+        })),
+    };
+
+    let base_index_json = serde_json::to_vec(&base_index).unwrap();
+    let base_archive = zip_bytes(&[("modrinth.index.json", &base_index_json)]);
+    let built = build_mrpack_from_base_archive_bytes(&approved, &base_archive, &[]).unwrap();
+
+    assert_eq!(
+        built.manifest.get("status").and_then(|v| v.as_str()),
+        Some("blocked")
+    );
+    assert_eq!(
+        built.manifest.get("replan_phase").and_then(|v| v.as_str()),
+        Some("confirm_customization_approval")
+    );
+    let blocked = built
+        .manifest
+        .get("blocked")
+        .and_then(|v| v.as_array())
+        .expect("blocked manifest should list blocked files");
+    assert!(blocked.iter().any(|item| {
+        item.get("reason").and_then(|v| v.as_str())
+            == Some("override source has no verifiable hash")
+    }));
+    assert!(
+        built.archive_bytes.is_empty(),
+        "blocked override sources must not be packaged"
     );
 }
 
@@ -1744,6 +2087,320 @@ fn blocked_customization_gate_does_not_advertise_unusable_revise() {
     );
 }
 
+#[tokio::test]
+async fn advance_executes_approved_execution_ready_run_to_completed() {
+    let base_archive = base_archive_for_advance();
+    let base_url = one_response_server(base_archive.clone());
+    let run = execution_ready_run(
+        &format!("{base_url}/base.mrpack"),
+        base_archive.len() as u64,
+    );
+    let tool = run
+        .tools
+        .iter()
+        .find(|tool| tool.name == "build_mrpack_artifact")
+        .expect("execution-ready run should expose deterministic execution tool");
+    assert_eq!(
+        tool.input_schema
+            .get("properties")
+            .and_then(|v| v.get("output_path"))
+            .and_then(|v| v.get("type"))
+            .and_then(|v| v.as_str()),
+        Some("string")
+    );
+    let output = temp_mrpack_path("advance-completed");
+    let runtime = test_main_runtime();
+
+    let next = runtime
+        .advance(run, &output)
+        .await
+        .expect("advance should drive deterministic execution");
+
+    assert_eq!(next.status, AgentStatus::Completed);
+    assert_eq!(next.phase, AgentPhase::Completed);
+    assert_eq!(
+        next.execution.as_ref().map(|e| &e.status),
+        Some(&AgentExecutionStatus::Completed)
+    );
+    assert!(next
+        .trace
+        .iter()
+        .any(|event| event.event.contains("entering verifying phase")));
+    assert!(next
+        .trace
+        .iter()
+        .any(|event| event.event.contains("verification completed")));
+    assert!(output.exists(), "advance should write the mrpack artifact");
+    let _ = std::fs::remove_file(output);
+}
+
+#[tokio::test]
+async fn advance_fails_during_verifying_for_invalid_artifact() {
+    use crate::modpack::formats::mrpack::{
+        MrpackDependencies, MrpackFile, MrpackHashes, MrpackIndex,
+    };
+
+    let run = execution_ready_run("https://example.com/base.mrpack", 10);
+    let output = temp_mrpack_path("advance-verifying-failed");
+    let runtime = test_main_runtime();
+
+    let invalid_index = MrpackIndex {
+        format_version: 1,
+        game: "minecraft".to_string(),
+        version_id: "bad-1.0.0".to_string(),
+        name: "Bad Pack".to_string(),
+        summary: None,
+        dependencies: MrpackDependencies {
+            minecraft: Some("1.20.1".to_string()),
+            fabric_loader: Some("0.15.7".to_string()),
+            ..Default::default()
+        },
+        files: vec![MrpackFile {
+            path: "mods/bad.jar".to_string(),
+            hashes: MrpackHashes {
+                sha512: "sha512".to_string(),
+                sha1: None,
+            },
+            env: None,
+            downloads: vec!["https://cdn.modrinth.com/data/bad/bad.jar".to_string()],
+            file_size: Some(10),
+        }],
+    };
+    let invalid_index_json = serde_json::to_vec(&invalid_index).unwrap();
+    let archive = zip_bytes(&[("modrinth.index.json", &invalid_index_json)]);
+
+    let next = runtime
+        .advance_with_executor(
+            run,
+            &output,
+            move |_approved, path| {
+                let archive = archive.clone();
+                async move {
+                    std::fs::write(&path, archive).unwrap();
+                    Ok(serde_json::json!({
+                        "schema_version": 1,
+                        "status": "verifying",
+                        "format": "mrpack",
+                        "output_path": path.to_string_lossy().to_string()
+                    }))
+                }
+            },
+            std::time::Duration::ZERO,
+        )
+        .await
+        .expect("verification failures should be represented in run state");
+
+    assert_eq!(next.status, AgentStatus::Failed);
+    assert_eq!(next.phase, AgentPhase::Failed);
+    assert_eq!(
+        next.execution.as_ref().map(|e| &e.status),
+        Some(&AgentExecutionStatus::Failed)
+    );
+    assert!(next
+        .execution
+        .as_ref()
+        .and_then(|e| e.blocked.as_ref())
+        .map(|blocked| blocked.reason.contains("missing env"))
+        .unwrap_or(false));
+    assert!(next
+        .trace
+        .iter()
+        .any(|event| event.event.contains("entering verifying phase")));
+    let _ = std::fs::remove_file(output);
+}
+
+#[test]
+fn verify_written_mrpack_rejects_deep_invalid_artifacts() {
+    use crate::modpack::formats::mrpack::{
+        EnvSupport, MrpackDependencies, MrpackEnv, MrpackFile, MrpackHashes, MrpackIndex,
+    };
+
+    let approved = ApprovedModpackBuild {
+        base_pack: serde_json::json!({ "title": "Base Pack" }),
+        target: serde_json::json!({ "minecraft_version": "1.20.1", "loader": "fabric" }),
+        extra_mods: Vec::new(),
+        execution_recipe: None,
+    };
+    let valid_file = MrpackFile {
+        path: "mods/valid.jar".to_string(),
+        hashes: MrpackHashes {
+            sha512: "sha512".to_string(),
+            sha1: None,
+        },
+        env: Some(MrpackEnv {
+            client: EnvSupport::Required,
+            server: EnvSupport::Unsupported,
+        }),
+        downloads: vec!["https://cdn.modrinth.com/data/valid/valid.jar".to_string()],
+        file_size: Some(10),
+    };
+    let valid_index = MrpackIndex {
+        format_version: 1,
+        game: "minecraft".to_string(),
+        version_id: "verify-1.0.0".to_string(),
+        name: "Verify Pack".to_string(),
+        summary: None,
+        dependencies: MrpackDependencies {
+            minecraft: Some("1.20.1".to_string()),
+            fabric_loader: Some("0.15.7".to_string()),
+            ..Default::default()
+        },
+        files: vec![valid_file.clone()],
+    };
+
+    let mut no_downloads = valid_index.clone();
+    no_downloads.files[0].downloads.clear();
+    let mut no_env = valid_index.clone();
+    no_env.files[0].env = None;
+
+    let cases = vec![
+        ("no-downloads", no_downloads, Vec::new(), "missing downloads"),
+        ("no-env", no_env, Vec::new(), "missing env"),
+        (
+            "override-conflict",
+            valid_index,
+            vec![("overrides/mods/valid.jar", b"conflict".as_slice())],
+            "conflicts with indexed file",
+        ),
+    ];
+
+    for (tag, index, extra_files, reason) in cases {
+        let output = temp_mrpack_path(tag);
+        let index_json = serde_json::to_vec(&index).unwrap();
+        let mut files = vec![("modrinth.index.json", index_json.as_slice())];
+        files.extend(extra_files);
+        std::fs::write(&output, zip_bytes(&files)).unwrap();
+
+        let err = verify_written_mrpack(&output, &approved)
+            .expect_err("invalid artifact should fail verification");
+        assert!(
+            err.to_string().contains(reason),
+            "expected {reason:?}, got {err}"
+        );
+        let _ = std::fs::remove_file(output);
+    }
+}
+
+#[tokio::test]
+async fn advance_caps_retry_manifests_without_hot_loop() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    let base_archive = base_archive_for_advance();
+    let run = execution_ready_run("https://example.com/base.mrpack", base_archive.len() as u64);
+    let output = temp_mrpack_path("advance-retry-cap");
+    let runtime = test_main_runtime();
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let attempts_for_executor = Arc::clone(&attempts);
+
+    let next = runtime
+        .advance_with_executor(
+            run,
+            &output,
+            move |_approved, _path| {
+                let attempts_for_executor = Arc::clone(&attempts_for_executor);
+                async move {
+                    attempts_for_executor.fetch_add(1, Ordering::SeqCst);
+                    Ok(serde_json::json!({
+                        "schema_version": 1,
+                        "status": "retry",
+                        "format": "mrpack",
+                        "reason": "source timeout",
+                        "error_kind": "network_timeout",
+                        "retryable": true
+                    }))
+                }
+            },
+            std::time::Duration::ZERO,
+        )
+        .await
+        .expect("retry cap should return a terminal run");
+
+    assert_eq!(
+        attempts.load(Ordering::SeqCst),
+        3,
+        "retry driver should stop at the configured cap"
+    );
+    assert_eq!(next.status, AgentStatus::Failed);
+    assert_eq!(next.phase, AgentPhase::Failed);
+    assert_eq!(
+        next.execution.as_ref().map(|e| &e.status),
+        Some(&AgentExecutionStatus::Failed)
+    );
+    let reason = next
+        .execution
+        .as_ref()
+        .and_then(|execution| execution.blocked.as_ref())
+        .map(|blocked| blocked.reason.as_str());
+    assert_eq!(
+        reason,
+        Some("execution exceeded max retries: source timeout")
+    );
+    assert!(!output.exists(), "retry exhaustion must not write output");
+}
+
+#[tokio::test]
+async fn advance_stops_at_waiting_for_user_gate_without_executing() {
+    let mut run = AgentRunSnapshot::new("make a pack");
+    run.status = AgentStatus::WaitingForUser;
+    run.phase = AgentPhase::ConfirmCustomizationApproval;
+    run.pending_approval = Some(ApprovalRequest {
+        id: "approval-test".to_string(),
+        kind: ApprovalKind::ConfirmCustomization,
+        title: "Confirm".to_string(),
+        message: "Confirm".to_string(),
+        options: Vec::new(),
+        available_decisions: Vec::new(),
+        tools: Vec::new(),
+        plan: None,
+    });
+    let output = temp_mrpack_path("advance-waiting");
+    let runtime = test_main_runtime();
+
+    let next = runtime
+        .advance(run.clone(), &output)
+        .await
+        .expect("waiting gate should return unchanged");
+
+    assert_eq!(next.status, AgentStatus::WaitingForUser);
+    assert_eq!(next.phase, AgentPhase::ConfirmCustomizationApproval);
+    assert_eq!(
+        next.pending_approval
+            .as_ref()
+            .map(|approval| &approval.kind),
+        Some(&ApprovalKind::ConfirmCustomization)
+    );
+    assert!(
+        !output.exists(),
+        "advance must not execute past a HITL gate"
+    );
+}
+
+#[tokio::test]
+async fn advance_does_not_reexecute_completed_run() {
+    let mut run = AgentRunSnapshot::new("make a pack");
+    run.status = AgentStatus::Completed;
+    run.phase = AgentPhase::Completed;
+    run.execution = Some(AgentExecutionMetadata {
+        status: AgentExecutionStatus::Completed,
+        manifest: Some(serde_json::json!({ "status": "completed" })),
+        blocked: None,
+    });
+    let trace_len = run.trace.len();
+    let output = temp_mrpack_path("advance-idempotent");
+    let runtime = test_main_runtime();
+
+    let next = runtime
+        .advance(run, &output)
+        .await
+        .expect("completed run should be idempotent");
+
+    assert_eq!(next.status, AgentStatus::Completed);
+    assert_eq!(next.phase, AgentPhase::Completed);
+    assert_eq!(next.trace.len(), trace_len);
+    assert!(!output.exists(), "completed run must not be executed again");
+}
+
 #[test]
 fn agent_base_pack_execution_support_is_modrinth_only() {
     assert!(base_pack_provider_supported_for_execution(
@@ -1847,6 +2504,8 @@ fn mrpack_executor_rewrites_index_and_preserves_base_overrides() {
         sha512: Some("extra-sha512".to_string()),
         size: Some(200),
         primary: true,
+        client_side: ProjectSideSupport::Unknown,
+        server_side: ProjectSideSupport::Unknown,
     };
     let approved = ApprovedModpackBuild {
         base_pack: serde_json::json!({ "title": "Base Pack" }),
