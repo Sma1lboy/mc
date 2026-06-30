@@ -4,8 +4,9 @@ use anyhow::{Context, Result};
 use clap::{Subcommand, ValueEnum};
 
 use mc_core::agent::{
-    AgentIntentKind, AgentMessageKind, AgentPhase, AgentRunSnapshot, AgentSessionStore,
+    AgentEntry, AgentIntentKind, AgentMessageKind, AgentPhase, AgentRunSnapshot, AgentSessionStore,
     AgentSessionSummary, AgentStatus, ApprovalKind, ApprovalRequest, BuildRestrictions,
+    UserDecisionKind,
 };
 
 use crate::data_dir;
@@ -30,6 +31,9 @@ pub(crate) enum AgentAction {
         /// Print the full raw AgentRunSnapshot JSON.
         #[arg(long)]
         json: bool,
+        /// UI surface that launched this agent run.
+        #[arg(long, value_enum, default_value_t = AgentStartSurface::Home)]
+        surface: AgentStartSurface,
     },
     /// Show a saved local agent session snapshot.
     Show {
@@ -104,6 +108,7 @@ pub(crate) async fn cmd_agent(action: &AgentAction) -> Result<()> {
             model,
             show_key_path,
             json,
+            surface,
         } => {
             cmd_agent_start(
                 prompt,
@@ -111,6 +116,7 @@ pub(crate) async fn cmd_agent(action: &AgentAction) -> Result<()> {
                 model.clone(),
                 *show_key_path,
                 *json,
+                *surface,
             )
             .await
         }
@@ -147,28 +153,33 @@ pub(crate) enum AgentExecSmokeOutcome {
     BlockedRequirements,
 }
 
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub(crate) enum AgentStartSurface {
+    Home,
+}
+
 async fn cmd_agent_start(
     prompt: &str,
     session_id: Option<String>,
     model: Option<String>,
     show_key_path: bool,
     json: bool,
+    surface: AgentStartSurface,
 ) -> Result<()> {
     let dir = data_dir();
     if show_key_path {
         println!("OpenRouter key lookup order:");
         println!("  1. OPENROUTER_API_KEY");
-        println!("  2. nearest .env files:");
+        println!("  2. repository root .env:");
         for path in mc_core::agent::AgentLlmConfig::local_env_paths(&dir) {
-            if path.exists() {
-                println!("     - {}", path.display());
-            }
+            println!("     - {}", path.display());
         }
         return Ok(());
     }
 
     let agent = local_agent_runtime(&dir, model)?;
-    let mut snapshot = agent.start_new_run(prompt).await?;
+    let entry = agent_entry_from_start_flags(surface)?;
+    let mut snapshot = agent.start_new_run_with_entry(prompt, entry).await?;
     if let Some(session_id) = session_id.filter(|s| !s.trim().is_empty()) {
         snapshot.id = session_id;
     }
@@ -176,12 +187,18 @@ async fn cmd_agent_start(
     persist_and_print_agent_snapshot(&store, snapshot, json).map(|_| ())
 }
 
+fn agent_entry_from_start_flags(surface: AgentStartSurface) -> Result<AgentEntry> {
+    match surface {
+        AgentStartSurface::Home => Ok(AgentEntry::Home),
+    }
+}
+
 fn local_agent_runtime(
     dir: &Path,
     model: Option<String>,
 ) -> Result<mc_core::agent::MainAgentRuntime> {
     let mut cfg = mc_core::agent::AgentLlmConfig::from_local(dir).with_context(|| {
-        "Failed to read the OpenRouter API key; set OPENROUTER_API_KEY or write it to desktop/src-tauri/.env"
+        "Failed to read the OpenRouter API key; set OPENROUTER_API_KEY or write it to the repository root .env"
     })?;
     if let Some(model) = model.filter(|s| !s.trim().is_empty()) {
         cfg.model = model;
@@ -709,53 +726,85 @@ fn print_approval_header(approval: Option<&ApprovalRequest>) {
 }
 
 fn print_pending_approval_next_steps(snapshot: &AgentRunSnapshot) {
-    let Some(approval) = snapshot.pending_approval.as_ref() else {
-        if let Some(command) = execution_next_step_command(snapshot) {
-            println!("next:");
-            println!("  {command}");
-        }
-        return;
-    };
-
-    println!("next:");
-    match approval.kind {
-        ApprovalKind::ConfigureRequirements => {
-            println!(
-                "  mc agent continue --session-id {} --message \"Confirm and continue\"",
-                snapshot.id
-            );
-            println!(
-                "  mc agent continue --session-id {} --message \"Change it to Fabric 1.20.1 with more exploration and RPG content\"",
-                snapshot.id
-            );
-        }
-        ApprovalKind::ChooseBasePack | ApprovalKind::ConfirmScratchFallback => {
-            println!(
-                "  mc agent continue --session-id {} --message \"Choose the first option\"",
-                snapshot.id
-            );
-            println!(
-                "  mc agent continue --session-id {} --message \"Search again with more adventure and exploration, less machinery\"",
-                snapshot.id
-            );
-        }
-        ApprovalKind::ConfirmCustomization => {
-            println!(
-                "  mc agent continue --session-id {} --message \"Confirm this mod plan and continue\"",
-                snapshot.id
-            );
-            println!(
-                "  mc agent continue --session-id {} --message \"Remove tech and machinery mods; add more dungeons, structures, exploration, maps, and QoL\"",
-                snapshot.id
-            );
-        }
-        ApprovalKind::ReviewDraftPlan => {
-            println!(
-                "  mc agent continue --session-id {} --message \"Confirm and continue\"",
-                snapshot.id
-            );
+    let next_steps = pending_approval_next_step_lines(snapshot);
+    if !next_steps.is_empty() {
+        println!("next:");
+        for line in next_steps {
+            println!("  {line}");
         }
     }
+}
+
+fn pending_approval_next_step_lines(snapshot: &AgentRunSnapshot) -> Vec<String> {
+    let Some(approval) = snapshot.pending_approval.as_ref() else {
+        return execution_next_step_command(snapshot).into_iter().collect();
+    };
+
+    match approval.kind {
+        ApprovalKind::ConfigureRequirements => vec![
+            format!(
+                "mc agent continue --session-id {} --message \"Confirm and continue\"",
+                snapshot.id
+            ),
+            format!(
+                "mc agent continue --session-id {} --message \"Change it to Fabric 1.20.1 with more exploration and RPG content\"",
+                snapshot.id
+            ),
+        ],
+        ApprovalKind::ChooseBasePack | ApprovalKind::ConfirmScratchFallback => vec![
+            format!(
+                "mc agent continue --session-id {} --message \"Choose the first option\"",
+                snapshot.id
+            ),
+            format!(
+                "mc agent continue --session-id {} --message \"Search again with more adventure and exploration, less machinery\"",
+                snapshot.id
+            ),
+        ],
+        ApprovalKind::ConfirmCustomization => customization_next_step_lines(snapshot, approval),
+        ApprovalKind::ReviewDraftPlan => vec![format!(
+            "mc agent continue --session-id {} --message \"Confirm and continue\"",
+            snapshot.id
+        )],
+    }
+}
+
+fn customization_next_step_lines(
+    snapshot: &AgentRunSnapshot,
+    approval: &ApprovalRequest,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    if approval
+        .options
+        .iter()
+        .any(|option| option.id == "confirm:recommended_customization")
+    {
+        lines.push(format!(
+            "mc agent continue --session-id {} --message \"Confirm this mod plan and continue\"",
+            snapshot.id
+        ));
+    }
+    if approval
+        .available_decisions
+        .iter()
+        .any(|decision| decision.kind == UserDecisionKind::Revise)
+    {
+        lines.push(format!(
+            "mc agent continue --session-id {} --message \"Remove tech and machinery mods; add more dungeons, structures, exploration, maps, and QoL\"",
+            snapshot.id
+        ));
+    }
+    if approval
+        .options
+        .iter()
+        .any(|option| option.id == "back:choose_base_pack")
+    {
+        lines.push(format!(
+            "mc agent continue --session-id {} --message \"Back to base-pack selection\"",
+            snapshot.id
+        ));
+    }
+    lines
 }
 
 fn execution_next_step_command(snapshot: &AgentRunSnapshot) -> Option<String> {
@@ -1185,6 +1234,49 @@ mod tests {
         run
     }
 
+    fn blocked_customization_snapshot(session_id: &str) -> AgentRunSnapshot {
+        let mut run = AgentRunSnapshot::new("make a pack");
+        run.id = session_id.to_string();
+        run.status = AgentStatus::WaitingForUser;
+        run.phase = AgentPhase::ConfirmCustomizationApproval;
+        run.pending_approval = Some(ApprovalRequest {
+            id: "approval-test".to_string(),
+            kind: ApprovalKind::ConfirmCustomization,
+            title: "Customization planning is blocked".to_string(),
+            message: "Could not produce a verified compatible extra-mod plan.".to_string(),
+            options: vec![ApprovalOption {
+                id: "back:choose_base_pack".to_string(),
+                label: "Back to base-pack selection".to_string(),
+                description: None,
+                payload: Some(serde_json::json!({
+                    "action": "back_to_base_pack",
+                    "base_pack": {
+                        "provider": "modrinth",
+                        "project_id": "base-project",
+                        "title": "Base Pack"
+                    }
+                })),
+            }],
+            available_decisions: vec![
+                ApprovalDecisionSpec {
+                    kind: UserDecisionKind::Approve,
+                    label: "Back to base-pack selection".to_string(),
+                    requires_selected_option: true,
+                    requires_message: false,
+                },
+                ApprovalDecisionSpec {
+                    kind: UserDecisionKind::Cancel,
+                    label: "Cancel".to_string(),
+                    requires_selected_option: false,
+                    requires_message: false,
+                },
+            ],
+            tools: Vec::new(),
+            plan: None,
+        });
+        run
+    }
+
     fn base_archive_server() -> (Vec<u8>, String) {
         let archive = base_archive_for_cli_execute();
         let server = one_response_server(200, "application/octet-stream", archive.clone());
@@ -1227,6 +1319,24 @@ mod tests {
                 .join("session-123.mrpack")
         );
         assert!(output.is_absolute());
+    }
+
+    #[test]
+    fn agent_start_surface_supports_home_only_for_now() {
+        let variants: Vec<_> = AgentStartSurface::value_variants()
+            .iter()
+            .filter_map(|surface| surface.to_possible_value())
+            .map(|value| value.get_name().to_string())
+            .collect();
+        assert_eq!(variants, vec!["home"]);
+    }
+
+    #[test]
+    fn agent_entry_from_start_flags_accepts_home_only() {
+        assert_eq!(
+            agent_entry_from_start_flags(AgentStartSurface::Home).unwrap(),
+            AgentEntry::Home
+        );
     }
 
     #[tokio::test]
@@ -1285,6 +1395,37 @@ mod tests {
             next,
             "mc agent execute --session-id session-123 --output <path>"
         );
+    }
+
+    #[test]
+    fn blocked_customization_next_step_only_advertises_back() {
+        let run = blocked_customization_snapshot("blocked-customization-session");
+
+        let next_steps = pending_approval_next_step_lines(&run);
+
+        assert_eq!(next_steps.len(), 1);
+        assert_eq!(
+            next_steps[0],
+            "mc agent continue --session-id blocked-customization-session --message \"Back to base-pack selection\""
+        );
+    }
+
+    #[test]
+    fn customization_next_steps_include_confirm_and_revise_when_available() {
+        let run = customization_approval_snapshot(
+            "customization-session",
+            "https://example.invalid/base.mrpack",
+            1024,
+        );
+
+        let next_steps = pending_approval_next_step_lines(&run);
+
+        assert!(next_steps.iter().any(|line| line.contains(
+            "mc agent continue --session-id customization-session --message \"Confirm this mod plan and continue\""
+        )));
+        assert!(next_steps
+            .iter()
+            .any(|line| line.contains("Remove tech and machinery mods")));
     }
 
     #[tokio::test]

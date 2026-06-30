@@ -87,8 +87,11 @@ mirror to stderr.
 - `desktop/src-tauri/.env` — `MC_MSA_CLIENT_ID` (your Azure app's public client id for
   Microsoft login). Copy from `.env.example`. The default vanilla id is rejected by the
   device-code endpoint (AADSTS700016); register your own Azure app.
+- `.env` at the repository root — `OPENROUTER_API_KEY` for the local AI agent. Copy
+  from root `.env.example`. Optional: `MC_AGENT_OPENROUTER_MODEL`,
+  `OPENROUTER_MODEL`, `OPENROUTER_BASE_URL`.
 - `crates/mc-server/.env` — `DATABASE_URL` (Postgres/Supabase). Local dev only.
-- Both are gitignored. Only `*.env.example` is tracked.
+- These `.env` files are gitignored. Only `.env.example` templates are tracked.
 
 ## Don't
 

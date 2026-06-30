@@ -55,13 +55,7 @@ fn customization_planning_blocked_approval(
                 "The current base pack or requirement combination could not be verified; return to base-pack selection."
                     .to_string(),
             ),
-            payload: Some(serde_json::json!({
-                "action": "back_to_base_pack",
-                "planning_blocked": {
-                    "reason": blocked.reason.clone(),
-                    "details": blocked.details.clone(),
-                }
-            })),
+            payload: Some(blocked_back_to_base_pack_payload(blocked)),
         }],
         available_decisions: vec![
             ApprovalDecisionSpec {
@@ -94,6 +88,20 @@ fn customization_planning_blocked_approval(
             migration_notes,
         }),
     }
+}
+
+fn blocked_back_to_base_pack_payload(blocked: &CustomizationPlanningBlocked) -> serde_json::Value {
+    let mut payload = serde_json::json!({
+        "action": "back_to_base_pack",
+        "planning_blocked": {
+            "reason": blocked.reason.clone(),
+            "details": blocked.details.clone(),
+        }
+    });
+    if let Some(base_pack) = blocked.details.get("base_pack").cloned() {
+        payload["base_pack"] = base_pack;
+    }
+    payload
 }
 
 fn append_message_section(message: &mut String, title: &str, lines: &[String]) {
@@ -813,6 +821,7 @@ pub(super) async fn run_customization_planning_loop(
     if stopped_by_round_cap && !unresolved_goals.is_empty() {
         run.mod_plan = Some(state.clone());
         return Ok(round_cap_blocked_result(
+            base,
             &state,
             unresolved_goals,
             last_blockers,
@@ -850,6 +859,7 @@ pub(super) async fn run_customization_planning_loop(
 }
 
 fn round_cap_blocked_result(
+    base: &SelectedBasePack,
     state: &ModPlanState,
     unresolved_goals: Vec<serde_json::Value>,
     last_blockers: Vec<serde_json::Value>,
@@ -865,7 +875,18 @@ fn round_cap_blocked_result(
             "unresolved_goals": unresolved_goals,
             "blocked_project_ids": state.blocked.clone(),
             "last_blockers": last_blockers,
+            "base_pack": selected_base_pack_payload(base),
         }),
+    })
+}
+
+fn selected_base_pack_payload(base: &SelectedBasePack) -> serde_json::Value {
+    serde_json::json!({
+        "provider": provider_slug(base.provider),
+        "project_id": base.project_id.clone(),
+        "slug": base.slug.clone(),
+        "title": base.title.clone(),
+        "description": base.description.clone(),
     })
 }
 

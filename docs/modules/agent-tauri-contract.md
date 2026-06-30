@@ -63,7 +63,11 @@ Recommended command shape:
 
 ```rust
 #[tauri::command]
-async fn agent_start(prompt: String, session_id: Option<String>) -> Result<AgentUiResponse>;
+async fn agent_start(
+    prompt: String,
+    entry: AgentEntry,
+    session_id: Option<String>,
+) -> Result<AgentUiResponse>;
 
 #[tauri::command]
 async fn agent_get(session_id: String) -> Result<AgentUiResponse>;
@@ -80,6 +84,26 @@ async fn agent_action(session_id: String, action: AgentClientAction) -> Result<A
 #[tauri::command]
 async fn agent_execute_export(session_id: String, output_path: String) -> Result<AgentUiResponse>;
 ```
+
+`AgentEntry` is supplied by the frontend route that opened the agent UI. The
+model must not infer this from the user prompt.
+
+```rust
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AgentEntry {
+    Home,
+}
+```
+
+The daemon resolves `AgentEntry` into an `AgentLaunchContext` and injects the
+available workflows. The frontend should not send `available_workflows`.
+
+| Entry | Subject | Injected workflows |
+| --- | --- | --- |
+| `home` | none | `build_modpack` |
+
+Unsupported or unavailable intents should return a completed unsupported
+snapshot instead of silently falling through to another workflow.
 
 `AgentUiResponse` is a frontend-facing wrapper around the snapshot:
 
