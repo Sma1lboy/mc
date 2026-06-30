@@ -24,6 +24,11 @@ anyhow = "1"
 # io-util/process/time + 运行时;net 仅 mc-server(axum)需要,见其 Cargo.toml 单独追加。
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "fs", "io-util", "process", "time", "net"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream", "gzip", "cookies"] }
+# Pin: reqwest's `cookies` feature pulls cookie 0.18.1, which does not compile against
+# time >= 0.3.52 (the `Parsable::parse` arity change). Constrain time workspace-wide
+# (mc-core carries the dep) until reqwest/cookie advance. Cargo.lock is gitignored, so a
+# manifest constraint is the only thing CI's fresh resolve honors.
+time = "=0.3.51"
 rig-core = { version = "0.39", default-features = false, features = ["derive", "reqwest", "rustls"] }
 futures = "0.3"
 tokio-util = "0.7"
