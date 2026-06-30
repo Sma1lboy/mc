@@ -15,8 +15,12 @@ use mc_core::instance::Instance;
 use mc_core::launch::{self, LaunchSpec};
 use mc_core::paths::{self, GamePaths};
 use mc_core::settings::GlobalSettings;
-use mc_core::{java, meta, LAUNCHER_NAME, LAUNCHER_VERSION};
 use mc_core::types::{AccountKind, ReleaseKind};
+use mc_core::{java, meta, LAUNCHER_NAME, LAUNCHER_VERSION};
+
+mod agent_cli;
+
+use agent_cli::{cmd_agent, AgentAction};
 
 #[derive(Parser)]
 #[command(name = "mc", version, about = "A fast Minecraft launcher core (CLI)")]
@@ -74,9 +78,7 @@ enum Command {
         mc_version: String,
     },
     /// Install Quilt loader for a Minecraft version.
-    Quilt {
-        mc_version: String,
-    },
+    Quilt { mc_version: String },
     /// Install Forge for a Minecraft version (runs the official installer).
     Forge {
         mc_version: String,
@@ -84,13 +86,9 @@ enum Command {
         forge_build: String,
     },
     /// Install NeoForge by version, e.g. "20.4.237" (MC version derived).
-    Neoforge {
-        neo_version: String,
-    },
+    Neoforge { neo_version: String },
     /// Download an Adoptium JRE of the given major version into the data dir.
-    JavaInstall {
-        major: u8,
-    },
+    JavaInstall { major: u8 },
     /// Analyze a game log file and explain the likely crash cause.
     Crash {
         /// Path to a log / crash report file.
@@ -102,9 +100,7 @@ enum Command {
         id: String,
     },
     /// List worlds/saves in an instance.
-    Worlds {
-        id: String,
-    },
+    Worlds { id: String },
     /// Install a mod from Modrinth into an instance (resolves required deps).
     InstallMod {
         /// Instance (version) id.
@@ -119,16 +115,11 @@ enum Command {
         mc_version: Option<String>,
     },
     /// Query the lite server's aggregated loader versions for a Minecraft version.
-    Loaders {
-        mc_version: String,
-    },
+    Loaders { mc_version: String },
     /// Check the lite server health (uses MC_SERVER_URL if set).
     ServerHealth,
     /// Register a launcher account on the lite server (better-auth), verify via session.
-    RegisterAccount {
-        email: String,
-        password: String,
-    },
+    RegisterAccount { email: String, password: String },
     /// Launch a version. Uses an offline account unless --account is given.
     Launch {
         /// Version id to launch.
@@ -179,9 +170,7 @@ enum Command {
         loader: Option<String>,
     },
     /// Reverse-lookup a file by sha512 via Modrinth (the import/export linchpin).
-    ResolveHash {
-        sha512: String,
-    },
+    ResolveHash { sha512: String },
     /// Show a Modrinth project's detail (description body / gallery / links) — the
     /// data behind the detail page's 「简介」 tab.
     Project {
@@ -189,9 +178,7 @@ enum Command {
         id: String,
     },
     /// Detect a modpack archive's format without installing anything.
-    ModpackDetect {
-        file: PathBuf,
-    },
+    ModpackDetect { file: PathBuf },
     /// Import a modpack (.mrpack/.zip, auto-detected) — installs vanilla MC + files.
     ModpackImport {
         file: PathBuf,
@@ -218,6 +205,11 @@ enum Command {
         loader: Option<String>,
         #[arg(long)]
         loader_version: Option<String>,
+    },
+    /// Exercise the local main-agent workflow harness.
+    Agent {
+        #[command(subcommand)]
+        action: AgentAction,
     },
 }
 
@@ -307,37 +299,52 @@ async fn main() -> Result<()> {
         Command::Versions { snapshot, limit } => cmd_versions(&cli, *snapshot, *limit).await,
         Command::List => cmd_list(&cli),
         Command::Install { id } => cmd_install(&cli, id).await,
-        Command::Create { name, mc_version, loader, loader_version } => {
-            cmd_create(&cli, name, mc_version, loader, loader_version.clone()).await
-        }
+        Command::Create {
+            name,
+            mc_version,
+            loader,
+            loader_version,
+        } => cmd_create(&cli, name, mc_version, loader, loader_version.clone()).await,
         Command::Fabric { mc_version } => cmd_fabric(&cli, mc_version).await,
         Command::Quilt { mc_version } => cmd_quilt(&cli, mc_version).await,
-        Command::Forge { mc_version, forge_build } => cmd_forge(&cli, mc_version, forge_build).await,
+        Command::Forge {
+            mc_version,
+            forge_build,
+        } => cmd_forge(&cli, mc_version, forge_build).await,
         Command::Neoforge { neo_version } => cmd_neoforge(&cli, neo_version).await,
         Command::JavaInstall { major } => cmd_java_install(*major).await,
         Command::Crash { path } => cmd_crash(path),
         Command::Mods { id } => cmd_mods(&cli, id),
         Command::Worlds { id } => cmd_worlds(&cli, id),
-        Command::InstallMod { id, project, loader, mc_version } => {
-            cmd_install_mod(&cli, id, project, loader, mc_version.clone()).await
-        }
+        Command::InstallMod {
+            id,
+            project,
+            loader,
+            mc_version,
+        } => cmd_install_mod(&cli, id, project, loader, mc_version.clone()).await,
         Command::Loaders { mc_version } => cmd_loaders(mc_version).await,
         Command::ServerHealth => cmd_server_health().await,
-        Command::RegisterAccount { email, password } => {
-            cmd_register_account(email, password).await
-        }
-        Command::Launch { id, name, account, online, java } => {
-            cmd_launch(&cli, id, name, *account, *online, java.clone()).await
-        }
+        Command::RegisterAccount { email, password } => cmd_register_account(email, password).await,
+        Command::Launch {
+            id,
+            name,
+            account,
+            online,
+            java,
+        } => cmd_launch(&cli, id, name, *account, *online, java.clone()).await,
         Command::Login => cmd_login().await,
         Command::LoginOffline { name } => cmd_login_offline(name),
         Command::LoginYggdrasil { base, username, password } => {
             cmd_login_yggdrasil(base, username, password).await
         }
         Command::Accounts => cmd_accounts(),
-        Command::Search { query, cf, kind, mc_version, loader } => {
-            cmd_search(query, *cf, kind, mc_version.clone(), loader.clone()).await
-        }
+        Command::Search {
+            query,
+            cf,
+            kind,
+            mc_version,
+            loader,
+        } => cmd_search(query, *cf, kind, mc_version.clone(), loader.clone()).await,
         Command::ResolveHash { sha512 } => cmd_resolve_hash(sha512).await,
         Command::Project { id } => cmd_project(id).await,
         Command::Settings { action } => cmd_settings(action),
@@ -364,6 +371,7 @@ async fn main() -> Result<()> {
             )
             .await
         }
+        Command::Agent { action } => cmd_agent(action).await,
     }
 }
 
@@ -398,7 +406,9 @@ async fn cmd_java() -> Result<()> {
 
 async fn cmd_versions(cli: &Cli, snapshot: bool, limit: usize) -> Result<()> {
     let dl = downloader(cli.mirror)?;
-    let versions = meta::fetch_manifest(&dl).await.context("fetching version manifest")?;
+    let versions = meta::fetch_manifest(&dl)
+        .await
+        .context("fetching version manifest")?;
     let mut shown = 0;
     for v in &versions {
         if !snapshot && v.kind != ReleaseKind::Release {
@@ -488,7 +498,14 @@ async fn cmd_create(
     // 新实例默认内存/Java 取自全局设置(与桌面端一致)。
     let g = GlobalSettings::load(&data_dir()).unwrap_or_default();
     let id = mc_core::instance::lifecycle::create_instance(
-        &dl, &paths, name, mc_version, loader_opt, g.default_memory_mb, g.java_path.clone(), Some(tx),
+        &dl,
+        &paths,
+        name,
+        mc_version,
+        loader_opt,
+        g.default_memory_mb,
+        g.java_path.clone(),
+        Some(tx),
     )
     .await?;
     println!("✓ 已创建实例: {id}");
@@ -651,7 +668,8 @@ async fn cmd_install_mod(
     let mc = mc_version.unwrap_or_else(|| id.to_string());
 
     println!("安装 {project} ({loader}, MC {mc}) 到实例 {id}…");
-    let report = mc_core::instance::install_mod(&api, &dl, &inst, project, &mc, loader, true).await?;
+    let report =
+        mc_core::instance::install_mod(&api, &dl, &inst, project, &mc, loader, true).await?;
     for m in &report.installed {
         println!("  ✓ {}", m.file_name);
     }
@@ -664,12 +682,48 @@ async fn cmd_install_mod(
 
 async fn cmd_loaders(mc_version: &str) -> Result<()> {
     let client = mc_core::server::ServerClient::new()?;
-    println!("通过 {} 查询 {} 的加载器版本…", client.base_url(), mc_version);
+    println!(
+        "通过 {} 查询 {} 的加载器版本…",
+        client.base_url(),
+        mc_version
+    );
     let meta = client.loaders(mc_version).await?;
-    println!("  fabric:   {} 个 (最新 {})", meta.loaders.fabric.len(), meta.loaders.fabric.first().map(String::as_str).unwrap_or("-"));
-    println!("  quilt:    {} 个 (最新 {})", meta.loaders.quilt.len(), meta.loaders.quilt.first().map(String::as_str).unwrap_or("-"));
-    println!("  forge:    {} 个 (最新 {})", meta.loaders.forge.len(), meta.loaders.forge.first().map(String::as_str).unwrap_or("-"));
-    println!("  neoforge: {} 个 (最新 {})", meta.loaders.neoforge.len(), meta.loaders.neoforge.first().map(String::as_str).unwrap_or("-"));
+    println!(
+        "  fabric:   {} 个 (最新 {})",
+        meta.loaders.fabric.len(),
+        meta.loaders
+            .fabric
+            .first()
+            .map(String::as_str)
+            .unwrap_or("-")
+    );
+    println!(
+        "  quilt:    {} 个 (最新 {})",
+        meta.loaders.quilt.len(),
+        meta.loaders
+            .quilt
+            .first()
+            .map(String::as_str)
+            .unwrap_or("-")
+    );
+    println!(
+        "  forge:    {} 个 (最新 {})",
+        meta.loaders.forge.len(),
+        meta.loaders
+            .forge
+            .first()
+            .map(String::as_str)
+            .unwrap_or("-")
+    );
+    println!(
+        "  neoforge: {} 个 (最新 {})",
+        meta.loaders.neoforge.len(),
+        meta.loaders
+            .neoforge
+            .first()
+            .map(String::as_str)
+            .unwrap_or("-")
+    );
     Ok(())
 }
 
@@ -679,10 +733,18 @@ async fn cmd_register_account(email: &str, password: &str) -> Result<()> {
     // name 取邮箱本地部分。
     let name = email.split('@').next().unwrap_or(email);
     let user = client.register(email, password, name).await?;
-    println!("✓ 注册成功: id={} email={}", user.id, user.email.as_deref().unwrap_or("-"));
+    println!(
+        "✓ 注册成功: id={} email={}",
+        user.id,
+        user.email.as_deref().unwrap_or("-")
+    );
     // 同一个 client 保留了会话 cookie,get-session 无需再传 token。
     let me = client.me().await?;
-    println!("✓ 会话校验: id={} email={}", me.id, me.email.as_deref().unwrap_or("-"));
+    println!(
+        "✓ 会话校验: id={} email={}",
+        me.id,
+        me.email.as_deref().unwrap_or("-")
+    );
     Ok(())
 }
 
@@ -962,7 +1024,9 @@ async fn cmd_resolve_hash(sha512: &str) -> Result<()> {
     let provider = mc_core::modplatform::modrinth::ModrinthProvider::new();
     let hashes = vec![sha512.to_string()];
     println!("在 Modrinth 按 sha512 反查 {sha512} …");
-    let res = provider.resolve_by_hashes(HashAlgo::Sha512, &hashes).await?;
+    let res = provider
+        .resolve_by_hashes(HashAlgo::Sha512, &hashes)
+        .await?;
     match res.into_iter().next().flatten() {
         Some(r) => println!(
             "✓ 命中: project={} version={} file={}\n  url={}",
@@ -1023,15 +1087,32 @@ fn print_settings(dir: &std::path::Path, s: &GlobalSettings) {
     println!("  download_source : {}", s.download_source);
     println!("  concurrency     : {}", s.concurrency);
     println!("  default_memory  : {} MiB", s.default_memory_mb);
-    println!("  java_path       : {}", s.java_path.as_deref().unwrap_or("(自动检测)"));
+    println!(
+        "  java_path       : {}",
+        s.java_path.as_deref().unwrap_or("(自动检测)")
+    );
     println!("  use_mirror      : {}", s.use_mirror);
     println!("  language        : {}", s.language);
-    println!("  server_url      : {}", s.server_url.as_deref().unwrap_or("-"));
+    println!(
+        "  server_url      : {}",
+        s.server_url.as_deref().unwrap_or("-")
+    );
     println!(
         "  custom_roots    : {}",
-        if s.custom_roots.is_empty() { "-".to_string() } else { s.custom_roots.join(", ") }
+        if s.custom_roots.is_empty() {
+            "-".to_string()
+        } else {
+            s.custom_roots.join(", ")
+        }
     );
-    println!("  → 下载走镜像     : {}", if wants_mirror { "是 (BMCLAPI + McIM)" } else { "否 (官方直连)" });
+    println!(
+        "  → 下载走镜像     : {}",
+        if wants_mirror {
+            "是 (BMCLAPI + McIM)"
+        } else {
+            "否 (官方直连)"
+        }
+    );
 }
 
 async fn cmd_project(id: &str) -> Result<()> {
@@ -1057,7 +1138,14 @@ async fn cmd_project(id: &str) -> Result<()> {
     }
     println!("  画廊: {} 张图", p.gallery.len());
     for g in &p.gallery {
-        println!("    - {}{}", g.url, g.title.as_deref().map(|t| format!("  ({t})")).unwrap_or_default());
+        println!(
+            "    - {}{}",
+            g.url,
+            g.title
+                .as_deref()
+                .map(|t| format!("  ({t})"))
+                .unwrap_or_default()
+        );
     }
     println!("  简介正文: {} 字符 (markdown)", p.body.chars().count());
     // 打印正文前若干行,便于在终端核对内容。
@@ -1103,7 +1191,10 @@ async fn cmd_modpack_import(cli: &Cli, file: &Path, id: Option<String>) -> Resul
     let out = engine.import(ImportSource::LocalFile(file.to_path_buf()), opts).await?;
     println!("✓ 已建实例: {}", out.instance_id);
     if !out.blocked.is_empty() {
-        println!("  {} 个文件需手动下载(CurseForge 禁第三方分发):", out.blocked.len());
+        println!(
+            "  {} 个文件需手动下载(CurseForge 禁第三方分发):",
+            out.blocked.len()
+        );
         for b in &out.blocked {
             println!("    - {}  ({})", b.name, b.website_url);
         }
@@ -1136,7 +1227,9 @@ async fn cmd_modpack_export(
     let game_root = inst.game_dir();
 
     // 缺省的 name / mc_version 从实例摘要补全。
-    let summary = mc_core::instance::list_instances(&paths).into_iter().find(|i| i.id == id);
+    let summary = mc_core::instance::list_instances(&paths)
+        .into_iter()
+        .find(|i| i.id == id);
     let name = name.unwrap_or_else(|| id.to_string());
     let mc = mc_version
         .or_else(|| summary.as_ref().map(|s| s.mc_version.clone()))
@@ -1181,7 +1274,14 @@ async fn cmd_modpack_export(
         }
     }
 
-    println!("导出实例 {id} → {kind}{} …", if sub.is_empty() { String::new() } else { format!(":{sub}") });
+    println!(
+        "导出实例 {id} → {kind}{} …",
+        if sub.is_empty() {
+            String::new()
+        } else {
+            format!(":{sub}")
+        }
+    );
     let exporter = ModpackExporter::with_defaults();
     let dest = exporter.export(tgt, input, &mut |_, _, _| {}).await?;
     let final_dest = match out {

@@ -48,6 +48,7 @@ tower-http = { version = "0.6", features = ["cors", "trace"] }
 # UDP multicast socket with SO_REUSEADDR/SO_REUSEPORT — needed to bind 4445 alongside
 # Minecraft's own LAN-discovery listener (lan_world detection).
 socket2 = { version = "0.6", features = ["all"] }
+uuid = { version = "1", features = ["v4"] }
 
 [profile.release]
 opt-level = 3
