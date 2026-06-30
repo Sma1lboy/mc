@@ -84,7 +84,7 @@ impl AgentSessionStore {
             let snapshot = self.load_snapshot(&session_id)?;
             out.push(summary_from_snapshot(&snapshot));
         }
-        out.sort_by(|a, b| b.updated_at_ms.cmp(&a.updated_at_ms));
+        out.sort_by_key(|entry| std::cmp::Reverse(entry.updated_at_ms));
         Ok(out)
     }
 

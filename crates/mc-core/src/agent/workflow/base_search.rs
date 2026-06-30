@@ -405,12 +405,12 @@ pub(super) async fn run_base_pack_search_loop(
     for iteration in 1..=BASE_SEARCH_MAX_ITERATIONS {
         let started = Instant::now();
         let searched = search_base_modpacks(queries, requested, mode).await?;
-        run.push_tool_trace(
-            "base-pack loop search_packs",
-            AgentPhase::BasePackSearch,
+        run.push_tool_trace(AgentToolTrace {
+            event: "base-pack loop search_packs".into(),
+            stage: AgentPhase::BasePackSearch,
             iteration,
-            "search_packs",
-            serde_json::json!({
+            tool: "search_packs".into(),
+            input: serde_json::json!({
                 "queries": queries,
                 "mode": base_search_mode_label(mode),
                 "filters": {
@@ -418,42 +418,42 @@ pub(super) async fn run_base_pack_search_loop(
                     "loader": requested.loader.clone(),
                 }
             }),
-            serde_json::json!({ "count": searched.len() }),
-            started.elapsed().as_millis(),
-            "ok",
-        );
+            output: serde_json::json!({ "count": searched.len() }),
+            duration_ms: started.elapsed().as_millis(),
+            status: "ok".into(),
+        });
 
         let started = Instant::now();
         let filtered = filter_base_packs_by_restrictions(searched, requested).await?;
-        run.push_tool_trace(
-            "base-pack loop filter_by_restrictions",
-            AgentPhase::BasePackSearch,
+        run.push_tool_trace(AgentToolTrace {
+            event: "base-pack loop filter_by_restrictions".into(),
+            stage: AgentPhase::BasePackSearch,
             iteration,
-            "filter_by_restrictions",
-            serde_json::json!({
+            tool: "filter_by_restrictions".into(),
+            input: serde_json::json!({
                 "minecraft_version": requested.minecraft_version.clone(),
                 "loader": requested.loader.clone(),
             }),
-            serde_json::json!({ "count": filtered.len() }),
-            started.elapsed().as_millis(),
-            "ok",
-        );
+            output: serde_json::json!({ "count": filtered.len() }),
+            duration_ms: started.elapsed().as_millis(),
+            status: "ok".into(),
+        });
 
         let started = Instant::now();
         let ranked = rank_base_packs(filtered);
-        run.push_tool_trace(
-            "base-pack loop rank_packs",
-            AgentPhase::BasePackSearch,
+        run.push_tool_trace(AgentToolTrace {
+            event: "base-pack loop rank_packs".into(),
+            stage: AgentPhase::BasePackSearch,
             iteration,
-            "rank_packs",
-            serde_json::json!({ "input_count": ranked.len() }),
-            serde_json::json!({
+            tool: "rank_packs".into(),
+            input: serde_json::json!({ "input_count": ranked.len() }),
+            output: serde_json::json!({
                 "count": ranked.len(),
                 "top": ranked.iter().take(3).map(|c| c.hit.title.clone()).collect::<Vec<_>>()
             }),
-            started.elapsed().as_millis(),
-            "ok",
-        );
+            duration_ms: started.elapsed().as_millis(),
+            status: "ok".into(),
+        });
 
         if !ranked.is_empty() {
             best = ranked.clone();
@@ -620,7 +620,7 @@ fn base_search_mode_label(mode: BaseSearchMode) -> &'static str {
 }
 
 pub(super) fn base_search_has_acceptable_count(count: usize) -> bool {
-    count >= BASE_SEARCH_MIN_CANDIDATES && count <= BASE_SEARCH_MAX_CANDIDATES
+    (BASE_SEARCH_MIN_CANDIDATES..=BASE_SEARCH_MAX_CANDIDATES).contains(&count)
 }
 
 pub(super) fn next_base_search_mode(count: usize) -> BaseSearchMode {

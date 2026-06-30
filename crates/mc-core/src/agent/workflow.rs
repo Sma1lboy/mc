@@ -23,7 +23,7 @@ use crate::modplatform::{
 use super::llm::AgentLlmClient;
 use super::state::{
     AgentExecutionMetadata, AgentExecutionStatus, AgentIntent, AgentIntentKind, AgentMessageKind,
-    AgentPhase, AgentRunSnapshot, AgentStatus, AgentToolSpec, AgentWorkflowKind,
+    AgentPhase, AgentRunSnapshot, AgentStatus, AgentToolSpec, AgentToolTrace, AgentWorkflowKind,
     ApprovalDecisionSpec, ApprovalKind, ApprovalOption, ApprovalRequest, ApprovedModpackBuild,
     BuildRestrictionChange, BuildRestrictionChangeSource, BuildRestrictionPatch, BuildRestrictions,
     ExecutionBlocked, Goal, GoalKind, GoalQuery, GoalStatus, ModPlanState, ModProvenance,
@@ -349,16 +349,16 @@ impl MainAgentRuntime {
                 let output = serde_json::json!({ "manifest": manifest.clone() });
                 let dispatch_phase = run.phase.clone();
                 let mut next = continue_after_execution_manifest_result(run, manifest)?;
-                next.push_tool_trace(
-                    "deterministic verification dispatched",
-                    dispatch_phase,
-                    dispatch_iteration,
-                    "verify_mrpack_artifact",
+                next.push_tool_trace(AgentToolTrace {
+                    event: "deterministic verification dispatched".into(),
+                    stage: dispatch_phase,
+                    iteration: dispatch_iteration,
+                    tool: "verify_mrpack_artifact".into(),
                     input,
                     output,
-                    started.elapsed().as_millis(),
+                    duration_ms: started.elapsed().as_millis(),
                     status,
-                );
+                });
                 dispatch_iteration += 1;
                 retry_count = 0;
                 run = next;
@@ -377,16 +377,16 @@ impl MainAgentRuntime {
             let output = serde_json::json!({ "manifest": manifest.clone() });
             let dispatch_phase = run.phase.clone();
             let mut next = continue_after_execution_manifest_result(run, manifest)?;
-            next.push_tool_trace(
-                "deterministic execution tool dispatched",
-                dispatch_phase,
-                dispatch_iteration,
-                BUILD_MRPACK_ARTIFACT_TOOL,
+            next.push_tool_trace(AgentToolTrace {
+                event: "deterministic execution tool dispatched".into(),
+                stage: dispatch_phase,
+                iteration: dispatch_iteration,
+                tool: BUILD_MRPACK_ARTIFACT_TOOL.into(),
                 input,
                 output,
-                started.elapsed().as_millis(),
+                duration_ms: started.elapsed().as_millis(),
                 status,
-            );
+            });
             dispatch_iteration += 1;
 
             if next.execution.as_ref().map(|execution| &execution.status)
