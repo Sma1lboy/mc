@@ -9,6 +9,29 @@ To cut a release, move the `[Unreleased]` notes into a stamped version section w
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-06-30
+
+### Added
+- Experimental modpack agent (`mc agent`): the customization step now analyzes the chosen base
+  pack's actual mod list and credits the features it already covers, so it only plans the genuine
+  gaps instead of piling redundant mods onto a pack that already fits.
+- A local agent eval harness (`scripts/agent-eval.py`): runs intent/requirement-extraction test
+  cases through a candidate model and scores them with a judge model.
+
+### Changed
+- The agent LLM defaults to `deepseek/deepseek-v4-pro` (override via `MC_AGENT_OPENROUTER_MODEL` /
+  `OPENROUTER_MODEL`).
+- Agent base-pack candidates are ranked by match relevance + popularity rather than smallest
+  archive size, so the obvious popular match is no longer buried.
+- Agent provider calls share a single HTTP client and run with bounded concurrency, plus a
+  run-scoped version-lookup cache.
+
+### Fixed
+- The agent no longer adds a redundant mod for a feature the chosen base pack already provides.
+- Transient `.mrpack` download/checksum failures during agent execution are now retried instead of
+  aborting the whole build.
+- The agent's requirement-normalization schema retry now fires on a real model parse error.
+
 ## [0.1.6] - 2026-06-28
 
 ### Fixed
