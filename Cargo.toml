@@ -17,12 +17,14 @@ repository = "https://github.com/sma1lboy/mc-launcher"
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+schemars = "1"
 thiserror = "2"
 anyhow = "1"
 # 仅启用实际用到的 tokio 功能(替代 "full",缩小二进制):mc-core/cli/desktop 用 sync/fs/
 # io-util/process/time + 运行时;net 仅 mc-server(axum)需要,见其 Cargo.toml 单独追加。
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "fs", "io-util", "process", "time", "net"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream", "gzip", "cookies"] }
+rig-core = { version = "0.39", default-features = false, features = ["derive", "reqwest", "rustls"] }
 futures = "0.3"
 tokio-util = "0.7"
 sha1 = "0.10"

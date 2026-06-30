@@ -1,5 +1,36 @@
 use super::*;
 
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum AgentIntentOutputKind {
+    BuildModpack,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub(super) struct AgentIntentOutput {
+    pub intent: AgentIntentOutputKind,
+    pub confidence: f32,
+    pub rationale: String,
+}
+
+impl AgentIntentOutput {
+    pub(super) fn into_agent_intent(self) -> AgentIntent {
+        AgentIntent {
+            kind: match self.intent {
+                AgentIntentOutputKind::BuildModpack => AgentIntentKind::BuildModpack,
+                AgentIntentOutputKind::Unknown => AgentIntentKind::Unknown,
+            },
+            confidence: self.confidence.clamp(0.0, 1.0),
+            rationale: (!self.rationale.trim().is_empty()).then_some(self.rationale),
+        }
+    }
+}
+
+#[cfg(test)]
 pub(super) fn parse_intent_response(text: &str) -> Option<AgentIntent> {
     let value = parse_first_json_object(text)?;
     let raw = value.get("intent")?.as_str()?;
@@ -21,6 +52,7 @@ pub(super) fn parse_intent_response(text: &str) -> Option<AgentIntent> {
     })
 }
 
+#[cfg(test)]
 pub(super) fn parse_first_json_object(text: &str) -> Option<serde_json::Value> {
     let trimmed = text.trim();
     if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
@@ -58,6 +90,7 @@ pub(super) fn parse_first_json_object(text: &str) -> Option<serde_json::Value> {
     None
 }
 
+#[cfg(test)]
 fn intent_kind(value: &str) -> AgentIntentKind {
     match value.trim().to_ascii_lowercase().as_str() {
         "build_modpack" | "modpack_build" | "create_modpack" => AgentIntentKind::BuildModpack,
@@ -65,10 +98,46 @@ fn intent_kind(value: &str) -> AgentIntentKind {
     }
 }
 
-pub(super) fn parse_approval_decision_response(
+#[derive(Debug, Clone)]
+pub(super) enum ApprovalRoute {
+    Decision(UserDecision),
+    NeedsClarification { reason: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum ApprovalDecisionOutputKind {
+    Approve,
+    Revise,
+    Cancel,
+    NeedsClarification,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub(super) struct ApprovalRouteOutput {
+    pub decision: ApprovalDecisionOutputKind,
+    pub selected_option_id: Option<String>,
+    pub message: Option<String>,
+    pub rationale: String,
+}
+
+impl ApprovalRouteOutput {
+    pub(super) fn into_route(self, approval: &ApprovalRequest) -> Result<ApprovalRoute> {
+        approval_route_from_parts(
+            self.decision,
+            self.selected_option_id,
+            self.message,
+            self.rationale,
+            approval,
+        )
+    }
+}
+
+#[cfg(test)]
+pub(super) fn parse_approval_route_response(
     text: &str,
     approval: &ApprovalRequest,
-) -> Result<UserDecision> {
+) -> Result<ApprovalRoute> {
     let value = parse_first_json_object(text).ok_or_else(|| {
         CoreError::other(format!(
             "could not parse approval decision JSON from model output: {text}"
@@ -80,37 +149,77 @@ pub(super) fn parse_approval_decision_response(
         .map(str::trim)
         .unwrap_or_default()
         .to_ascii_lowercase();
-    let selected_option_id = value
+    let raw_selected_option_id = value
         .get("selected_option_id")
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(ToOwned::to_owned);
-    let message = value
+    let raw_message = value
         .get("message")
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(ToOwned::to_owned);
 
-    let kind = match decision.as_str() {
-        "approve" => UserDecisionKind::Approve,
-        "revise" => UserDecisionKind::Revise,
-        "cancel" => UserDecisionKind::Cancel,
-        "needs_clarification" => {
-            let rationale = value
-                .get("rationale")
-                .and_then(|v| v.as_str())
-                .filter(|s| !s.trim().is_empty())
-                .unwrap_or("approval decision needs clarification");
-            return Err(CoreError::other(format!(
-                "approval decision needs clarification: {rationale}"
-            )));
-        }
+    let decision = match decision.as_str() {
+        "approve" => ApprovalDecisionOutputKind::Approve,
+        "revise" => ApprovalDecisionOutputKind::Revise,
+        "cancel" => ApprovalDecisionOutputKind::Cancel,
+        "needs_clarification" => ApprovalDecisionOutputKind::NeedsClarification,
         other => {
             return Err(CoreError::other(format!(
                 "unsupported approval decision: {other}"
             )));
+        }
+    };
+    let rationale = value
+        .get("rationale")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+
+    approval_route_from_parts(
+        decision,
+        raw_selected_option_id,
+        raw_message,
+        rationale,
+        approval,
+    )
+}
+
+fn approval_route_from_parts(
+    decision: ApprovalDecisionOutputKind,
+    raw_selected_option_id: Option<String>,
+    raw_message: Option<String>,
+    rationale: String,
+    approval: &ApprovalRequest,
+) -> Result<ApprovalRoute> {
+    let selected_option_id = raw_selected_option_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToOwned::to_owned);
+    let message = raw_message
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToOwned::to_owned);
+    let (kind, selected_option_id, message) = match decision {
+        ApprovalDecisionOutputKind::Approve => {
+            (UserDecisionKind::Approve, selected_option_id, None)
+        }
+        ApprovalDecisionOutputKind::Revise => (UserDecisionKind::Revise, None, message),
+        ApprovalDecisionOutputKind::Cancel => (UserDecisionKind::Cancel, None, None),
+        ApprovalDecisionOutputKind::NeedsClarification => {
+            let reason = if rationale.trim().is_empty() {
+                "approval decision needs clarification"
+            } else {
+                rationale.trim()
+            };
+            return Ok(ApprovalRoute::NeedsClarification {
+                reason: reason.to_string(),
+            });
         }
     };
 
@@ -129,164 +238,19 @@ pub(super) fn parse_approval_decision_response(
             )));
         }
     }
-    Ok(decision)
+    Ok(ApprovalRoute::Decision(decision))
 }
 
-pub(super) fn intent_text_format() -> OpenAiTextFormat {
-    OpenAiTextFormat::JsonSchema {
-        name: "agent_intent".to_string(),
-        description: Some("Classifies one Minecraft launcher user request.".to_string()),
-        strict: true,
-        schema: serde_json::json!({
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-                "intent": {
-                    "type": "string",
-                    "enum": [
-                        "build_modpack",
-                        "unknown"
-                    ]
-                },
-                "confidence": {
-                    "type": "number"
-                },
-                "rationale": {
-                    "type": "string"
-                }
-            },
-            "required": ["intent", "confidence", "rationale"]
-        }),
-    }
-}
-
-pub(super) fn approval_decision_text_format() -> OpenAiTextFormat {
-    OpenAiTextFormat::JsonSchema {
-        name: "approval_decision".to_string(),
-        description: Some("Routes a user message to a current HITL approval decision.".to_string()),
-        strict: true,
-        schema: serde_json::json!({
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-                "decision": {
-                    "type": "string",
-                    "enum": ["approve", "revise", "cancel", "needs_clarification"]
-                },
-                "selected_option_id": {
-                    "type": ["string", "null"]
-                },
-                "message": {
-                    "type": ["string", "null"]
-                },
-                "rationale": {
-                    "type": "string"
-                }
-            },
-            "required": ["decision", "selected_option_id", "message", "rationale"]
-        }),
-    }
-}
-
-pub(super) fn requirement_text_format() -> OpenAiTextFormat {
-    OpenAiTextFormat::JsonSchema {
-        name: UPDATE_BUILD_RESTRICTIONS_TOOL.to_string(),
-        description: Some("Tool input for updating typed modpack build restrictions.".to_string()),
-        strict: true,
-        schema: update_build_restrictions_input_schema(),
-    }
-}
-
-pub(super) fn search_query_text_format() -> OpenAiTextFormat {
-    OpenAiTextFormat::JsonSchema {
-        name: "base_modpack_search_queries".to_string(),
-        description: Some(
-            "Search queries for finding existing Minecraft base modpacks.".to_string(),
-        ),
-        strict: true,
-        schema: serde_json::json!({
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-                "queries": {
-                    "type": "array",
-                    "minItems": 2,
-                    "maxItems": 4,
-                    "items": {
-                        "type": "string"
-                    }
-                }
-            },
-            "required": ["queries"]
-        }),
-    }
-}
-
-pub(super) fn mod_query_text_format() -> OpenAiTextFormat {
-    OpenAiTextFormat::JsonSchema {
-        name: "extra_mod_search_queries".to_string(),
-        description: Some(
-            "Search queries for finding existing Minecraft mods to add to a base modpack."
-                .to_string(),
-        ),
-        strict: true,
-        schema: serde_json::json!({
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-                "queries": {
-                    "type": "array",
-                    "minItems": 0,
-                    "maxItems": 4,
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "retain_existing_mods": {
-                    "type": "boolean"
-                },
-                "remove_existing_mod_ids": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                }
-            },
-            "required": ["queries", "retain_existing_mods", "remove_existing_mod_ids"]
-        }),
-    }
-}
-
-pub(super) fn customization_critique_text_format() -> OpenAiTextFormat {
-    OpenAiTextFormat::JsonSchema {
-        name: "customization_self_critique".to_string(),
-        description: Some(
-            "Quality critique for an already tool-validated Minecraft extra-mod plan.".to_string(),
-        ),
-        strict: true,
-        schema: serde_json::json!({
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-                "verdict": {
-                    "type": "string",
-                    "enum": ["pass", "revise"]
-                },
-                "remove_project_ids": {
-                    "type": "array",
-                    "items": { "type": "string" }
-                },
-                "additional_queries": {
-                    "type": "array",
-                    "maxItems": 3,
-                    "items": { "type": "string" }
-                },
-                "rationale": {
-                    "type": "string"
-                }
-            },
-            "required": ["verdict", "remove_project_ids", "additional_queries", "rationale"]
-        }),
+#[cfg(test)]
+pub(super) fn parse_approval_decision_response(
+    text: &str,
+    approval: &ApprovalRequest,
+) -> Result<UserDecision> {
+    match parse_approval_route_response(text, approval)? {
+        ApprovalRoute::Decision(decision) => Ok(decision),
+        ApprovalRoute::NeedsClarification { reason } => Err(CoreError::other(format!(
+            "approval decision needs clarification: {reason}"
+        ))),
     }
 }
 
@@ -296,101 +260,31 @@ pub(super) fn update_build_restrictions_tool_spec() -> AgentToolSpec {
         description:
             "Validate and apply a full replacement patch for typed modpack build restrictions."
                 .to_string(),
-        input_schema: update_build_restrictions_input_schema(),
-        output_schema: update_build_restrictions_output_schema(),
+        input_schema: serde_json::to_value(schemars::schema_for!(UpdateBuildRestrictionsInput))
+            .expect("UpdateBuildRestrictionsInput schema should serialize"),
+        output_schema: serde_json::to_value(schemars::schema_for!(UpdateBuildRestrictionsOutput))
+            .expect("UpdateBuildRestrictionsOutput schema should serialize"),
     }
 }
 
-fn update_build_restrictions_input_schema() -> serde_json::Value {
-    serde_json::json!({
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-            "base_revision": {
-                "type": "integer",
-                "minimum": 0
-            },
-            "patch": build_restriction_patch_schema()
-        },
-        "required": ["base_revision", "patch"]
-    })
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub(super) struct SearchQueryOutput {
+    pub queries: Vec<String>,
 }
 
-fn build_restriction_patch_schema() -> serde_json::Value {
-    serde_json::json!({
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-            "minecraft_version": {
-                "type": ["string", "null"],
-                "description": "Explicit Minecraft version such as 1.20.1, or null when unspecified."
-            },
-            "minecraft_version_requirement": {
-                "type": ["string", "null"],
-                "description": "Raw version requirement text from the user, such as 1.20.1, 1.20.x, <=1.19.x, or null when unspecified."
-            },
-            "loader": {
-                "type": ["string", "null"],
-                "enum": ["fabric", "forge", "neoforge", "quilt", null],
-                "description": "Explicit mod loader, or null when unspecified."
-            },
-            "feature_tags": {
-                "type": "array",
-                "maxItems": 8,
-                "items": {
-                    "type": "string"
-                }
-            },
-            "notes": {
-                "type": ["string", "null"]
-            }
-        },
-        "required": ["minecraft_version", "minecraft_version_requirement", "loader", "feature_tags", "notes"]
-    })
-}
-
-fn update_build_restrictions_output_schema() -> serde_json::Value {
-    serde_json::json!({
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-            "restrictions": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                    "revision": { "type": "integer" },
-                    "minecraft_version": { "type": ["string", "null"] },
-                    "minecraft_version_requirement": { "type": ["string", "null"] },
-                    "loader": {
-                        "type": ["string", "null"],
-                        "enum": ["fabric", "forge", "neoforge", "quilt", null]
-                    },
-                    "feature_tags": {
-                        "type": "array",
-                        "items": { "type": "string" }
-                    },
-                    "notes": { "type": ["string", "null"] }
-                },
-                "required": ["revision", "minecraft_version", "minecraft_version_requirement", "loader", "feature_tags", "notes"]
-            },
-            "missing_fields": {
-                "type": "array",
-                "items": { "type": "string" }
-            },
-            "warnings": {
-                "type": "array",
-                "items": { "type": "string" }
-            }
-        },
-        "required": ["restrictions", "missing_fields", "warnings"]
-    })
-}
-
+#[cfg(test)]
 pub(super) fn search_queries(model_text: &str) -> Result<Vec<String>> {
     let queries = parse_search_query_response(model_text, "base modpack search")?;
     Ok(dedupe_queries(queries).into_iter().take(6).collect())
 }
 
+impl SearchQueryOutput {
+    pub(super) fn into_queries(self, context: &str) -> Result<Vec<String>> {
+        normalize_search_queries(self.queries, context, 4)
+    }
+}
+
+#[cfg(test)]
 fn parse_search_query_response(model_text: &str, context: &str) -> Result<Vec<String>> {
     let value = parse_first_json_object(model_text).ok_or_else(|| {
         CoreError::other(format!(
@@ -404,9 +298,22 @@ fn parse_search_query_response(model_text: &str, context: &str) -> Result<Vec<St
     let queries = raw_queries
         .iter()
         .filter_map(|v| v.as_str())
-        .map(clean_query_text)
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+
+    normalize_search_queries(queries, context, 4)
+}
+
+fn normalize_search_queries(
+    queries: Vec<String>,
+    context: &str,
+    limit: usize,
+) -> Result<Vec<String>> {
+    let queries = queries
+        .into_iter()
+        .map(|q| clean_query_text(&q))
         .filter(|s| is_search_query_text(s))
-        .take(4)
+        .take(limit)
         .collect::<Vec<_>>();
 
     if queries.is_empty() {
@@ -418,6 +325,7 @@ fn parse_search_query_response(model_text: &str, context: &str) -> Result<Vec<St
     Ok(dedupe_queries(queries))
 }
 
+#[cfg(test)]
 pub(super) fn parse_mod_query_response(model_text: &str) -> Result<GeneratedModSearchPlan> {
     let value = parse_first_json_object(model_text).ok_or_else(|| {
         CoreError::other(format!(
@@ -431,9 +339,7 @@ pub(super) fn parse_mod_query_response(model_text: &str) -> Result<GeneratedModS
     let queries = raw_queries
         .iter()
         .filter_map(|v| v.as_str())
-        .map(clean_query_text)
-        .filter(|s| is_search_query_text(s))
-        .take(4)
+        .map(ToOwned::to_owned)
         .collect::<Vec<_>>();
     let remove_existing_mod_ids = value
         .get("remove_existing_mod_ids")
@@ -443,8 +349,6 @@ pub(super) fn parse_mod_query_response(model_text: &str) -> Result<GeneratedModS
         })?
         .iter()
         .filter_map(|v| v.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
         .map(ToOwned::to_owned)
         .collect::<Vec<_>>();
     let retain_existing_mods = value
@@ -454,66 +358,197 @@ pub(super) fn parse_mod_query_response(model_text: &str) -> Result<GeneratedModS
             CoreError::other("extra mod search model output missing retain_existing_mods")
         })?;
 
-    Ok(GeneratedModSearchPlan {
-        model: String::new(),
+    Ok(normalize_mod_query_output(
+        queries,
+        retain_existing_mods,
+        remove_existing_mod_ids,
+    ))
+}
+
+#[cfg(test)]
+fn normalize_mod_query_output(
+    queries: Vec<String>,
+    retain_existing_mods: bool,
+    remove_existing_mod_ids: Vec<String>,
+) -> GeneratedModSearchPlan {
+    let queries = queries
+        .into_iter()
+        .map(|q| clean_query_text(&q))
+        .filter(|s| is_search_query_text(s))
+        .take(4)
+        .collect::<Vec<_>>();
+    let remove_existing_mod_ids = remove_existing_mod_ids
+        .into_iter()
+        .map(|id| id.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>();
+
+    GeneratedModSearchPlan {
         queries: dedupe_queries(queries),
         retain_existing_mods,
         remove_existing_mod_ids,
-    })
+    }
 }
 
-pub(super) fn parse_customization_critique_response(
-    model_text: &str,
-) -> Result<GeneratedCustomizationCritique> {
-    let value = parse_first_json_object(model_text).ok_or_else(|| {
-        CoreError::other(format!(
-            "could not parse customization critique JSON from model output: {model_text}"
+#[cfg(test)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum CustomizationCritiqueVerdictOutput {
+    Pass,
+    Revise,
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub(super) struct CustomizationCritiqueOutput {
+    pub verdict: CustomizationCritiqueVerdictOutput,
+    pub remove_project_ids: Vec<String>,
+    pub additional_queries: Vec<String>,
+    pub rationale: String,
+}
+
+#[cfg(test)]
+impl CustomizationCritiqueOutput {
+    pub(super) fn into_critique(self) -> Result<GeneratedCustomizationCritique> {
+        Ok(normalize_customization_critique_output(
+            self.verdict,
+            self.remove_project_ids,
+            self.additional_queries,
+            self.rationale,
         ))
-    })?;
-    let verdict = match value.get("verdict").and_then(|v| v.as_str()) {
-        Some("pass") => CustomizationCritiqueVerdict::Pass,
-        Some("revise") => CustomizationCritiqueVerdict::Revise,
-        Some(other) => {
-            return Err(CoreError::other(format!(
-                "unsupported customization critique verdict: {other}"
-            )));
-        }
-        None => return Err(CoreError::other("customization critique missing verdict")),
+    }
+}
+
+#[cfg(test)]
+fn normalize_customization_critique_output(
+    verdict: CustomizationCritiqueVerdictOutput,
+    remove_project_ids: Vec<String>,
+    additional_queries: Vec<String>,
+    rationale: String,
+) -> GeneratedCustomizationCritique {
+    let verdict = match verdict {
+        CustomizationCritiqueVerdictOutput::Pass => CustomizationCritiqueVerdict::Pass,
+        CustomizationCritiqueVerdictOutput::Revise => CustomizationCritiqueVerdict::Revise,
     };
-    let remove_project_ids = value
-        .get("remove_project_ids")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| CoreError::other("customization critique missing remove_project_ids[]"))?
-        .iter()
-        .filter_map(|v| v.as_str())
-        .map(str::trim)
+    let remove_project_ids = remove_project_ids
+        .into_iter()
+        .map(|id| id.trim().to_string())
         .filter(|s| !s.is_empty())
-        .map(ToOwned::to_owned)
         .collect::<Vec<_>>();
-    let additional_queries = value
-        .get("additional_queries")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| CoreError::other("customization critique missing additional_queries[]"))?
-        .iter()
-        .filter_map(|v| v.as_str())
-        .map(clean_query_text)
+    let additional_queries = additional_queries
+        .into_iter()
+        .map(|q| clean_query_text(&q))
         .filter(|s| is_search_query_text(s))
         .take(3)
         .collect::<Vec<_>>();
-    let rationale = value
-        .get("rationale")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .trim()
-        .to_string();
 
-    Ok(GeneratedCustomizationCritique {
-        model: String::new(),
+    GeneratedCustomizationCritique {
         verdict,
         remove_project_ids,
         additional_queries: dedupe_queries(additional_queries),
-        rationale,
-    })
+        rationale: rationale.trim().to_string(),
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub(super) struct ModPlanStep {
+    #[serde(default)]
+    pub selections: Vec<ModSelection>,
+    #[serde(default)]
+    pub removals: Vec<String>,
+    #[serde(default)]
+    pub next_queries: Vec<GoalQuery>,
+    pub control: ModPlanControl,
+    pub rationale: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub(super) struct ModSelection {
+    pub goal_id: String,
+    pub project_id: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum ModPlanControl {
+    Continue,
+    Done,
+}
+
+impl ModPlanStep {
+    pub(super) fn normalized(
+        self,
+        candidate_project_ids: &HashSet<String>,
+        goal_ids: &HashSet<String>,
+    ) -> Self {
+        let mut seen_selections = HashSet::new();
+        let selections = self
+            .selections
+            .into_iter()
+            .map(|selection| ModSelection {
+                goal_id: selection.goal_id.trim().to_string(),
+                project_id: selection.project_id.trim().to_string(),
+            })
+            .filter(|selection| {
+                !selection.goal_id.is_empty()
+                    && !selection.project_id.is_empty()
+                    && goal_ids.contains(&selection.goal_id)
+                    && candidate_project_ids.contains(&selection.project_id)
+                    && seen_selections
+                        .insert((selection.goal_id.clone(), selection.project_id.clone()))
+            })
+            .collect();
+
+        let mut seen_removals = HashSet::new();
+        let removals = self
+            .removals
+            .into_iter()
+            .map(|id| id.trim().to_string())
+            .filter(|id| !id.is_empty() && seen_removals.insert(id.clone()))
+            .collect();
+
+        let mut seen_queries = HashSet::new();
+        let next_queries = self
+            .next_queries
+            .into_iter()
+            .filter_map(|query| {
+                let goal_id = query.goal_id.trim().to_string();
+                let query_text = clean_mod_query_text(&query.query);
+                if goal_id.is_empty()
+                    || !goal_ids.contains(&goal_id)
+                    || !is_search_query_text(&query_text)
+                {
+                    return None;
+                }
+                let key = (goal_id.clone(), query_text.to_ascii_lowercase());
+                if !seen_queries.insert(key) {
+                    return None;
+                }
+                Some(GoalQuery {
+                    goal_id,
+                    query: query_text,
+                })
+            })
+            .take(6)
+            .collect();
+
+        Self {
+            selections,
+            removals,
+            next_queries,
+            control: self.control,
+            rationale: self.rationale.trim().to_string(),
+        }
+    }
+}
+
+pub(super) fn normalize_mod_search_query(text: &str) -> Option<String> {
+    let query = clean_mod_query_text(text);
+    if is_search_query_text(&query) {
+        Some(query)
+    } else {
+        None
+    }
 }
 
 fn clean_query_text(text: &str) -> String {
@@ -534,6 +569,159 @@ fn clean_query_text(text: &str) -> String {
         }
     }
     trimmed.trim_matches('"').to_string()
+}
+
+fn clean_mod_query_text(text: &str) -> String {
+    let mut query = clean_query_text(text);
+    if query.trim().is_empty() {
+        return query;
+    }
+
+    let lower = query.to_ascii_lowercase();
+    if lower.contains("immersive portals") {
+        return "Immersive Portals".to_string();
+    }
+
+    query = truncate_before_case_insensitive(
+        &query,
+        &[
+            ", if ",
+            " if compatible",
+            " compatible with ",
+            " compatibility with ",
+            " compatible for ",
+            " compatibility for ",
+        ],
+    );
+    query = strip_known_prefixes(
+        &query,
+        &[
+            "please search again and add ",
+            "please search for ",
+            "please add ",
+            "search again for ",
+            "search for ",
+            "add ",
+            "find ",
+            "include ",
+        ],
+    );
+    query = strip_known_suffixes(
+        &query,
+        &[
+            " to the extra mods",
+            " to extra mods",
+            " extra mods",
+            " extra mod",
+            " mod set",
+            " mods",
+            " mod",
+        ],
+    );
+
+    let tokens = query
+        .split(|c: char| !(c.is_alphanumeric() || c == '\'' || c == '-'))
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .filter(|token| !is_mod_query_noise_token(token))
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+
+    if tokens.is_empty() {
+        return String::new();
+    }
+
+    let joined = tokens.join(" ");
+    let lower_joined = joined.to_ascii_lowercase();
+    if lower_joined.contains("quality of life") {
+        return "quality of life".to_string();
+    }
+    if lower_joined.contains("realistic portals") {
+        return "realistic portals".to_string();
+    }
+
+    tokens.into_iter().take(5).collect::<Vec<_>>().join(" ")
+}
+
+fn truncate_before_case_insensitive(text: &str, needles: &[&str]) -> String {
+    let lower = text.to_ascii_lowercase();
+    let cut = needles
+        .iter()
+        .filter_map(|needle| lower.find(needle))
+        .min()
+        .unwrap_or(text.len());
+    text[..cut].trim().to_string()
+}
+
+fn strip_known_prefixes(text: &str, prefixes: &[&str]) -> String {
+    let mut out = text.trim().to_string();
+    loop {
+        let lower = out.to_ascii_lowercase();
+        let Some(prefix) = prefixes
+            .iter()
+            .find(|prefix| lower.starts_with(**prefix))
+            .copied()
+        else {
+            break;
+        };
+        out = out[prefix.len()..].trim().to_string();
+    }
+    out
+}
+
+fn strip_known_suffixes(text: &str, suffixes: &[&str]) -> String {
+    let mut out = text.trim().trim_end_matches('.').trim().to_string();
+    loop {
+        let lower = out.to_ascii_lowercase();
+        let Some(suffix) = suffixes
+            .iter()
+            .find(|suffix| lower.ends_with(**suffix))
+            .copied()
+        else {
+            break;
+        };
+        let keep = out.len().saturating_sub(suffix.len());
+        out = out[..keep].trim().trim_end_matches(',').trim().to_string();
+    }
+    out
+}
+
+fn is_mod_query_noise_token(token: &str) -> bool {
+    let lower = token.to_ascii_lowercase();
+    if lower.chars().any(|c| c.is_ascii_digit())
+        && lower
+            .chars()
+            .all(|c| c.is_ascii_digit() || c == '.' || c == 'x')
+    {
+        return true;
+    }
+    matches!(
+        lower.as_str(),
+        "fabric"
+            | "forge"
+            | "quilt"
+            | "neoforge"
+            | "minecraft"
+            | "mc"
+            | "modrinth"
+            | "compatible"
+            | "compatibility"
+            | "current"
+            | "selected"
+            | "base"
+            | "pack"
+            | "loader"
+            | "version"
+            | "versions"
+            | "with"
+            | "for"
+            | "to"
+            | "the"
+            | "and"
+            | "if"
+            | "it"
+            | "is"
+    )
 }
 
 fn is_search_query_text(text: &str) -> bool {

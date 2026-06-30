@@ -9,12 +9,12 @@ pub(super) fn requirements_approval(
     ApprovalRequest {
         id: crate::agent::state::new_id("approval"),
         kind: ApprovalKind::ConfigureRequirements,
-        title: "确认整合包规格".to_string(),
+        title: "Confirm modpack requirements".to_string(),
         message: if missing.is_empty() {
-            "检查 Minecraft version、loader 和需求 tags；确认后进入底包搜索。".to_string()
+            "Review the Minecraft version, loader, and requirement tags. Base-pack search starts after confirmation.".to_string()
         } else {
             format!(
-                "检查已整理的需求 tags。当前缺少: {}；可以补充，也可以作为宽泛需求继续搜索。",
+                "Review the normalized requirement tags. Missing: {}. You can add details, or continue with broader search constraints.",
                 missing_fields_label(missing)
             )
         },
@@ -34,19 +34,19 @@ fn requirement_decisions() -> Vec<ApprovalDecisionSpec> {
     vec![
         ApprovalDecisionSpec {
             kind: UserDecisionKind::Approve,
-            label: "确认并继续".to_string(),
+            label: "Confirm and continue".to_string(),
             requires_selected_option: true,
             requires_message: false,
         },
         ApprovalDecisionSpec {
             kind: UserDecisionKind::Revise,
-            label: "补充或修改规格".to_string(),
+            label: "Add or change requirements".to_string(),
             requires_selected_option: false,
             requires_message: true,
         },
         ApprovalDecisionSpec {
             kind: UserDecisionKind::Cancel,
-            label: "取消".to_string(),
+            label: "Cancel".to_string(),
             requires_selected_option: false,
             requires_message: false,
         },
@@ -120,8 +120,11 @@ pub(super) fn requirement_label(restrictions: &BuildRestrictions) -> String {
     let mc = restrictions
         .minecraft_version
         .as_deref()
-        .unwrap_or("未选择 Minecraft version");
-    let loader = restrictions.loader.as_deref().unwrap_or("未选择 loader");
+        .unwrap_or("Minecraft version not selected");
+    let loader = restrictions
+        .loader
+        .as_deref()
+        .unwrap_or("loader not selected");
     format!("{loader} / {mc}")
 }
 
@@ -140,7 +143,7 @@ fn missing_fields_label(fields: &[String]) -> String {
 fn requirement_description(output: &UpdateBuildRestrictionsOutput) -> String {
     let restrictions = &output.restrictions;
     let tags = if restrictions.feature_tags.is_empty() {
-        "无额外 tags".to_string()
+        "no extra tags".to_string()
     } else {
         restrictions.feature_tags.join(", ")
     };
@@ -148,13 +151,13 @@ fn requirement_description(output: &UpdateBuildRestrictionsOutput) -> String {
     let warnings = if output.warnings.is_empty() {
         String::new()
     } else {
-        format!("；warning: {}", output.warnings.join(", "))
+        format!("; warning: {}", output.warnings.join(", "))
     };
     if missing.is_empty() {
-        format!("需求 tags: {tags}{warnings}")
+        format!("Requirement tags: {tags}{warnings}")
     } else {
         format!(
-            "需求 tags: {tags}；缺少: {}{warnings}",
+            "Requirement tags: {tags}; missing: {}{warnings}",
             missing_fields_label(missing)
         )
     }
@@ -162,7 +165,7 @@ fn requirement_description(output: &UpdateBuildRestrictionsOutput) -> String {
 
 pub(super) fn requirement_summary_message(output: &UpdateBuildRestrictionsOutput) -> String {
     format!(
-        "已整理整合包规格: {}。{}",
+        "Prepared modpack requirements: {}. {}",
         requirement_label(&output.restrictions),
         requirement_description(output)
     )
@@ -177,15 +180,16 @@ pub(super) fn requirements_plan(
     ModpackAgentPlan {
         objective: user_prompt.to_string(),
         summary_markdown: format!(
-            "规格确认:\n- {}\n- {}\n\n确认后才会搜索底包。",
+            "Requirements confirmation:\n- {}\n- {}\n\nBase-pack search starts only after confirmation.",
             requirement_label(restrictions),
             requirement_description(output)
         ),
         risks: if missing.is_empty() {
-            vec!["规格确认前不会 search/import/install/write。".to_string()]
+            vec!["No search/import/install/write work runs before requirements are confirmed."
+                .to_string()]
         } else {
             vec![format!(
-                "缺少规格: {}；确认后会按宽泛需求搜索，兼容过滤会相应放宽。",
+                "Missing requirements: {}. If confirmed, search continues with broader constraints and relaxed compatibility filters.",
                 missing_fields_label(missing)
             )]
         },
@@ -228,22 +232,14 @@ pub(super) fn base_pack_selection_approval(
     ApprovalRequest {
         id: crate::agent::state::new_id("approval"),
         kind: ApprovalKind::ChooseBasePack,
-        title: if candidates.is_empty() {
-            "没有找到合适底包".to_string()
-        } else {
-            "选择基础整合包".to_string()
-        },
+        title: "Choose a base modpack or start from scratch".to_string(),
         message: if candidates.is_empty() {
-            "当前搜索没有返回候选。请修改版本、loader 或需求 tags 后重新搜索。".to_string()
+            "The current search returned no existing base-pack candidates. Start from scratch, or change the version, loader, or requirement tags and search again.".to_string()
         } else {
-            "先选一个现成整合包作为底座；下一步再基于它的版本和 loader 搜索补充 mods。".to_string()
+            "Choose an existing modpack as the base, or start from scratch with an empty mod set. The next step plans compatible mods for the confirmed target.".to_string()
         },
         options: approval_options(candidates),
-        available_decisions: if candidates.is_empty() {
-            revise_cancel_decisions("重新搜索底包")
-        } else {
-            approval_decisions("选择该底包", "重新搜索底包")
-        },
+        available_decisions: approval_decisions("Choose this option", "Search base packs again"),
         tools: vec![update_build_restrictions_tool_spec()],
         plan: Some(plan),
     }
@@ -268,24 +264,7 @@ pub(super) fn approval_decisions(
         },
         ApprovalDecisionSpec {
             kind: UserDecisionKind::Cancel,
-            label: "取消".to_string(),
-            requires_selected_option: false,
-            requires_message: false,
-        },
-    ]
-}
-
-pub(super) fn revise_cancel_decisions(revise_label: &str) -> Vec<ApprovalDecisionSpec> {
-    vec![
-        ApprovalDecisionSpec {
-            kind: UserDecisionKind::Revise,
-            label: revise_label.to_string(),
-            requires_selected_option: false,
-            requires_message: true,
-        },
-        ApprovalDecisionSpec {
-            kind: UserDecisionKind::Cancel,
-            label: "取消".to_string(),
+            label: "Cancel".to_string(),
             requires_selected_option: false,
             requires_message: false,
         },
@@ -293,7 +272,9 @@ pub(super) fn revise_cancel_decisions(revise_label: &str) -> Vec<ApprovalDecisio
 }
 
 fn approval_options(candidates: &[BasePackCandidate]) -> Vec<ApprovalOption> {
-    candidates.iter().map(candidate_option).collect::<Vec<_>>()
+    let mut options = candidates.iter().map(candidate_option).collect::<Vec<_>>();
+    options.push(scratch_base_pack_option());
+    options
 }
 
 pub(super) fn approved_build_from_payload(

@@ -16,18 +16,20 @@ use crate::modpack::export::modrinth::host_in_whitelist;
 use crate::modplatform::dependency::{resolve_dependencies, ModRef};
 use crate::modplatform::provider::ProviderRegistry;
 use crate::modplatform::{
-    Dependency, ProjectSideSupport, ProviderId, ResolvedFile, ResourceKind, SearchHit, SearchQuery,
-    SortMethod, VersionFile,
+    ProjectSideSupport, ProviderId, ResolvedFile, ResourceKind, SearchHit, SearchQuery, SortMethod,
+    VersionFile,
 };
 
-use super::openai::{OpenAiClient, OpenAiTextFormat, OpenAiTextRequest};
+use super::llm::AgentLlmClient;
 use super::state::{
     AgentExecutionMetadata, AgentExecutionStatus, AgentIntent, AgentIntentKind, AgentMessageKind,
     AgentPhase, AgentRunSnapshot, AgentStatus, AgentToolSpec, AgentToolTrace, AgentWorkflowKind,
     ApprovalDecisionSpec, ApprovalKind, ApprovalOption, ApprovalRequest, ApprovedModpackBuild,
     BuildRestrictionChange, BuildRestrictionChangeSource, BuildRestrictionPatch, BuildRestrictions,
-    ExecutionBlocked, ModpackAgentPlan, PlanArtifact, PlanReplanRequest, PlannedAction,
-    UpdateBuildRestrictionsInput, UpdateBuildRestrictionsOutput, UserDecision, UserDecisionKind,
+    ExecutionBlocked, Goal, GoalKind, GoalQuery, GoalStatus, ModPlanState, ModProvenance,
+    ModpackAgentPlan, PlanArtifact, PlanReplanRequest, PlannedAction, ResolvedMod,
+    TargetCompatibility, UpdateBuildRestrictionsInput, UpdateBuildRestrictionsOutput, UserDecision,
+    UserDecisionKind,
 };
 
 mod approvals;
@@ -41,9 +43,10 @@ mod requirements;
 
 use artifacts::{
     attach_base_pack_resolution, candidate_option, customization_approval,
-    customization_approval_with_validation, json_str_or, mrpack_file_payload_with_filename,
-    project_url, provider_label, provider_slug, safe_provider_filename,
-    scratch_fallback_unavailable_plan, selection_plan, source_ref_payload, version_file_payload,
+    customization_approval_with_validation, json_str_or, mod_payload,
+    mrpack_file_payload_with_filename, project_url, provider_label, provider_slug,
+    safe_provider_filename, scratch_base_pack_option, scratch_base_pack_payload,
+    scratch_build_plan, selection_plan, source_ref_payload, version_file_payload,
     version_file_with_project_side,
 };
 
@@ -51,37 +54,54 @@ use approvals::{
     approval_decisions, approved_build_from_payload, base_pack_selection_approval,
     missing_restriction_fields, requirement_label, requirement_summary_message,
     requirements_approval, requirements_plan, restrictions_from_requirement_payload,
-    revise_cancel_decisions,
 };
 #[cfg(test)]
-use artifacts::{mod_payload, mrpack_file_payload, resolved_mod_payload};
+use artifacts::{mrpack_file_payload, resolved_mod_payload};
 use base_modlist::{fetch_base_modlist_cache, mod_ref_payloads};
 #[cfg(test)]
 use base_search::{base_search_has_acceptable_count, next_base_search_mode};
 use base_search::{
     block_base_pack_planning, continue_after_base_pack_choice, continue_after_base_pack_feedback,
-    continue_to_base_pack_search, recover_unimplemented_scratch_fallback,
+    continue_to_base_pack_search,
 };
 #[cfg(test)]
 use customization::customization_blockers;
 #[cfg(test)]
 use customization::remove_existing_mod_payloads;
+#[cfg(test)]
+use customization::{
+    append_dependency_resolution, apply_mod_plan_step, baseline_mod_refs,
+    fallback_mod_search_queries, initialize_mod_plan_state, merge_feedback_into_mod_plan,
+    prefilter_mod_candidates, unresolved_mod_plan_goals,
+};
 use customization::{
     block_customization_planning, continue_after_customization_confirmation,
     continue_after_customization_feedback, infer_base_pack_compatibility,
     run_customization_planning_loop,
 };
+#[cfg(test)]
+use llm_io::parse_approval_decision_response;
+#[cfg(test)]
+use llm_io::ApprovalDecisionOutputKind;
+#[cfg(test)]
+use llm_io::CustomizationCritiqueOutput;
+#[cfg(test)]
+use llm_io::CustomizationCritiqueVerdictOutput;
+#[cfg(test)]
+use llm_io::ModSelection;
 use llm_io::{
-    approval_decision_text_format, customization_critique_text_format, dedupe_queries,
-    intent_text_format, mod_query_text_format, parse_approval_decision_response,
-    parse_customization_critique_response, parse_intent_response, parse_mod_query_response,
-    requirement_text_format, search_queries, search_query_text_format,
-    update_build_restrictions_tool_spec,
+    dedupe_queries, normalize_mod_search_query, update_build_restrictions_tool_spec,
+    AgentIntentOutput, ApprovalRoute, ApprovalRouteOutput, ModPlanControl, ModPlanStep,
+    SearchQueryOutput,
 };
 #[cfg(test)]
+use llm_io::{parse_intent_response, parse_mod_query_response, search_queries};
+#[cfg(test)]
 use requirements::{
-    apply_requirements_replan, parse_restriction_update_response,
-    restriction_update_request_payload,
+    apply_requirements_replan, invalidation_rule_for_changed_field,
+    normalize_restriction_update_input, parse_restriction_update_response,
+    restriction_update_request_payload, target_phase_for_changed_field,
+    validate_restriction_update_retry, ALL_CHANGED_FIELDS,
 };
 use requirements::{
     changed_restriction_field, continue_after_requirements_confirmation,
@@ -94,12 +114,12 @@ use base_modlist::{
     base_modlist_cache_from_archive_bytes, ensure_base_archive_size, parse_base_modlist,
 };
 
+use execution::verify_written_mrpack;
 pub use execution::{
     build_mrpack_from_base_archive_bytes, compile_mrpack_execution_metadata,
     continue_after_execution_manifest_result, execute_mrpack_build_to_path, MrpackExecutionBuild,
     MrpackOverrideFile,
 };
-use execution::verify_written_mrpack;
 
 const UPDATE_BUILD_RESTRICTIONS_TOOL: &str = "update_build_restrictions";
 const BUILD_MRPACK_ARTIFACT_TOOL: &str = "build_mrpack_artifact";
@@ -107,7 +127,7 @@ const BASE_SEARCH_MAX_ITERATIONS: u32 = 4;
 const BASE_SEARCH_MIN_CANDIDATES: usize = 3;
 const BASE_SEARCH_MAX_CANDIDATES: usize = 12;
 const BASE_SEARCH_APPROVAL_LIMIT: usize = 6;
-const CUSTOMIZATION_MAX_ITERATIONS: u32 = 5;
+const MOD_PLAN_ROUND_CAP: u32 = 6;
 const BASE_ARCHIVE_FETCH_TIMEOUT: Duration = Duration::from_secs(25);
 const MAX_BASE_ARCHIVE_BYTES: usize = 128 * 1024 * 1024;
 const MAX_BASE_MANIFEST_BYTES: u64 = 4 * 1024 * 1024;
@@ -168,25 +188,15 @@ Do not include generic words like "Minecraft", "modpack", "base pack", or "pack"
 Prefer mature base modpacks. Build-from-scratch is not available in this workflow yet.
 Return an object matching the provided schema."#;
 
-const CUSTOMIZATION_QUERY_PROMPT: &str = r#"You are planning the extra-mod search step for a Minecraft modpack build workflow.
-Return short English search queries for existing Minecraft mods to add on top of the selected base modpack.
-Focus on user-requested features that are missing or underrepresented in the base modpack.
-Use the selected base pack title and description to avoid searching for features already covered by the base pack.
-Return canonical project names or short feature phrases.
-Prefer names users and mod platforms would actually use in project titles.
-Do not include Minecraft versions, loader names, provider names, or generic words like "Minecraft" and "mod"; compatibility is applied by tool filters.
-Do not search for base modpacks.
-Use retain_existing_mods=true when the user is adding or refining requirements and existing suggested mods should remain.
-Use retain_existing_mods=false when the user asks to replace, restart, remove all, or otherwise discard the current suggested mods.
-When the user asks to remove specific existing mods, keep retain_existing_mods=true and put those existing project ids in remove_existing_mod_ids.
-Return an object matching the provided schema."#;
-
-const CUSTOMIZATION_SELF_CRITIQUE_PROMPT: &str = r#"Review the already tool-validated extra-mod plan.
-The deterministic tools have already checked Minecraft version, loader, dependency resolution, and hard conflicts.
-You may only judge quality fit and obvious overreach against the user's requirements.
-Return pass when the plan is coherent enough for human approval.
-Return revise only when a candidate should be removed or another short search query should be tried.
-Do not claim compatibility facts that are not in the input.
+const MOD_PLAN_STEP_PROMPT: &str = r#"You are planning a compatible Minecraft mod set.
+The runtime has already searched provider candidates and filtered obvious duplicates.
+Select only project_id values from the provided candidate pool. Do not invent URLs, version ids, filenames, hashes, or environment metadata.
+Use selections to cover open goals, removals to drop unwanted current additions, next_queries for the next deterministic search round, and control=done only when the current set is coherent enough for the final human approval gate.
+When candidate_pool is empty or insufficient, next_queries must be short provider search terms: canonical mod/project names or 2-5 keyword phrases.
+Do not put Minecraft versions, loader names, the selected base-pack name, "compatible with", "Modrinth", or sentence-style requirements in next_queries.query; those constraints are already applied by deterministic filters.
+Prefer "Immersive Portals" over "Immersive Portals Fabric 1.20.1 compatibility with SpaceCraft Pluto".
+Use multiple short queries instead of one long query that combines compatibility and theme constraints.
+When no candidates are available for an open goal after short searches, explain the likely unresolved reason in rationale so it can be shown to the user; do not silently mark that goal covered.
 Return an object matching the provided schema."#;
 
 /// Thin top-level agent facade.
@@ -195,15 +205,15 @@ Return an object matching the provided schema."#;
 /// capabilities should be added here as routed subworkflows/tools instead of
 /// expanding one large "agent loop".
 pub struct MainAgentRuntime {
-    openai: OpenAiClient,
+    llm: AgentLlmClient,
     modpack_build: ModpackBuildWorkflow,
 }
 
 impl MainAgentRuntime {
-    pub fn new(openai: OpenAiClient) -> Self {
+    pub fn new(llm: AgentLlmClient) -> Self {
         Self {
-            modpack_build: ModpackBuildWorkflow::new(openai.clone()),
-            openai,
+            modpack_build: ModpackBuildWorkflow::new(llm.clone()),
+            llm,
         }
     }
 
@@ -249,12 +259,22 @@ impl MainAgentRuntime {
         user_message: &str,
     ) -> Result<AgentRunSnapshot> {
         let approval = pending_approval(&run)?;
-        let decision = self
+        let route = self
             .route_approval_decision(&approval, user_message)
             .await?;
-        let mut next = self.continue_modpack_build(run, decision).await?;
-        next.push_trace("main agent routed natural-language approval message");
-        Ok(next)
+        match route {
+            ApprovalRoute::Decision(decision) => {
+                let mut next = self.continue_modpack_build(run, decision).await?;
+                next.push_trace("main agent routed natural-language approval message");
+                Ok(next)
+            }
+            ApprovalRoute::NeedsClarification { reason } => Ok(clarify_pending_approval_input(
+                run,
+                &approval,
+                user_message,
+                &reason,
+            )),
+        }
     }
 
     /// Drive deterministic runtime work after planning has reached an execution
@@ -402,50 +422,74 @@ impl MainAgentRuntime {
     }
 
     async fn classify_intent(&self, user_prompt: &str) -> Result<AgentIntent> {
-        let response = self
-            .openai
-            .complete(&OpenAiTextRequest {
-                instructions: vec![
-                    MAIN_AGENT_SYSTEM_PROMPT.to_string(),
-                    INTENT_ROUTING_PROMPT.to_string(),
-                ],
-                input: user_prompt.to_string(),
-                max_output_tokens: Some(180),
-                temperature: Some(0.0),
-                text_format: Some(intent_text_format()),
-            })
+        let output = self
+            .llm
+            .prompt_typed::<AgentIntentOutput>(
+                &[MAIN_AGENT_SYSTEM_PROMPT, INTENT_ROUTING_PROMPT],
+                user_prompt.to_string(),
+                180,
+                0.0,
+            )
             .await?;
-        parse_intent_response(&response.text).ok_or_else(|| {
-            CoreError::other(format!(
-                "could not classify user intent from model output: {}",
-                response.text
-            ))
-        })
+        Ok(output.into_agent_intent())
     }
 
     async fn route_approval_decision(
         &self,
         approval: &ApprovalRequest,
         user_message: &str,
-    ) -> Result<UserDecision> {
-        let response = self
-            .openai
-            .complete(&OpenAiTextRequest {
-                instructions: vec![
-                    MAIN_AGENT_SYSTEM_PROMPT.to_string(),
-                    APPROVAL_DECISION_ROUTING_PROMPT.to_string(),
-                ],
-                input: serde_json::json!({
+    ) -> Result<ApprovalRoute> {
+        let output = self
+            .llm
+            .prompt_typed::<ApprovalRouteOutput>(
+                &[MAIN_AGENT_SYSTEM_PROMPT, APPROVAL_DECISION_ROUTING_PROMPT],
+                serde_json::json!({
                     "pending_approval": approval,
                     "latest_user_message": user_message,
                 })
                 .to_string(),
-                max_output_tokens: Some(260),
-                temperature: Some(0.0),
-                text_format: Some(approval_decision_text_format()),
-            })
+                260,
+                0.0,
+            )
             .await?;
-        parse_approval_decision_response(&response.text, approval)
+        output.into_route(approval)
+    }
+}
+
+fn clarify_pending_approval_input(
+    mut run: AgentRunSnapshot,
+    approval: &ApprovalRequest,
+    user_message: &str,
+    reason: &str,
+) -> AgentRunSnapshot {
+    run.status = AgentStatus::WaitingForUser;
+    run.push_message(AgentMessageKind::User, user_message.trim());
+    run.push_message(
+        AgentMessageKind::Assistant,
+        approval_clarification_message(approval),
+    );
+    run.push_trace(format!(
+        "approval message needed clarification at {}: {}",
+        approval_kind_context_label(&approval.kind),
+        reason.trim()
+    ));
+    run
+}
+
+fn approval_clarification_message(approval: &ApprovalRequest) -> String {
+    format!(
+        "That reply does not match the current {} approval gate. The session state was left unchanged. Choose or confirm an available option, describe the change you want, or cancel.",
+        approval_kind_context_label(&approval.kind)
+    )
+}
+
+fn approval_kind_context_label(kind: &ApprovalKind) -> &'static str {
+    match kind {
+        ApprovalKind::ConfigureRequirements => "requirements confirmation",
+        ApprovalKind::ChooseBasePack => "base pack selection",
+        ApprovalKind::ConfirmCustomization => "customization confirmation",
+        ApprovalKind::ConfirmScratchFallback => "scratch build confirmation",
+        ApprovalKind::ReviewDraftPlan => "draft plan review",
     }
 }
 
@@ -557,12 +601,12 @@ pub(super) fn build_mrpack_artifact_tool_spec() -> AgentToolSpec {
 /// Interruptible subworkflow for building a modpack from a natural-language
 /// request. It owns planning and HITL gates, not final import/install/export.
 pub struct ModpackBuildWorkflow {
-    openai: OpenAiClient,
+    llm: AgentLlmClient,
 }
 
 impl ModpackBuildWorkflow {
-    pub fn new(openai: OpenAiClient) -> Self {
-        Self { openai }
+    pub fn new(llm: AgentLlmClient) -> Self {
+        Self { llm }
     }
 
     pub async fn start(&self, user_prompt: &str) -> Result<AgentRunSnapshot> {
@@ -578,7 +622,7 @@ impl ModpackBuildWorkflow {
 
         let current = BuildRestrictions::default();
         let generated = generate_restriction_update(
-            &self.openai,
+            &self.llm,
             user_prompt,
             &current,
             user_prompt,
@@ -617,7 +661,7 @@ impl ModpackBuildWorkflow {
         run.push_message(AgentMessageKind::User, user_prompt);
         run.push_trace("created run");
 
-        continue_to_base_pack_search(&self.openai, run).await
+        continue_to_base_pack_search(&self.llm, run).await
     }
 
     /// Continue from a saved waiting snapshot.
@@ -646,7 +690,7 @@ impl ModpackBuildWorkflow {
                         .ok_or_else(|| {
                             CoreError::other("revise decision requires a feedback message")
                         })?;
-                    return continue_after_requirements_feedback(&self.openai, run, feedback).await;
+                    return continue_after_requirements_feedback(&self.llm, run, feedback).await;
                 }
                 if decision.kind != UserDecisionKind::Approve {
                     return Err(CoreError::other(
@@ -655,7 +699,7 @@ impl ModpackBuildWorkflow {
                 }
                 let selected =
                     selected_approval_option(&approval, &decision, "configure_requirements")?;
-                continue_after_requirements_confirmation(&self.openai, run, selected).await
+                continue_after_requirements_confirmation(&self.llm, run, selected).await
             }
             ApprovalKind::ChooseBasePack | ApprovalKind::ConfirmScratchFallback => {
                 if decision.kind == UserDecisionKind::Revise {
@@ -667,7 +711,7 @@ impl ModpackBuildWorkflow {
                         .ok_or_else(|| {
                             CoreError::other("revise decision requires a feedback message")
                         })?;
-                    return continue_after_base_pack_feedback(&self.openai, run, feedback).await;
+                    return continue_after_base_pack_feedback(&self.llm, run, feedback).await;
                 }
                 if decision.kind != UserDecisionKind::Approve {
                     return Err(CoreError::other(
@@ -676,7 +720,7 @@ impl ModpackBuildWorkflow {
                 }
                 let selected =
                     selected_approval_option(&approval, &decision, "base-pack approval")?;
-                continue_after_base_pack_choice(&self.openai, run, selected).await
+                continue_after_base_pack_choice(&self.llm, run, selected).await
             }
             ApprovalKind::ConfirmCustomization => {
                 if decision.kind == UserDecisionKind::Revise {
@@ -689,10 +733,7 @@ impl ModpackBuildWorkflow {
                             CoreError::other("revise decision requires a feedback message")
                         })?;
                     return continue_after_customization_feedback(
-                        &self.openai,
-                        run,
-                        approval,
-                        feedback,
+                        &self.llm, run, approval, feedback,
                     )
                     .await;
                 }
@@ -705,9 +746,9 @@ impl ModpackBuildWorkflow {
                     selected_approval_option(&approval, &decision, "confirm_customization")?;
                 if selected.id == "back:choose_base_pack" {
                     return continue_after_base_pack_feedback(
-                        &self.openai,
+                        &self.llm,
                         run,
-                        "当前底包不合适，返回重选底包",
+                        "The current base pack is not suitable; return to base-pack selection",
                     )
                     .await;
                 }
@@ -757,11 +798,8 @@ pub fn continue_modpack_build_without_model(
                 return Ok(None);
             }
             let selected = selected_approval_option(&approval, &decision, "base-pack approval")?;
-            if selected.id == "scratch:fallback" {
-                return Ok(Some(recover_unimplemented_scratch_fallback(run)));
-            }
-            if selected.id == "confirm:scratch_fallback" {
-                return Ok(Some(recover_unimplemented_scratch_fallback(run)));
+            if selected.id == "scratch:fallback" || selected.id == "confirm:scratch_fallback" {
+                return Ok(None);
             }
             Ok(None)
         }
@@ -865,7 +903,7 @@ fn unsupported_intent_snapshot(user_prompt: &str, intent: AgentIntent) -> AgentR
     run.push_message(
         AgentMessageKind::Assistant,
         format!(
-            "当前主 agent 识别到 intent={:?}，但这个能力还没有接入 workflow。",
+            "The main agent classified intent={:?}, but that capability is not wired into the workflow yet.",
             intent.kind
         ),
     );
@@ -906,19 +944,6 @@ struct ResolvedModCandidate {
 }
 
 #[derive(Debug, Clone)]
-struct TargetCompatibility {
-    minecraft_version: Option<String>,
-    loader: Option<String>,
-    version_id: Option<String>,
-    version_name: Option<String>,
-    version_number: Option<String>,
-    game_versions: Vec<String>,
-    loaders: Vec<String>,
-    primary_file: Option<VersionFile>,
-    dependencies: Vec<Dependency>,
-}
-
-#[derive(Debug, Clone)]
 struct RequestedCompatibility {
     minecraft_version: Option<String>,
     loader: Option<String>,
@@ -930,23 +955,24 @@ struct GeneratedRestrictionUpdate {
     input: UpdateBuildRestrictionsInput,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone)]
 struct GeneratedModSearchPlan {
-    model: String,
     queries: Vec<String>,
     retain_existing_mods: bool,
     remove_existing_mod_ids: Vec<String>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone)]
 struct GeneratedCustomizationCritique {
-    model: String,
     verdict: CustomizationCritiqueVerdict,
     remove_project_ids: Vec<String>,
     additional_queries: Vec<String>,
     rationale: String,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum CustomizationCritiqueVerdict {
     Pass,
@@ -1091,6 +1117,15 @@ fn parse_selected_base_pack(option: &ApprovalOption) -> Result<SelectedBasePack>
     let provider = match payload.get("provider").and_then(|v| v.as_str()) {
         Some("modrinth") => ProviderId::Modrinth,
         Some("curseforge") => ProviderId::CurseForge,
+        Some("scratch") => {
+            return Ok(SelectedBasePack {
+                provider: ProviderId::Modrinth,
+                project_id: "scratch".to_string(),
+                slug: "scratch".to_string(),
+                title: json_string(payload, "title").unwrap_or_else(|_| option.label.clone()),
+                description: optional_json_string(payload, "description"),
+            });
+        }
         other => {
             return Err(CoreError::other(format!(
                 "unsupported base pack provider: {other:?}"

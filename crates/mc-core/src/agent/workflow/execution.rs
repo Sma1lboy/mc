@@ -1,9 +1,11 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 
 use crate::download::Downloader;
-use crate::modpack::formats::mrpack::MrpackIndex;
+use crate::modpack::formats::mrpack::{MrpackDependencies, MrpackIndex};
+use crate::modplatform::provider::ProviderRegistry;
+use crate::modplatform::{HashAlgo, ProjectSideSupport, ProviderId};
 
 use super::*;
 
@@ -31,8 +33,22 @@ pub fn build_mrpack_from_base_archive_bytes(
     base_archive_bytes: &[u8],
     override_files: &[MrpackOverrideFile],
 ) -> Result<MrpackExecutionBuild> {
+    build_mrpack_from_base_archive_bytes_with_env_overrides(
+        approved,
+        base_archive_bytes,
+        override_files,
+        &HashMap::new(),
+    )
+}
+
+fn build_mrpack_from_base_archive_bytes_with_env_overrides(
+    approved: &ApprovedModpackBuild,
+    base_archive_bytes: &[u8],
+    override_files: &[MrpackOverrideFile],
+    env_overrides: &HashMap<String, (ProjectSideSupport, ProjectSideSupport)>,
+) -> Result<MrpackExecutionBuild> {
     let base_index = read_base_mrpack_index(base_archive_bytes)?;
-    let manifest = compile_mrpack_execution_metadata(approved, &base_index)?;
+    let manifest = compile_mrpack_execution_metadata(approved, &base_index, env_overrides)?;
     if manifest.get("status").and_then(|v| v.as_str()) != Some("ready") {
         return Ok(MrpackExecutionBuild {
             archive_bytes: Vec::new(),
@@ -94,6 +110,9 @@ pub async fn execute_mrpack_build_to_path(
     output_path: &Path,
 ) -> Result<serde_json::Value> {
     if let Some(provider) = optional_json_string(&approved.base_pack, "provider") {
+        if provider == "scratch" {
+            return execute_scratch_mrpack_build_to_path(approved, output_path).await;
+        }
         if provider != "modrinth" {
             return Ok(blocked_manifest(
                 "choose_base_pack_approval",
@@ -136,14 +155,19 @@ pub async fn execute_mrpack_build_to_path(
             ));
         }
     };
-    let preflight = compile_mrpack_execution_metadata(approved, &base_index)?;
+    let env_overrides = infer_base_file_env_overrides(&base_index).await;
+    let preflight = compile_mrpack_execution_metadata(approved, &base_index, &env_overrides)?;
     if preflight.get("status").and_then(|v| v.as_str()) != Some("ready") {
         return Ok(preflight);
     }
 
     let override_files = download_extra_override_files(&downloader, &preflight).await?;
-    let built =
-        build_mrpack_from_base_archive_bytes(approved, &base_archive_bytes, &override_files)?;
+    let built = build_mrpack_from_base_archive_bytes_with_env_overrides(
+        approved,
+        &base_archive_bytes,
+        &override_files,
+        &env_overrides,
+    )?;
     if built.manifest.get("status").and_then(|v| v.as_str()) != Some("completed") {
         return Ok(built.manifest);
     }
@@ -163,6 +187,200 @@ pub async fn execute_mrpack_build_to_path(
         serde_json::json!(built.archive_bytes.len()),
     );
     Ok(manifest)
+}
+
+async fn execute_scratch_mrpack_build_to_path(
+    approved: &ApprovedModpackBuild,
+    output_path: &Path,
+) -> Result<serde_json::Value> {
+    let base_index = scratch_base_index(approved);
+    let base_archive_bytes = scratch_base_archive_bytes(&base_index)?;
+    let downloader = Downloader::new(4)?;
+    let preflight = compile_mrpack_execution_metadata(approved, &base_index, &HashMap::new())?;
+    if preflight.get("status").and_then(|v| v.as_str()) != Some("ready") {
+        return Ok(preflight);
+    }
+
+    let override_files = download_extra_override_files(&downloader, &preflight).await?;
+    let built = build_mrpack_from_base_archive_bytes_with_env_overrides(
+        approved,
+        &base_archive_bytes,
+        &override_files,
+        &HashMap::new(),
+    )?;
+    if built.manifest.get("status").and_then(|v| v.as_str()) != Some("completed") {
+        return Ok(built.manifest);
+    }
+
+    crate::fs::write_atomic(output_path, &built.archive_bytes)?;
+
+    let mut manifest = built.manifest;
+    set_json_field(&mut manifest, "status", serde_json::json!("verifying"));
+    set_json_field(
+        &mut manifest,
+        "output_path",
+        serde_json::json!(output_path.to_string_lossy().to_string()),
+    );
+    set_json_field(
+        &mut manifest,
+        "output_size",
+        serde_json::json!(built.archive_bytes.len()),
+    );
+    Ok(manifest)
+}
+
+fn scratch_base_index(approved: &ApprovedModpackBuild) -> MrpackIndex {
+    let minecraft = optional_json_string(&approved.target, "minecraft_version");
+    let loader = optional_json_string(&approved.target, "loader");
+    let mut dependencies = MrpackDependencies {
+        minecraft,
+        ..Default::default()
+    };
+    match loader.as_deref() {
+        Some("fabric") => dependencies.fabric_loader = Some(default_loader_dependency("fabric")),
+        Some("quilt") => dependencies.quilt_loader = Some(default_loader_dependency("quilt")),
+        Some("forge") => dependencies.forge = Some(default_loader_dependency("forge")),
+        Some("neoforge") => dependencies.neoforge = Some(default_loader_dependency("neoforge")),
+        _ => {}
+    }
+    MrpackIndex {
+        format_version: 1,
+        game: "minecraft".to_string(),
+        version_id: "agent-scratch".to_string(),
+        name: optional_json_string(&approved.base_pack, "title")
+            .unwrap_or_else(|| "Agent scratch modpack".to_string()),
+        summary: Some("Generated from an empty base set by the local agent".to_string()),
+        dependencies,
+        files: Vec::new(),
+    }
+}
+
+fn default_loader_dependency(loader: &str) -> String {
+    match loader {
+        "fabric" => "0.16.14",
+        "quilt" => "0.26.4",
+        "forge" | "neoforge" => "latest",
+        _ => "latest",
+    }
+    .to_string()
+}
+
+fn scratch_base_archive_bytes(index: &MrpackIndex) -> Result<Vec<u8>> {
+    let index_bytes = serde_json::to_vec_pretty(index).map_err(|source| CoreError::Parse {
+        what: "scratch modrinth.index.json".to_string(),
+        source,
+    })?;
+    let mut output = Cursor::new(Vec::new());
+    let mut writer = zip::ZipWriter::new(&mut output);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    writer
+        .start_file("modrinth.index.json", options)
+        .map_err(|e| CoreError::Zip(e.to_string()))?;
+    writer
+        .write_all(&index_bytes)
+        .map_err(|e| CoreError::Zip(e.to_string()))?;
+    writer.finish().map_err(|e| CoreError::Zip(e.to_string()))?;
+    Ok(output.into_inner())
+}
+
+async fn infer_base_file_env_overrides(
+    base_index: &MrpackIndex,
+) -> HashMap<String, (ProjectSideSupport, ProjectSideSupport)> {
+    let missing_env_files = base_index.files.iter().filter(|file| file.env.is_none());
+    let mut path_to_project_id = HashMap::<String, String>::new();
+    let mut hash_fallbacks = Vec::<(String, String)>::new();
+
+    for file in missing_env_files {
+        if let Some(project_id) = file
+            .downloads
+            .iter()
+            .find_map(|url| modrinth_project_id_from_cdn_url(url))
+        {
+            path_to_project_id.insert(file.path.clone(), project_id);
+        } else if !file.hashes.sha512.trim().is_empty() {
+            hash_fallbacks.push((file.path.clone(), file.hashes.sha512.trim().to_string()));
+        }
+    }
+
+    let registry = ProviderRegistry::with_defaults();
+    let Some(provider) = registry.get(ProviderId::Modrinth) else {
+        return HashMap::new();
+    };
+
+    if !hash_fallbacks.is_empty() {
+        let hashes = hash_fallbacks
+            .iter()
+            .map(|(_, hash)| hash.clone())
+            .collect::<Vec<_>>();
+        if let Ok(resolved_files) = provider.resolve_by_hashes(HashAlgo::Sha512, &hashes).await {
+            for ((path, _), resolved) in hash_fallbacks.iter().zip(resolved_files) {
+                if path_to_project_id.contains_key(path) {
+                    continue;
+                }
+                if let Some(resolved) = resolved {
+                    if !resolved.project_id.trim().is_empty() {
+                        path_to_project_id.insert(path.clone(), resolved.project_id);
+                    }
+                }
+            }
+        }
+    }
+
+    if path_to_project_id.is_empty() {
+        return HashMap::new();
+    }
+
+    let mut seen = HashSet::new();
+    let project_ids = path_to_project_id
+        .values()
+        .filter_map(|project_id| {
+            if seen.insert(project_id.clone()) {
+                Some(project_id.clone())
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let projects = match provider.get_projects(&project_ids).await {
+        Ok(projects) => projects,
+        Err(_) => return HashMap::new(),
+    };
+    let project_sides = projects
+        .into_iter()
+        .map(|project| (project.id, (project.client_side, project.server_side)))
+        .collect::<HashMap<_, _>>();
+
+    path_to_project_id
+        .into_iter()
+        .filter_map(|(path, project_id)| {
+            project_sides
+                .get(&project_id)
+                .copied()
+                .map(|sides| (path, sides))
+        })
+        .collect()
+}
+
+fn modrinth_project_id_from_cdn_url(download_url: &str) -> Option<String> {
+    let trimmed = download_url.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    let prefix = if lower.starts_with("https://cdn.modrinth.com/data/") {
+        "https://cdn.modrinth.com/data/"
+    } else if lower.starts_with("http://cdn.modrinth.com/data/") {
+        "http://cdn.modrinth.com/data/"
+    } else {
+        return None;
+    };
+
+    let mut segments = trimmed[prefix.len()..].split('/');
+    let project_id = segments.next()?.trim();
+    let versions_segment = segments.next()?.trim();
+    if project_id.is_empty() || versions_segment != "versions" {
+        return None;
+    }
+    Some(project_id.to_string())
 }
 
 fn approved_base_archive_file(approved: &ApprovedModpackBuild) -> Result<VersionFile> {
@@ -355,7 +573,10 @@ fn verify_written_mrpack_index(index: &MrpackIndex, approved: &ApprovedModpackBu
     Ok(())
 }
 
-fn verify_written_mrpack_target(index: &MrpackIndex, approved: &ApprovedModpackBuild) -> Result<()> {
+fn verify_written_mrpack_target(
+    index: &MrpackIndex,
+    approved: &ApprovedModpackBuild,
+) -> Result<()> {
     let expected_mc = optional_json_string(&approved.target, "minecraft_version");
     if let Some(expected_mc) = expected_mc {
         if index.dependencies.minecraft.as_deref() != Some(expected_mc.as_str()) {
@@ -583,6 +804,7 @@ fn set_json_field(value: &mut serde_json::Value, key: &str, next: serde_json::Va
 pub fn compile_mrpack_execution_metadata(
     approved: &ApprovedModpackBuild,
     base_index: &MrpackIndex,
+    env_overrides: &HashMap<String, (ProjectSideSupport, ProjectSideSupport)>,
 ) -> Result<serde_json::Value> {
     let recipe = approved
         .execution_recipe
@@ -604,14 +826,24 @@ pub fn compile_mrpack_execution_metadata(
         .ok_or_else(|| CoreError::other("base mrpack index serialized without files array"))?;
     for file in files.iter_mut() {
         if file.get("env").is_none() {
-            set_json_field(
-                file,
-                "env",
-                serde_json::json!({
-                    "client": "required",
-                    "server": "required",
-                }),
-            );
+            let env = file
+                .get("path")
+                .and_then(|v| v.as_str())
+                .and_then(|path| env_overrides.get(path))
+                .copied()
+                .map(|(client, server)| {
+                    serde_json::json!({
+                        "client": client.as_mrpack_env(),
+                        "server": server.as_mrpack_env(),
+                    })
+                })
+                .unwrap_or_else(|| {
+                    serde_json::json!({
+                        "client": "required",
+                        "server": "required",
+                    })
+                });
+            set_json_field(file, "env", env);
         }
     }
 
@@ -825,7 +1057,10 @@ pub fn continue_after_execution_manifest_result(
                 manifest: Some(manifest),
                 blocked: None,
             });
-            run.push_message(AgentMessageKind::Tool, "execution artifact written; verifying");
+            run.push_message(
+                AgentMessageKind::Tool,
+                "execution artifact written; verifying",
+            );
             run.push_trace("execution artifact written; entering verifying phase");
             Ok(run)
         }
@@ -1115,9 +1350,9 @@ fn customization_execution_blocked_approval(
         approved.base_pack.clone(),
         approved.extra_mods.clone(),
     );
-    approval.title = "执行清单受阻，需要调整定制方案".to_string();
+    approval.title = "Execution manifest is blocked; adjust customization".to_string();
     approval.message =
-        format!("执行器在编译 mrpack 清单时受阻: {reason}。请修改补充 mods，或返回重选底包。");
+        format!("The executor was blocked while compiling the mrpack manifest: {reason}. Change the extra mods or return to base-pack selection.");
     if let Some(option) = approval
         .options
         .iter_mut()
@@ -1148,7 +1383,9 @@ fn base_pack_execution_blocked_approval(
     let options = vec![ApprovalOption {
         id: format!("{provider}:{}", base.project_id),
         label: base.title.clone(),
-        description: Some(format!("当前底包执行受阻: {reason}")),
+        description: Some(format!(
+            "Current base pack is blocked during execution: {reason}"
+        )),
         payload: Some({
             let mut payload = approved.base_pack.clone();
             if let Some(obj) = payload.as_object_mut() {
@@ -1160,17 +1397,18 @@ fn base_pack_execution_blocked_approval(
     Ok(ApprovalRequest {
         id: crate::agent::state::new_id("approval"),
         kind: ApprovalKind::ChooseBasePack,
-        title: "执行清单受阻，需要重选底包".to_string(),
+        title: "Execution manifest is blocked; choose a base pack".to_string(),
         message: format!(
-            "执行器在处理底包时受阻: {reason}。可以重新搜索底包，或保留当前底包重试。"
+            "The executor was blocked while processing the base pack: {reason}. Search for another base pack, or keep the current base pack and retry."
         ),
         options,
-        available_decisions: approval_decisions("保留当前底包", "重新搜索底包"),
+        available_decisions: approval_decisions("Keep this base pack", "Search base packs again"),
         tools: vec![update_build_restrictions_tool_spec()],
         plan: Some(ModpackAgentPlan {
             objective: run.user_prompt.clone(),
-            summary_markdown: format!("底包执行受阻: {reason}"),
-            risks: vec!["继续使用当前底包可能再次触发相同执行阻塞。".to_string()],
+            summary_markdown: format!("Base-pack execution is blocked: {reason}"),
+            risks: vec!["Continuing with the current base pack may hit the same execution block again."
+                .to_string()],
             planned_actions: vec![PlannedAction {
                 id: "replan-base-pack".to_string(),
                 label: "User revises base pack after execution block".to_string(),
@@ -1190,12 +1428,12 @@ fn requirements_execution_blocked_approval(
     let restrictions = run.restrictions.clone().unwrap_or_default();
     let output = UpdateBuildRestrictionsOutput {
         missing_fields: missing_restriction_fields(&restrictions),
-        warnings: vec![format!("执行清单受阻: {reason}")],
+        warnings: vec![format!("Execution manifest is blocked: {reason}")],
         restrictions,
     };
     let mut approval = requirements_approval(&run.user_prompt, &output);
-    approval.title = "执行清单受阻，需要调整规格".to_string();
+    approval.title = "Execution manifest is blocked; adjust requirements".to_string();
     approval.message =
-        format!("执行器发现当前 version/loader/需求规格无法继续: {reason}。请修改规格后再继续。");
+        format!("The executor cannot continue with the current version/loader/requirements: {reason}. Change the requirements before continuing.");
     Ok(approval)
 }

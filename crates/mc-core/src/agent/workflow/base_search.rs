@@ -1,12 +1,12 @@
 use super::*;
 
 pub(super) async fn continue_after_base_pack_choice(
-    openai: &OpenAiClient,
+    llm: &AgentLlmClient,
     mut run: AgentRunSnapshot,
     selected: ApprovalOption,
 ) -> Result<AgentRunSnapshot> {
-    if selected.id == "scratch:fallback" {
-        return Ok(recover_unimplemented_scratch_fallback(run));
+    if selected.id == "scratch:fallback" || selected.id == "confirm:scratch_fallback" {
+        return continue_after_scratch_base_choice(llm, run).await;
     }
 
     let base = parse_selected_base_pack(&selected)?;
@@ -23,14 +23,14 @@ pub(super) async fn continue_after_base_pack_choice(
             run,
             base_pack_payload,
             format!(
-                "当前 agent 执行器暂只支持 Modrinth .mrpack 底包，{} 底包还未接入执行。",
+                "The agent executor currently supports only Modrinth .mrpack base packs; {} base packs are not executable yet.",
                 provider_label(base.provider)
             ),
         ));
     }
     run.push_message(
         AgentMessageKind::User,
-        format!("选择基础整合包: {} ({})", base.title, selected.id),
+        format!("Selected base modpack: {} ({})", base.title, selected.id),
     );
     let from_phase = run.phase.clone();
     run.phase = AgentPhase::CustomizationPlanning;
@@ -59,13 +59,13 @@ pub(super) async fn continue_after_base_pack_choice(
             return Ok(block_base_pack_planning(
                 run,
                 base_pack_payload,
-                format!("无法读取底包 modlist: {err}"),
+                format!("Could not read the base-pack modlist: {err}"),
             ));
         }
     };
 
     let result = run_customization_planning_loop(
-        openai,
+        llm,
         &mut run,
         &planning_input,
         &base,
@@ -105,30 +105,90 @@ pub(super) async fn continue_after_base_pack_choice(
     Ok(run)
 }
 
-pub(super) fn recover_unimplemented_scratch_fallback(
+async fn continue_after_scratch_base_choice(
+    llm: &AgentLlmClient,
     mut run: AgentRunSnapshot,
-) -> AgentRunSnapshot {
-    let plan = scratch_fallback_unavailable_plan(&run.user_prompt);
+) -> Result<AgentRunSnapshot> {
+    let from_phase = run.phase.clone();
     run.push_message(
-        AgentMessageKind::Assistant,
-        "从零搭建分支暂未实现，请修改底包需求后重新搜索。",
+        AgentMessageKind::User,
+        "Selected base modpack: Start from scratch",
+    );
+    run.phase = AgentPhase::CustomizationPlanning;
+    run.pending_approval = None;
+    run.plan = Some(scratch_build_plan(&run.user_prompt));
+    run.push_trace("selected scratch base set");
+    invalidate_downstream(
+        &mut run,
+        ChangedField::BasePack,
+        "selected scratch base set",
+        from_phase,
+        None,
+    );
+
+    let requested = requested_compatibility_from_restrictions(run.restrictions.as_ref());
+    let compatibility = TargetCompatibility {
+        minecraft_version: requested.minecraft_version.clone(),
+        loader: requested.loader.clone(),
+        version_id: None,
+        version_name: None,
+        version_number: None,
+        game_versions: requested.minecraft_version.iter().cloned().collect(),
+        loaders: requested.loader.iter().cloned().collect(),
+        primary_file: None,
+        dependencies: Vec::new(),
+    };
+    let base = SelectedBasePack {
+        provider: ProviderId::Modrinth,
+        project_id: "scratch".to_string(),
+        slug: "scratch".to_string(),
+        title: "Start from scratch".to_string(),
+        description: Some("Empty base set".to_string()),
+    };
+    let base_pack_payload = scratch_base_pack_payload();
+    let base_modlist = BaseModlistCache {
+        refs: Vec::new(),
+        source_format: "scratch_empty".to_string(),
+        fetch_count: 0,
+    };
+    let planning_input = planning_context_input(&run);
+    let result = run_customization_planning_loop(
+        llm,
+        &mut run,
+        &planning_input,
+        &base,
+        &compatibility,
+        &[],
+        &base_modlist,
+    )
+    .await?;
+    let validated = match result {
+        CustomizationPlanningResult::Validated(validated) => validated,
+        CustomizationPlanningResult::Blocked(blocked) => {
+            return Ok(block_customization_planning(run, blocked));
+        }
+    };
+    run.push_message(
+        AgentMessageKind::Tool,
+        format!(
+            "scratch mod planning produced {} validated installable files",
+            validated.extra_mods.len()
+        ),
+    );
+    let (plan, approval) = customization_approval_with_validation(
+        &planning_input,
+        &base,
+        &compatibility,
+        base_pack_payload,
+        validated.extra_mods,
+        Some(validated.validation),
     );
     run.status = AgentStatus::WaitingForUser;
-    run.phase = AgentPhase::ChooseBasePackApproval;
-    run.pending_approval = Some(ApprovalRequest {
-        id: crate::agent::state::new_id("approval"),
-        kind: ApprovalKind::ChooseBasePack,
-        title: "从零搭建暂未开放".to_string(),
-        message: "从零搭建分支还没有执行链路。请修改底包搜索需求后重新搜索，或取消本次运行。"
-            .to_string(),
-        options: Vec::new(),
-        available_decisions: revise_cancel_decisions("重新搜索底包"),
-        tools: vec![update_build_restrictions_tool_spec()],
-        plan: Some(plan.clone()),
-    });
+    run.phase = AgentPhase::ConfirmCustomizationApproval;
+    run.pending_approval = Some(approval);
     run.plan = Some(plan);
-    run.push_trace("scratch fallback unavailable; returned to base-pack HITL gate");
-    run
+    run.push_trace("paused at scratch customization confirmation gate");
+    Ok(run)
 }
 
 pub(super) fn block_base_pack_planning(
@@ -165,20 +225,21 @@ fn base_pack_planning_blocked_approval(
     ApprovalRequest {
         id: crate::agent::state::new_id("approval"),
         kind: ApprovalKind::ChooseBasePack,
-        title: "底包规划受阻，需要重选或修改".to_string(),
-        message: format!("读取或解析当前底包 modlist 失败: {reason}。请重选底包或修改搜索需求。"),
+        title: "Base-pack planning is blocked".to_string(),
+        message: format!("Failed to read or parse the current base-pack modlist: {reason}. Choose another base pack or change the search requirements."),
         options: vec![ApprovalOption {
             id: format!("{provider}:{project_id}"),
             label: title,
-            description: Some(format!("当前底包受阻: {reason}")),
+            description: Some(format!("Current base pack is blocked: {reason}")),
             payload: Some(base_pack_payload),
         }],
-        available_decisions: approval_decisions("保留当前底包", "重新搜索底包"),
+        available_decisions: approval_decisions("Keep this base pack", "Search base packs again"),
         tools: vec![update_build_restrictions_tool_spec()],
         plan: Some(ModpackAgentPlan {
             objective: run.user_prompt.clone(),
-            summary_markdown: format!("底包规划受阻: {reason}"),
-            risks: vec!["继续使用当前底包可能再次触发相同阻塞。".to_string()],
+            summary_markdown: format!("Base-pack planning is blocked: {reason}"),
+            risks: vec!["Continuing with the current base pack may hit the same block again."
+                .to_string()],
             planned_actions: vec![PlannedAction {
                 id: "replan-base-pack".to_string(),
                 label: "User revises base pack after planning block".to_string(),
@@ -192,33 +253,26 @@ fn base_pack_planning_blocked_approval(
 }
 
 pub(super) async fn continue_to_base_pack_search(
-    openai: &OpenAiClient,
+    llm: &AgentLlmClient,
     mut run: AgentRunSnapshot,
 ) -> Result<AgentRunSnapshot> {
     run.phase = AgentPhase::BasePackSearch;
     let planning_input = planning_context_input(&run);
-    let response = openai
-        .complete(&OpenAiTextRequest {
-            instructions: vec![
-                MAIN_AGENT_SYSTEM_PROMPT.to_string(),
-                SEARCH_QUERY_PROMPT.to_string(),
-            ],
-            input: planning_input.clone(),
-            max_output_tokens: Some(300),
-            temperature: Some(0.1),
-            text_format: Some(search_query_text_format()),
-        })
+    let output = llm
+        .prompt_typed::<SearchQueryOutput>(
+            &[MAIN_AGENT_SYSTEM_PROMPT, SEARCH_QUERY_PROMPT],
+            planning_input.clone(),
+            300,
+            0.1,
+        )
         .await?;
-    run.push_trace(format!(
-        "llm generated search queries via {}",
-        response.model
-    ));
+    run.push_trace(format!("llm generated search queries via {}", llm.model()));
 
-    let queries = search_queries(&response.text)?;
+    let queries = output.into_queries("base modpack search")?;
     run.push_message(
         AgentMessageKind::Assistant,
         format!(
-            "先找现成整合包作为底包，再按需求补 mods。搜索词: {}",
+            "Searching existing modpacks as the base before adding requested mods. Queries: {}",
             queries.join(", ")
         ),
     );
@@ -246,13 +300,13 @@ pub(super) async fn continue_to_base_pack_search(
 }
 
 pub(super) async fn continue_after_base_pack_feedback(
-    openai: &OpenAiClient,
+    llm: &AgentLlmClient,
     mut run: AgentRunSnapshot,
     feedback: &str,
 ) -> Result<AgentRunSnapshot> {
     run.push_message(
         AgentMessageKind::User,
-        format!("修改底包搜索需求: {feedback}"),
+        format!("Changed base-pack search requirements: {feedback}"),
     );
     run.phase = AgentPhase::BasePackSearch;
     run.pending_approval = None;
@@ -260,7 +314,7 @@ pub(super) async fn continue_after_base_pack_feedback(
 
     let current = run.restrictions.clone().unwrap_or_default();
     let generated = generate_restriction_update(
-        openai,
+        llm,
         &run.user_prompt,
         &current,
         feedback,
@@ -297,27 +351,26 @@ pub(super) async fn continue_after_base_pack_feedback(
     let revised_prompt = format!(
         "{planning_input}\n\nBase-pack revision feedback: {feedback}\n\nSearch again for base modpack candidates that reflect the feedback."
     );
-    let response = openai
-        .complete(&OpenAiTextRequest {
-            instructions: vec![
-                MAIN_AGENT_SYSTEM_PROMPT.to_string(),
-                SEARCH_QUERY_PROMPT.to_string(),
-            ],
-            input: revised_prompt,
-            max_output_tokens: Some(300),
-            temperature: Some(0.1),
-            text_format: Some(search_query_text_format()),
-        })
+    let output = llm
+        .prompt_typed::<SearchQueryOutput>(
+            &[MAIN_AGENT_SYSTEM_PROMPT, SEARCH_QUERY_PROMPT],
+            revised_prompt,
+            300,
+            0.1,
+        )
         .await?;
     run.push_trace(format!(
         "llm regenerated base search queries via {}",
-        response.model
+        llm.model()
     ));
 
-    let queries = search_queries(&response.text)?;
+    let queries = output.into_queries("base modpack search")?;
     run.push_message(
         AgentMessageKind::Assistant,
-        format!("根据反馈重新搜索底包。搜索词: {}", queries.join(", ")),
+        format!(
+            "Searching base packs again from feedback. Queries: {}",
+            queries.join(", ")
+        ),
     );
 
     let requested = requested_compatibility_from_restrictions(run.restrictions.as_ref());

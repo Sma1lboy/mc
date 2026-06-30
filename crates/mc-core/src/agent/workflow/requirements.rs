@@ -1,7 +1,7 @@
 use super::*;
 
 pub(super) async fn generate_restriction_update(
-    openai: &OpenAiClient,
+    llm: &AgentLlmClient,
     original_user_prompt: &str,
     current: &BuildRestrictions,
     user_message: &str,
@@ -16,20 +16,17 @@ pub(super) async fn generate_restriction_update(
         None,
     )
     .to_string();
-    let response = openai
-        .complete(&OpenAiTextRequest {
-            instructions: vec![
-                MAIN_AGENT_SYSTEM_PROMPT.to_string(),
-                REQUIREMENT_NORMALIZATION_PROMPT.to_string(),
-            ],
+    let response = llm
+        .prompt_typed::<UpdateBuildRestrictionsInput>(
+            &[MAIN_AGENT_SYSTEM_PROMPT, REQUIREMENT_NORMALIZATION_PROMPT],
             input,
-            max_output_tokens: Some(260),
-            temperature: Some(0.0),
-            text_format: Some(requirement_text_format()),
-        })
+            260,
+            0.0,
+        )
         .await?;
-    let mut model = response.model.clone();
-    let input = match parse_restriction_update_response(&response.text) {
+    let mut model = llm.model().to_string();
+    let previous_output = format!("{response:?}");
+    let input = match validate_restriction_update_input(response) {
         Ok(input) => input,
         Err(first_err) => {
             let retry_input = restriction_update_request_payload(
@@ -38,28 +35,23 @@ pub(super) async fn generate_restriction_update(
                 user_message,
                 source,
                 Some(first_err.to_string()),
-                Some(response.text.clone()),
+                Some(previous_output),
             )
             .to_string();
-            let retry = openai
-                .complete(&OpenAiTextRequest {
-                    instructions: vec![
-                        MAIN_AGENT_SYSTEM_PROMPT.to_string(),
-                        REQUIREMENT_NORMALIZATION_PROMPT.to_string(),
-                        REQUIREMENT_NORMALIZATION_RETRY_PROMPT.to_string(),
+            let retry = llm
+                .prompt_typed::<UpdateBuildRestrictionsInput>(
+                    &[
+                        MAIN_AGENT_SYSTEM_PROMPT,
+                        REQUIREMENT_NORMALIZATION_PROMPT,
+                        REQUIREMENT_NORMALIZATION_RETRY_PROMPT,
                     ],
-                    input: retry_input,
-                    max_output_tokens: Some(260),
-                    temperature: Some(0.0),
-                    text_format: Some(requirement_text_format()),
-                })
+                    retry_input,
+                    260,
+                    0.0,
+                )
                 .await?;
-            model = retry.model.clone();
-            parse_restriction_update_response(&retry.text).map_err(|second_err| {
-                CoreError::other(format!(
-                    "could not parse restriction tool schema output after retry: {second_err}; first error: {first_err}"
-                ))
-            })?
+            model = llm.model().to_string();
+            validate_restriction_update_retry(retry, &first_err)?
         }
     };
     Ok(GeneratedRestrictionUpdate { model, input })
@@ -98,6 +90,7 @@ pub(super) fn restriction_update_request_payload(
     payload
 }
 
+#[cfg(test)]
 pub(super) fn parse_restriction_update_response(
     text: &str,
 ) -> Result<UpdateBuildRestrictionsInput> {
@@ -117,19 +110,17 @@ pub(super) fn parse_restriction_update_response(
         .get("minecraft_version")
         .and_then(|v| v.as_str())
         .map(str::trim)
-        .filter(|s| is_minecraft_version(s))
         .map(ToOwned::to_owned);
     let minecraft_version_requirement = patch_value
         .get("minecraft_version_requirement")
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .map(ToOwned::to_owned)
-        .or_else(|| minecraft_version.clone());
+        .map(ToOwned::to_owned);
     let loader = patch_value
         .get("loader")
         .and_then(|v| v.as_str())
-        .and_then(normalize_loader);
+        .map(ToOwned::to_owned);
     let feature_tags = patch_value
         .get("feature_tags")
         .and_then(|v| v.as_array())
@@ -137,9 +128,6 @@ pub(super) fn parse_restriction_update_response(
             items
                 .iter()
                 .filter_map(|v| v.as_str())
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .take(8)
                 .map(ToOwned::to_owned)
                 .collect::<Vec<_>>()
         })
@@ -150,8 +138,74 @@ pub(super) fn parse_restriction_update_response(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(ToOwned::to_owned);
-    Ok(UpdateBuildRestrictionsInput {
-        base_revision,
+    Ok(normalize_restriction_update_input(
+        UpdateBuildRestrictionsInput {
+            base_revision,
+            patch: BuildRestrictionPatch {
+                minecraft_version,
+                minecraft_version_requirement,
+                loader,
+                feature_tags,
+                notes,
+            },
+        },
+    ))
+}
+
+fn validate_restriction_update_input(
+    input: UpdateBuildRestrictionsInput,
+) -> Result<UpdateBuildRestrictionsInput> {
+    Ok(normalize_restriction_update_input(input))
+}
+
+pub(super) fn validate_restriction_update_retry(
+    input: UpdateBuildRestrictionsInput,
+    first_err: &CoreError,
+) -> Result<UpdateBuildRestrictionsInput> {
+    validate_restriction_update_input(input).map_err(|second_err| {
+        CoreError::other(format!(
+            "could not parse restriction tool schema output after retry: {second_err}; first error: {first_err}"
+        ))
+    })
+}
+
+pub(super) fn normalize_restriction_update_input(
+    input: UpdateBuildRestrictionsInput,
+) -> UpdateBuildRestrictionsInput {
+    let minecraft_version = input
+        .patch
+        .minecraft_version
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| is_minecraft_version(s))
+        .map(ToOwned::to_owned);
+    let minecraft_version_requirement = input
+        .patch
+        .minecraft_version_requirement
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| minecraft_version.clone());
+    let loader = input.patch.loader.as_deref().and_then(normalize_loader);
+    let feature_tags = input
+        .patch
+        .feature_tags
+        .into_iter()
+        .map(|tag| tag.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .take(8)
+        .collect::<Vec<_>>();
+    let notes = input
+        .patch
+        .notes
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToOwned::to_owned);
+
+    UpdateBuildRestrictionsInput {
+        base_revision: input.base_revision,
         patch: BuildRestrictionPatch {
             minecraft_version,
             minecraft_version_requirement,
@@ -159,7 +213,7 @@ pub(super) fn parse_restriction_update_response(
             feature_tags: dedupe_queries(feature_tags),
             notes,
         },
-    })
+    }
 }
 
 pub(super) fn update_build_restrictions(
@@ -253,9 +307,13 @@ pub(super) fn restriction_target_changed(
     before: &BuildRestrictions,
     after: &BuildRestrictions,
 ) -> bool {
-    before.minecraft_version != after.minecraft_version
-        || before.minecraft_version_requirement != after.minecraft_version_requirement
-        || before.loader != after.loader
+    if before.minecraft_version != after.minecraft_version || before.loader != after.loader {
+        return true;
+    }
+    if before.minecraft_version.is_some() && after.minecraft_version.is_some() {
+        return false;
+    }
+    before.minecraft_version_requirement != after.minecraft_version_requirement
 }
 
 pub(super) fn changed_restriction_field(
@@ -277,52 +335,115 @@ pub(super) fn changed_restriction_field(
     }
 }
 
-fn invalidates_for_changed_field(changed: ChangedField) -> Vec<PlanArtifact> {
-    match changed {
-        ChangedField::MinecraftVersion
-        | ChangedField::Loader
-        | ChangedField::VersionRequirement => {
-            vec![
-                PlanArtifact::BasePack,
-                PlanArtifact::ExtraMods,
-                PlanArtifact::ApprovedBuild,
-                PlanArtifact::ExecutionMetadata,
-            ]
+pub(super) const ALL_CHANGED_FIELDS: &[ChangedField] = &[
+    ChangedField::MinecraftVersion,
+    ChangedField::Loader,
+    ChangedField::VersionRequirement,
+    ChangedField::ContentPreference,
+    ChangedField::SearchPreference,
+    ChangedField::BasePack,
+];
+
+const TARGET_INVALIDATES: &[PlanArtifact] = &[
+    PlanArtifact::BasePack,
+    PlanArtifact::ExtraMods,
+    PlanArtifact::ApprovedBuild,
+    PlanArtifact::ExecutionMetadata,
+];
+const CONTENT_INVALIDATES: &[PlanArtifact] = &[
+    PlanArtifact::ExtraMods,
+    PlanArtifact::ApprovedBuild,
+    PlanArtifact::ExecutionMetadata,
+];
+
+#[derive(Debug, Clone, Copy)]
+pub(super) struct InvalidationRule {
+    pub(super) changed: ChangedField,
+    pub(super) invalidates: &'static [PlanArtifact],
+    target: InvalidationTarget,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum InvalidationTarget {
+    ConfigureRequirementsApproval,
+    ChooseBasePackApproval,
+    ContentPreference,
+}
+
+impl InvalidationTarget {
+    fn phase(self, from_phase: &AgentPhase) -> AgentPhase {
+        match self {
+            Self::ConfigureRequirementsApproval => AgentPhase::ConfigureRequirementsApproval,
+            Self::ChooseBasePackApproval => AgentPhase::ChooseBasePackApproval,
+            Self::ContentPreference => match from_phase {
+                AgentPhase::ConfigureRequirementsApproval => {
+                    AgentPhase::ConfigureRequirementsApproval
+                }
+                AgentPhase::ChooseBasePackApproval | AgentPhase::BasePackSearch => {
+                    AgentPhase::ChooseBasePackApproval
+                }
+                _ => AgentPhase::ConfirmCustomizationApproval,
+            },
         }
-        ChangedField::ContentPreference => vec![
-            PlanArtifact::ExtraMods,
-            PlanArtifact::ApprovedBuild,
-            PlanArtifact::ExecutionMetadata,
-        ],
-        ChangedField::SearchPreference => vec![
-            PlanArtifact::BasePack,
-            PlanArtifact::ExtraMods,
-            PlanArtifact::ApprovedBuild,
-            PlanArtifact::ExecutionMetadata,
-        ],
-        ChangedField::BasePack => vec![
-            PlanArtifact::ExtraMods,
-            PlanArtifact::ApprovedBuild,
-            PlanArtifact::ExecutionMetadata,
-        ],
     }
 }
 
-fn target_phase_for_changed_field(changed: ChangedField, from_phase: &AgentPhase) -> AgentPhase {
-    match changed {
-        ChangedField::MinecraftVersion
-        | ChangedField::Loader
-        | ChangedField::VersionRequirement => AgentPhase::ConfigureRequirementsApproval,
-        ChangedField::ContentPreference => match from_phase {
-            AgentPhase::ConfigureRequirementsApproval => AgentPhase::ConfigureRequirementsApproval,
-            AgentPhase::ChooseBasePackApproval | AgentPhase::BasePackSearch => {
-                AgentPhase::ChooseBasePackApproval
-            }
-            _ => AgentPhase::ConfirmCustomizationApproval,
-        },
-        ChangedField::SearchPreference => AgentPhase::ChooseBasePackApproval,
-        ChangedField::BasePack => AgentPhase::ChooseBasePackApproval,
-    }
+const INVALIDATION_RULES: &[InvalidationRule] = &[
+    InvalidationRule {
+        changed: ChangedField::MinecraftVersion,
+        invalidates: TARGET_INVALIDATES,
+        target: InvalidationTarget::ConfigureRequirementsApproval,
+    },
+    InvalidationRule {
+        changed: ChangedField::Loader,
+        invalidates: TARGET_INVALIDATES,
+        target: InvalidationTarget::ConfigureRequirementsApproval,
+    },
+    InvalidationRule {
+        changed: ChangedField::VersionRequirement,
+        invalidates: TARGET_INVALIDATES,
+        target: InvalidationTarget::ConfigureRequirementsApproval,
+    },
+    InvalidationRule {
+        changed: ChangedField::ContentPreference,
+        invalidates: CONTENT_INVALIDATES,
+        target: InvalidationTarget::ContentPreference,
+    },
+    InvalidationRule {
+        changed: ChangedField::SearchPreference,
+        invalidates: TARGET_INVALIDATES,
+        target: InvalidationTarget::ChooseBasePackApproval,
+    },
+    InvalidationRule {
+        changed: ChangedField::BasePack,
+        invalidates: CONTENT_INVALIDATES,
+        target: InvalidationTarget::ChooseBasePackApproval,
+    },
+];
+
+pub(super) fn invalidation_rule_for_changed_field(
+    changed: ChangedField,
+) -> &'static InvalidationRule {
+    debug_assert_eq!(INVALIDATION_RULES.len(), ALL_CHANGED_FIELDS.len());
+    INVALIDATION_RULES
+        .iter()
+        .find(|rule| rule.changed == changed)
+        .expect("every ChangedField must have an invalidation rule")
+}
+
+fn invalidates_for_changed_field(changed: ChangedField) -> Vec<PlanArtifact> {
+    invalidation_rule_for_changed_field(changed)
+        .invalidates
+        .to_vec()
+}
+
+pub(super) fn target_phase_for_changed_field(
+    changed: ChangedField,
+    from_phase: &AgentPhase,
+) -> AgentPhase {
+    invalidation_rule_for_changed_field(changed)
+        .target
+        .phase(from_phase)
 }
 
 pub(super) fn invalidate_downstream(
@@ -344,8 +465,7 @@ pub(super) fn invalidate_downstream(
     }
 
     let duplicate = run.replans.iter().any(|existing| {
-        existing.reason == reason
-            && existing.from_phase == from_phase
+        existing.from_phase == from_phase
             && existing.target_phase == target_phase
             && existing.restriction_patch == restriction_patch
             && existing.invalidates == invalidates
@@ -394,20 +514,22 @@ pub(super) fn apply_requirements_replan(
         from_phase,
         restriction_patch,
     );
-    run.status = AgentStatus::WaitingForUser;
-    run.phase = AgentPhase::ConfigureRequirementsApproval;
-    run.pending_approval = Some(requirements_approval(&run.user_prompt, &output));
-    run.plan = Some(requirements_plan(&run.user_prompt, &output));
+    run.status = AgentStatus::Running;
+    run.phase = AgentPhase::BasePackSearch;
+    run.pending_approval = None;
+    run.plan = None;
     run.push_message(
         AgentMessageKind::Assistant,
-        format!("需求规格需要重新确认: {reason}"),
+        format!("Requirements updated; searching again: {reason}"),
     );
-    run.push_trace("plan replan requested; invalidated downstream artifacts");
+    run.push_trace(
+        "plan replan requested; invalidated downstream artifacts; continuing to base-pack search",
+    );
     run
 }
 
 pub(super) async fn continue_after_requirements_confirmation(
-    openai: &OpenAiClient,
+    llm: &AgentLlmClient,
     mut run: AgentRunSnapshot,
     selected: ApprovalOption,
 ) -> Result<AgentRunSnapshot> {
@@ -424,31 +546,34 @@ pub(super) async fn continue_after_requirements_confirmation(
 
     run.push_message(
         AgentMessageKind::User,
-        format!("确认整合包规格: {}", requirement_label(&restrictions)),
+        format!(
+            "Confirmed modpack requirements: {}",
+            requirement_label(&restrictions)
+        ),
     );
     run.restrictions = Some(restrictions);
     run.approved_build = None;
     run.execution = None;
     run.pending_approval = None;
     run.push_trace("approved normalized build requirements");
-    continue_to_base_pack_search(openai, run).await
+    continue_to_base_pack_search(llm, run).await
 }
 
 pub(super) async fn continue_after_requirements_feedback(
-    openai: &OpenAiClient,
+    llm: &AgentLlmClient,
     mut run: AgentRunSnapshot,
     feedback: &str,
 ) -> Result<AgentRunSnapshot> {
     run.push_message(
         AgentMessageKind::User,
-        format!("修改整合包规格: {feedback}"),
+        format!("Changed modpack requirements: {feedback}"),
     );
     run.pending_approval = None;
     run.push_trace("received build requirement feedback; updating restrictions");
 
     let current = run.restrictions.clone().unwrap_or_default();
     let generated = generate_restriction_update(
-        openai,
+        llm,
         &run.user_prompt,
         &current,
         feedback,
@@ -461,20 +586,6 @@ pub(super) async fn continue_after_requirements_feedback(
         BuildRestrictionChangeSource::UserRevise,
         feedback,
     )?;
-    if let Some(changed) = changed_restriction_field(&current, &output.restrictions) {
-        let patch = output
-            .restrictions
-            .history
-            .last()
-            .map(|change| change.patch.clone());
-        invalidate_downstream(
-            &mut run,
-            changed,
-            format!("requirements revised: {feedback}"),
-            AgentPhase::ConfigureRequirementsApproval,
-            patch,
-        );
-    }
     run.push_trace(format!(
         "llm generated build restriction update via {}",
         generated.model
@@ -483,24 +594,23 @@ pub(super) async fn continue_after_requirements_feedback(
         AgentMessageKind::Assistant,
         requirement_summary_message(&output),
     );
-    let approval = requirements_approval(&run.user_prompt, &output);
-    run.status = AgentStatus::WaitingForUser;
-    run.phase = AgentPhase::ConfigureRequirementsApproval;
-    run.restrictions = Some(output.restrictions.clone());
-    run.pending_approval = Some(approval);
-    run.plan = Some(requirements_plan(&run.user_prompt, &output));
-    run.push_trace("paused at updated build requirements approval gate");
-    Ok(run)
+    let run = apply_requirements_replan(
+        run,
+        output,
+        format!("requirements revised: {feedback}"),
+        AgentPhase::ConfigureRequirementsApproval,
+    );
+    continue_to_base_pack_search(llm, run).await
 }
 
 pub(super) async fn maybe_replan_requirements_from_feedback(
-    openai: &OpenAiClient,
+    llm: &AgentLlmClient,
     mut run: AgentRunSnapshot,
     feedback: &str,
 ) -> Result<Option<AgentRunSnapshot>> {
     let current = run.restrictions.clone().unwrap_or_default();
     let generated = generate_restriction_update(
-        openai,
+        llm,
         &run.user_prompt,
         &current,
         feedback,
@@ -518,16 +628,19 @@ pub(super) async fn maybe_replan_requirements_from_feedback(
     }
 
     let from_phase = run.phase.clone();
-    run.push_message(AgentMessageKind::User, format!("修改定制需求: {feedback}"));
+    run.push_message(
+        AgentMessageKind::User,
+        format!("Changed customization requirements: {feedback}"),
+    );
     let mut replanned = apply_requirements_replan(
         run,
         output,
-        format!("用户在定制阶段修改了 version/loader: {feedback}"),
+        format!("user changed version/loader during customization: {feedback}"),
         from_phase,
     );
     replanned.push_trace(format!(
         "llm generated build restriction replan via {}",
         generated.model
     ));
-    Ok(Some(replanned))
+    Ok(Some(continue_to_base_pack_search(llm, replanned).await?))
 }

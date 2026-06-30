@@ -37,6 +37,36 @@ pub(super) fn candidate_option(candidate: &BasePackCandidate) -> ApprovalOption 
     }
 }
 
+pub(super) fn scratch_base_pack_option() -> ApprovalOption {
+    ApprovalOption {
+        id: "scratch:fallback".to_string(),
+        label: "Start from scratch".to_string(),
+        description: Some(
+            "Build from an empty mod set using the confirmed Minecraft version and loader."
+                .to_string(),
+        ),
+        payload: Some(scratch_base_pack_payload()),
+    }
+}
+
+pub(super) fn scratch_base_pack_payload() -> serde_json::Value {
+    serde_json::json!({
+        "provider": "scratch",
+        "project_id": "scratch",
+        "slug": "scratch",
+        "title": "Start from scratch",
+        "description": "Empty base set",
+        "describe": "Empty base set | selected by user",
+        "source_ref": {
+            "kind": "empty_base",
+            "provider": "scratch",
+            "project_id": "scratch",
+            "title": "Start from scratch",
+            "modlist_strategy": "empty_modlist",
+        },
+    })
+}
+
 pub(super) fn attach_base_pack_resolution(
     base_pack_payload: &mut serde_json::Value,
     base: &SelectedBasePack,
@@ -135,7 +165,6 @@ pub(super) fn resolved_mod_payload(resolved: &ResolvedModCandidate) -> serde_jso
     })
 }
 
-#[cfg(test)]
 pub(super) fn mod_payload(candidate: &ModCandidate) -> serde_json::Value {
     let provider = provider_slug(candidate.provider);
     let hit = &candidate.hit;
@@ -237,9 +266,20 @@ fn execution_recipe_payload(
     target: &TargetCompatibility,
     extra_mods: &[serde_json::Value],
 ) -> serde_json::Value {
+    let from_scratch = optional_json_string(base_pack, "provider").as_deref() == Some("scratch");
+    let kind = if from_scratch {
+        "mrpack_from_scratch"
+    } else {
+        "mrpack_from_base_modpack"
+    };
+    let compile_input = if from_scratch {
+        "start from an empty mrpack index and append compatible extra_mod_refs"
+    } else {
+        "download base_pack_ref.source_ref.archive_file, parse its modrinth.index.json and preserve base archive overrides"
+    };
     serde_json::json!({
         "schema_version": 1,
-        "kind": "mrpack_from_base_modpack",
+        "kind": kind,
         "format": "mrpack",
         "compile_phase": "exec.compile_execution_manifest",
         "target": {
@@ -269,7 +309,7 @@ fn execution_recipe_payload(
             }))
             .collect::<Vec<_>>(),
         "compile_contract": {
-            "input": "download base_pack_ref.source_ref.archive_file, parse its modrinth.index.json and preserve base archive overrides",
+            "input": compile_input,
             "merge": "append compatible extra_mod_refs to the parsed base modlist; remote-eligible files go to modrinth.index.json, non-whitelisted downloadable files go to overrides",
             "dedupe": "dedupe exact output paths first; executor may add provider/project_id dedupe after parsing richer base metadata",
             "output": "execution.metadata.manifest, not the approved plan payload"
@@ -290,12 +330,12 @@ pub(super) fn selection_plan(
         .join("\n");
     let summary_markdown = if candidates.is_empty() {
         format!(
-            "没有找到底包候选。\n\n搜索词:\n- {}\n\n请修改版本、loader 或需求 tags 后重新搜索。",
+            "No base-pack candidates were found.\n\nQueries:\n- {}\n\nChange the version, loader, or requirement tags and search again.",
             queries.join("\n- ")
         )
     } else {
         format!(
-            "用户需求: {user_prompt}\n\n已优先搜索现成整合包作为底座。\n\n搜索词:\n- {}\n\n候选预览:\n{}",
+            "User request: {user_prompt}\n\nExisting modpacks were searched first as base candidates.\n\nQueries:\n- {}\n\nCandidate preview:\n{}",
             queries.join("\n- "),
             top
         )
@@ -305,8 +345,8 @@ pub(super) fn selection_plan(
         objective: user_prompt.to_string(),
         summary_markdown,
         risks: vec![
-            "候选仍需在下一步检查 Minecraft 版本、loader 和补充 mods 兼容性。".to_string(),
-            "选底包是 HITL gate；未确认前不会 import/install/write。".to_string(),
+            "Candidates still need Minecraft version, loader, and extra-mod compatibility checks in the next step.".to_string(),
+            "Base-pack selection is a HITL gate; import/install/write does not run before confirmation.".to_string(),
         ],
         planned_actions: vec![
             PlannedAction {
@@ -355,14 +395,14 @@ pub(super) fn customization_approval_with_validation(
     let approval = ApprovalRequest {
         id: crate::agent::state::new_id("approval"),
         kind: ApprovalKind::ConfirmCustomization,
-        title: "确认定制方案".to_string(),
-        message: "确认后，daemon 才会进入安装/写入阶段。当前只生成方案，不安装。".to_string(),
+        title: "Confirm customization plan".to_string(),
+        message: "After confirmation, deterministic execution can write the artifact. This step only prepares the plan.".to_string(),
         options: vec![
             ApprovalOption {
                 id: "confirm:recommended_customization".to_string(),
-                label: "确认推荐方案".to_string(),
+                label: "Confirm recommended plan".to_string(),
                 description: Some(format!(
-                    "底包: {}；补充 mods: {} 个",
+                    "Base pack: {}; extra mods: {}",
                     base.title,
                     extra_mods.len()
                 )),
@@ -385,12 +425,15 @@ pub(super) fn customization_approval_with_validation(
             },
             ApprovalOption {
                 id: "back:choose_base_pack".to_string(),
-                label: "返回重选底包".to_string(),
-                description: Some("当前候选不合适，回到基础整合包选择。".to_string()),
+                label: "Back to base-pack selection".to_string(),
+                description: Some(
+                    "The current candidate is not suitable; return to base-pack selection."
+                        .to_string(),
+                ),
                 payload: Some(serde_json::json!({ "action": "back_to_base_pack" })),
             },
         ],
-        available_decisions: approval_decisions("确认推荐方案", "修改补充 mods"),
+        available_decisions: approval_decisions("Confirm recommended plan", "Change extra mods"),
         tools: Vec::new(),
         plan: Some(plan.clone()),
     };
@@ -410,7 +453,7 @@ fn customization_plan(
         (None, None) => "unknown compatibility target".to_string(),
     };
     let mods_text = if mods.is_empty() {
-        "- 暂无兼容补充 mod 候选".to_string()
+        "- No compatible extra mod candidates yet".to_string()
     } else {
         mods.iter()
             .take(6)
@@ -428,12 +471,12 @@ fn customization_plan(
     ModpackAgentPlan {
         objective: user_prompt.to_string(),
         summary_markdown: format!(
-            "已选择底包: {} ({})\n\n兼容目标: {}\n\n推荐补充 mods:\n{}",
+            "Selected base pack: {} ({})\n\nCompatibility target: {}\n\nRecommended extra mods:\n{}",
             base.title, base.slug, target_text, mods_text
         ),
         risks: vec![
-            "补充 mods 来自平台搜索结果，安装前仍需按实际版本文件做最终解析。".to_string(),
-            "确认定制方案前不会 import/install/write。".to_string(),
+            "Extra mods come from provider search results and still need final version-file resolution before execution.".to_string(),
+            "Import/install/write does not run before the customization plan is confirmed.".to_string(),
         ],
         planned_actions: vec![
             PlannedAction {
@@ -470,18 +513,22 @@ pub(super) fn json_str_or<'a>(
         .unwrap_or(fallback)
 }
 
-pub(super) fn scratch_fallback_unavailable_plan(user_prompt: &str) -> ModpackAgentPlan {
+pub(super) fn scratch_build_plan(user_prompt: &str) -> ModpackAgentPlan {
     ModpackAgentPlan {
         objective: user_prompt.to_string(),
         summary_markdown:
-            "从零搭建分支暂未实现。需要修改底包搜索需求，回到底包选择 gate 重新搜索。".to_string(),
-        risks: vec!["当前 workflow 只能基于现成底包继续规划。".to_string()],
+            "The workflow will build from an empty base set using deterministic mod resolution."
+                .to_string(),
+        risks: vec![
+            "Scratch builds rely on compatible individual mods and required dependency closure."
+                .to_string(),
+        ],
         planned_actions: vec![PlannedAction {
-            id: "revise-base-pack-search".to_string(),
-            label: "User revises base pack search requirements".to_string(),
+            id: "plan-scratch-mod-set".to_string(),
+            label: "Plan a compatible mod set from scratch".to_string(),
             tool: "approval_gate".to_string(),
-            args: serde_json::json!({ "kind": "choose_base_pack", "scratch_fallback_unavailable": true }),
-            requires_approval: true,
+            args: serde_json::json!({ "kind": "confirm_customization", "base_set": "scratch" }),
+            requires_approval: false,
         }],
         migration_notes: vec![],
     }
