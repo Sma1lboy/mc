@@ -23,7 +23,7 @@ use crate::modplatform::{
 use super::llm::AgentLlmClient;
 use super::state::{
     AgentExecutionMetadata, AgentExecutionStatus, AgentIntent, AgentIntentKind, AgentMessageKind,
-    AgentPhase, AgentRunSnapshot, AgentStatus, AgentToolSpec, AgentWorkflowKind,
+    AgentPhase, AgentRunSnapshot, AgentStatus, AgentToolSpec, AgentToolTrace, AgentWorkflowKind,
     ApprovalDecisionSpec, ApprovalKind, ApprovalOption, ApprovalRequest, ApprovedModpackBuild,
     BuildRestrictionChange, BuildRestrictionChangeSource, BuildRestrictionPatch, BuildRestrictions,
     ExecutionBlocked, Goal, GoalKind, GoalQuery, GoalStatus, ModPlanState, ModProvenance,
@@ -448,16 +448,16 @@ fn continue_execution_manifest_with_trace(
     let output = serde_json::json!({ "manifest": manifest.clone() });
     let dispatch_phase = run.phase.clone();
     let mut next = continue_after_execution_manifest_result(run, manifest)?;
-    next.push_tool_trace(
-        event,
-        dispatch_phase,
+    next.push_tool_trace(AgentToolTrace {
+        event: event.into(),
+        stage: dispatch_phase,
         iteration,
-        tool,
+        tool: tool.into(),
         input,
         output,
-        started.elapsed().as_millis(),
+        duration_ms: started.elapsed().as_millis(),
         status,
-    );
+    });
     Ok(next)
 }
 

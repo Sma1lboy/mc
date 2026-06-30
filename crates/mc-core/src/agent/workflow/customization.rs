@@ -618,20 +618,20 @@ pub(super) async fn run_customization_planning_loop(
                     &baseline_goal_map(&baseline_roots, loader),
                     ModProvenance::Baseline,
                 );
-                run.push_tool_trace(
-                    "modplan reducer seed_baseline",
-                    AgentPhase::CustomizationPlanning,
+                run.push_tool_trace(AgentToolTrace {
+                    event: "modplan reducer seed_baseline".into(),
+                    stage: AgentPhase::CustomizationPlanning,
                     iteration,
-                    "resolve_baseline_mods",
-                    serde_json::json!({
+                    tool: "resolve_baseline_mods".into(),
+                    input: serde_json::json!({
                         "roots": mod_ref_payloads(&baseline_roots),
                         "mc_version": mc_version,
                         "loader": loader,
                     }),
-                    dependency_resolution_payload(&resolution),
-                    started.elapsed().as_millis(),
-                    "ok",
-                );
+                    output: dependency_resolution_payload(&resolution),
+                    duration_ms: started.elapsed().as_millis(),
+                    status: "ok".into(),
+                });
             }
         }
 
@@ -654,12 +654,12 @@ pub(super) async fn run_customization_planning_loop(
             .await?
         };
         candidate_pool = prefilter_mod_candidates(candidate_pool, &state);
-        run.push_tool_trace(
-            "modplan reducer search_candidates",
-            AgentPhase::CustomizationPlanning,
+        run.push_tool_trace(AgentToolTrace {
+            event: "modplan reducer search_candidates".into(),
+            stage: AgentPhase::CustomizationPlanning,
             iteration,
-            "search_mods",
-            serde_json::json!({
+            tool: "search_mods".into(),
+            input: serde_json::json!({
                 "queries": queries,
                 "filters": {
                     "minecraft_version": target.minecraft_version.clone(),
@@ -668,38 +668,38 @@ pub(super) async fn run_customization_planning_loop(
                 "current_project_ids": current_project_ids(&state).into_iter().collect::<Vec<_>>(),
                 "blocked_project_ids": state.blocked.clone(),
             }),
-            serde_json::json!({
+            output: serde_json::json!({
                 "count": candidate_pool.len(),
                 "candidates": candidate_pool.iter().map(mod_payload).collect::<Vec<_>>(),
             }),
-            started.elapsed().as_millis(),
-            "ok",
-        );
+            duration_ms: started.elapsed().as_millis(),
+            status: "ok".into(),
+        });
         if candidate_pool.is_empty() && !queries.is_empty() {
             let fallback_queries = fallback_mod_search_queries(&queries);
             if !fallback_queries.is_empty() {
                 let started = Instant::now();
                 candidate_pool = search_customization_mods(&fallback_queries, target).await?;
                 candidate_pool = prefilter_mod_candidates(candidate_pool, &state);
-                run.push_tool_trace(
-                    "modplan reducer fallback_search_candidates",
-                    AgentPhase::CustomizationPlanning,
+                run.push_tool_trace(AgentToolTrace {
+                    event: "modplan reducer fallback_search_candidates".into(),
+                    stage: AgentPhase::CustomizationPlanning,
                     iteration,
-                    "search_mods",
-                    serde_json::json!({
+                    tool: "search_mods".into(),
+                    input: serde_json::json!({
                         "queries": fallback_queries,
                         "filters": {
                             "minecraft_version": target.minecraft_version.clone(),
                             "loader": target.loader.clone(),
                         },
                     }),
-                    serde_json::json!({
+                    output: serde_json::json!({
                         "count": candidate_pool.len(),
                         "candidates": candidate_pool.iter().map(mod_payload).collect::<Vec<_>>(),
                     }),
-                    started.elapsed().as_millis(),
-                    "ok",
-                );
+                    duration_ms: started.elapsed().as_millis(),
+                    status: "ok".into(),
+                });
             }
         }
         if candidate_pool.is_empty() {
@@ -739,19 +739,19 @@ pub(super) async fn run_customization_planning_loop(
             )
             .await?
         };
-        run.push_tool_trace(
-            "modplan reducer model_step",
-            AgentPhase::CustomizationPlanning,
+        run.push_tool_trace(AgentToolTrace {
+            event: "modplan reducer model_step".into(),
+            stage: AgentPhase::CustomizationPlanning,
             iteration,
-            "mod_plan_step",
-            serde_json::json!({
+            tool: "mod_plan_step".into(),
+            input: serde_json::json!({
                 "candidate_count": candidate_pool.len(),
                 "open_goals": state.goals.iter()
                     .filter(|goal| goal.status == GoalStatus::Open)
                     .map(|goal| goal.id.clone())
                     .collect::<Vec<_>>(),
             }),
-            serde_json::json!({
+            output: serde_json::json!({
                 "model": llm.model(),
                 "selections": step.selections.iter()
                     .map(|selection| serde_json::json!({
@@ -764,9 +764,9 @@ pub(super) async fn run_customization_planning_loop(
                 "control": step.control,
                 "rationale": step.rationale.clone(),
             }),
-            started.elapsed().as_millis(),
-            "ok",
-        );
+            duration_ms: started.elapsed().as_millis(),
+            status: "ok".into(),
+        });
         if candidate_pool.is_empty() && has_open_goals(&state) {
             let diagnosis = step.rationale.trim();
             if !diagnosis.is_empty() {
@@ -786,16 +786,16 @@ pub(super) async fn run_customization_planning_loop(
         .await?;
         if !applied.blockers.is_empty() {
             last_blockers = applied.blockers.clone();
-            run.push_tool_trace(
-                "modplan reducer detect_conflicts",
-                AgentPhase::CustomizationPlanning,
+            run.push_tool_trace(AgentToolTrace {
+                event: "modplan reducer detect_conflicts".into(),
+                stage: AgentPhase::CustomizationPlanning,
                 iteration,
-                "detect_conflicts",
-                serde_json::json!({ "selected_project_ids": applied.selected_project_ids }),
-                serde_json::json!({ "blockers": applied.blockers }),
-                0,
-                "blocked",
-            );
+                tool: "detect_conflicts".into(),
+                input: serde_json::json!({ "selected_project_ids": applied.selected_project_ids }),
+                output: serde_json::json!({ "blockers": applied.blockers }),
+                duration_ms: 0,
+                status: "blocked".into(),
+            });
         }
 
         state.round += 1;

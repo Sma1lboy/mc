@@ -131,19 +131,14 @@ pub struct VersionFile {
     pub server_side: ProjectSideSupport,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ProjectSideSupport {
     Required,
     Optional,
     Unsupported,
+    #[default]
     Unknown,
-}
-
-impl Default for ProjectSideSupport {
-    fn default() -> Self {
-        Self::Unknown
-    }
 }
 
 impl ProjectSideSupport {

@@ -217,7 +217,7 @@ mod tests {
             Some("openai/gpt-test")
         );
 
-        let cfg = config_from_env_files(&[env_file.clone()]).unwrap();
+        let cfg = config_from_env_files(std::slice::from_ref(&env_file)).unwrap();
         assert_eq!(cfg.api_key, "sk-dotenv");
         assert_eq!(cfg.base_url, "https://example.com/v1");
         assert_eq!(cfg.model, "openai/gpt-test");
