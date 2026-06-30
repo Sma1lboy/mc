@@ -14,13 +14,13 @@ pub mod workflow;
 pub use llm::{AgentLlmClient, AgentLlmConfig};
 pub use session::{AgentSessionStore, AgentSessionSummary};
 pub use state::{
-    AgentExecutionMetadata, AgentExecutionStatus, AgentIntent, AgentIntentKind, AgentMessage,
-    AgentMessageKind, AgentPhase, AgentRunSnapshot, AgentStatus, AgentToolSpec, AgentToolTrace,
-    AgentWorkflowKind, ApprovalDecisionSpec, ApprovalKind, ApprovalOption, ApprovalRequest,
-    ApprovedModpackBuild, BuildRestrictionChange, BuildRestrictionChangeSource,
-    BuildRestrictionPatch, BuildRestrictions, ExecutionBlocked, ModpackAgentPlan, PlanArtifact,
-    PlanReplanRequest, PlannedAction, UpdateBuildRestrictionsInput, UpdateBuildRestrictionsOutput,
-    UserDecision, UserDecisionKind,
+    AgentEntry, AgentExecutionMetadata, AgentExecutionStatus, AgentIntent, AgentIntentKind,
+    AgentLaunchContext, AgentMessage, AgentMessageKind, AgentPhase, AgentRunSnapshot, AgentStatus,
+    AgentToolSpec, AgentToolTrace, AgentWorkflowId, AgentWorkflowKind, ApprovalDecisionSpec,
+    ApprovalKind, ApprovalOption, ApprovalRequest, ApprovedModpackBuild, BuildRestrictionChange,
+    BuildRestrictionChangeSource, BuildRestrictionPatch, BuildRestrictions, ExecutionBlocked,
+    ModpackAgentPlan, PlanArtifact, PlanReplanRequest, PlannedAction, UpdateBuildRestrictionsInput,
+    UpdateBuildRestrictionsOutput, UserDecision, UserDecisionKind,
 };
 pub use workflow::{
     compile_mrpack_execution_metadata, continue_after_execution_manifest_result,

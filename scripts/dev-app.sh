@@ -104,7 +104,9 @@ if [ -n "$OLD" ]; then
   sleep 1
 fi
 echo "→ launching fresh binary…"
-nohup "$BIN" > "$APP_LOG" 2>&1 &
+# Launch from the repo root so repository-level dev config such as `.env`
+# resolves consistently even when this script is invoked from another cwd.
+( cd "$ROOT" && nohup "$BIN" > "$APP_LOG" 2>&1 & )
 sleep 3
 NEW=$(pgrep -f mc-launcher-desktop | head -1)
 
