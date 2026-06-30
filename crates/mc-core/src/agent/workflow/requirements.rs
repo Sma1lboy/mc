@@ -538,9 +538,7 @@ pub(super) fn apply_requirements_replan(
         from_phase,
         restriction_patch,
     );
-    run.status = AgentStatus::Running;
-    run.phase = AgentPhase::BasePackSearch;
-    run.pending_approval = None;
+    run.enter_phase(AgentPhase::BasePackSearch);
     run.plan = None;
     run.push_message(
         AgentMessageKind::Assistant,

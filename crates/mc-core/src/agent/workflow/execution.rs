@@ -1172,9 +1172,7 @@ pub fn continue_after_execution_manifest_result(
 
     match outcome.kind {
         ExecutionOutcomeKind::Ready => {
-            run.status = AgentStatus::Running;
-            run.phase = AgentPhase::Executing;
-            run.pending_approval = None;
+            run.enter_phase(AgentPhase::Executing);
             run.tools = vec![build_mrpack_artifact_tool_spec()];
             run.execution = Some(AgentExecutionMetadata {
                 status: AgentExecutionStatus::Ready,
@@ -1189,9 +1187,7 @@ pub fn continue_after_execution_manifest_result(
             Ok(run)
         }
         ExecutionOutcomeKind::Verifying => {
-            run.status = AgentStatus::Running;
-            run.phase = AgentPhase::Verifying;
-            run.pending_approval = None;
+            run.enter_phase(AgentPhase::Verifying);
             run.tools.clear();
             run.execution = Some(AgentExecutionMetadata {
                 status: AgentExecutionStatus::Running,
@@ -1207,9 +1203,7 @@ pub fn continue_after_execution_manifest_result(
         }
         ExecutionOutcomeKind::Completed => {
             let completed_from = run.phase.clone();
-            run.status = AgentStatus::Completed;
-            run.phase = AgentPhase::Completed;
-            run.pending_approval = None;
+            run.complete(AgentPhase::Completed);
             run.tools.clear();
             run.execution = Some(AgentExecutionMetadata {
                 status: AgentExecutionStatus::Completed,
@@ -1242,9 +1236,9 @@ pub fn continue_after_execution_manifest_result(
                     .unwrap_or_else(|| serde_json::json!([])),
             };
             let approval = execution_replan_approval(&run, &replan_phase, &manifest, &reason)?;
-            run.status = AgentStatus::WaitingForUser;
-            run.phase = replan_phase;
-            run.pending_approval = Some(approval);
+            // Re-entry keeps the existing plan; pass it through unchanged.
+            let plan = run.plan.clone();
+            run.request_approval(replan_phase, approval, plan);
             run.tools.clear();
             run.execution = Some(AgentExecutionMetadata {
                 status: AgentExecutionStatus::Blocked,
@@ -1294,9 +1288,7 @@ pub fn continue_after_execution_manifest_result(
                 .or_else(|| manifest.get("error"))
                 .cloned()
                 .unwrap_or(serde_json::Value::Null);
-            run.status = AgentStatus::Failed;
-            run.phase = AgentPhase::Failed;
-            run.pending_approval = None;
+            run.fail(AgentPhase::Failed);
             run.tools.clear();
             run.execution = Some(AgentExecutionMetadata {
                 status: AgentExecutionStatus::Failed,

@@ -18,13 +18,14 @@ pub(super) fn block_customization_planning(
             missing_fields,
             warnings: vec![blocked.reason.clone()],
         };
-        run.status = AgentStatus::WaitingForUser;
-        run.phase = AgentPhase::ConfigureRequirementsApproval;
-        run.pending_approval = Some(requirements_approval(&run.user_prompt, &output));
+        let approval = requirements_approval(&run.user_prompt, &output);
+        // Re-entry keeps the existing plan; pass it through unchanged.
+        let plan = run.plan.clone();
+        run.request_approval(AgentPhase::ConfigureRequirementsApproval, approval, plan);
     } else {
-        run.status = AgentStatus::WaitingForUser;
-        run.phase = AgentPhase::ConfirmCustomizationApproval;
-        run.pending_approval = Some(customization_planning_blocked_approval(&run, &blocked));
+        let approval = customization_planning_blocked_approval(&run, &blocked);
+        let plan = run.plan.clone();
+        run.request_approval(AgentPhase::ConfirmCustomizationApproval, approval, plan);
     }
     run.push_message(
         AgentMessageKind::Tool,
@@ -196,9 +197,7 @@ pub(super) fn continue_after_customization_confirmation(
     );
     run.approved_build = Some(build);
     run.mod_plan = None;
-    run.status = AgentStatus::Running;
-    run.phase = AgentPhase::ExecutionReady;
-    run.pending_approval = None;
+    run.enter_phase(AgentPhase::ExecutionReady);
     run.tools = vec![build_mrpack_artifact_tool_spec()];
     run.execution = Some(AgentExecutionMetadata {
         status: AgentExecutionStatus::NotStarted,
@@ -315,10 +314,7 @@ pub(super) async fn continue_after_customization_feedback(
         validated.extra_mods,
         Some(validated.validation),
     );
-    run.status = AgentStatus::WaitingForUser;
-    run.phase = AgentPhase::ConfirmCustomizationApproval;
-    run.pending_approval = Some(approval);
-    run.plan = Some(plan);
+    run.request_approval(AgentPhase::ConfirmCustomizationApproval, approval, Some(plan));
     run.push_trace("paused at updated customization confirmation gate");
     Ok(run)
 }

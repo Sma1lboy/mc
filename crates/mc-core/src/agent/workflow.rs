@@ -736,11 +736,13 @@ impl ModpackBuildWorkflow {
         );
 
         let approval = requirements_approval(user_prompt, &output);
-        run.status = AgentStatus::WaitingForUser;
-        run.phase = AgentPhase::ConfigureRequirementsApproval;
+        let plan = requirements_plan(user_prompt, &output);
         run.restrictions = Some(output.restrictions.clone());
-        run.pending_approval = Some(approval);
-        run.plan = Some(requirements_plan(user_prompt, &output));
+        run.request_approval(
+            AgentPhase::ConfigureRequirementsApproval,
+            approval,
+            Some(plan),
+        );
         run.push_trace("paused at build requirements approval gate");
         Ok(run)
     }
@@ -875,9 +877,7 @@ pub fn continue_modpack_build_without_model(
     validate_user_decision_shape(&decision)?;
 
     if decision.kind == UserDecisionKind::Cancel {
-        run.status = AgentStatus::Completed;
-        run.phase = AgentPhase::Completed;
-        run.pending_approval = None;
+        run.complete(AgentPhase::Completed);
         run.push_trace("user cancelled agent run");
         return Ok(Some(run));
     }
@@ -917,10 +917,7 @@ fn return_to_base_pack_selection(mut run: AgentRunSnapshot) -> Result<AgentRunSn
     let base_pack = current_customization_base_pack(&run)?;
     let approval = base_pack_reselection_approval(&run, base_pack);
     let plan = approval.plan.clone();
-    run.status = AgentStatus::WaitingForUser;
-    run.phase = AgentPhase::ChooseBasePackApproval;
-    run.pending_approval = Some(approval);
-    run.plan = plan;
+    run.request_approval(AgentPhase::ChooseBasePackApproval, approval, plan);
     run.approved_build = None;
     run.execution = None;
     run.mod_plan = None;
@@ -1097,8 +1094,7 @@ fn unsupported_intent_snapshot(
     run.workflow = AgentWorkflowKind::Unsupported;
     run.launch_context = launch_context;
     run.intent = Some(intent.clone());
-    run.status = AgentStatus::Completed;
-    run.phase = AgentPhase::Completed;
+    run.complete(AgentPhase::Completed);
     run.push_message(AgentMessageKind::User, user_prompt);
     run.push_message(
         AgentMessageKind::Assistant,

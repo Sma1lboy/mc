@@ -310,6 +310,46 @@ impl AgentRunSnapshot {
         self.trim_replans();
     }
 
+    /// Enter a human-approval gate atomically: pause as [`AgentStatus::WaitingForUser`]
+    /// at `phase`, holding `approval` and `plan`. This is the single home for the
+    /// `WaitingForUser` ⇔ `pending_approval.is_some()` invariant; callers must not
+    /// hand-set the status/phase/pending_approval trio. Secondary fields a gate may
+    /// also touch (`tools`, and `approved_build`/`execution`/`mod_plan` invalidation)
+    /// stay with the caller — they are deliberately not uniform across gates.
+    pub fn request_approval(
+        &mut self,
+        phase: AgentPhase,
+        approval: ApprovalRequest,
+        plan: Option<ModpackAgentPlan>,
+    ) {
+        self.status = AgentStatus::WaitingForUser;
+        self.phase = phase;
+        self.pending_approval = Some(approval);
+        self.plan = plan;
+    }
+
+    /// Leave any gate into a running `phase`, clearing the pending approval so the
+    /// `Running` ⇒ no-pending-approval half of the invariant holds by construction.
+    pub fn enter_phase(&mut self, phase: AgentPhase) {
+        self.status = AgentStatus::Running;
+        self.phase = phase;
+        self.pending_approval = None;
+    }
+
+    /// Terminate the run as completed at `phase`, clearing any pending approval.
+    pub fn complete(&mut self, phase: AgentPhase) {
+        self.status = AgentStatus::Completed;
+        self.phase = phase;
+        self.pending_approval = None;
+    }
+
+    /// Terminate the run as failed at `phase`, clearing any pending approval.
+    pub fn fail(&mut self, phase: AgentPhase) {
+        self.status = AgentStatus::Failed;
+        self.phase = phase;
+        self.pending_approval = None;
+    }
+
     fn trim_messages(&mut self) {
         if self.messages.len() <= MAX_AGENT_MESSAGES {
             return;
@@ -719,6 +759,66 @@ mod tests {
         assert!(run.pending_approval.is_none());
         assert!(run.restrictions.is_none());
         assert!(run.id.starts_with("agent-run-"));
+    }
+
+    #[test]
+    fn transition_methods_keep_status_and_pending_approval_in_lockstep() {
+        let approval = ApprovalRequest {
+            id: "approval-test".to_string(),
+            kind: ApprovalKind::ChooseBasePack,
+            title: "title".to_string(),
+            message: "message".to_string(),
+            options: Vec::new(),
+            available_decisions: Vec::new(),
+            tools: Vec::new(),
+            plan: None,
+        };
+        let plan = ModpackAgentPlan {
+            objective: "objective".to_string(),
+            summary_markdown: "summary".to_string(),
+            risks: Vec::new(),
+            planned_actions: Vec::new(),
+            migration_notes: Vec::new(),
+        };
+
+        let mut run = AgentRunSnapshot::new("make a pack");
+
+        // request_approval pauses at WaitingForUser with the approval + plan held.
+        run.request_approval(
+            AgentPhase::ChooseBasePackApproval,
+            approval.clone(),
+            Some(plan.clone()),
+        );
+        assert_eq!(run.status, AgentStatus::WaitingForUser);
+        assert_eq!(run.phase, AgentPhase::ChooseBasePackApproval);
+        assert!(run.pending_approval.is_some());
+        assert!(run.plan.is_some());
+
+        // enter_phase leaves the gate into Running and clears the pending approval.
+        run.enter_phase(AgentPhase::Executing);
+        assert_eq!(run.status, AgentStatus::Running);
+        assert_eq!(run.phase, AgentPhase::Executing);
+        assert!(run.pending_approval.is_none());
+
+        // complete() from a re-entered gate must clear the pending approval.
+        run.request_approval(
+            AgentPhase::ConfirmCustomizationApproval,
+            approval.clone(),
+            None,
+        );
+        assert!(run.pending_approval.is_some());
+        run.complete(AgentPhase::Completed);
+        assert_eq!(run.status, AgentStatus::Completed);
+        assert_eq!(run.phase, AgentPhase::Completed);
+        assert!(run.pending_approval.is_none());
+
+        // fail() from a re-entered gate must likewise clear the pending approval.
+        run.request_approval(AgentPhase::ConfirmCustomizationApproval, approval, None);
+        assert!(run.pending_approval.is_some());
+        run.fail(AgentPhase::Failed);
+        assert_eq!(run.status, AgentStatus::Failed);
+        assert_eq!(run.phase, AgentPhase::Failed);
+        assert!(run.pending_approval.is_none());
     }
 
     #[test]

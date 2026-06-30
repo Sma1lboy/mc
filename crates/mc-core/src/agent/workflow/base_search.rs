@@ -107,10 +107,7 @@ pub(super) async fn continue_after_base_pack_choice(
         Some(validated.validation),
     );
 
-    run.status = AgentStatus::WaitingForUser;
-    run.phase = AgentPhase::ConfirmCustomizationApproval;
-    run.pending_approval = Some(approval);
-    run.plan = Some(plan);
+    run.request_approval(AgentPhase::ConfirmCustomizationApproval, approval, Some(plan));
     run.push_trace("paused at customization confirmation gate");
     Ok(run)
 }
@@ -193,10 +190,7 @@ async fn continue_after_scratch_base_choice(
         validated.extra_mods,
         Some(validated.validation),
     );
-    run.status = AgentStatus::WaitingForUser;
-    run.phase = AgentPhase::ConfirmCustomizationApproval;
-    run.pending_approval = Some(approval);
-    run.plan = Some(plan);
+    run.request_approval(AgentPhase::ConfirmCustomizationApproval, approval, Some(plan));
     run.push_trace("paused at scratch customization confirmation gate");
     Ok(run)
 }
@@ -206,13 +200,11 @@ pub(super) fn block_base_pack_planning(
     base_pack_payload: serde_json::Value,
     reason: String,
 ) -> AgentRunSnapshot {
-    run.status = AgentStatus::WaitingForUser;
-    run.phase = AgentPhase::ChooseBasePackApproval;
-    run.pending_approval = Some(base_pack_planning_blocked_approval(
-        &run,
-        base_pack_payload,
-        &reason,
-    ));
+    let approval = base_pack_planning_blocked_approval(&run, base_pack_payload, &reason);
+    // This re-entry keeps the existing plan (the prior base-pack selection plan),
+    // so pass it through unchanged rather than clearing it.
+    let plan = run.plan.clone();
+    run.request_approval(AgentPhase::ChooseBasePackApproval, approval, plan);
     run.push_message(
         AgentMessageKind::Tool,
         format!("base-pack planning blocked: {reason}"),
@@ -301,10 +293,7 @@ pub(super) async fn continue_to_base_pack_search(
     let plan = selection_plan(&planning_input, &queries, &candidates);
     let approval = base_pack_selection_approval(&candidates, plan.clone());
 
-    run.status = AgentStatus::WaitingForUser;
-    run.phase = AgentPhase::ChooseBasePackApproval;
-    run.pending_approval = Some(approval);
-    run.plan = Some(plan);
+    run.request_approval(AgentPhase::ChooseBasePackApproval, approval, Some(plan));
     run.push_trace("paused at base modpack selection approval gate");
     Ok(run)
 }
@@ -396,10 +385,7 @@ pub(super) async fn continue_after_base_pack_feedback(
 
     let plan = selection_plan(&planning_input, &queries, &candidates);
     let approval = base_pack_selection_approval(&candidates, plan.clone());
-    run.status = AgentStatus::WaitingForUser;
-    run.phase = AgentPhase::ChooseBasePackApproval;
-    run.pending_approval = Some(approval);
-    run.plan = Some(plan);
+    run.request_approval(AgentPhase::ChooseBasePackApproval, approval, Some(plan));
     run.push_trace("paused at updated base modpack selection approval gate");
     Ok(run)
 }
