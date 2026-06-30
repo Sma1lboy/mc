@@ -574,6 +574,8 @@ pub async fn install_version_file(
                 loaders: Vec::new(),
                 files: vec![resolved.file],
                 dependencies: Vec::new(),
+                client_side: mc_core::modplatform::ProjectSideSupport::Unknown,
+                server_side: mc_core::modplatform::ProjectSideSupport::Unknown,
             };
             (v, false)
         }

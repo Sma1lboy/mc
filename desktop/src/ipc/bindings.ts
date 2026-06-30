@@ -1047,6 +1047,8 @@ export type ProjectDetail = {
 	discord_url: string | null,
 };
 
+export type ProjectSideSupport = "required" | "optional" | "unsupported" | "unknown";
+
 /**
  *  One file the syncer reconciles into a member's instance. `path` is relative
  *  to the **instance dir**, e.g. `mods/sodium.jar`.
@@ -1183,6 +1185,8 @@ export type SearchHit = {
 	 */
 	gallery_url?: string | null,
 	categories: string[],
+	client_side?: ProjectSideSupport,
+	server_side?: ProjectSideSupport,
 };
 
 /**
