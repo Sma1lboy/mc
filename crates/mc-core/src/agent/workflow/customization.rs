@@ -753,13 +753,13 @@ pub(super) async fn run_customization_planning_loop(
         }
 
         let started = Instant::now();
-        let step = if candidate_pool.is_empty() && !has_open_goals(&state) {
+        let step = if candidate_pool.is_empty() && !has_open_theme_goals(&state) {
             ModPlanStep {
                 selections: Vec::new(),
                 removals: Vec::new(),
                 next_queries: Vec::new(),
                 control: ModPlanControl::Done,
-                rationale: "all goals are covered".to_string(),
+                rationale: "all theme goals are covered".to_string(),
             }
         } else if candidate_pool.is_empty() && state.empty_candidate_rounds > 1 {
             ModPlanStep {
@@ -848,7 +848,7 @@ pub(super) async fn run_customization_planning_loop(
             stopped_by_round_cap = true;
         }
         let honor_done = should_honor_done(control, &state, candidate_pool.is_empty());
-        if honor_done || stopped_by_round_cap || !has_open_goals(&state) {
+        if honor_done || stopped_by_round_cap || !has_open_theme_goals(&state) {
             break;
         }
     }
