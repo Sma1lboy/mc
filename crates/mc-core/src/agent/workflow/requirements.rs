@@ -16,26 +16,31 @@ pub(super) async fn generate_restriction_update(
         None,
     )
     .to_string();
-    let response = llm
+    // The genuine schema/parse failure happens *inside* `prompt_typed`
+    // (`serde_json::from_str` of the raw model text), so the retry must hinge on
+    // this `Err`, not on the post-parse validators (which are infallible).
+    let first_attempt = llm
         .prompt_typed::<UpdateBuildRestrictionsInput>(
             &[MAIN_AGENT_SYSTEM_PROMPT, REQUIREMENT_NORMALIZATION_PROMPT],
             input,
             260,
             0.0,
         )
-        .await?;
-    let mut model = llm.model().to_string();
-    let previous_output = format!("{response:?}");
-    let input = match validate_restriction_update_input(response) {
-        Ok(input) => input,
+        .await;
+    let input = match first_attempt {
+        Ok(response) => validate_restriction_update_input(response)?,
         Err(first_err) => {
+            // Re-prompt once, feeding back the genuine error string the model
+            // failed on (the raw parse/schema violation, not a Debug dump of an
+            // already-parsed struct) so it can correct the malformed output.
+            let schema_violation = first_err.to_string();
             let retry_input = restriction_update_request_payload(
                 original_user_prompt,
                 current,
                 user_message,
                 source,
-                Some(first_err.to_string()),
-                Some(previous_output),
+                Some(schema_violation.clone()),
+                Some(schema_violation),
             )
             .to_string();
             let retry = llm
@@ -49,11 +54,16 @@ pub(super) async fn generate_restriction_update(
                     260,
                     0.0,
                 )
-                .await?;
-            model = llm.model().to_string();
+                .await
+                .map_err(|second_err| {
+                    CoreError::other(format!(
+                        "could not parse restriction tool schema output after retry: {second_err}; first error: {first_err}"
+                    ))
+                })?;
             validate_restriction_update_retry(retry, &first_err)?
         }
     };
+    let model = llm.model().to_string();
     Ok(GeneratedRestrictionUpdate { model, input })
 }
 
@@ -657,4 +667,140 @@ pub(super) async fn maybe_replan_requirements_from_feedback(
         generated.model
     ));
     Ok(Some(continue_to_base_pack_search(llm, replanned).await?))
+}
+
+#[cfg(test)]
+mod retry_tests {
+    use super::*;
+
+    /// Minimal local HTTP server that serves two sequential responses. The shared
+    /// `one_response_server` test helpers only answer a single connection; the
+    /// schema-retry path issues two `prompt_typed` calls, so we need to answer the
+    /// initial attempt and the retry. Each response sets `Connection: close`, so
+    /// the client opens a fresh connection per call and the bodies are consumed in
+    /// order.
+    fn two_response_server(first: Vec<u8>, second: Vec<u8>) -> String {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for body in [first, second] {
+                let Ok((mut stream, _)) = listener.accept() else {
+                    break;
+                };
+                let mut buf = [0_u8; 16384];
+                let _ = stream.read(&mut buf);
+                let headers = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(headers.as_bytes());
+                let _ = stream.write_all(&body);
+                let _ = stream.flush();
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    /// Wrap raw assistant text in an OpenRouter chat-completion envelope. `content`
+    /// is returned verbatim as the model output, so passing non-JSON text exercises
+    /// the genuine `prompt_typed` parse failure (its internal `serde_json::from_str`
+    /// rejects it).
+    fn openrouter_response_body(content: &str) -> Vec<u8> {
+        serde_json::json!({
+            "id": "chatcmpl_test",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "gpt-test",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": content },
+                "finish_reason": "stop",
+                "native_finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
+        })
+        .to_string()
+        .into_bytes()
+    }
+
+    fn client_for(base_url: String) -> AgentLlmClient {
+        let mut cfg = crate::agent::AgentLlmConfig::new("test-key");
+        cfg.base_url = base_url;
+        crate::agent::AgentLlmClient::new(cfg).unwrap()
+    }
+
+    /// Well-formed `UpdateBuildRestrictionsInput` JSON (pre-normalization): a raw
+    /// loader case, padded/duplicate feature tags, and padded notes so the test can
+    /// assert that post-parse normalization still runs on the retry value.
+    const VALID_RETRY_OUTPUT: &str = r#"{"base_revision":0,"patch":{"minecraft_version":"1.20.1","loader":"Fabric","feature_tags":[" performance ","performance"],"notes":"  keep this  "}}"#;
+
+    #[tokio::test]
+    async fn schema_retry_recovers_after_one_malformed_response() {
+        // First attempt returns text that is not valid JSON for the schema, so the
+        // initial `prompt_typed` errors inside its `serde_json::from_str`. The retry
+        // returns a valid object; the function must return it after exactly one retry.
+        let base_url = two_response_server(
+            openrouter_response_body("this is not a json object"),
+            openrouter_response_body(VALID_RETRY_OUTPUT),
+        );
+        let llm = client_for(base_url);
+
+        let generated = generate_restriction_update(
+            &llm,
+            "make me a fabric pack",
+            &BuildRestrictions::default(),
+            "make me a fabric pack",
+            BuildRestrictionChangeSource::InitialPrompt,
+        )
+        .await
+        .expect("retry should recover from a malformed first response");
+
+        // Post-parse normalization is applied to the successful retry value.
+        assert_eq!(generated.input.base_revision, 0);
+        assert_eq!(
+            generated.input.patch.minecraft_version.as_deref(),
+            Some("1.20.1")
+        );
+        assert_eq!(
+            generated
+                .input
+                .patch
+                .minecraft_version_requirement
+                .as_deref(),
+            Some("1.20.1")
+        );
+        assert_eq!(generated.input.patch.loader.as_deref(), Some("fabric"));
+        assert_eq!(generated.input.patch.feature_tags, vec!["performance"]);
+        assert_eq!(generated.input.patch.notes.as_deref(), Some("keep this"));
+    }
+
+    #[tokio::test]
+    async fn schema_retry_surfaces_clear_error_when_retry_also_malformed() {
+        // Both attempts are malformed: the initial parse fails, the retry parse also
+        // fails, and the function surfaces a clear error after the single retry.
+        let base_url = two_response_server(
+            openrouter_response_body("still not json"),
+            openrouter_response_body("also not json"),
+        );
+        let llm = client_for(base_url);
+
+        let err = generate_restriction_update(
+            &llm,
+            "make me a pack",
+            &BuildRestrictions::default(),
+            "make me a pack",
+            BuildRestrictionChangeSource::InitialPrompt,
+        )
+        .await
+        .expect_err("a persistently malformed response must surface an error after the retry");
+
+        let message = err.to_string();
+        assert!(
+            message.contains("after retry"),
+            "error should report that the retry also failed: {message}"
+        );
+    }
 }
