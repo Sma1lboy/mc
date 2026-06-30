@@ -16,8 +16,8 @@ pub use session::{AgentSessionStore, AgentSessionSummary};
 pub use state::{
     AgentEntry, AgentExecutionMetadata, AgentExecutionStatus, AgentIntent, AgentIntentKind,
     AgentLaunchContext, AgentMessage, AgentMessageKind, AgentPhase, AgentRunSnapshot, AgentStatus,
-    AgentToolSpec, AgentWorkflowId, AgentWorkflowKind, ApprovalDecisionSpec, ApprovalKind,
-    ApprovalOption, ApprovalRequest, ApprovedModpackBuild, BuildRestrictionChange,
+    AgentToolSpec, AgentToolTrace, AgentWorkflowId, AgentWorkflowKind, ApprovalDecisionSpec,
+    ApprovalKind, ApprovalOption, ApprovalRequest, ApprovedModpackBuild, BuildRestrictionChange,
     BuildRestrictionChangeSource, BuildRestrictionPatch, BuildRestrictions, ExecutionBlocked,
     ModpackAgentPlan, PlanArtifact, PlanReplanRequest, PlannedAction, UpdateBuildRestrictionsInput,
     UpdateBuildRestrictionsOutput, UserDecision, UserDecisionKind,

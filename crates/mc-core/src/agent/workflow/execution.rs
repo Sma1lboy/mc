@@ -374,7 +374,7 @@ async fn infer_base_file_env_overrides(
             .map(|(_, hash)| hash.clone())
             .collect::<Vec<_>>();
         if let Ok(resolved_files) = provider.resolve_by_hashes(HashAlgo::Sha512, &hashes).await {
-            for ((path, _), resolved) in hash_fallbacks.iter().zip(resolved_files.into_iter()) {
+            for ((path, _), resolved) in hash_fallbacks.iter().zip(resolved_files) {
                 if path_to_project_id.contains_key(path) {
                     continue;
                 }

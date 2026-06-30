@@ -24,11 +24,11 @@ use super::llm::AgentLlmClient;
 use super::state::{
     AgentEntry, AgentExecutionMetadata, AgentExecutionStatus, AgentIntent, AgentIntentKind,
     AgentLaunchContext, AgentMessageKind, AgentPhase, AgentRunSnapshot, AgentStatus, AgentToolSpec,
-    AgentWorkflowId, AgentWorkflowKind, ApprovalDecisionSpec, ApprovalKind, ApprovalOption,
-    ApprovalRequest, ApprovedModpackBuild, BuildRestrictionChange, BuildRestrictionChangeSource,
-    BuildRestrictionPatch, BuildRestrictions, ExecutionBlocked, Goal, GoalKind, GoalQuery,
-    GoalStatus, ModPlanState, ModProvenance, ModpackAgentPlan, PlanArtifact, PlanReplanRequest,
-    PlannedAction, ResolvedMod, TargetCompatibility, UpdateBuildRestrictionsInput,
+    AgentToolTrace, AgentWorkflowId, AgentWorkflowKind, ApprovalDecisionSpec, ApprovalKind,
+    ApprovalOption, ApprovalRequest, ApprovedModpackBuild, BuildRestrictionChange,
+    BuildRestrictionChangeSource, BuildRestrictionPatch, BuildRestrictions, ExecutionBlocked, Goal,
+    GoalKind, GoalQuery, GoalStatus, ModPlanState, ModProvenance, ModpackAgentPlan, PlanArtifact,
+    PlanReplanRequest, PlannedAction, ResolvedMod, TargetCompatibility, UpdateBuildRestrictionsInput,
     UpdateBuildRestrictionsOutput, UserDecision, UserDecisionKind,
 };
 
@@ -519,16 +519,16 @@ fn continue_execution_manifest_with_trace(
     let output = serde_json::json!({ "manifest": manifest.clone() });
     let dispatch_phase = run.phase.clone();
     let mut next = continue_after_execution_manifest_result(run, manifest)?;
-    next.push_tool_trace(
-        event,
-        dispatch_phase,
+    next.push_tool_trace(AgentToolTrace {
+        event: event.into(),
+        stage: dispatch_phase,
         iteration,
-        tool,
+        tool: tool.into(),
         input,
         output,
-        started.elapsed().as_millis(),
+        duration_ms: started.elapsed().as_millis(),
         status,
-    );
+    });
     Ok(next)
 }
 

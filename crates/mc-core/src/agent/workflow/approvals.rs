@@ -232,11 +232,7 @@ pub(super) fn base_pack_selection_approval(
     ApprovalRequest {
         id: crate::agent::state::new_id("approval"),
         kind: ApprovalKind::ChooseBasePack,
-        title: if candidates.is_empty() {
-            "Choose a base modpack or start from scratch".to_string()
-        } else {
-            "Choose a base modpack or start from scratch".to_string()
-        },
+        title: "Choose a base modpack or start from scratch".to_string(),
         message: if candidates.is_empty() {
             "The current search returned no existing base-pack candidates. Start from scratch, or change the version, loader, or requirement tags and search again.".to_string()
         } else {
