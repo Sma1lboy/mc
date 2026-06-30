@@ -43,17 +43,28 @@ impl Default for ModrinthApi {
     }
 }
 
+/// 进程级共享的 Modrinth `reqwest::Client`。`reqwest::Client` 内部是 `Arc`,克隆共享同一
+/// TLS 配置与连接池;每次 [`ModrinthApi::new`] 复用它,而非重建一个新池(否则每次请求都付
+/// 冷连接代价)。配置与旧的 per-call 构造**完全一致**(仅固化 UA),对所有调用方行为不变。
+///
+/// 失败(仅 TLS 后端初始化失败)走 `expect`——属环境级灾难,失败即代表整个进程无法发请求。
+fn shared_client() -> reqwest::Client {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .user_agent(USER_AGENT)
+                .build()
+                .expect("failed to build reqwest client for Modrinth")
+        })
+        .clone()
+}
+
 impl ModrinthApi {
-    /// 构造一个新客户端。UA 在此固化;构造失败(几乎不会)会 panic,因为没有
-    /// 任何运行时输入能让它失败——这是纯静态配置。
+    /// 构造一个新客户端。复用进程级共享的 [`shared_client`](内含固化 UA 的连接池),
+    /// 多个 `ModrinthApi` 因此共享同一 TLS/连接池,免去每次重建带来的冷连接延迟。
     pub fn new() -> Self {
-        let client = reqwest::Client::builder()
-            .user_agent(USER_AGENT)
-            .build()
-            // reqwest 仅在 TLS 后端初始化失败时报错,属于环境级灾难;此处用静态
-            // 配置,失败即代表整个进程无法发任何请求,直接 expect 暴露问题。
-            .expect("failed to build reqwest client for Modrinth");
-        Self { client, base: API_BASE.to_string() }
+        Self { client: shared_client(), base: API_BASE.to_string() }
     }
 
     /// 用自定义 base url 构造(主要给测试/镜像用)。

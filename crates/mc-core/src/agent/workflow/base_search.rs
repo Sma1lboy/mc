@@ -1,5 +1,15 @@
 use super::*;
 
+use crate::modplatform::dependency::VersionLookupCache;
+use crate::modplatform::ProjectVersion;
+use futures::StreamExt;
+
+/// 同时在途的 provider 请求上限。取小值以并发省时又不至于猛打 provider 触发限流。
+const PROVIDER_FANOUT: usize = 8;
+
+/// 并发抓取的一条结果:候选下标 + 平台 + 项目 id + `list_versions` 结果(成功才回填缓存)。
+type FetchedVersions = (usize, ProviderId, String, Result<Vec<ProjectVersion>>);
+
 pub(super) async fn continue_after_base_pack_choice(
     llm: &AgentLlmClient,
     mut run: AgentRunSnapshot,
@@ -401,6 +411,9 @@ pub(super) async fn run_base_pack_search_loop(
 ) -> Result<Vec<BasePackCandidate>> {
     let mut mode = BaseSearchMode::Strict;
     let mut best = Vec::new();
+    // 跨 4 轮模式阶梯共享的 list_versions 缓存:同一个基础包在多轮里重复出现时,其版本只取一次。
+    // 作用域仅限本搜索循环(返回即 drop),不会跨运行变陈旧。
+    let mut version_cache = VersionLookupCache::new();
 
     for iteration in 1..=BASE_SEARCH_MAX_ITERATIONS {
         let started = Instant::now();
@@ -424,7 +437,8 @@ pub(super) async fn run_base_pack_search_loop(
         });
 
         let started = Instant::now();
-        let filtered = filter_base_packs_by_restrictions(searched, requested).await?;
+        let filtered =
+            filter_base_packs_by_restrictions(searched, requested, &mut version_cache).await?;
         run.push_tool_trace(AgentToolTrace {
             event: "base-pack loop filter_by_restrictions".into(),
             stage: AgentPhase::BasePackSearch,
@@ -481,25 +495,44 @@ async fn search_base_modpacks(
         .get(ProviderId::Modrinth)
         .ok_or_else(|| CoreError::other("Modrinth provider is not registered"))?;
     let provider_id = provider.id();
+
+    // Build one SearchQuery per query text (the per-mode limit/sort/filters are identical to the
+    // old sequential loop), then run the independent searches concurrently with bounded fan-out.
+    let built: Vec<SearchQuery> = queries
+        .iter()
+        .map(|text| {
+            let mut query = SearchQuery::new(text.clone(), ResourceKind::Modpack);
+            query.limit = match mode {
+                BaseSearchMode::Strict => 6,
+                BaseSearchMode::Loose => 12,
+                BaseSearchMode::Tight => 4,
+            };
+            query.sort = match mode {
+                BaseSearchMode::Strict | BaseSearchMode::Loose => SortMethod::Relevance,
+                BaseSearchMode::Tight => SortMethod::Downloads,
+            };
+            if !matches!(mode, BaseSearchMode::Loose) {
+                query.game_version = requested.minecraft_version.clone();
+                query.loader = requested.loader.clone();
+            }
+            query
+        })
+        .collect();
+
+    // `buffered` keeps the results in input (query) order, so the cross-query dedup + cap below is
+    // byte-for-byte identical to the sequential version. Collect into `Vec<Result<…>>` (not
+    // `try_collect`) so that an error from a query the cap would have skipped is discarded, exactly
+    // as before — the first error among the queries we actually consume still propagates via `?`.
+    let results: Vec<Result<Vec<SearchHit>>> =
+        futures::stream::iter(built.iter().map(|query| provider.search(query)))
+            .buffered(PROVIDER_FANOUT)
+            .collect()
+            .await;
+
     let mut out = Vec::new();
     let mut seen = HashSet::new();
-
-    for text in queries {
-        let mut query = SearchQuery::new(text.clone(), ResourceKind::Modpack);
-        query.limit = match mode {
-            BaseSearchMode::Strict => 6,
-            BaseSearchMode::Loose => 12,
-            BaseSearchMode::Tight => 4,
-        };
-        query.sort = match mode {
-            BaseSearchMode::Strict | BaseSearchMode::Loose => SortMethod::Relevance,
-            BaseSearchMode::Tight => SortMethod::Downloads,
-        };
-        if !matches!(mode, BaseSearchMode::Loose) {
-            query.game_version = requested.minecraft_version.clone();
-            query.loader = requested.loader.clone();
-        }
-        for hit in provider.search(&query).await? {
+    for (text, hits_result) in queries.iter().zip(results) {
+        for hit in hits_result? {
             let key = format!("{provider_id:?}:{}", hit.id);
             if !seen.insert(key) {
                 continue;
@@ -522,6 +555,7 @@ async fn search_base_modpacks(
 async fn filter_base_packs_by_restrictions(
     candidates: Vec<BasePackCandidate>,
     requested: &RequestedCompatibility,
+    cache: &mut VersionLookupCache,
 ) -> Result<Vec<BasePackCandidate>> {
     let candidates = candidates
         .into_iter()
@@ -532,18 +566,57 @@ async fn filter_base_packs_by_restrictions(
     }
 
     let registry = ProviderRegistry::with_defaults();
+    let mc = requested.minecraft_version.as_deref();
+    let loader = requested.loader.as_deref();
+
+    // Resolve each candidate's version list, reusing the run cache (cross-iteration hits) and
+    // fetching the cache-misses concurrently with bounded fan-out. Output stays strictly in input
+    // order, so the "first compatible version wins" pick and error propagation are unchanged.
+    let mut fetch_futs = Vec::new();
+    for (idx, candidate) in candidates.iter().enumerate() {
+        if cache
+            .get_cloned(candidate.provider, &candidate.hit.id, mc, loader)
+            .is_some()
+        {
+            continue; // served from cache during assembly below
+        }
+        let provider_id = candidate.provider;
+        if let Some(provider) = registry.get(provider_id) {
+            let project_id = candidate.hit.id.clone();
+            // `mc` / `loader` are `Option<&str>` into `requested`, which outlives every fetch, so
+            // capture them by copy rather than allocating per-candidate owned strings.
+            fetch_futs.push(async move {
+                let versions = provider.list_versions(&project_id, mc, loader).await;
+                (idx, provider_id, project_id, versions)
+            });
+        }
+        // No registered provider → leave it a miss with no fetch; the candidate is skipped below,
+        // exactly like the old `let Some(provider) = … else { continue }`.
+    }
+
+    let fetched: Vec<FetchedVersions> = futures::stream::iter(fetch_futs)
+        .buffer_unordered(PROVIDER_FANOUT)
+        .collect()
+        .await;
+
+    // Store successes into the cache; stash per-index results for ordered assembly.
+    let mut fetched_by_idx: HashMap<usize, Result<Vec<ProjectVersion>>> = HashMap::new();
+    for (idx, provider_id, project_id, versions) in fetched {
+        if let Ok(ref v) = versions {
+            cache.store(provider_id, &project_id, mc, loader, v.clone());
+        }
+        fetched_by_idx.insert(idx, versions);
+    }
+
     let mut out = Vec::new();
-    for candidate in candidates {
-        let Some(provider) = registry.get(candidate.provider) else {
-            continue;
+    for (idx, candidate) in candidates.into_iter().enumerate() {
+        let versions = if let Some(hit) = cache.get_cloned(candidate.provider, &candidate.hit.id, mc, loader) {
+            hit
+        } else if let Some(res) = fetched_by_idx.remove(&idx) {
+            res? // first error in input order propagates, matching the sequential `?`
+        } else {
+            continue; // provider missing → skip this candidate
         };
-        let versions = provider
-            .list_versions(
-                &candidate.hit.id,
-                requested.minecraft_version.as_deref(),
-                requested.loader.as_deref(),
-            )
-            .await?;
         if let Some(version) = versions.first() {
             let mut candidate = candidate;
             candidate.resolved_target = Some(target_compatibility_from_version(version, requested));

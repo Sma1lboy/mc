@@ -1,5 +1,11 @@
 use super::*;
 
+use crate::modplatform::dependency::{resolve_dependencies_with_cache, VersionLookupCache};
+use futures::StreamExt;
+
+/// 同时在途的 provider 请求上限(并发省时,又不至于猛打 provider 触发限流)。
+const PROVIDER_FANOUT: usize = 8;
+
 pub(super) fn block_customization_planning(
     mut run: AgentRunSnapshot,
     blocked: CustomizationPlanningBlocked,
@@ -606,6 +612,10 @@ pub(super) async fn run_customization_planning_loop(
 
     let registry = ProviderRegistry::with_defaults();
     let fresh_plan = run.mod_plan.is_none();
+    // Run-scoped list_versions memo: the baseline seed, every per-selection dependency walk and
+    // their shared transitive libs reuse it across rounds, so a given (provider, project_id, mc,
+    // loader) version lookup hits the network once per planning run. Dropped when the loop returns.
+    let mut version_cache = VersionLookupCache::new();
     let mut state = run.mod_plan.clone().unwrap_or_else(|| {
         initialize_mod_plan_state(target, base_modlist, run.restrictions.as_ref())
     });
@@ -646,6 +656,9 @@ pub(super) async fn run_customization_planning_loop(
             let baseline_roots = baseline_mod_refs(loader);
             if !baseline_roots.is_empty() {
                 let installed = installed_mod_keys(&state);
+                // Baseline runs once (round 0); its resolved mods become `already_installed` and are
+                // short-circuited (never re-fetched) by every later resolve, so it gains nothing from
+                // the run cache — keep the plain entry point here.
                 let resolution = resolve_dependencies(
                     &registry,
                     &baseline_roots,
@@ -819,13 +832,14 @@ pub(super) async fn run_customization_planning_loop(
         }
 
         let control = step.control;
-        let applied = apply_mod_plan_step(
+        let applied = apply_mod_plan_step_cached(
             &registry,
             &mut state,
             &candidate_pool,
             step,
             mc_version,
             loader,
+            &mut version_cache,
         )
         .await?;
         if !applied.blockers.is_empty() {
@@ -1373,6 +1387,11 @@ pub(super) fn prefilter_mod_candidates(
         .collect()
 }
 
+/// Test-facing wrapper preserving the original `apply_mod_plan_step` signature (workflow/tests.rs
+/// drives it directly). The production planning loop calls [`apply_mod_plan_step_cached`] with its
+/// run-scoped cache; a one-shot cache here only memoizes within a single step's selections and
+/// cannot change results (deterministic list_versions), so the two are behaviorally identical.
+#[cfg(test)]
 pub(super) async fn apply_mod_plan_step(
     registry: &ProviderRegistry,
     state: &mut ModPlanState,
@@ -1380,6 +1399,28 @@ pub(super) async fn apply_mod_plan_step(
     step: ModPlanStep,
     mc_version: &str,
     loader: &str,
+) -> Result<AppliedModPlanStep> {
+    let mut cache = VersionLookupCache::new();
+    apply_mod_plan_step_cached(registry, state, candidates, step, mc_version, loader, &mut cache).await
+}
+
+/// Same as [`apply_mod_plan_step`] but reuses the caller's run-scoped [`VersionLookupCache`] so the
+/// per-selection dependency walks share memoized version lookups across selections and rounds.
+///
+/// The per-selection loop stays **sequential on purpose**: each selection's `already_installed` set
+/// and `current_project_ids` guard depend on the mutations (`state.additions` / `state.blocked`)
+/// made by earlier selections in the same step, so the selections are not independent and parallel
+/// execution would change which mods each resolution sees as installed — and thus the blocker /
+/// goal attribution. The cache only memoizes the network `list_versions` (state-independent), so it
+/// preserves results exactly while removing the repeated lookups.
+pub(super) async fn apply_mod_plan_step_cached(
+    registry: &ProviderRegistry,
+    state: &mut ModPlanState,
+    candidates: &[ModCandidate],
+    step: ModPlanStep,
+    mc_version: &str,
+    loader: &str,
+    cache: &mut VersionLookupCache,
 ) -> Result<AppliedModPlanStep> {
     for project_id in step.removals {
         if !state.removals.contains(&project_id) {
@@ -1415,7 +1456,8 @@ pub(super) async fn apply_mod_plan_step(
 
         let installed = installed_mod_keys(state);
         let resolution =
-            resolve_dependencies(registry, &roots, mc_version, loader, &installed).await?;
+            resolve_dependencies_with_cache(registry, &roots, mc_version, loader, &installed, cache)
+                .await?;
         let blockers = customization_blockers(&resolution);
         if !blockers.is_empty() {
             push_unique_string(&mut state.blocked, candidate.hit.id.clone());
@@ -1564,8 +1606,6 @@ async fn search_customization_mods(
     const MAX_PER_QUERY_LIMIT: u32 = 2;
 
     let registry = ProviderRegistry::with_defaults();
-    let mut out = Vec::new();
-    let mut seen = HashSet::new();
     let search_queries = dedupe_queries(
         queries
             .iter()
@@ -1573,15 +1613,46 @@ async fn search_customization_mods(
             .collect(),
     );
 
-    for text in search_queries {
-        let mut query_results = 0;
-        for provider in registry.all() {
+    // Freeze the provider iteration order once (HashMap order is stable for an unmutated registry,
+    // and the old loop read `registry.all()` fresh each query in the same order). One SearchQuery
+    // per text — its content is identical across providers, exactly like the old per-provider build.
+    let providers: Vec<_> = registry.all().cloned().collect();
+    let built: Vec<SearchQuery> = search_queries
+        .iter()
+        .map(|text| {
             let mut query = SearchQuery::new(text.clone(), ResourceKind::Mod);
             query.game_version = target.minecraft_version.clone();
             query.loader = target.loader.clone();
             query.limit = MAX_PER_QUERY_LIMIT;
-            let provider_id = provider.id();
-            for hit in provider.search(&query).await? {
+            query
+        })
+        .collect();
+
+    // Run every (query × provider) search concurrently (bounded), in query-major / provider order.
+    // `buffered` preserves that order, so the dedup + per-query/total caps replayed below are
+    // byte-for-byte identical. `collect` (not `try_collect`) keeps each Result so an error from a
+    // search the caps would have skipped is discarded, just like the sequential early returns.
+    let mut futs = Vec::new();
+    for query in &built {
+        for provider in &providers {
+            futs.push(async move { (provider.id(), provider.search(query).await) });
+        }
+    }
+    let flat: Vec<(ProviderId, Result<Vec<SearchHit>>)> = futures::stream::iter(futs)
+        .buffered(PROVIDER_FANOUT)
+        .collect()
+        .await;
+
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    let mut flat_iter = flat.into_iter();
+    for text in &search_queries {
+        let mut query_results = 0;
+        for _ in 0..providers.len() {
+            let (provider_id, hits_result) = flat_iter
+                .next()
+                .expect("flat holds exactly search_queries.len() * providers.len() entries");
+            for hit in hits_result? {
                 let key = format!("{provider_id:?}:{}", hit.id);
                 if !seen.insert(key) {
                     continue;

@@ -101,30 +101,53 @@ pub struct FlameApi {
     api_key: String,
 }
 
+/// 实际构造一个配好 `x-api-key` + UA 默认头的 `reqwest::Client`(逻辑同旧 `new`,抽出来供
+/// [`shared_client`] 缓存)。`x-api-key` 因 key 而异,故无法做成全进程唯一的客户端,只能按
+/// key 缓存。
+fn build_client(api_key: &str) -> reqwest::Client {
+    let mut headers = reqwest::header::HeaderMap::new();
+    // key 来自 env,理论上可能含非法 header 字节;此时退化为不带默认头(请求会 401),
+    // 但不让一个坏 key 把整个进程 panic。
+    if let Ok(mut value) = reqwest::header::HeaderValue::from_str(api_key) {
+        value.set_sensitive(true);
+        headers.insert("x-api-key", value);
+    }
+
+    reqwest::Client::builder()
+        .user_agent(USER_AGENT)
+        .default_headers(headers)
+        // reqwest 仅在 TLS 后端初始化失败时报错,属于环境级灾难;静态配置失败即代表
+        // 整个进程无法发任何请求,直接 expect 暴露问题。
+        .build()
+        .expect("failed to build reqwest client for CurseForge")
+}
+
+/// 进程级、**按 key 缓存**的 CurseForge `reqwest::Client`。`x-api-key` 固化进默认头,故不同
+/// key 必须用不同客户端;同一 key 在一次进程内复用同一连接池(克隆共享),免去每次
+/// [`FlameApi::new`] 重建连接池的冷连接代价。配置与旧 per-call 构造逐字节一致,行为不变。
+fn shared_client(api_key: &str) -> reqwest::Client {
+    static CLIENTS: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, reqwest::Client>>,
+    > = std::sync::OnceLock::new();
+    let clients = CLIENTS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    let mut guard = clients.lock().expect("CurseForge client cache poisoned");
+    if let Some(client) = guard.get(api_key) {
+        return client.clone();
+    }
+    let client = build_client(api_key);
+    guard.insert(api_key.to_string(), client.clone());
+    client
+}
+
 impl FlameApi {
     /// 用给定 API key 构造一个新客户端。
     ///
-    /// `x-api-key` 与 UA 固化进默认头。构造失败(几乎不会:仅 TLS 后端初始化失败或
+    /// `x-api-key` 与 UA 固化进默认头。复用按 key 缓存的进程级 [`shared_client`],同一 key
+    /// 的多个 `FlameApi` 共享同一 TLS/连接池。构造失败(几乎不会:仅 TLS 后端初始化失败或
     /// header 含非法字节)走 `expect`——属于环境级灾难,失败即代表无法发任何请求。
     pub fn new(api_key: impl Into<String>) -> Self {
         let api_key = api_key.into();
-
-        let mut headers = reqwest::header::HeaderMap::new();
-        // key 来自 env,理论上可能含非法 header 字节;此时退化为不带默认头(请求会 401),
-        // 但不让一个坏 key 把整个进程 panic。
-        if let Ok(mut value) = reqwest::header::HeaderValue::from_str(&api_key) {
-            value.set_sensitive(true);
-            headers.insert("x-api-key", value);
-        }
-
-        let client = reqwest::Client::builder()
-            .user_agent(USER_AGENT)
-            .default_headers(headers)
-            // reqwest 仅在 TLS 后端初始化失败时报错,属于环境级灾难;静态配置失败即代表
-            // 整个进程无法发任何请求,直接 expect 暴露问题。
-            .build()
-            .expect("failed to build reqwest client for CurseForge");
-
+        let client = shared_client(&api_key);
         Self { client, base: API_BASE.to_string(), api_key }
     }
 

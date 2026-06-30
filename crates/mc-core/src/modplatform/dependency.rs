@@ -20,15 +20,104 @@
 //! 这里以「第一个 `game_versions` 含 `mc` **且** `loaders` 含 `loader` 的版本」作为合理代理
 //! (Modrinth/CurseForge 的版本列表本就按时间倒序返回,第一个兼容项即最新兼容版)。
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 
 use crate::error::Result;
 
-use super::provider::ProviderRegistry;
+use super::provider::{ProviderRegistry, ResourceProvider};
 use super::{ProjectVersion, ProviderId, ResolvedFile};
 
 /// 环 / 失控护栏:依赖游走的最大深度(对齐 PCL-CE `MaxDepth = 32`)。
 pub const MAX_DEPTH: usize = 32;
+
+/// 一次规划运行内的 `list_versions` 记忆缓存,键 = `(provider, project_id, game_version,
+/// loader)`。
+///
+/// **作用域限定为单次规划运行**(在循环开头 new、循环结束即 drop),**绝不**做成进程全局——
+/// 否则跨运行会读到过期版本。一次运行内,同一 `(provider, project_id, mc, loader)` 的版本查询
+/// 常被反复触发(基础包搜索的 4 轮模式阶梯、定制循环跨轮重解析、依赖图里的公共库),缓存把这些
+/// 重复网络请求压成一次。
+///
+/// 只缓存**成功**结果;错误绝不入缓存(下次调用照常重试)。命中返回克隆,语义与直接调用
+/// `list_versions` 完全一致——缓存只改「怎么取」,不改「取到什么」。
+#[derive(Default)]
+pub struct VersionLookupCache {
+    map: HashMap<VersionLookupKey, Vec<ProjectVersion>>,
+}
+
+/// [`VersionLookupCache`] 的键:平台 + 项目 id + 游戏版本(可空) + loader(可空)。
+/// 游戏版本 / loader 用 `Option` 是为了精确匹配传给 `list_versions` 的过滤参数。
+type VersionLookupKey = (ProviderId, String, Option<String>, Option<String>);
+
+impl VersionLookupCache {
+    /// 空缓存。
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn key(
+        provider: ProviderId,
+        project_id: &str,
+        game_version: Option<&str>,
+        loader: Option<&str>,
+    ) -> VersionLookupKey {
+        (
+            provider,
+            project_id.to_string(),
+            game_version.map(str::to_string),
+            loader.map(str::to_string),
+        )
+    }
+
+    /// 命中则返回缓存版本的克隆,否则 `None`。供并发路径在发起请求前先探一次缓存。
+    pub fn get_cloned(
+        &self,
+        provider: ProviderId,
+        project_id: &str,
+        game_version: Option<&str>,
+        loader: Option<&str>,
+    ) -> Option<Vec<ProjectVersion>> {
+        self.map
+            .get(&Self::key(provider, project_id, game_version, loader))
+            .cloned()
+    }
+
+    /// 写入一次**成功**的查询结果。供并发路径在请求返回后回填缓存。
+    pub fn store(
+        &mut self,
+        provider: ProviderId,
+        project_id: &str,
+        game_version: Option<&str>,
+        loader: Option<&str>,
+        versions: Vec<ProjectVersion>,
+    ) {
+        self.map.insert(
+            Self::key(provider, project_id, game_version, loader),
+            versions,
+        );
+    }
+
+    /// 经缓存调用 `list_versions`(顺序路径用):命中直接返回克隆;未命中则打 provider,
+    /// **仅在成功时**写缓存并返回。错误原样冒泡、不缓存。
+    pub async fn list_versions(
+        &mut self,
+        provider: &Arc<dyn ResourceProvider>,
+        project_id: &str,
+        game_version: Option<&str>,
+        loader: Option<&str>,
+    ) -> Result<Vec<ProjectVersion>> {
+        let provider_id = provider.id();
+        if let Some(hit) = self.get_cloned(provider_id, project_id, game_version, loader) {
+            return Ok(hit);
+        }
+        let versions = provider
+            .list_versions(project_id, game_version, loader)
+            .await?;
+        self.store(provider_id, project_id, game_version, loader, versions.clone());
+        Ok(versions)
+    }
+}
 
 /// 一个跨平台的项目引用 = `(provider, project_id)`。这是依赖图里的去重键
 /// (PCL-CE 的 `(Source, ProjectId)`)。
@@ -93,6 +182,32 @@ pub async fn resolve_dependencies(
     loader: &str,
     already_installed: &HashSet<String>,
 ) -> Result<DepResolution> {
+    // 无外部缓存的入口:用一个一次性缓存委托给 [`resolve_dependencies_with_cache`]。单次 BFS
+    // 内 `visited` 已去重,故这层一次性缓存对结果毫无影响——仅为复用同一段编排逻辑。
+    let mut cache = VersionLookupCache::new();
+    resolve_dependencies_with_cache(
+        registry,
+        roots,
+        mc_version,
+        loader,
+        already_installed,
+        &mut cache,
+    )
+    .await
+}
+
+/// 同 [`resolve_dependencies`],但复用调用方持有的 [`VersionLookupCache`],使一次规划运行内
+/// 多次解析(基线 + 逐选择 + 跨轮)对同一 `(provider, project_id, mc, loader)` 的 `list_versions`
+/// 只打一次网络。缓存只影响「怎么取版本」,BFS 编排、去重、四张清单的产出与 `resolve_dependencies`
+/// **逐字节一致**。
+pub async fn resolve_dependencies_with_cache(
+    registry: &ProviderRegistry,
+    roots: &[ModRef],
+    mc_version: &str,
+    loader: &str,
+    already_installed: &HashSet<String>,
+    cache: &mut VersionLookupCache,
+) -> Result<DepResolution> {
     let mut out = DepResolution::default();
 
     // 已处理(无论结果落在哪张清单)的键,避免重复请求 / 重复入清单。
@@ -123,8 +238,8 @@ pub async fn resolve_dependencies(
             }
         };
 
-        let versions = provider
-            .list_versions(&mod_ref.project_id, Some(mc_version), Some(loader))
+        let versions = cache
+            .list_versions(&provider, &mod_ref.project_id, Some(mc_version), Some(loader))
             .await?;
 
         // 挑最佳兼容版本;无任何可用版本/主文件 → 无法解析。
@@ -658,5 +773,179 @@ mod tests {
         assert_ne!(m.key(), c.key());
         assert_eq!(m.key(), "modrinth:abc");
         assert_eq!(c.key(), "curseforge:abc");
+    }
+
+    /// `list_versions` 调用计数版 provider:每次调用 +1。前 `fail_first` 次返回错误(用于验证
+    /// 错误不入缓存),其余返回配置好的版本列表。
+    struct CountingProvider {
+        caps: ProviderCaps,
+        versions: HashMap<String, Vec<ProjectVersion>>,
+        calls: Arc<std::sync::atomic::AtomicUsize>,
+        fail_first: usize,
+    }
+
+    impl CountingProvider {
+        fn new(
+            versions: HashMap<String, Vec<ProjectVersion>>,
+            fail_first: usize,
+            calls: Arc<std::sync::atomic::AtomicUsize>,
+        ) -> Self {
+            Self {
+                caps: ProviderCaps {
+                    id: ProviderId::Modrinth,
+                    readable_name: "counting",
+                    hash_algos: &[HashAlgo::Sha1],
+                    needs_api_key: false,
+                },
+                versions,
+                calls,
+                fail_first,
+            }
+        }
+    }
+
+    impl ResourceProvider for CountingProvider {
+        fn caps(&self) -> &ProviderCaps {
+            &self.caps
+        }
+
+        fn search<'a>(&'a self, _q: &'a SearchQuery) -> BoxFuture<'a, Result<Vec<SearchHit>>> {
+            Box::pin(async move { Ok(Vec::new()) })
+        }
+
+        fn get_project<'a>(&'a self, _project_id: &'a str) -> BoxFuture<'a, Result<SearchHit>> {
+            Box::pin(async move { Err(CoreError::other("CountingProvider::get_project unused")) })
+        }
+
+        fn get_projects<'a>(
+            &'a self,
+            _project_ids: &'a [String],
+        ) -> BoxFuture<'a, Result<Vec<SearchHit>>> {
+            Box::pin(async move { Ok(Vec::new()) })
+        }
+
+        fn list_versions<'a>(
+            &'a self,
+            project_id: &'a str,
+            _game_version: Option<&'a str>,
+            _loader: Option<&'a str>,
+        ) -> BoxFuture<'a, Result<Vec<ProjectVersion>>> {
+            use std::sync::atomic::Ordering;
+            let n = self.calls.fetch_add(1, Ordering::SeqCst);
+            if n < self.fail_first {
+                return Box::pin(async move { Err(CoreError::other("transient list_versions error")) });
+            }
+            let result = self.versions.get(project_id).cloned().unwrap_or_default();
+            Box::pin(async move { Ok(result) })
+        }
+
+        fn resolve_by_hashes<'a>(
+            &'a self,
+            _algo: HashAlgo,
+            _hashes: &'a [String],
+        ) -> BoxFuture<'a, Result<Vec<Option<ResolvedFile>>>> {
+            Box::pin(async move { Ok(Vec::new()) })
+        }
+
+        fn get_files_bulk<'a>(
+            &'a self,
+            _refs: &'a [(String, String)],
+        ) -> BoxFuture<'a, Result<Vec<ResolvedFile>>> {
+            Box::pin(async move { Ok(Vec::new()) })
+        }
+    }
+
+    #[test]
+    fn version_cache_serves_second_lookup_without_provider_call() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let mut versions = HashMap::new();
+        versions.insert("root".to_string(), vec![version_with_deps("root", vec![])]);
+        let calls = Arc::new(AtomicUsize::new(0));
+        let provider: Arc<dyn ResourceProvider> =
+            Arc::new(CountingProvider::new(versions, 0, calls.clone()));
+
+        let mut cache = VersionLookupCache::new();
+        let first =
+            run(cache.list_versions(&provider, "root", Some("1.20.1"), Some("fabric"))).unwrap();
+        let second =
+            run(cache.list_versions(&provider, "root", Some("1.20.1"), Some("fabric"))).unwrap();
+
+        // 第二次必须命中缓存,不再打 provider。
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        // 命中返回的版本与首次实打的结果一致(缓存只改怎么取,不改取到什么)。
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].id, second[0].id);
+    }
+
+    #[test]
+    fn version_cache_keys_on_filters_and_does_not_cache_errors() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        // (a) 不同 (game_version, loader) 是不同键,各打一次;重复键命中。
+        let mut versions = HashMap::new();
+        versions.insert("root".to_string(), vec![version_with_deps("root", vec![])]);
+        let calls = Arc::new(AtomicUsize::new(0));
+        let provider: Arc<dyn ResourceProvider> =
+            Arc::new(CountingProvider::new(versions, 0, calls.clone()));
+        let mut cache = VersionLookupCache::new();
+        run(cache.list_versions(&provider, "root", Some("1.20.1"), Some("fabric"))).unwrap();
+        run(cache.list_versions(&provider, "root", Some("1.19.2"), Some("fabric"))).unwrap();
+        run(cache.list_versions(&provider, "root", Some("1.20.1"), Some("fabric"))).unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 2, "distinct filter keys miss, repeated key hits");
+
+        // (b) 第一次返回错误的查询不入缓存:下次同键仍需重打 provider。
+        let mut versions2 = HashMap::new();
+        versions2.insert("flaky".to_string(), vec![version_with_deps("flaky", vec![])]);
+        let calls2 = Arc::new(AtomicUsize::new(0));
+        let flaky: Arc<dyn ResourceProvider> =
+            Arc::new(CountingProvider::new(versions2, 1, calls2.clone()));
+        let mut cache2 = VersionLookupCache::new();
+        assert!(run(cache2.list_versions(&flaky, "flaky", Some("1.20.1"), Some("fabric"))).is_err());
+        assert!(run(cache2.list_versions(&flaky, "flaky", Some("1.20.1"), Some("fabric"))).is_ok());
+        // 两次都打了 provider(错误未缓存),且成功结果现已缓存。
+        assert_eq!(calls2.load(Ordering::SeqCst), 2);
+        assert!(run(cache2.list_versions(&flaky, "flaky", Some("1.20.1"), Some("fabric"))).is_ok());
+        assert_eq!(calls2.load(Ordering::SeqCst), 2, "the successful result is now cached");
+    }
+
+    #[test]
+    fn shared_cache_dedups_list_versions_across_resolve_calls() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        // 两个根 a、b 各依赖同一个 lib;两次独立 resolve 共用一个缓存时,lib 只取一次。
+        let mut versions = HashMap::new();
+        versions.insert("a".to_string(), vec![version_with_deps("a", vec![required_on("lib")])]);
+        versions.insert("b".to_string(), vec![version_with_deps("b", vec![required_on("lib")])]);
+        versions.insert("lib".to_string(), vec![version_with_deps("lib", vec![])]);
+        let calls = Arc::new(AtomicUsize::new(0));
+        let provider: Arc<dyn ResourceProvider> =
+            Arc::new(CountingProvider::new(versions, 0, calls.clone()));
+        let registry = ProviderRegistry::new().with(provider);
+
+        let mut cache = VersionLookupCache::new();
+        let res_a = run(resolve_dependencies_with_cache(
+            &registry,
+            &[ModRef::new(ProviderId::Modrinth, "a")],
+            "1.20.1",
+            "fabric",
+            &HashSet::new(),
+            &mut cache,
+        ))
+        .unwrap();
+        let res_b = run(resolve_dependencies_with_cache(
+            &registry,
+            &[ModRef::new(ProviderId::Modrinth, "b")],
+            "1.20.1",
+            "fabric",
+            &HashSet::new(),
+            &mut cache,
+        ))
+        .unwrap();
+
+        // a + lib(首次 resolve,2 次) + b(第二次 resolve 中 lib 命中缓存,仅 1 次) = 3。
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+        // 结果与不带缓存逐字节一致:两次解析各自装上根 + 共享依赖。
+        let ids_a: HashSet<&str> = res_a.to_install.iter().map(|r| r.project_id.as_str()).collect();
+        assert!(ids_a.contains("a") && ids_a.contains("lib"));
+        let ids_b: HashSet<&str> = res_b.to_install.iter().map(|r| r.project_id.as_str()).collect();
+        assert!(ids_b.contains("b") && ids_b.contains("lib"));
     }
 }
