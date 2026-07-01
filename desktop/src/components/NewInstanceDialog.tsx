@@ -9,6 +9,7 @@ import { toast } from "./Toast";
 import { useAsync } from "../util/useAsync";
 import { api, onInstallProgress } from "../ipc/api";
 import { activeRoot } from "../store";
+import { openAgentChat, instancePrompt } from "../agent/chatStore";
 import { t, useLang } from "../i18n";
 
 /**
@@ -89,6 +90,12 @@ export function NewInstanceDialog(props: {
     name.trim() !== "" &&
     mcVersion !== "" &&
     (!needsLoaderVersion || loaderVersion.trim() !== "");
+
+  // 关掉对话框,带当前所选版本 / 加载器打开助手(未选则省略;vanilla 无加载器视作未选)。
+  function askAgent() {
+    props.onClose();
+    openAgentChat(instancePrompt(mcVersion || null, loader !== "vanilla" ? loader : null));
+  }
 
   async function create() {
     if (!canCreate) return;
@@ -214,6 +221,13 @@ export function NewInstanceDialog(props: {
             <span>{stage || t("components.newInstance.creating")}</span>
           </div>
         )}
+
+        {/* 让 AI 生成整合包:关掉对话框、带上下文打开助手(不自动发送)。 */}
+        <div className="pt-[12px] border-t border-titlebar flex justify-center">
+          <Button variant="ghost" disabled={creating} onClick={askAgent}>
+            {t("agent.newInstanceCta")}
+          </Button>
+        </div>
 
         <div className="flex justify-end gap-[10px] mt-[4px]">
           <Button variant="ghost" onClick={props.onClose} disabled={creating}>

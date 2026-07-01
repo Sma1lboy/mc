@@ -18,6 +18,7 @@ import {
   refreshInstances,
 } from "../store";
 import { t, useLang } from "../i18n";
+import { openAgentChat, discoverPrompt } from "../agent/chatStore";
 import ModpackDetail from "./ModpackDetail";
 import ProjectInstallDetail from "./ProjectInstallDetail";
 
@@ -236,6 +237,11 @@ export default function Discover() {
                     if (!l) setSeeded(true);
                   }}
                   onProviderChange={setProvider}
+                  onAskAgent={(query) =>
+                    openAgentChat(
+                      discoverPrompt(query, facets.gameVersions[0] ?? null, facets.loaders[0] ?? null),
+                    )
+                  }
                   categories={facets.categories}
                   loaders={facets.loaders}
                   gameVersions={facets.gameVersions}

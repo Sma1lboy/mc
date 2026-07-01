@@ -22,6 +22,8 @@
 import { create } from "zustand";
 import { Channel } from "@tauri-apps/api/core";
 import { commands, type AgentStreamEvent, type JsonValue } from "../ipc/bindings";
+import { setCurrentPage } from "../store";
+import { t } from "../i18n";
 
 export type ChatRole = "user" | "assistant";
 
@@ -66,9 +68,14 @@ interface ChatState {
   messages: ChatMessage[];
   /** 是否正在流式(禁用输入 / 显示指示器)。同一会话同一时刻只允许一轮。 */
   streaming: boolean;
+  /**
+   * 一次性输入草稿:外部入口(发现页 / 新建实例)经 openAgentChat 预填一句上下文提示,
+   * ChatPage 变为活动页后取用一次(填进输入框、聚焦,不自动发送),随即清回 null。
+   */
+  draft: string | null;
 }
 
-export const useChatStore = create<ChatState>(() => ({ messages: [], streaming: false }));
+export const useChatStore = create<ChatState>(() => ({ messages: [], streaming: false, draft: null }));
 
 // 稳定的自增 id(Date.now + 计数;仅前端展示 key,无需强随机)。
 let seq = 0;
@@ -185,4 +192,46 @@ export async function newChat(): Promise<void> {
   } catch {
     /* best-effort */
   }
+}
+
+/**
+ * 从其它页面(发现 / 新建实例)带一句上下文提示打开助手:预填输入框草稿并切到助手页。
+ * 不自动发送——ChatPage 取草稿后填进输入框、聚焦,由用户审阅 / 编辑再发。流式中亦照常
+ * 切页 + 填框(输入框在本轮结束前保持禁用,发送键同样,沿用既有行为)。
+ */
+export function openAgentChat(prompt: string): void {
+  useChatStore.setState({ draft: prompt });
+  setCurrentPage("agent");
+}
+
+/** ChatPage 取用一次性草稿后清空(避免重渲染 / 重挂载再次注入)。 */
+export function clearDraft(): void {
+  useChatStore.setState({ draft: null });
+}
+
+// ——— 上下文提示词 ———
+// 由页面上下文(搜索词 + 选中的 MC 版本 / 加载器)拼一句自然语言诉求。走 t() 故跟随界面语言;
+// 版本 / 加载器 / 搜索词任一为空都优雅省略,读起来仍通顺。
+
+/** 版本 / 加载器约束子句(都为空 → 空串)。 */
+function constraintClause(version: string | null, loader: string | null): string {
+  const specs = [
+    version ? t("agent.promptVersion", { version }) : "",
+    loader ? t("agent.promptLoader", { loader }) : "",
+  ].filter(Boolean);
+  return specs.length ? t("agent.promptConstraints", { specs: specs.join(t("agent.promptJoin")) }) : "";
+}
+
+/** 发现页入口:搜索词(可空)+ 选中的版本 / 加载器 facet(可空)。 */
+export function discoverPrompt(query: string, version: string | null, loader: string | null): string {
+  const constraints = constraintClause(version, loader);
+  const q = query.trim();
+  return q
+    ? t("agent.discoverPrompt", { query: q, constraints })
+    : t("agent.discoverPromptOpen", { constraints });
+}
+
+/** 新建实例入口:当前选中的 MC 版本 / 加载器(未选则省略)。 */
+export function instancePrompt(version: string | null, loader: string | null): string {
+  return t("agent.instancePrompt", { constraints: constraintClause(version, loader) });
 }
