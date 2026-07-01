@@ -9,6 +9,25 @@ To cut a release, move the `[Unreleased]` notes into a stamped version section w
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-07-01
+
+### Fixed
+- The toast / presence exit animation could re-trigger its own reactive effect on dismissal (redundant
+  work, worst case a hang); it now reads the held signal untracked, and JS tweens cancel on unmount.
+
+### Changed
+- Settings sliders (theme hue/saturation/lightness, download concurrency, default memory) apply live
+  while dragging but persist to disk only on release, instead of writing on every input tick.
+- Opening an instance's detail derives from the shared instance store instead of refetching the whole
+  list, and the manage dialog reads its config once — no more loading flash on open.
+
+### Internal
+- Second behavior-preserving architecture-deepening pass: concentrated the agent snapshot phase
+  transitions, `BuildRestrictions` patch application, concurrent multi-provider search, and an injected
+  `ProviderRegistry`; plus single owners for recycle-bin deletes, URL host parsing, the Microsoft-refresh
+  account shape, and the Java exe-name helper (docs/adr/0002). The experimental modpack agent defaults to
+  `deepseek/deepseek-v4-pro` and forces English search keywords.
+
 ## [0.1.7] - 2026-06-30
 
 ### Added
