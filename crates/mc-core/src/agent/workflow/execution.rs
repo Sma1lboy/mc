@@ -82,7 +82,23 @@ fn build_mrpack_from_base_archive_bytes_with_env_overrides(
         .map_err(|e| CoreError::Zip(e.to_string()))?;
     written.insert("modrinth.index.json".to_string());
 
-    copy_base_archive_entries(base_archive_bytes, &mut writer, options, &mut written)?;
+    let indexed_paths = output_index
+        .get("files")
+        .and_then(|v| v.as_array())
+        .map(|files| {
+            files
+                .iter()
+                .filter_map(|f| f.get("path").and_then(|p| p.as_str()).map(str::to_string))
+                .collect::<HashSet<_>>()
+        })
+        .unwrap_or_default();
+    copy_base_archive_entries(
+        base_archive_bytes,
+        &mut writer,
+        options,
+        &mut written,
+        &indexed_paths,
+    )?;
     write_extra_override_files(
         &manifest,
         override_files,
@@ -863,6 +879,7 @@ fn copy_base_archive_entries<W: Write + std::io::Seek>(
     writer: &mut zip::ZipWriter<W>,
     options: zip::write::SimpleFileOptions,
     written: &mut HashSet<String>,
+    indexed_paths: &HashSet<String>,
 ) -> Result<()> {
     let cursor = Cursor::new(base_archive_bytes);
     let mut archive = zip::ZipArchive::new(cursor).map_err(|e| CoreError::Zip(e.to_string()))?;
@@ -879,7 +896,10 @@ fn copy_base_archive_entries<W: Write + std::io::Seek>(
                 entry.name()
             )));
         };
-        if name == "modrinth.index.json" || !written.insert(name.clone()) {
+        if name == "modrinth.index.json"
+            || base_archive_entry_conflicts_with_index(&name, indexed_paths)
+            || !written.insert(name.clone())
+        {
             continue;
         }
         writer
@@ -888,6 +908,20 @@ fn copy_base_archive_entries<W: Write + std::io::Seek>(
         std::io::copy(&mut entry, writer).map_err(|e| CoreError::Zip(e.to_string()))?;
     }
     Ok(())
+}
+
+/// Base modpack archives sometimes ship an override copy of a file that the
+/// compiled index also manages remotely (`overrides/mods/foo.jar` vs an indexed
+/// `mods/foo.jar`). Keeping both fails `verify_written_mrpack_overrides`, so
+/// the indexed (remote, checksummed) copy wins and the base override is dropped.
+fn base_archive_entry_conflicts_with_index(name: &str, indexed_paths: &HashSet<String>) -> bool {
+    override_payload_path(name).is_some_and(|path| indexed_paths.contains(path))
+}
+
+fn override_payload_path(name: &str) -> Option<&str> {
+    ["overrides/", "client-overrides/", "server-overrides/"]
+        .into_iter()
+        .find_map(|root| name.strip_prefix(root))
 }
 
 fn write_extra_override_files<W: Write + std::io::Seek>(
@@ -1783,5 +1817,82 @@ mod tests {
         let outcome = classify_execution_outcome(&manifest).unwrap();
         assert!(matches!(outcome.kind, ExecutionOutcomeKind::Blocked));
         assert!(!output_path.exists());
+    }
+
+    // Regression: a base archive shipping an override copy of a file the index
+    // also manages remotely used to survive the copy and then fail
+    // `verify_written_mrpack` ("override path ... conflicts with indexed file").
+    // The conflicting base entry must be dropped; unrelated overrides survive.
+    #[test]
+    fn base_override_conflicting_with_indexed_file_is_dropped() {
+        let index = MrpackIndex {
+            format_version: 1,
+            game: "minecraft".to_string(),
+            version_id: "base-1.0.0".to_string(),
+            name: "Base Pack".to_string(),
+            summary: None,
+            dependencies: MrpackDependencies {
+                minecraft: Some("1.20.1".to_string()),
+                fabric_loader: Some("0.15.7".to_string()),
+                ..Default::default()
+            },
+            files: vec![crate::modpack::formats::mrpack::MrpackFile {
+                path: "mods/sodium.jar".to_string(),
+                hashes: crate::modpack::formats::mrpack::MrpackHashes {
+                    sha512: "ab".repeat(64),
+                    sha1: None,
+                },
+                env: None,
+                downloads: vec![
+                    "https://cdn.modrinth.com/data/AANobbMI/versions/abc/sodium.jar".to_string(),
+                ],
+                file_size: Some(1024),
+            }],
+        };
+        let index_json = serde_json::to_vec(&index).unwrap();
+        let mut base = Cursor::new(Vec::new());
+        {
+            let mut writer = zip::ZipWriter::new(&mut base);
+            let options = zip::write::SimpleFileOptions::default();
+            writer.start_file("modrinth.index.json", options).unwrap();
+            writer.write_all(&index_json).unwrap();
+            // Conflicts with the indexed mods/sodium.jar -> must be dropped.
+            writer.start_file("overrides/mods/sodium.jar", options).unwrap();
+            writer.write_all(b"stale bundled jar").unwrap();
+            // Unrelated override -> must survive.
+            writer.start_file("overrides/config/keep.toml", options).unwrap();
+            writer.write_all(b"keep = true").unwrap();
+            writer.finish().unwrap();
+        }
+        let base_bytes = base.into_inner();
+        let approved = approved_build_for_archive(serde_json::json!({
+            "url": "https://cdn.modrinth.com/base.mrpack",
+            "filename": "base.mrpack",
+            "sha1": null,
+            "sha512": null,
+            "size": null,
+            "primary": true,
+        }));
+
+        let built = build_mrpack_from_base_archive_bytes(&approved, &base_bytes, &[])
+            .expect("build must succeed despite the override conflict");
+        assert_eq!(
+            built.manifest.get("status").and_then(|v| v.as_str()),
+            Some("completed")
+        );
+
+        let mut names = Vec::new();
+        let mut archive = zip::ZipArchive::new(Cursor::new(&built.archive_bytes)).unwrap();
+        for i in 0..archive.len() {
+            names.push(archive.by_index(i).unwrap().name().to_string());
+        }
+        assert!(!names.contains(&"overrides/mods/sodium.jar".to_string()));
+        assert!(names.contains(&"overrides/config/keep.toml".to_string()));
+
+        // And the written archive passes full verification.
+        let output_path = temp_output_path("override-conflict");
+        crate::fs::write_atomic(&output_path, &built.archive_bytes).unwrap();
+        verify_written_mrpack(&output_path, &approved).expect("verification must pass");
+        std::fs::remove_file(&output_path).unwrap();
     }
 }
