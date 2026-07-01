@@ -1,7 +1,8 @@
-import { Component, For, Show, createSignal, createEffect, onMount } from "solid-js";
-import { Button, EmptyState, Heading, Panel, Spinner } from "../components";
+import { Component, For, Index, Show, createMemo, createSignal, createEffect, onMount } from "solid-js";
+import { Button, EmptyState, Heading, Panel, Spinner, toast } from "../components";
 import { renderMarkdown } from "../util/markdown";
 import { t } from "../i18n";
+import { splitBlocks, hardenStreamingTail } from "./markdownBlocks";
 import {
   messages,
   streaming,
@@ -9,6 +10,7 @@ import {
   newChat,
   chatTick,
   type ChatMessage,
+  type TextPart,
   type ToolCallPart,
 } from "./chatStore";
 // 复用整合包详情页沉淀下来的 `.md` markdown 样式(该文件如今只剩 `.md` 规则,
@@ -26,6 +28,39 @@ import "../pages/ModpackDetail.css";
  *     内容增长时(若用户停在底部)自动滚到底。
  * 状态全部来自模块级 chatStore(单一真相),切走本页不丢 transcript。
  */
+
+// 把渲染好的 HTML 里的代码块包一层,并塞入复制按钮(点击经消息列表上的事件委托处理)。
+// renderMarkdown 的两个 <pre> 生成点都精确输出 `<pre class="md-code">`,且内容已转义,
+// 字符串替换安全;按钮在包装层里绝对定位,不随 <pre> 横向滚动。
+function withCopyButtons(html: string): string {
+  if (!html.includes('<pre class="md-code">')) return html;
+  const label = t("agent.copyCode").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  return html
+    .replaceAll(
+      '<pre class="md-code">',
+      `<div class="relative group/code"><button type="button" data-copy-code aria-label="${label}" title="${label}" class="absolute top-[6px] right-[6px] z-[1] px-[7px] py-[4px] text-[11px] leading-none rounded-none bg-panel-2 text-sub shadow-raised opacity-0 group-hover/code:opacity-100 focus-visible:opacity-100 transition-opacity duration-[var(--dur)] cursor-pointer hover:text-fg">${label}</button><pre class="md-code">`,
+    )
+    .replaceAll("</pre>", "</pre></div>");
+}
+
+// 流式文本 part:按空行(围栏外)切块,逐块 innerHTML 渲染。
+// 已完成块的源串在流式期间不变 → <Index> 的按索引信号不触发,其 DOM 完全稳定;
+// 每帧只有最后一个(增长中的)块重解析。live 时对末块做渲染时尾部加固,并显示光标。
+const StreamText: Component<{ part: TextPart; live: boolean }> = (props) => {
+  const blocks = createMemo(() => {
+    const all = splitBlocks(props.part.text());
+    if (props.live && all.length) all[all.length - 1] = hardenStreamingTail(all[all.length - 1]);
+    return all;
+  });
+  return (
+    <div class="md text-[14px] leading-[1.7] text-fg break-words">
+      <Index each={blocks()}>{(block) => <div innerHTML={withCopyButtons(renderMarkdown(block()))} />}</Index>
+      <Show when={props.live}>
+        <span class="text-accent animate-pulse select-none" aria-hidden="true">▍</span>
+      </Show>
+    </div>
+  );
+};
 
 // 工具调用芯片:🔧 名称 + 可展开的 JSON 参数(有参数才可展开)。
 const ToolCallChip: Component<{ part: ToolCallPart }> = (props) => {
@@ -106,7 +141,7 @@ const MessageRow: Component<{ msg: ChatMessage; last: boolean }> = (props) => {
       <div class="flex justify-start">
         <Panel variant="sunken" class="max-w-[85%] min-w-0 px-[14px] py-[11px]">
           <For each={props.msg.parts()}>
-            {(part) => (
+            {(part, idx) => (
               <Show when={part.kind !== "reasoning"} fallback={
                 <details class="my-[4px] text-[12px]">
                   <summary class="cursor-pointer text-faint select-none">{t("agent.reasoning")}</summary>
@@ -116,10 +151,10 @@ const MessageRow: Component<{ msg: ChatMessage; last: boolean }> = (props) => {
                 </details>
               }>
                 <Show when={part.kind === "text"}>
-                  {/* renderMarkdown 转义优先、仅输出白名单标签,innerHTML 安全;每帧一次重解析。 */}
-                  <div
-                    class="md text-[14px] leading-[1.7] text-fg break-words"
-                    innerHTML={part.kind === "text" ? renderMarkdown(part.text()) : ""}
+                  {/* renderMarkdown 转义优先、仅输出白名单标签,innerHTML 安全;分块渲染见 StreamText。 */}
+                  <StreamText
+                    part={part as TextPart}
+                    live={props.last && streaming() && idx() === props.msg.parts().length - 1}
                   />
                 </Show>
                 <Show when={part.kind === "tool_call"}>
@@ -172,6 +207,19 @@ const ChatPage: Component = () => {
 
   onMount(() => inputEl?.focus());
 
+  // 复制按钮的事件委托:整个消息列表一个 click 处理器,命中 data-copy-code 时
+  // 取同包装层里 <pre> 的文本写剪贴板(按钮在 pre 外,innerText 不含按钮文案)。
+  const onListClick = (e: MouseEvent): void => {
+    const btn = (e.target as Element).closest?.("button[data-copy-code]");
+    if (!btn) return;
+    const pre = btn.parentElement?.querySelector("pre");
+    if (!pre) return;
+    navigator.clipboard.writeText(pre.innerText).then(
+      () => toast({ type: "info", message: t("agent.copied") }),
+      () => toast({ type: "error", message: t("agent.copyFailed") }),
+    );
+  };
+
   const submit = (): void => {
     const text = draft().trim();
     if (!text || streaming()) return;
@@ -212,6 +260,7 @@ const ChatPage: Component = () => {
       <div
         ref={listEl}
         onScroll={onListScroll}
+        onClick={onListClick}
         class="flex-1 min-h-0 overflow-y-auto px-[28px] py-[24px]"
         role="log"
         aria-live="polite"
