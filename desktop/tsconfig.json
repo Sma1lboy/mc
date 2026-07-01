@@ -26,5 +26,7 @@
     "allowJs": false,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  /* migration: 死掉的 Solid 文件,等 owner 批准后删除(见 PR 的删除清单);排除以保持门禁诚实。 */
+  "exclude": ["src/index.tsx", "src/motion/solid.tsx", "src/motion/index.ts"]
 }
