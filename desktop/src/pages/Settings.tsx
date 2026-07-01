@@ -370,8 +370,9 @@ const Settings: Component = () => {
                 ariaLabel={t("settings.hue")}
                 onInput={(v) => {
                   setHue(v);
-                  apply();
+                  apply(false);
                 }}
+                onCommit={() => apply()}
               />
               <Slider
                 class="mb-[14px]"
@@ -383,8 +384,9 @@ const Settings: Component = () => {
                 ariaLabel={t("settings.saturation")}
                 onInput={(v) => {
                   setSat(v);
-                  apply();
+                  apply(false);
                 }}
+                onCommit={() => apply()}
               />
               <Slider
                 class="mb-[14px]"
@@ -396,8 +398,9 @@ const Settings: Component = () => {
                 ariaLabel={t("settings.lightness")}
                 onInput={(v) => {
                   setLight(v);
-                  apply();
+                  apply(false);
                 }}
+                onCommit={() => apply()}
               />
               <Slider
                 class="mb-[16px]"
@@ -492,7 +495,8 @@ const Settings: Component = () => {
                   max={128}
                   value={settings()!.concurrency ?? 64}
                   ariaLabel={t("settings.concurrency")}
-                  onInput={(v) => patchSettings({ concurrency: v })}
+                  onInput={(v) => setSettings({ ...settings()!, concurrency: v })}
+                  onCommit={(v) => patchSettings({ concurrency: v })}
                 />
 
                 <Slider
@@ -513,7 +517,8 @@ const Settings: Component = () => {
                   step={256}
                   value={settings()!.default_memory_mb ?? 2048}
                   ariaLabel={t("settings.defaultMemory")}
-                  onInput={(v) => patchSettings({ default_memory_mb: v })}
+                  onInput={(v) => setSettings({ ...settings()!, default_memory_mb: v })}
+                  onCommit={(v) => patchSettings({ default_memory_mb: v })}
                 />
 
                 <div class="flex items-center justify-between text-fg text-[14px]">

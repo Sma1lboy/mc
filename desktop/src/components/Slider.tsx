@@ -13,6 +13,9 @@ export interface SliderProps {
   max?: number;
   step?: number;
   onInput: (value: number) => void;
+  /** 提交(松手 / 键盘 change)时触发,用于持久化;拖动中的实时应用走 onInput,避免每
+   * 一个 input tick 都落盘(见 Settings 主题/内存/并发滑块)。省略则不区分,仅 onInput。 */
+  onCommit?: (value: number) => void;
   /** 顶部标签行的左侧标题;提供才渲染标签行。 */
   label?: JSX.Element;
   /** 实时值显示;默认显示原始数值。 */
@@ -43,6 +46,7 @@ export function Slider(props: SliderProps): JSX.Element {
         disabled={props.disabled}
         aria-label={props.ariaLabel}
         onInput={(e) => props.onInput(Number(e.currentTarget.value))}
+        onChange={(e) => props.onCommit?.(Number(e.currentTarget.value))}
       />
     </div>
   );
