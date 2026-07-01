@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { createSignal, createMemo, createRoot, createEffect } from "solid-js";
+import { create } from "zustand";
 import { generatePalette, hexToOklch, type Palette } from "./palette";
 import { toneFor, type ThemeAccent, type ToneMode } from "./tone";
 
@@ -16,9 +16,15 @@ import { toneFor, type ThemeAccent, type ToneMode } from "./tone";
  * 核心约束:组件只引用色阶号,换色只改变量;且此版用 OKLCH
  * 感知锚点 + 非对称 _AdjustLinear,严格优于旧朴素 HSL 偏移数组。docs/modules/ui-polish.md §1。
  *
- * 响应式管线(SolidJS,模块级单例,无 Context——对齐 store.ts 约定):
- *   themeConfig 信号 + systemDark 信号 → createMemo 派生 Palette → createEffect
- *   把每个 CSS 变量 setProperty 到 document.documentElement。
+ * 响应式管线(zustand,模块级单例,无 Context——对齐 store.ts 约定):
+ *   themeStore.config + 模块级 systemDark → 每次变更调 applyThemeToDom 重算
+ *   Palette,把每个 CSS 变量 setProperty 到 document.documentElement。
+ *
+ * 读法约定(MIGRATION.md §2,导出两种形状):
+ *   - 组件里要响应式读当前配置 → hook:`useTheme()`(= useThemeStore((s)=>s.config))。
+ *   - 非组件代码(设置页回调、工具函数)→ 调用式 getter:`currentTheme()` 取快照。
+ * 命令式 setter(applyTheme/applyThemeColor/setMode)仍是旧签名,内部写 store。
+ * 刻意保留裸 `invoke()`(不走 api.*):避免与 ipc/api 循环 import。
  * ========================================================================== */
 
 /** 后端 get_theme()/set_theme() 的配置形状,与 Tauri 命令约定一致(向后兼容)。 */
@@ -90,11 +96,13 @@ const colorSchemeMql: MediaQueryList | null =
     ? window.matchMedia(DARK_QUERY)
     : null;
 
-const [systemDark, setSystemDark] = createSignal<boolean>(colorSchemeMql?.matches ?? true);
+// 系统暗色偏好快照(模块级)。变化时更新并触发一次 DOM 重注入('system' 模式下生效)。
+let systemDark: boolean = colorSchemeMql?.matches ?? true;
 
 if (colorSchemeMql) {
   const onChange = (e: MediaQueryListEvent): void => {
-    setSystemDark(e.matches);
+    systemDark = e.matches;
+    applyThemeToDom();
   };
   if (typeof colorSchemeMql.addEventListener === "function") {
     colorSchemeMql.addEventListener("change", onChange);
@@ -136,36 +144,44 @@ function clampRange(v: number, lo: number, hi: number): number {
 }
 
 /* ----------------------------------------------------------------------------
- * 响应式管线(模块级 createRoot,长生命周期,不随组件卸载销毁)。
+ * 响应式管线(模块级 zustand 单例,长生命周期,与 store.ts 同一读写约定)。
  * -------------------------------------------------------------------------- */
 
-const [themeConfig, setThemeConfigInternal] = createSignal<ThemeConfig>(DEFAULT_THEME);
+interface ThemeState {
+  config: ThemeConfig;
+}
 
-/** 当前生效的 ThemeConfig(只读 accessor),供设置页/调试读取。 */
-export const currentTheme = themeConfig;
+/** 主题 store(单一真相)。组件用 hook 订阅,非组件用 getter 取快照。 */
+const useThemeStore = create<ThemeState>()(() => ({ config: DEFAULT_THEME }));
 
-// 在一个独立 root 里装派生 + 注入 effect(避免被组件作用域回收)。
-createRoot(() => {
-  // 派生:配置 + 系统偏好 → 解析档 → ToneProfile + ThemeAccent → Palette。
-  const palette = createMemo<{ mode: ToneMode; vars: Palette }>(() => {
-    const cfg = themeConfig();
-    const mode = resolveMode(cfg.mode, systemDark());
-    const tone = toneFor(mode);
-    const accent = accentFromHsl(cfg.hue, cfg.saturation, cfg.lightness);
-    return { mode, vars: generatePalette(tone, accent) };
-  });
+/** 组件内响应式读当前生效的 ThemeConfig(切主题时重渲染)。见 MIGRATION.md §2。 */
+export const useTheme = (): ThemeConfig => useThemeStore((s) => s.config);
 
-  // 注入:写 data-theme(供 tokens.css 的少量 [data-theme] 选择器兜底)+ 全部 CSS 变量。
-  createEffect(() => {
-    if (typeof document === "undefined") return;
-    const { mode, vars } = palette();
-    const root = document.documentElement;
-    root.dataset.theme = mode;
-    for (const [name, value] of Object.entries(vars)) {
-      root.style.setProperty(name, value);
-    }
-  });
-});
+/** 当前生效的 ThemeConfig(调用式 getter,取快照,不订阅),供设置页/调试/非组件代码读取。 */
+export const currentTheme = (): ThemeConfig => useThemeStore.getState().config;
+
+// 派生 + 注入:配置 + 系统偏好 → 解析档 → Palette → 写 data-theme + 全部 CSS 变量。
+// (取代旧 createMemo→createEffect;由 store 订阅与 systemDark 监听显式驱动。)
+function applyThemeToDom(): void {
+  if (typeof document === "undefined") return;
+  const cfg = useThemeStore.getState().config;
+  const mode = resolveMode(cfg.mode, systemDark);
+  const tone = toneFor(mode);
+  const accent = accentFromHsl(cfg.hue, cfg.saturation, cfg.lightness);
+  const vars: Palette = generatePalette(tone, accent);
+  const root = document.documentElement;
+  root.dataset.theme = mode;
+  for (const [name, value] of Object.entries(vars)) {
+    root.style.setProperty(name, value);
+  }
+}
+
+// config 每次变更即重注入(setter 恒返回新 config 对象,zustand 据引用变化触发)。
+useThemeStore.subscribe(applyThemeToDom);
+
+// 启动即应用一次(DEFAULT_THEME),对齐旧 createEffect 在 root 建立时立即注入的语义,
+// 避免 initTheme 落盘前的无样式闪烁。
+applyThemeToDom();
 
 /* ----------------------------------------------------------------------------
  * 公共命令式 API(向后兼容:Settings/store/App 仍按旧签名调用,内部走响应式管线)。
@@ -180,17 +196,17 @@ export function applyThemeColor(
   saturation: number,
   lightness: number,
 ): void {
-  setThemeConfigInternal((prev) => ({ ...prev, hue, saturation, lightness }));
+  useThemeStore.setState((prev) => ({ config: { ...prev.config, hue, saturation, lightness } }));
 }
 
-/** 切换明暗模式(含 'system')。更新 themeConfig.mode,响应式管线据此重算。 */
+/** 切换明暗模式(含 'system')。更新 config.mode,响应式管线据此重算。 */
 export function setMode(mode: "dark" | "light" | "system"): void {
-  setThemeConfigInternal((prev) => ({ ...prev, mode }));
+  useThemeStore.setState((prev) => ({ config: { ...prev.config, mode } }));
 }
 
 /** 同时应用一份完整 ThemeConfig(模式 + 强调色)。 */
 export function applyTheme(cfg: ThemeConfig): void {
-  setThemeConfigInternal(cfg);
+  useThemeStore.setState({ config: cfg });
 }
 
 /** 预设强调色:用设计 hex 表达,hue/sat/light 由 accentFromHex 派生(swatch 直接显示 hex)。 */
