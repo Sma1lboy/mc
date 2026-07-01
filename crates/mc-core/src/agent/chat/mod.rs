@@ -19,6 +19,7 @@
 
 mod prompt;
 mod run;
+mod store;
 mod tools;
 
 #[cfg(test)]
@@ -26,6 +27,7 @@ mod tests;
 
 pub use prompt::CHAT_AGENT_SYSTEM_PROMPT;
 pub use run::{run_chat_turn, ChatEventSink, ChatTranscript, ChatTurnOutcome, CollectingSink};
+pub use store::{delete_transcript, load_transcript, save_transcript};
 pub use tools::{
     BuildBasePack, BuildModRef, BuildModpackArgs, BuildModpackOutput, BuildModpackTool,
     BuildTarget, ChatToolError, ChatToolsCtx, InspectBaseModpackArgs, InspectBaseModpackOutput,

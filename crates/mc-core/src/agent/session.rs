@@ -128,7 +128,7 @@ fn validate_session_id(session_id: &str) -> Result<()> {
     }
 }
 
-fn is_valid_session_id(session_id: &str) -> bool {
+pub(crate) fn is_valid_session_id(session_id: &str) -> bool {
     !session_id.is_empty()
         && session_id.len() <= 128
         && session_id

@@ -3164,7 +3164,14 @@ impl ChatSessions {
     /// for an unseen session) and mark the slot in-flight. Errors if a turn is
     /// already streaming for this session. The lock is dropped on return — it is
     /// never held across the turn's `await`.
-    fn begin_turn(&self, session_id: &str) -> CmdResult<ChatTranscript> {
+    /// For a session unseen since app start, `load_persisted` supplies the
+    /// transcript saved on disk by a previous run (or `None` to start fresh).
+    /// It is only invoked for unseen sessions, under the (uncontended) lock.
+    fn begin_turn(
+        &self,
+        session_id: &str,
+        load_persisted: impl FnOnce() -> Option<ChatTranscript>,
+    ) -> CmdResult<ChatTranscript> {
         let mut map = self.0.lock().unwrap();
         if let Some(slot) = map.get_mut(session_id) {
             // `take()` both hands us the transcript and leaves `None` behind as the
@@ -3174,7 +3181,7 @@ impl ChatSessions {
                 .ok_or_else(|| "该会话正在生成回复,请等它结束后再发送".to_string());
         }
         map.insert(session_id.to_string(), None);
-        Ok(ChatTranscript::new())
+        Ok(load_persisted().unwrap_or_default())
     }
 
     /// Release a session after a turn, storing the transcript to continue from next
@@ -3239,14 +3246,21 @@ pub async fn agent_chat(
     message: String,
     on_event: tauri::ipc::Channel<AgentStreamEvent>,
 ) -> CmdResult<()> {
-    let transcript = state.begin_turn(&session_id)?;
+    let dir = data_dir();
+    let transcript =
+        state.begin_turn(&session_id, || mc_core::agent::load_transcript(&dir, &session_id))?;
     // `run_chat_turn` consumes the transcript; keep a clone to restore prior
     // history (and free the in-flight slot) if the turn fails.
     let prior = transcript.clone();
     let sink = ChannelSink(on_event);
 
-    match run_chat_agent_turn(&data_dir(), transcript, &message, &sink).await {
+    match run_chat_agent_turn(&dir, transcript, &message, &sink).await {
         Ok(updated) => {
+            // Persist so the conversation survives an app restart. A save failure
+            // must not fail the turn — the in-memory transcript is still intact.
+            if let Err(e) = mc_core::agent::save_transcript(&dir, &session_id, &updated) {
+                tracing::warn!(target: "daemon", "chat 会话转录持久化失败:{e}");
+            }
             state.end_turn(&session_id, updated);
             Ok(())
         }
@@ -3258,11 +3272,12 @@ pub async fn agent_chat(
     }
 }
 
-/// Reset a chat session: drop its stored transcript so the next [`agent_chat`]
-/// starts a brand-new conversation.
+/// Reset a chat session: drop its stored transcript (in memory AND on disk) so
+/// the next [`agent_chat`] starts a brand-new conversation.
 #[tauri::command]
 #[specta::specta]
 pub fn agent_chat_reset(state: State<'_, ChatSessions>, session_id: String) -> CmdResult<()> {
     state.reset(&session_id);
+    mc_core::agent::delete_transcript(&data_dir(), &session_id).map_err(err)?;
     Ok(())
 }

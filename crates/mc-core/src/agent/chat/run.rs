@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use futures::StreamExt;
+use serde::{Deserialize, Serialize};
 
 use rig_core::agent::MultiTurnStreamItem;
 use rig_core::client::completion::CompletionClient;
@@ -78,8 +79,9 @@ impl ChatEventSink for CollectingSink {
 /// It wraps Rig's own [`Message`] so tool-call / tool-result turns round-trip
 /// losslessly across turns (and serialize for persistence). The caller keeps the
 /// [`ChatTurnOutcome::transcript`] from one turn and passes it back into the
-/// next.
-#[derive(Debug, Clone, Default)]
+/// next. Serde round-trips it losslessly for on-disk persistence (see
+/// [`super::store`]).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ChatTranscript {
     messages: Vec<Message>,
 }

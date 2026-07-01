@@ -13,8 +13,9 @@ pub mod state;
 pub mod workflow;
 
 pub use chat::{
-    run_chat_turn, ChatEventSink, ChatToolError, ChatToolsCtx, ChatTranscript, ChatTurnOutcome,
-    CollectingSink, CHAT_AGENT_SYSTEM_PROMPT,
+    delete_transcript, load_transcript, run_chat_turn, save_transcript, ChatEventSink,
+    ChatToolError, ChatToolsCtx, ChatTranscript, ChatTurnOutcome, CollectingSink,
+    CHAT_AGENT_SYSTEM_PROMPT,
 };
 pub use llm::{AgentLlmClient, AgentLlmConfig};
 pub use session::{AgentSessionStore, AgentSessionSummary};

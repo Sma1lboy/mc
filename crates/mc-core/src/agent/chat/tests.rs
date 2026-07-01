@@ -639,6 +639,66 @@ async fn chat_turn_streams_text_and_dispatches_tool_call() {
     assert!(outcome.transcript.len() >= 2, "transcript: {:?}", outcome.transcript);
 }
 
+// ---------------------------------------------------------------------------
+// Transcript persistence
+// ---------------------------------------------------------------------------
+
+#[test]
+fn transcript_save_load_round_trips_tool_call_turn() {
+    use rig_core::completion::Message;
+    use rig_core::message::AssistantContent;
+    use rig_core::OneOrMany;
+
+    use super::store::{delete_transcript, load_transcript, save_transcript};
+
+    let messages = vec![
+        Message::user("make me a tech pack"),
+        Message::Assistant {
+            id: None,
+            content: OneOrMany::one(AssistantContent::tool_call(
+                "call_1",
+                "search_base_modpacks",
+                serde_json::json!({ "query": "tech", "mc_version": "1.20.1" }),
+            )),
+        },
+        Message::tool_result("call_1", r#"{"candidates":[]}"#),
+        Message::assistant("No base packs found; want to start from scratch?"),
+    ];
+    let transcript = ChatTranscript::from_messages(messages.clone());
+
+    let dir = temp_dir("transcript");
+    let path = save_transcript(&dir, "session-a_1", &transcript).unwrap();
+    assert!(path.ends_with("agent/chat/sessions/session-a_1.json"));
+
+    let loaded = load_transcript(&dir, "session-a_1").expect("saved transcript loads");
+    // Compare against serde's canonical form of the same messages: rig's Text
+    // deserializer normalizes `additional_params: None` to `Some({})`, so a
+    // byte-identical struct compare would fail while the content is lossless.
+    let canonical: Vec<Message> =
+        serde_json::from_str(&serde_json::to_string(&messages).unwrap()).unwrap();
+    assert_eq!(loaded.messages(), canonical.as_slice());
+    assert_eq!(loaded.len(), 4);
+    // The tool-call turn survived with its id, name, and arguments intact.
+    let Message::Assistant { content, .. } = &loaded.messages()[1] else {
+        panic!("expected assistant tool-call turn");
+    };
+    let AssistantContent::ToolCall(call) = content.first() else {
+        panic!("expected a tool call");
+    };
+    assert_eq!(call.id, "call_1");
+    assert_eq!(call.function.name, "search_base_modpacks");
+    assert_eq!(call.function.arguments["query"], "tech");
+
+    // Path-like ids are rejected, missing sessions are None, delete is idempotent.
+    assert!(save_transcript(&dir, "../evil", &transcript).is_err());
+    assert!(load_transcript(&dir, "../evil").is_none());
+    assert!(load_transcript(&dir, "unknown").is_none());
+    delete_transcript(&dir, "session-a_1").unwrap();
+    assert!(load_transcript(&dir, "session-a_1").is_none());
+    delete_transcript(&dir, "session-a_1").unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 fn zip_index(index_json: Vec<u8>) -> Vec<u8> {
     use std::io::{Cursor, Write};
     let mut cursor = Cursor::new(Vec::new());

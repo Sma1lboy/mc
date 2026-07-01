@@ -466,8 +466,8 @@ export const commands = {
 	 */
 	agentChat: (sessionId: string, message: string, onEvent: Channel<AgentStreamEvent>) => typedError<null, string>(__TAURI_INVOKE("agent_chat", { sessionId, message, onEvent })),
 	/**
-	 *  Reset a chat session: drop its stored transcript so the next [`agent_chat`]
-	 *  starts a brand-new conversation.
+	 *  Reset a chat session: drop its stored transcript (in memory AND on disk) so
+	 *  the next [`agent_chat`] starts a brand-new conversation.
 	 */
 	agentChatReset: (sessionId: string) => typedError<null, string>(__TAURI_INVOKE("agent_chat_reset", { sessionId })),
 	/**  是否处于画廊模式(环境变量 `MC_GALLERY` 非空且非 "0")。前端据此决定是否自动跑截图流程。 */
