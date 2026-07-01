@@ -1,11 +1,11 @@
-import { Component, For, Show, createSignal, createMemo } from "solid-js";
+import { useState } from "react";
 import { Dialog } from "./Dialog";
 import { Button } from "./Button";
 import { Heading } from "./Typography";
 import { toast } from "./Toast";
-import { crashReport, setCrashReport, type CrashReport } from "../store";
+import { useAppStore, setCrashReport, type CrashReport } from "../store";
 import { api } from "../ipc/api";
-import { t } from "../i18n";
+import { t, useLang } from "../i18n";
 
 /** 把崩溃类别 slug 映射到本地化标签;空 / 未知回退到「未知错误」。 */
 function categoryLabel(slug: string | null): string {
@@ -51,9 +51,10 @@ function buildReport(r: CrashReport): string {
  * 这里据此展示可读摘要 + 类别 + 建议 + 关键日志 + 可折叠的日志尾部,并提供「复制诊断」与
  * 「打开日志目录」。正常退出不会 set,故不会弹出。
  */
-export const CrashDialog: Component = () => {
-  const [showLog, setShowLog] = createSignal(false);
-  const r = createMemo(() => crashReport());
+export function CrashDialog() {
+  useLang();
+  const [showLog, setShowLog] = useState(false);
+  const rep = useAppStore((s) => s.crashReport);
 
   const close = () => {
     setCrashReport(null);
@@ -61,7 +62,6 @@ export const CrashDialog: Component = () => {
   };
 
   const copy = async () => {
-    const rep = r();
     if (!rep) return;
     try {
       await navigator.clipboard.writeText(buildReport(rep));
@@ -80,118 +80,116 @@ export const CrashDialog: Component = () => {
     }
   };
 
+  if (!rep) return null;
+
   return (
-    <Show when={r()}>
-      {(rep) => (
-        <Dialog
-          open
-          onClose={close}
-          label={t("crash.title")}
-          contentClass="w-[560px] max-w-[calc(100vw-48px)]"
-        >
-          <div class="flex max-h-[80vh] flex-col">
-            {/* 头部:标题 + 副标题 */}
-            <div class="flex flex-col gap-[6px] border-b border-titlebar px-[20px] pb-[16px] pt-[18px]">
-              <div class="flex items-center gap-[8px]">
-                <Heading size="sub">{t("crash.title")}</Heading>
-                <span class="rounded-none border border-danger/40 bg-danger-soft px-[8px] py-[2px] text-[11px] font-semibold text-danger-text">
-                  {categoryLabel(rep().category)}
-                </span>
-              </div>
-              <div class="text-[12px] leading-[1.7] text-sub">{t("crash.subtitle")}</div>
-            </div>
-
-            {/* 主体:可滚动 */}
-            <div class="flex min-h-0 flex-1 flex-col gap-[14px] overflow-auto px-[20px] py-[16px]">
-              {/* 元信息网格 */}
-              <div class="grid grid-cols-[auto_1fr] gap-x-[16px] gap-y-[6px] text-[13px]">
-                <span class="text-muted">{t("crash.instance")}</span>
-                <span class="min-w-0 truncate text-fg">{rep().name}</span>
-                <Show when={versionLine(rep())}>
-                  <span class="text-muted">{t("crash.version")}</span>
-                  <span class="min-w-0 truncate text-fg">{versionLine(rep())}</span>
-                </Show>
-                <span class="text-muted">{t("crash.exitCode")}</span>
-                <span class="text-fg">{rep().code ?? "—"}</span>
-              </div>
-
-              {/* 原因 */}
-              <Show when={rep().reason}>
-                <div class="flex flex-col gap-[4px]">
-                  <div class="text-[11px] font-semibold uppercase tracking-wide text-muted">
-                    {t("crash.reason")}
-                  </div>
-                  <div class="text-[13px] leading-[1.7] text-fg">{rep().reason}</div>
-                </div>
-              </Show>
-
-              {/* 建议 */}
-              <Show when={rep().suggestions.length > 0}>
-                <div class="flex flex-col gap-[6px]">
-                  <div class="text-[11px] font-semibold uppercase tracking-wide text-muted">
-                    {t("crash.suggestions")}
-                  </div>
-                  <ul class="flex flex-col gap-[4px]">
-                    <For each={rep().suggestions}>
-                      {(s) => (
-                        <li class="flex gap-[8px] text-[13px] leading-[1.6] text-fg">
-                          <span class="select-none text-accent">·</span>
-                          <span class="min-w-0">{s}</span>
-                        </li>
-                      )}
-                    </For>
-                  </ul>
-                </div>
-              </Show>
-
-              {/* 关键日志行(证据) */}
-              <Show when={rep().matched}>
-                <div class="flex flex-col gap-[4px]">
-                  <div class="text-[11px] font-semibold uppercase tracking-wide text-muted">
-                    {t("crash.evidence")}
-                  </div>
-                  <pre class="overflow-auto whitespace-pre-wrap break-words rounded-none border border-titlebar bg-panel-2 px-[10px] py-[8px] text-[12px] leading-[1.6] text-sub">
-                    {rep().matched}
-                  </pre>
-                </div>
-              </Show>
-
-              {/* 可折叠的日志尾部 */}
-              <div class="flex flex-col gap-[6px]">
-                <button
-                  type="button"
-                  class="self-start text-[12px] font-semibold text-accent hover:underline"
-                  onClick={() => setShowLog((v) => !v)}
-                >
-                  {showLog() ? t("crash.hideLog") : t("crash.showLog")}
-                </button>
-                <Show when={showLog()}>
-                  <pre class="max-h-[240px] overflow-auto whitespace-pre-wrap break-words rounded-none border border-titlebar bg-panel-2 px-[10px] py-[8px] text-[11px] leading-[1.6] text-sub">
-                    {rep().logTail || t("crash.noLog")}
-                  </pre>
-                </Show>
-              </div>
-            </div>
-
-            {/* 底部操作 */}
-            <div class="flex items-center justify-between gap-[8px] border-t border-titlebar px-[20px] py-[14px]">
-              <Button variant="ghost" onClick={openLogs}>
-                {t("crash.openLogsDir")}
-              </Button>
-              <div class="flex items-center gap-[8px]">
-                <Button variant="ghost" onClick={close}>
-                  {t("crash.close")}
-                </Button>
-                <Button variant="primary" onClick={copy}>
-                  {t("crash.copyDiagnostics")}
-                </Button>
-              </div>
-            </div>
+    <Dialog
+      open
+      onClose={close}
+      label={t("crash.title")}
+      contentClass="w-[560px] max-w-[calc(100vw-48px)]"
+    >
+      <div className="flex max-h-[80vh] flex-col">
+        {/* 头部:标题 + 副标题 */}
+        <div className="flex flex-col gap-[6px] border-b border-titlebar px-[20px] pb-[16px] pt-[18px]">
+          <div className="flex items-center gap-[8px]">
+            <Heading size="sub">{t("crash.title")}</Heading>
+            <span className="rounded-none border border-danger/40 bg-danger-soft px-[8px] py-[2px] text-[11px] font-semibold text-danger-text">
+              {categoryLabel(rep.category)}
+            </span>
           </div>
-        </Dialog>
-      )}
-    </Show>
+          <div className="text-[12px] leading-[1.7] text-sub">{t("crash.subtitle")}</div>
+        </div>
+
+        {/* 主体:可滚动 */}
+        <div className="flex min-h-0 flex-1 flex-col gap-[14px] overflow-auto px-[20px] py-[16px]">
+          {/* 元信息网格 */}
+          <div className="grid grid-cols-[auto_1fr] gap-x-[16px] gap-y-[6px] text-[13px]">
+            <span className="text-muted">{t("crash.instance")}</span>
+            <span className="min-w-0 truncate text-fg">{rep.name}</span>
+            {versionLine(rep) && (
+              <>
+                <span className="text-muted">{t("crash.version")}</span>
+                <span className="min-w-0 truncate text-fg">{versionLine(rep)}</span>
+              </>
+            )}
+            <span className="text-muted">{t("crash.exitCode")}</span>
+            <span className="text-fg">{rep.code ?? "—"}</span>
+          </div>
+
+          {/* 原因 */}
+          {rep.reason && (
+            <div className="flex flex-col gap-[4px]">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+                {t("crash.reason")}
+              </div>
+              <div className="text-[13px] leading-[1.7] text-fg">{rep.reason}</div>
+            </div>
+          )}
+
+          {/* 建议 */}
+          {rep.suggestions.length > 0 && (
+            <div className="flex flex-col gap-[6px]">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+                {t("crash.suggestions")}
+              </div>
+              <ul className="flex flex-col gap-[4px]">
+                {rep.suggestions.map((s, i) => (
+                  <li key={i} className="flex gap-[8px] text-[13px] leading-[1.6] text-fg">
+                    <span className="select-none text-accent">·</span>
+                    <span className="min-w-0">{s}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* 关键日志行(证据) */}
+          {rep.matched && (
+            <div className="flex flex-col gap-[4px]">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+                {t("crash.evidence")}
+              </div>
+              <pre className="overflow-auto whitespace-pre-wrap break-words rounded-none border border-titlebar bg-panel-2 px-[10px] py-[8px] text-[12px] leading-[1.6] text-sub">
+                {rep.matched}
+              </pre>
+            </div>
+          )}
+
+          {/* 可折叠的日志尾部 */}
+          <div className="flex flex-col gap-[6px]">
+            <button
+              type="button"
+              className="self-start text-[12px] font-semibold text-accent hover:underline"
+              onClick={() => setShowLog((v) => !v)}
+            >
+              {showLog ? t("crash.hideLog") : t("crash.showLog")}
+            </button>
+            {showLog && (
+              <pre className="max-h-[240px] overflow-auto whitespace-pre-wrap break-words rounded-none border border-titlebar bg-panel-2 px-[10px] py-[8px] text-[11px] leading-[1.6] text-sub">
+                {rep.logTail || t("crash.noLog")}
+              </pre>
+            )}
+          </div>
+        </div>
+
+        {/* 底部操作 */}
+        <div className="flex items-center justify-between gap-[8px] border-t border-titlebar px-[20px] py-[14px]">
+          <Button variant="ghost" onClick={openLogs}>
+            {t("crash.openLogsDir")}
+          </Button>
+          <div className="flex items-center gap-[8px]">
+            <Button variant="ghost" onClick={close}>
+              {t("crash.close")}
+            </Button>
+            <Button variant="primary" onClick={copy}>
+              {t("crash.copyDiagnostics")}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </Dialog>
   );
-};
+}
 
 export default CrashDialog;
