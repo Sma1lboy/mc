@@ -62,7 +62,7 @@ function onKeyDown(e: KeyboardEvent): void {
   // ?(⇧+/):无输入聚焦时切换帮助。不要求主修饰键。
   if (e.key === "?" && !e.metaKey && !e.ctrlKey && !e.altKey) {
     e.preventDefault();
-    setShortcutsHelpOpen((v) => !v);
+    setShortcutsHelpOpen(!shortcutsHelpOpen());
     return;
   }
 
