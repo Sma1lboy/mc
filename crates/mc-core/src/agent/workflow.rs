@@ -147,7 +147,7 @@ const MAX_BASE_MANIFEST_BYTES: u64 = 4 * 1024 * 1024;
 const EXECUTION_MAX_RETRIES: u32 = 3;
 const EXECUTION_RETRY_BACKOFF_BASE: Duration = Duration::from_millis(500);
 const EXECUTION_RETRY_BACKOFF_MAX: Duration = Duration::from_secs(4);
-const MODPACK_AGENT_MAX_TURNS: u32 = 12;
+const MODPACK_AGENT_MAX_TURNS: u32 = 24;
 
 const MAIN_AGENT_SYSTEM_PROMPT: &str = r#"You are the local AI agent for a Minecraft launcher.
 Your job is to turn user requests into safe daemon-owned workflows, not to perform game file writes directly.

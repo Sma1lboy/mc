@@ -65,6 +65,14 @@ fn modpack_build_react_runner_initializes_snapshot_contract() {
 }
 
 #[test]
+fn modpack_build_react_loop_allows_replanning_headroom() {
+    assert!(
+        MODPACK_AGENT_MAX_TURNS >= 24,
+        "live CLI replanning can need more than the old 12-turn budget"
+    );
+}
+
+#[test]
 fn extracted_modpack_goals_feed_planning_feature_tags() {
     let mut run = AgentRunSnapshot::new("make a Fabric 1.20.1 pack with minimap and inventory");
     run.status = AgentStatus::Running;
