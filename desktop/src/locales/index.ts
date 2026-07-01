@@ -21,6 +21,7 @@ import skin from "./skin";
 import tags from "./tags";
 import shortcuts from "./shortcuts";
 import crash from "./crash";
+import agent from "./agent";
 
 export const dictionaries = {
   zh: {
@@ -46,6 +47,7 @@ export const dictionaries = {
     tags: tags.zh,
     shortcuts: shortcuts.zh,
     crash: crash.zh,
+    agent: agent.zh,
   },
   en: {
     settings: settings.en,
@@ -70,5 +72,6 @@ export const dictionaries = {
     tags: tags.en,
     shortcuts: shortcuts.en,
     crash: crash.en,
+    agent: agent.en,
   },
 };

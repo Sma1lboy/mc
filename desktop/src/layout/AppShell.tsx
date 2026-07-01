@@ -12,7 +12,7 @@ import "./AppShell.css";
  * 切回即时显示且保留页内状态(发现页的搜索结果 / 滚动位置等),避免重挂导致的卡顿与重拉。
  * 实例详情(instance)按实例不同需重挂,故不在此列,仍按需挂载/卸载。
  */
-const KEEP_ALIVE: Page[] = ["home", "discover", "library", "settings"];
+const KEEP_ALIVE: Page[] = ["home", "discover", "library", "agent", "settings"];
 
 /**
  * AppShell —— 工作台视图的三区 CSS Grid 骨架。

@@ -19,8 +19,8 @@ import "./Rail.css";
  * 选中态走 NavItem 的熔岩橙凸起;实例快捷块用凸起倒角的 InstanceIcon。
  */
 
-// 主导航项。id 必须与 store 的 Page 联合类型一致(home/discover/library/settings)。
-type NavId = "home" | "discover" | "library" | "settings";
+// 主导航项。id 必须与 store 的 Page 联合类型一致(home/discover/library/agent/settings)。
+type NavId = "home" | "discover" | "library" | "agent" | "settings";
 
 interface NavEntry {
   id: NavId;
@@ -55,6 +55,15 @@ const LibraryIcon = (): JSX.Element => (
   </svg>
 );
 
+// 助手:对话气泡(chat bubble) + 火花点,示意 AI 整合包助手。
+const AgentIcon = (): JSX.Element => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+       stroke-linecap="round" stroke-linejoin="round" class="w-[22px] h-[22px]" aria-hidden="true">
+    <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v9a1.5 1.5 0 0 1-1.5 1.5H9l-4 3.5V16H5.5A1.5 1.5 0 0 1 4 14.5v-9Z" />
+    <path d="M8.5 10h.01M12 10h.01M15.5 10h.01" />
+  </svg>
+);
+
 // 设置:滑块(sliders)。
 const SettingsIcon = (): JSX.Element => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
@@ -76,6 +85,7 @@ const TOP_NAV = (): NavEntry[] => [
   { id: "home", label: t("layout.navHome"), icon: HomeIcon },
   { id: "discover", label: t("layout.navDiscover"), icon: DiscoverIcon },
   { id: "library", label: t("layout.navLibrary"), icon: LibraryIcon },
+  { id: "agent", label: t("layout.navAgent"), icon: AgentIcon },
 ];
 
 const Rail: Component = () => {

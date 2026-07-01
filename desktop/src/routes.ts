@@ -5,6 +5,7 @@ import Library from "./pages/Library";
 import Discover from "./pages/Discover";
 import Settings from "./pages/Settings";
 import InstanceDetail from "./pages/InstanceDetail";
+import AgentChat from "./agent/ChatPage";
 
 /**
  * 页面路由表 —— 把「哪个 page 渲染哪个组件」从布局壳的手写 Switch/Match
@@ -27,6 +28,7 @@ export const WORKSPACE_ROUTES: Route[] = [
   { page: "home", component: Home, showContext: false },
   { page: "discover", component: Discover, showContext: false },
   { page: "library", component: Library, showContext: false },
+  { page: "agent", component: AgentChat, showContext: false },
   { page: "settings", component: Settings, showContext: false },
   { page: "instance", component: InstanceDetail, showContext: false },
 ];
