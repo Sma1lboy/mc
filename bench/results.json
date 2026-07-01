@@ -1,0 +1,161 @@
+{
+  "meta": {
+    "warmup": 3,
+    "measured": 12,
+    "chunks": 60,
+    "tokensPerChunk": 8,
+    "node": "v26.0.0",
+    "when": "2026-07-01T23:04:07.670Z"
+  },
+  "cell_0ms": {
+    "delayMs": 0,
+    "ts": {
+      "serverTtftMs": {
+        "p10": 0.77,
+        "median": 0.87,
+        "p90": 1.19
+      },
+      "clientTtftMs": {
+        "p10": 1.9,
+        "median": 2.43,
+        "p90": 3.02
+      },
+      "serverTotalMs": {
+        "p10": 2.99,
+        "median": 3.92,
+        "p90": 4.87
+      },
+      "clientTotalMs": {
+        "p10": 4.52,
+        "median": 5.31,
+        "p90": 7.64
+      },
+      "deltasPerSec": {
+        "p10": 17038.27,
+        "median": 26025.63,
+        "p90": 30228.78
+      },
+      "rssBytes_timeL": 200310784,
+      "rssBytes_inProcPeak": 199294976,
+      "heapUsedBytesFinal": 52203312
+    },
+    "rust": {
+      "serverTtftMs": {
+        "p10": 0.71,
+        "median": 0.76,
+        "p90": 0.8
+      },
+      "serverTotalMs": {
+        "p10": 2.07,
+        "median": 2.26,
+        "p90": 2.49
+      },
+      "spawnOverheadMs": {
+        "p10": 16.37,
+        "median": 19.85,
+        "p90": 21.35
+      },
+      "processWallMs": {
+        "p10": 26.45,
+        "median": 31.07,
+        "p90": 31.84
+      },
+      "rssBytes_timeL_median": 20758528,
+      "rssBytes_timeL_samples": [
+        20234240,
+        21397504,
+        20758528
+      ]
+    }
+  },
+  "cell_20ms": {
+    "delayMs": 20,
+    "ts": {
+      "serverTtftMs": {
+        "p10": 21.29,
+        "median": 21.84,
+        "p90": 22.9
+      },
+      "clientTtftMs": {
+        "p10": 22.43,
+        "median": 23.47,
+        "p90": 24.89
+      },
+      "serverTotalMs": {
+        "p10": 1300.21,
+        "median": 1306.28,
+        "p90": 1331.1
+      },
+      "clientTotalMs": {
+        "p10": 1301.72,
+        "median": 1307.62,
+        "p90": 1332.87
+      },
+      "deltasPerSec": {
+        "p10": 45.87,
+        "median": 46.78,
+        "p90": 46.95
+      },
+      "rssBytes_timeL": 189775872,
+      "rssBytes_inProcPeak": 189726720,
+      "heapUsedBytesFinal": 47658232
+    },
+    "rust": {
+      "serverTtftMs": {
+        "p10": 21.69,
+        "median": 22.63,
+        "p90": 22.68
+      },
+      "serverTotalMs": {
+        "p10": 1302.58,
+        "median": 1315.84,
+        "p90": 1335.88
+      },
+      "spawnOverheadMs": {
+        "p10": 16.42,
+        "median": 20.01,
+        "p90": 20.51
+      },
+      "processWallMs": {
+        "p10": 1327.58,
+        "median": 1341.55,
+        "p90": 1364.54
+      },
+      "rssBytes_timeL_median": 21315584,
+      "rssBytes_timeL_samples": [
+        21610496,
+        21184512,
+        21315584
+      ]
+    }
+  },
+  "tool": {
+    "tsRequestCount": 2,
+    "tsRequestKinds": [
+      "tool_call",
+      "text"
+    ],
+    "rustRequestCount": 2,
+    "rustRequestKinds": [
+      "tool_call",
+      "text"
+    ]
+  },
+  "serde": {
+    "payloadKB": 100.3,
+    "iterations": 1000,
+    "totalMs": 127.19,
+    "perOpMs_stringifyPlusParse": 0.1272,
+    "throughputMBps": 769.8,
+    "_sink": 188000
+  },
+  "realSmokeTs": {
+    "model": "deepseek/deepseek-v4-pro",
+    "ttftMs": 1868.5,
+    "totalMs": 2777.8,
+    "deltas": 43,
+    "toolCalls": 0,
+    "replyChars": 89,
+    "note": "one text-only turn, real OpenRouter, not looped"
+  }
+}
