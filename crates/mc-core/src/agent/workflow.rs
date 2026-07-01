@@ -47,6 +47,13 @@ mod execution;
 mod llm_io;
 mod requirements;
 
+// Crate-internal re-export so the lean streaming chat agent (`agent::chat`) can
+// reuse the deterministic base-modlist parser without reaching through the
+// private `base_modlist` submodule. Additive: does not change any behavior.
+// (`execute_mrpack_build_to_path_with_registry` is re-exported below where it is
+// already imported.)
+pub(crate) use base_modlist::base_modlist_cache_from_archive_bytes;
+
 use artifacts::{
     attach_base_pack_resolution, candidate_option, customization_approval,
     customization_approval_with_validation, json_str_or, mod_payload,
@@ -116,11 +123,10 @@ use requirements::{
 };
 
 #[cfg(test)]
-use base_modlist::{
-    base_modlist_cache_from_archive_bytes, ensure_base_archive_size, parse_base_modlist,
-};
+use base_modlist::{ensure_base_archive_size, parse_base_modlist};
 
-use execution::{execute_mrpack_build_to_path_with_registry, verify_written_mrpack};
+pub(crate) use execution::execute_mrpack_build_to_path_with_registry;
+use execution::verify_written_mrpack;
 pub use execution::{
     build_mrpack_from_base_archive_bytes, compile_mrpack_execution_metadata,
     continue_after_execution_manifest_result, execute_mrpack_build_to_path, MrpackExecutionBuild,
@@ -1228,10 +1234,10 @@ enum BaseSearchMode {
 }
 
 #[derive(Debug, Clone)]
-struct BaseModlistCache {
-    refs: Vec<ModRef>,
-    source_format: String,
-    fetch_count: u32,
+pub(crate) struct BaseModlistCache {
+    pub(crate) refs: Vec<ModRef>,
+    pub(crate) source_format: String,
+    pub(crate) fetch_count: u32,
 }
 
 #[derive(Debug, Clone)]

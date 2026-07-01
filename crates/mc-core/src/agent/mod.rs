@@ -6,11 +6,16 @@
 //! tools/subworkflows under the main agent facade, not folded into a single
 //! monolithic loop.
 
+pub mod chat;
 pub mod llm;
 pub mod session;
 pub mod state;
 pub mod workflow;
 
+pub use chat::{
+    run_chat_turn, ChatEventSink, ChatToolError, ChatToolsCtx, ChatTranscript, ChatTurnOutcome,
+    CollectingSink, CHAT_AGENT_SYSTEM_PROMPT,
+};
 pub use llm::{AgentLlmClient, AgentLlmConfig};
 pub use session::{AgentSessionStore, AgentSessionSummary};
 pub use state::{

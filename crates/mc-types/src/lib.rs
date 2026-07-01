@@ -35,6 +35,35 @@ impl Progress {
     }
 }
 
+/// A single streamed event from the lean tool-use chat agent
+/// (`mc_core::agent::chat`). This is the wire-level seam between the agent loop
+/// and any front-end: the loop pushes these through a `ChatEventSink`, and the
+/// Tauri command layer forwards them over an `ipc::Channel` — mirroring how
+/// long-running tasks stream [`Progress`].
+///
+/// Serialized as an internally-tagged union (`{"type": "text_delta", ...}`) so
+/// the UI can `switch` on `type`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AgentStreamEvent {
+    /// A chunk of assistant-visible markdown text.
+    TextDelta { delta: String },
+    /// A chunk of model reasoning/thinking, when the provider exposes it
+    /// (OpenRouter reasoning deltas). Purely informational; never the answer.
+    Reasoning { delta: String },
+    /// The model invoked a deterministic tool with these JSON arguments.
+    ToolCall {
+        name: String,
+        args: serde_json::Value,
+    },
+    /// A tool finished; `summary` is a short human-readable result line.
+    ToolResult { name: String, summary: String },
+    /// The turn finished normally (no more events will follow).
+    Done,
+    /// The turn failed; `message` describes why.
+    Error { message: String },
+}
+
 /// How a game-root directory was discovered. See `docs/07-directory-model-portability.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "lowercase")]

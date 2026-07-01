@@ -125,7 +125,7 @@ pub async fn execute_mrpack_build_to_path(
     .await
 }
 
-pub(super) async fn execute_mrpack_build_to_path_with_registry(
+pub(crate) async fn execute_mrpack_build_to_path_with_registry(
     approved: &ApprovedModpackBuild,
     output_path: &Path,
     registry: &ProviderRegistry,

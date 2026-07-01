@@ -80,7 +80,7 @@ pub(super) fn parse_base_modlist(archive_bytes: &[u8]) -> Result<Vec<ModRef>> {
     parse_base_modlist_with_format(archive_bytes).map(|(_, refs)| refs)
 }
 
-pub(super) fn base_modlist_cache_from_archive_bytes(
+pub(crate) fn base_modlist_cache_from_archive_bytes(
     archive_bytes: &[u8],
 ) -> Result<BaseModlistCache> {
     let (source_format, refs) = parse_base_modlist_with_format(archive_bytes)?;
