@@ -1,0 +1,154 @@
+/* Streamdown 输出皮肤(Blocky Craft 令牌)。
+ * ------------------------------------------------------------------
+ * Streamdown 给每个渲染元素挂 `data-streamdown="…"`,但它自带的 Tailwind 工具类
+ * (mt-6 / list-disc / border-border / text-muted-foreground …)不会被本项目的 JIT 生成
+ * (tailwind.css 的 @source 只扫 src/**,不含 node_modules/streamdown),故 Streamdown 的
+ * 视觉全靠这份自持样式——按 data-streamdown 值定位,映射到 tokens.css 的令牌。
+ * 直角(不用圆角),配色与 ModpackDetail.css 的 `.md` 皮肤一致。 */
+
+.chat-md {
+  color: var(--text, #f3ecda);
+}
+.chat-md > :first-child {
+  margin-top: 0;
+}
+.chat-md > :last-child {
+  margin-bottom: 0;
+}
+
+.chat-md [data-streamdown^="heading-"] {
+  color: var(--text-strong, #f3ecda);
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 1.1em 0 0.5em;
+}
+.chat-md [data-streamdown="heading-1"] {
+  font-size: 1.5em;
+}
+.chat-md [data-streamdown="heading-2"] {
+  font-size: 1.3em;
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid var(--bg-titlebar, rgba(0, 0, 0, 0.45));
+}
+.chat-md [data-streamdown="heading-3"] {
+  font-size: 1.12em;
+}
+
+.chat-md p {
+  margin: 0.6em 0;
+}
+.chat-md [data-streamdown="link"] {
+  color: var(--accent, #e8590c);
+  text-decoration: none;
+}
+.chat-md [data-streamdown="link"]:hover {
+  text-decoration: underline;
+}
+
+.chat-md [data-streamdown="unordered-list"] {
+  margin: 0.6em 0;
+  padding-left: 1.6em;
+  list-style: disc;
+}
+.chat-md [data-streamdown="ordered-list"] {
+  margin: 0.6em 0;
+  padding-left: 1.6em;
+  list-style: decimal;
+}
+.chat-md [data-streamdown="list-item"] {
+  margin: 0.25em 0;
+}
+
+.chat-md [data-streamdown="image"] {
+  max-width: 100%;
+  height: auto;
+  margin: 0.4em 0;
+}
+
+.chat-md [data-streamdown="inline-code"] {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.88em;
+  padding: 1px 5px;
+  background: var(--panel-2, #2a2c20);
+}
+
+/* 代码块:Streamdown 用 header(含语言名 + 复制/下载按钮)+ body(shiki 高亮)两层。 */
+.chat-md [data-streamdown="code-block"] {
+  margin: 0.7em 0;
+  overflow: hidden;
+  background: var(--panel-2, #2a2c20);
+  box-shadow: var(--shadow-sunken, inset 0 0 0 1px rgba(0, 0, 0, 0.4));
+}
+.chat-md [data-streamdown="code-block-header"] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px 4px 12px;
+  font-size: 11px;
+  color: var(--text-muted, #8f8f7e);
+  border-bottom: 1px solid var(--bg-titlebar, rgba(0, 0, 0, 0.45));
+}
+.chat-md [data-streamdown="code-block-actions"] {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.chat-md [data-streamdown="code-block-copy-button"],
+.chat-md [data-streamdown="code-block-download-button"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  color: var(--text-sub, #b9b7a3);
+  cursor: pointer;
+  transition: color var(--dur, 120ms) ease;
+}
+.chat-md [data-streamdown="code-block-copy-button"]:hover,
+.chat-md [data-streamdown="code-block-download-button"]:hover {
+  color: var(--text, #f3ecda);
+}
+.chat-md [data-streamdown="code-block-body"] {
+  overflow-x: auto;
+  padding: 12px 14px;
+  font-size: 0.85em;
+  line-height: 1.55;
+}
+.chat-md [data-streamdown="code-block-body"] pre,
+.chat-md [data-streamdown="code-block-body"] code {
+  background: transparent;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.chat-md [data-streamdown="blockquote"] {
+  margin: 0.7em 0;
+  padding: 4px 14px;
+  border-left: 3px solid var(--accent, #e8590c);
+  color: var(--text-muted, #8f8f7e);
+  background: var(--panel-2, #2a2c20);
+}
+.chat-md [data-streamdown="horizontal-rule"] {
+  border: none;
+  border-top: 1px solid var(--bg-titlebar, rgba(0, 0, 0, 0.45));
+  margin: 1.2em 0;
+}
+
+/* 表格 */
+.chat-md [data-streamdown="table-wrapper"] {
+  margin: 0.7em 0;
+  overflow-x: auto;
+}
+.chat-md [data-streamdown="table"] {
+  border-collapse: collapse;
+  width: 100%;
+}
+.chat-md [data-streamdown="table-header-cell"],
+.chat-md [data-streamdown="table-cell"] {
+  border: 1px solid var(--bg-titlebar, rgba(0, 0, 0, 0.45));
+  padding: 5px 10px;
+  text-align: left;
+}
+.chat-md [data-streamdown="table-header-cell"] {
+  background: var(--panel-2, #2a2c20);
+  font-weight: 600;
+}
