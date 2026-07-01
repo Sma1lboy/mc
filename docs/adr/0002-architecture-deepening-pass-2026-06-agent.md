@@ -43,9 +43,12 @@ deepening, so they could not run in the same parallel round. They are intentiona
   returning `Vec<SearchMatch>`; `PROVIDER_FANOUT` consolidated; both callers reduced to build-queries →
   map-matches. Behavior-identical (dedup-key canonicalization shown injective; the soft-per-query-cap
   quirk preserved + pinned by a test). The orchestration is now directly unit-testable (8 new tests).
-- **Inject one `ProviderRegistry`** into the agent workflow instead of `with_defaults()` rebuilt at 6
-  sites (kills the documented "silent CF-unavailable" footgun; lets the FakeProvider registry drive the
-  real search/version paths in tests).
+- ~~**Inject one `ProviderRegistry`**~~ — **LANDED** (commit `35e3857`). `ModpackBuildWorkflow` now holds
+  `Arc<ProviderRegistry>`; a `with_registry(..)` injection ctor lets the FakeProvider registry drive the
+  real search/version paths in tests (new test covers it); the 6 inline `with_defaults()` sites are gone.
+  Kept **keyless** (built via `with_defaults()`, no behavior change) — the "silent CF-unavailable"
+  footgun-kill (build the injected registry from `settings.provider_registry()` so agent paths gain the
+  CF key) is now UNBLOCKED as a deliberate one-line follow-up, intentionally NOT done here.
 - **Execution-manifest vocabulary + typed constructors** — end the stringly-typed status / replan_phase
   / error_kind dispatch split across producers and consumers (keep `serde_json::Value` at the boundary;
   this is vocabulary concentration, not a wire-format change).
