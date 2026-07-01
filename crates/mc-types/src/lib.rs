@@ -54,6 +54,12 @@ pub enum AgentStreamEvent {
     /// The model invoked a deterministic tool with these JSON arguments.
     ToolCall {
         name: String,
+        /// The runtime field stays `serde_json::Value` (arbitrary JSON); the
+        /// specta override shapes the generated TypeScript as [`JsonValue`].
+        /// specta represents `serde_json::Value` as an *inline* recursive type,
+        /// which specta-typescript cannot emit — so exporting the event as-is
+        /// fails. The override changes only the emitted TS, never the wire bytes.
+        #[specta(type = JsonValue)]
         args: serde_json::Value,
     },
     /// A tool finished; `summary` is a short human-readable result line.
@@ -62,6 +68,27 @@ pub enum AgentStreamEvent {
     Done,
     /// The turn failed; `message` describes why.
     Error { message: String },
+}
+
+/// A specta-exportable stand-in for arbitrary JSON (`serde_json::Value`), used
+/// only as the export type of [`AgentStreamEvent::ToolCall`]'s `args` field.
+///
+/// specta registers `serde_json::Value` as an *inline* type, and since it is
+/// recursive (`Value` → `Vec<Value>` → `Value`) specta-typescript refuses to
+/// inline it — so any exported DTO carrying a bare `serde_json::Value` fails to
+/// generate. This named, self-referential enum exports cleanly as a recursive
+/// `JsonValue` union instead. It never participates in (de)serialization of an
+/// event — the real field stays `serde_json::Value` — so the wire format is
+/// unchanged; this type exists purely to shape the generated TypeScript.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
+#[serde(untagged)]
+pub enum JsonValue {
+    Null,
+    Bool(bool),
+    Number(f64),
+    String(String),
+    Array(Vec<JsonValue>),
+    Object(std::collections::HashMap<String, JsonValue>),
 }
 
 /// How a game-root directory was discovered. See `docs/07-directory-model-portability.md`.

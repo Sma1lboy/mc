@@ -26,6 +26,9 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         .typ::<commands::GameLog>()
         .typ::<commands::GameStarted>()
         .typ::<commands::GameExit>()
+        // Streaming chat-agent events cross via `ipc::Channel<AgentStreamEvent>`;
+        // register the type so `Channel<AgentStreamEvent>` lands in bindings.ts.
+        .typ::<mc_types::AgentStreamEvent>()
         .commands(collect_commands![
             commands::list_roots,
             commands::list_instances,
@@ -152,6 +155,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::check_modpack_updates,
             commands::apply_modpack_update,
             commands::check_all_updates,
+            commands::agent_chat,
+            commands::agent_chat_reset,
             gallery::gallery_enabled,
             gallery::gallery_capture,
             gallery::gallery_build,
@@ -210,6 +215,8 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(commands::RunningGames::default())
+        // 流式聊天 agent 的每会话 transcript(rig 原始 transcript 不过 Tauri 边界)。
+        .manage(commands::ChatSessions::default())
         // EasyTier 联机会话状态(同一时刻最多一个会话)。
         .manage(commands::LobbyState::default())
         // Shared mc-server client — kobeMC auth session cookie persists across calls.
