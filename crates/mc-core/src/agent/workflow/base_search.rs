@@ -12,9 +12,10 @@ pub(super) async fn continue_after_base_pack_choice(
     llm: &AgentLlmClient,
     mut run: AgentRunSnapshot,
     selected: ApprovalOption,
+    registry: &ProviderRegistry,
 ) -> Result<AgentRunSnapshot> {
     if selected.id == "scratch:fallback" || selected.id == "confirm:scratch_fallback" {
-        return continue_after_scratch_base_choice(llm, run).await;
+        return continue_after_scratch_base_choice(llm, run, registry).await;
     }
 
     let base = parse_selected_base_pack(&selected)?;
@@ -52,7 +53,7 @@ pub(super) async fn continue_after_base_pack_choice(
     );
 
     let requested = requested_compatibility_from_restrictions(run.restrictions.as_ref());
-    let compatibility = infer_base_pack_compatibility(&base, &requested).await?;
+    let compatibility = infer_base_pack_compatibility(&base, &requested, registry).await?;
     let planning_input = planning_context_input(&run);
 
     let mut base_pack_payload = selected
@@ -80,6 +81,7 @@ pub(super) async fn continue_after_base_pack_choice(
         &compatibility,
         &[],
         &base_modlist,
+        registry,
     )
     .await?;
     let validated = match result {
@@ -113,6 +115,7 @@ pub(super) async fn continue_after_base_pack_choice(
 async fn continue_after_scratch_base_choice(
     llm: &AgentLlmClient,
     mut run: AgentRunSnapshot,
+    registry: &ProviderRegistry,
 ) -> Result<AgentRunSnapshot> {
     let from_phase = run.phase.clone();
     run.push_message(
@@ -165,6 +168,7 @@ async fn continue_after_scratch_base_choice(
         &compatibility,
         &[],
         &base_modlist,
+        registry,
     )
     .await?;
     let validated = match result {
@@ -252,9 +256,21 @@ fn base_pack_planning_blocked_approval(
     }
 }
 
+/// Entry used by the requirements subworkflow, which has no runtime registry to
+/// hand in. It builds the keyless default registry (identical to the historical
+/// inline construction) and delegates to the injectable variant.
 pub(super) async fn continue_to_base_pack_search(
     llm: &AgentLlmClient,
+    run: AgentRunSnapshot,
+) -> Result<AgentRunSnapshot> {
+    let registry = ProviderRegistry::with_defaults();
+    continue_to_base_pack_search_with_registry(llm, run, &registry).await
+}
+
+pub(super) async fn continue_to_base_pack_search_with_registry(
+    llm: &AgentLlmClient,
     mut run: AgentRunSnapshot,
+    registry: &ProviderRegistry,
 ) -> Result<AgentRunSnapshot> {
     run.phase = AgentPhase::BasePackSearch;
     let planning_input = planning_context_input(&run);
@@ -278,7 +294,7 @@ pub(super) async fn continue_to_base_pack_search(
     );
 
     let requested = requested_compatibility_from_restrictions(run.restrictions.as_ref());
-    let candidates = run_base_pack_search_loop(&mut run, &queries, &requested).await?;
+    let candidates = run_base_pack_search_loop(&mut run, &queries, &requested, registry).await?;
     run.push_trace(format!(
         "search_modpacks returned {} candidates",
         candidates.len()
@@ -300,6 +316,7 @@ pub(super) async fn continue_after_base_pack_feedback(
     llm: &AgentLlmClient,
     mut run: AgentRunSnapshot,
     feedback: &str,
+    registry: &ProviderRegistry,
 ) -> Result<AgentRunSnapshot> {
     run.push_message(
         AgentMessageKind::User,
@@ -371,7 +388,7 @@ pub(super) async fn continue_after_base_pack_feedback(
     );
 
     let requested = requested_compatibility_from_restrictions(run.restrictions.as_ref());
-    let candidates = run_base_pack_search_loop(&mut run, &queries, &requested).await?;
+    let candidates = run_base_pack_search_loop(&mut run, &queries, &requested, registry).await?;
     run.push_trace(format!(
         "search_modpacks returned {} revised candidates",
         candidates.len()
@@ -392,6 +409,7 @@ pub(super) async fn run_base_pack_search_loop(
     run: &mut AgentRunSnapshot,
     queries: &[String],
     requested: &RequestedCompatibility,
+    registry: &ProviderRegistry,
 ) -> Result<Vec<BasePackCandidate>> {
     let mut mode = BaseSearchMode::Strict;
     let mut best = Vec::new();
@@ -401,7 +419,7 @@ pub(super) async fn run_base_pack_search_loop(
 
     for iteration in 1..=BASE_SEARCH_MAX_ITERATIONS {
         let started = Instant::now();
-        let searched = search_base_modpacks(queries, requested, mode).await?;
+        let searched = search_base_modpacks(queries, requested, mode, registry).await?;
         run.push_tool_trace(AgentToolTrace {
             event: "base-pack loop search_packs".into(),
             stage: AgentPhase::BasePackSearch,
@@ -422,7 +440,8 @@ pub(super) async fn run_base_pack_search_loop(
 
         let started = Instant::now();
         let filtered =
-            filter_base_packs_by_restrictions(searched, requested, &mut version_cache).await?;
+            filter_base_packs_by_restrictions(searched, requested, &mut version_cache, registry)
+                .await?;
         run.push_tool_trace(AgentToolTrace {
             event: "base-pack loop filter_by_restrictions".into(),
             stage: AgentPhase::BasePackSearch,
@@ -473,8 +492,8 @@ async fn search_base_modpacks(
     queries: &[String],
     requested: &RequestedCompatibility,
     mode: BaseSearchMode,
+    registry: &ProviderRegistry,
 ) -> Result<Vec<BasePackCandidate>> {
-    let registry = ProviderRegistry::with_defaults();
     // Base search runs on Modrinth only; keep the explicit precondition (and its exact error) even
     // though `search_concurrent` re-resolves the provider — Modrinth must be present.
     registry
@@ -532,6 +551,7 @@ async fn filter_base_packs_by_restrictions(
     candidates: Vec<BasePackCandidate>,
     requested: &RequestedCompatibility,
     cache: &mut VersionLookupCache,
+    registry: &ProviderRegistry,
 ) -> Result<Vec<BasePackCandidate>> {
     let candidates = candidates
         .into_iter()
@@ -541,7 +561,6 @@ async fn filter_base_packs_by_restrictions(
         return Ok(candidates);
     }
 
-    let registry = ProviderRegistry::with_defaults();
     let mc = requested.minecraft_version.as_deref();
     let loader = requested.loader.as_deref();
 

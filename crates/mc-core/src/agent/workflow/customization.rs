@@ -208,6 +208,7 @@ pub(super) async fn continue_after_customization_feedback(
     mut run: AgentRunSnapshot,
     approval: ApprovalRequest,
     feedback: &str,
+    registry: &ProviderRegistry,
 ) -> Result<AgentRunSnapshot> {
     if let Some(replanned) =
         maybe_replan_requirements_from_feedback(llm, run.clone(), feedback).await?
@@ -285,6 +286,7 @@ pub(super) async fn continue_after_customization_feedback(
         &target,
         &existing_mods,
         &base_modlist,
+        registry,
     )
     .await?;
     let validated = match result {
@@ -421,8 +423,8 @@ pub(super) fn remove_existing_mod_payloads(
 pub(super) async fn infer_base_pack_compatibility(
     base: &SelectedBasePack,
     requested: &RequestedCompatibility,
+    registry: &ProviderRegistry,
 ) -> Result<TargetCompatibility> {
-    let registry = ProviderRegistry::with_defaults();
     let provider = registry.get(base.provider).ok_or_else(|| {
         CoreError::other(format!("provider {:?} is not registered", base.provider))
     })?;
@@ -577,6 +579,9 @@ pub(super) fn mod_plan_step_prompt_payload(
     })
 }
 
+// Threading the shared registry as a distinct borrow adds one parameter to an already-wide planning
+// entry; bundling the unrelated inputs into a struct would obscure more than it clarifies.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn run_customization_planning_loop(
     llm: &AgentLlmClient,
     run: &mut AgentRunSnapshot,
@@ -585,6 +590,7 @@ pub(super) async fn run_customization_planning_loop(
     target: &TargetCompatibility,
     existing_mods: &[serde_json::Value],
     base_modlist: &BaseModlistCache,
+    registry: &ProviderRegistry,
 ) -> Result<CustomizationPlanningResult> {
     let Some(mc_version) = target
         .minecraft_version
@@ -609,7 +615,6 @@ pub(super) async fn run_customization_planning_loop(
         ));
     };
 
-    let registry = ProviderRegistry::with_defaults();
     let fresh_plan = run.mod_plan.is_none();
     // Run-scoped list_versions memo: the baseline seed, every per-selection dependency walk and
     // their shared transitive libs reuse it across rounds, so a given (provider, project_id, mc,
@@ -632,7 +637,7 @@ pub(super) async fn run_customization_planning_loop(
     // the scratch path starts from an empty base set, so there is nothing to
     // credit and no reason to spend an LLM round-trip.
     if fresh_plan && !state.base_set.is_empty() && has_open_theme_goals(&state) {
-        let base_meta = enrich_base_set_metadata(&registry, &state.base_set).await;
+        let base_meta = enrich_base_set_metadata(registry, &state.base_set).await;
         if !base_meta.is_empty() {
             apply_base_set_metadata(&mut state, &base_meta);
         }
@@ -659,7 +664,7 @@ pub(super) async fn run_customization_planning_loop(
                 // short-circuited (never re-fetched) by every later resolve, so it gains nothing from
                 // the run cache — keep the plain entry point here.
                 let resolution = resolve_dependencies(
-                    &registry,
+                    registry,
                     &baseline_roots,
                     mc_version,
                     loader,
@@ -706,6 +711,7 @@ pub(super) async fn run_customization_planning_loop(
                     .map(|query| query.query.clone())
                     .collect::<Vec<_>>(),
                 target,
+                registry,
             )
             .await?
         };
@@ -735,7 +741,8 @@ pub(super) async fn run_customization_planning_loop(
             let fallback_queries = fallback_mod_search_queries(&queries);
             if !fallback_queries.is_empty() {
                 let started = Instant::now();
-                candidate_pool = search_customization_mods(&fallback_queries, target).await?;
+                candidate_pool =
+                    search_customization_mods(&fallback_queries, target, registry).await?;
                 candidate_pool = prefilter_mod_candidates(candidate_pool, &state);
                 run.push_tool_trace(AgentToolTrace {
                     event: "modplan reducer fallback_search_candidates".into(),
@@ -832,7 +839,7 @@ pub(super) async fn run_customization_planning_loop(
 
         let control = step.control;
         let applied = apply_mod_plan_step_cached(
-            &registry,
+            registry,
             &mut state,
             &candidate_pool,
             step,
@@ -1612,12 +1619,12 @@ pub(super) fn active_addition_payloads(state: &ModPlanState) -> Vec<serde_json::
 async fn search_customization_mods(
     queries: &[String],
     target: &TargetCompatibility,
+    registry: &ProviderRegistry,
 ) -> Result<Vec<ModCandidate>> {
     const MAX_RESULTS: usize = 8;
     const MAX_PER_QUERY: usize = 2;
     const MAX_PER_QUERY_LIMIT: u32 = 2;
 
-    let registry = ProviderRegistry::with_defaults();
     let search_queries = dedupe_queries(
         queries
             .iter()
@@ -2016,6 +2023,7 @@ mod base_coverage_tests {
             &target,
             &[],
             &base_modlist,
+            &ProviderRegistry::with_defaults(),
         )
         .await
         .unwrap();

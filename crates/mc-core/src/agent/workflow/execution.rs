@@ -107,9 +107,28 @@ fn build_mrpack_from_base_archive_bytes_with_env_overrides(
     })
 }
 
+/// Standalone entry point (used directly by the CLI's default `advance` path and
+/// by tests) that builds the keyless default provider registry — identical
+/// behavior to the historical inline `with_defaults()` — and delegates to the
+/// injectable variant. The runtime's `advance` calls
+/// [`execute_mrpack_build_to_path_with_registry`] directly with its shared
+/// registry instead of rebuilding one here.
 pub async fn execute_mrpack_build_to_path(
     approved: &ApprovedModpackBuild,
     output_path: &Path,
+) -> Result<serde_json::Value> {
+    execute_mrpack_build_to_path_with_registry(
+        approved,
+        output_path,
+        &ProviderRegistry::with_defaults(),
+    )
+    .await
+}
+
+pub(super) async fn execute_mrpack_build_to_path_with_registry(
+    approved: &ApprovedModpackBuild,
+    output_path: &Path,
+    registry: &ProviderRegistry,
 ) -> Result<serde_json::Value> {
     if let Some(provider) = optional_json_string(&approved.base_pack, "provider") {
         if provider == "scratch" {
@@ -168,7 +187,7 @@ pub async fn execute_mrpack_build_to_path(
             ));
         }
     };
-    let env_overrides = infer_base_file_env_overrides(&base_index).await;
+    let env_overrides = infer_base_file_env_overrides(&base_index, registry).await;
     let preflight = compile_mrpack_execution_metadata(approved, &base_index, &env_overrides)?;
     if preflight.get("status").and_then(|v| v.as_str()) != Some("ready") {
         return Ok(preflight);
@@ -367,6 +386,7 @@ fn scratch_base_archive_bytes(index: &MrpackIndex) -> Result<Vec<u8>> {
 
 async fn infer_base_file_env_overrides(
     base_index: &MrpackIndex,
+    registry: &ProviderRegistry,
 ) -> HashMap<String, (ProjectSideSupport, ProjectSideSupport)> {
     let missing_env_files = base_index.files.iter().filter(|file| file.env.is_none());
     let mut path_to_project_id = HashMap::<String, String>::new();
@@ -384,7 +404,6 @@ async fn infer_base_file_env_overrides(
         }
     }
 
-    let registry = ProviderRegistry::with_defaults();
     let Some(provider) = registry.get(ProviderId::Modrinth) else {
         return HashMap::new();
     };

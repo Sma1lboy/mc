@@ -1454,6 +1454,7 @@ async fn modplan_round_cap_with_open_theme_returns_blocked() {
         &target,
         &[],
         &base_modlist,
+        runtime.modpack_build.registry.as_ref(),
     )
     .await
     .unwrap();
@@ -1466,6 +1467,50 @@ async fn modplan_round_cap_with_open_theme_returns_blocked() {
         .as_array()
         .unwrap()
         .is_empty());
+}
+
+// Injection seam: build the runtime with an in-memory FakeProvider registry, then drive the real
+// customization dependency-resolution path through it. Before this refactor,
+// `run_customization_planning_loop` hard-coded `ProviderRegistry::with_defaults()`, so the
+// version/dependency lookups always hit the live Modrinth network and could not be exercised by a
+// fake. With the registry threaded from the runtime, the fabric baseline (Fabric API, project id
+// `P7dR8mSH`) resolves entirely against the injected registry — proving the search/version code
+// path is now unit-testable.
+#[tokio::test]
+async fn customization_dependency_resolution_uses_injected_registry() {
+    let registry = test_provider_registry(vec![("P7dR8mSH", Vec::new())]);
+    let cfg = crate::agent::AgentLlmConfig::new("test-api-key");
+    let llm = crate::agent::AgentLlmClient::new(cfg).unwrap();
+    // Inject the fake registry through the runtime's constructor seam.
+    let runtime = MainAgentRuntime::with_registry(llm, std::sync::Arc::new(registry));
+
+    let target = test_mod_plan_target(); // fabric / 1.20.1 -> baseline resolves Fabric API
+    let base_modlist = scratch_base_modlist(); // empty base set: no archive fetch, no theme goals
+    let mut run = AgentRunSnapshot::new("build a fabric pack");
+
+    let result = run_customization_planning_loop(
+        &runtime.llm,
+        &mut run,
+        "build a fabric pack",
+        &test_selected_base_pack(),
+        &target,
+        &[],
+        &base_modlist,
+        runtime.modpack_build.registry.as_ref(),
+    )
+    .await
+    .unwrap();
+
+    let CustomizationPlanningResult::Validated(validated) = result else {
+        panic!("baseline-only fabric plan should validate, not block");
+    };
+    assert!(
+        validated
+            .extra_mods
+            .iter()
+            .any(|m| m.get("project_id").and_then(|v| v.as_str()) == Some("P7dR8mSH")),
+        "fabric baseline must resolve through the injected FakeProvider registry, not the network"
+    );
 }
 
 #[test]

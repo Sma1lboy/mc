@@ -9,6 +9,7 @@
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::error::{CoreError, Result};
@@ -67,7 +68,7 @@ use base_modlist::{fetch_base_modlist_cache, mod_ref_payloads};
 use base_search::{base_search_has_acceptable_count, next_base_search_mode};
 use base_search::{
     block_base_pack_planning, continue_after_base_pack_choice, continue_after_base_pack_feedback,
-    continue_to_base_pack_search,
+    continue_to_base_pack_search, continue_to_base_pack_search_with_registry,
 };
 #[cfg(test)]
 use customization::customization_blockers;
@@ -119,7 +120,7 @@ use base_modlist::{
     base_modlist_cache_from_archive_bytes, ensure_base_archive_size, parse_base_modlist,
 };
 
-use execution::verify_written_mrpack;
+use execution::{execute_mrpack_build_to_path_with_registry, verify_written_mrpack};
 pub use execution::{
     build_mrpack_from_base_archive_bytes, compile_mrpack_execution_metadata,
     continue_after_execution_manifest_result, execute_mrpack_build_to_path, MrpackExecutionBuild,
@@ -257,9 +258,22 @@ pub struct MainAgentRuntime {
 }
 
 impl MainAgentRuntime {
+    /// Build a runtime with the default keyless provider registry
+    /// (`ProviderRegistry::with_defaults()`), constructed once and shared with the
+    /// modpack-build subworkflow. CurseForge availability is identical to before
+    /// this became injectable: it is only registered when a key is present in the
+    /// environment.
     pub fn new(llm: AgentLlmClient) -> Self {
+        Self::with_registry(llm, Arc::new(ProviderRegistry::with_defaults()))
+    }
+
+    /// Build a runtime with an explicit provider registry. This is the injection
+    /// seam mirrored on `ModpackBuildWorkflow`; tests use it to drive the real
+    /// search/version code paths through an in-memory `FakeProvider` registry
+    /// instead of the live network that `with_defaults()` reaches.
+    pub fn with_registry(llm: AgentLlmClient, registry: Arc<ProviderRegistry>) -> Self {
         Self {
-            modpack_build: ModpackBuildWorkflow::new(llm.clone()),
+            modpack_build: ModpackBuildWorkflow::with_registry(llm.clone(), registry),
             llm,
         }
     }
@@ -363,11 +377,16 @@ impl MainAgentRuntime {
         run: AgentRunSnapshot,
         output_path: impl AsRef<Path>,
     ) -> Result<AgentRunSnapshot> {
+        let registry = self.modpack_build.registry.clone();
         self.advance_with_executor(
             run,
             output_path,
-            |approved, output_path| async move {
-                execute_mrpack_build_to_path(&approved, &output_path).await
+            move |approved, output_path| {
+                let registry = registry.clone();
+                async move {
+                    execute_mrpack_build_to_path_with_registry(&approved, &output_path, &registry)
+                        .await
+                }
             },
             EXECUTION_RETRY_BACKOFF_BASE,
         )
@@ -698,11 +717,20 @@ pub(super) fn build_mrpack_artifact_tool_spec() -> AgentToolSpec {
 /// request. It owns planning and HITL gates, not final import/install/export.
 pub struct ModpackBuildWorkflow {
     llm: AgentLlmClient,
+    /// One provider registry, built once at construction and threaded into every
+    /// base-search / customization path instead of each call site rebuilding it.
+    registry: Arc<ProviderRegistry>,
 }
 
 impl ModpackBuildWorkflow {
+    /// Build with the default keyless provider registry (`with_defaults()`).
     pub fn new(llm: AgentLlmClient) -> Self {
-        Self { llm }
+        Self::with_registry(llm, Arc::new(ProviderRegistry::with_defaults()))
+    }
+
+    /// Build with an explicit provider registry (the test-injection seam).
+    pub fn with_registry(llm: AgentLlmClient, registry: Arc<ProviderRegistry>) -> Self {
+        Self { llm, registry }
     }
 
     pub async fn start(&self, user_prompt: &str) -> Result<AgentRunSnapshot> {
@@ -759,7 +787,7 @@ impl ModpackBuildWorkflow {
         run.push_message(AgentMessageKind::User, user_prompt);
         run.push_trace("created run");
 
-        continue_to_base_pack_search(&self.llm, run).await
+        continue_to_base_pack_search_with_registry(&self.llm, run, self.registry.as_ref()).await
     }
 
     /// Continue from a saved waiting snapshot.
@@ -809,7 +837,13 @@ impl ModpackBuildWorkflow {
                         .ok_or_else(|| {
                             CoreError::other("revise decision requires a feedback message")
                         })?;
-                    return continue_after_base_pack_feedback(&self.llm, run, feedback).await;
+                    return continue_after_base_pack_feedback(
+                        &self.llm,
+                        run,
+                        feedback,
+                        self.registry.as_ref(),
+                    )
+                    .await;
                 }
                 if decision.kind != UserDecisionKind::Approve {
                     return Err(CoreError::other(
@@ -818,7 +852,8 @@ impl ModpackBuildWorkflow {
                 }
                 let selected =
                     selected_approval_option(&approval, &decision, "base-pack approval")?;
-                continue_after_base_pack_choice(&self.llm, run, selected).await
+                continue_after_base_pack_choice(&self.llm, run, selected, self.registry.as_ref())
+                    .await
             }
             ApprovalKind::ConfirmCustomization => {
                 if decision.kind == UserDecisionKind::Revise {
@@ -831,7 +866,11 @@ impl ModpackBuildWorkflow {
                             CoreError::other("revise decision requires a feedback message")
                         })?;
                     return continue_after_customization_feedback(
-                        &self.llm, run, approval, feedback,
+                        &self.llm,
+                        run,
+                        approval,
+                        feedback,
+                        self.registry.as_ref(),
                     )
                     .await;
                 }
@@ -847,6 +886,7 @@ impl ModpackBuildWorkflow {
                         &self.llm,
                         run,
                         "The current base pack is not suitable; return to base-pack selection",
+                        self.registry.as_ref(),
                     )
                     .await;
                 }
