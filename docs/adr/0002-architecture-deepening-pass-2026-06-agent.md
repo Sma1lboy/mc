@@ -32,11 +32,11 @@ suite, 0 regressions; the desktop crate + `export_bindings` also re-verified —
 These passed the deletion test but touch the same agent/workflow files as the transition-methods
 deepening, so they could not run in the same parallel round. They are intentionally next, not missed:
 
-- **`BuildRestrictions::apply`** — promote patch-application (revision check, history, normalization,
-  missing/warnings) onto the type. Highest-value of the remainder: it collapses a **real latent drift**
-  — restriction normalization runs twice today (`normalize_restriction_update_input` silently drops an
-  invalid mc_version + trims tags; the inline pass in `update_build_restrictions` re-validates, warns,
-  and lowercases) — into one path.
+- ~~**`BuildRestrictions::apply`**~~ — **LANDED** as `BuildRestrictions::try_apply` (commit `9fd6037`).
+  Patch-application (revision check + a single normalization pass + history + missing/warnings) now lives
+  on the type; `update_build_restrictions` is a thin wrapper; the two manual Output builders became
+  `as_update_output` projections. The old double-normalization only diverged in a `warnings`-on-raw-invalid-
+  version edge that never fires in the real two-pass path, so behavior was preserved.
 - **`ProviderRegistry::search_concurrent`** — fold the twice-copied bounded-concurrency + (provider,id)
   dedup + cap logic (base_search ↔ customization) behind one registry method; also unifies the three
   divergent `(provider, id)` identity-key spellings.
