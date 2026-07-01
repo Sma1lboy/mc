@@ -3,12 +3,14 @@
 //! The launcher daemon remains the source of truth for game operations. The
 //! agent can return approval gates, but it does not own installation or writes.
 
+use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::error::{CoreError, Result};
 use crate::modplatform::{Dependency, VersionFile};
 
 pub const AGENT_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
@@ -502,6 +504,156 @@ impl BuildRestrictions {
             notes: self.notes.clone(),
         }
     }
+
+    /// Apply a restriction patch under optimistic concurrency and return the
+    /// resulting view.
+    ///
+    /// This is the single authority for mutating build restrictions. It rejects
+    /// the write when `base_revision` no longer matches the current revision
+    /// (same `Err` shape the caller relied on before), then runs ONE
+    /// normalization pass: an invalid `minecraft_version` is dropped *with a
+    /// warning* (not silently), the version requirement falls back to the
+    /// concrete version, the loader is whitelisted (warning on an unsupported
+    /// one), and feature tags are trimmed, lowercased, capped, then deduped.
+    /// The normalized patch is stored, the revision is bumped, and a history
+    /// entry is appended. `missing_fields`/`warnings` are derived from the
+    /// stored result. The free `update_build_restrictions` wrapper and every
+    /// replan route here, so the two normalization passes that used to drift
+    /// can no longer disagree.
+    pub(super) fn try_apply(
+        &mut self,
+        base_revision: u64,
+        patch: BuildRestrictionPatch,
+        source: BuildRestrictionChangeSource,
+        summary: impl Into<String>,
+    ) -> Result<UpdateBuildRestrictionsOutput> {
+        if base_revision != self.revision {
+            return Err(CoreError::other(format!(
+                "update_build_restrictions revision mismatch: expected {}, got {}",
+                self.revision, base_revision
+            )));
+        }
+
+        let mut warnings = Vec::new();
+        let minecraft_version = patch
+            .minecraft_version
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .and_then(|s| {
+                if is_minecraft_version(s) {
+                    Some(s.to_string())
+                } else {
+                    warnings.push(format!("ignored invalid minecraft_version: {s}"));
+                    None
+                }
+            });
+        let minecraft_version_requirement = patch
+            .minecraft_version_requirement
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(ToOwned::to_owned)
+            .or_else(|| minecraft_version.clone());
+        let loader = patch.loader.as_deref().and_then(normalize_loader);
+        if patch.loader.is_some() && loader.is_none() {
+            warnings.push("ignored unsupported loader".to_string());
+        }
+        let notes = patch
+            .notes
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(ToOwned::to_owned);
+        let normalized = BuildRestrictionPatch {
+            minecraft_version,
+            minecraft_version_requirement,
+            loader,
+            feature_tags: normalize_feature_tags(patch.feature_tags),
+            notes,
+        };
+
+        self.minecraft_version = normalized.minecraft_version.clone();
+        self.minecraft_version_requirement = normalized.minecraft_version_requirement.clone();
+        self.loader = normalized.loader.clone();
+        self.feature_tags = normalized.feature_tags.clone();
+        self.notes = normalized.notes.clone();
+        self.revision += 1;
+        self.history.push(BuildRestrictionChange {
+            revision: self.revision,
+            source,
+            patch: normalized,
+            summary: summary.into(),
+        });
+
+        Ok(UpdateBuildRestrictionsOutput {
+            missing_fields: missing_restriction_fields(self),
+            restrictions: self.clone(),
+            warnings,
+        })
+    }
+
+    /// Project the current restrictions into an update output *without* applying
+    /// a patch, deriving `missing_fields` exactly as [`Self::try_apply`] does.
+    /// Gates that must surface the existing restrictions plus a contextual
+    /// warning (customization/execution blocks) use this so they never re-derive
+    /// the output shape by hand.
+    pub(super) fn as_update_output(&self, warnings: Vec<String>) -> UpdateBuildRestrictionsOutput {
+        UpdateBuildRestrictionsOutput {
+            missing_fields: missing_restriction_fields(self),
+            restrictions: self.clone(),
+            warnings,
+        }
+    }
+}
+
+/// Which hard-requirement fields are still unset. Kept next to [`BuildRestrictions::try_apply`]
+/// since both the applied output and the projected output derive from it.
+fn missing_restriction_fields(restrictions: &BuildRestrictions) -> Vec<String> {
+    let mut missing = Vec::new();
+    if restrictions.minecraft_version.is_none() {
+        missing.push("minecraft_version".to_string());
+    }
+    if restrictions.loader.is_none() {
+        missing.push("loader".to_string());
+    }
+    missing
+}
+
+/// A permissive "looks like a Minecraft release" check (`1.x[.y[.z]]`).
+pub(super) fn is_minecraft_version(value: &str) -> bool {
+    let parts = value.split('.').collect::<Vec<_>>();
+    parts.len() >= 2
+        && parts.len() <= 4
+        && parts.first() == Some(&"1")
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// Whitelist a loader name to its canonical lowercase form, or `None` if
+/// unsupported.
+pub(super) fn normalize_loader(value: &str) -> Option<String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "fabric" => Some("fabric".to_string()),
+        "forge" => Some("forge".to_string()),
+        "neoforge" | "neo forge" => Some("neoforge".to_string()),
+        "quilt" => Some("quilt".to_string()),
+        _ => None,
+    }
+}
+
+/// Trim + lowercase feature tags, cap at eight, then dedupe (first occurrence
+/// wins). The cap is applied before the dedupe so it matches the pre-refactor
+/// authoritative pass exactly.
+fn normalize_feature_tags(tags: Vec<String>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    tags.into_iter()
+        .map(|tag| tag.trim().to_ascii_lowercase())
+        .filter(|tag| !tag.is_empty())
+        .take(8)
+        .filter(|tag| seen.insert(tag.clone()))
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -875,5 +1027,250 @@ mod tests {
             run.replans.last().map(|replan| replan.id.as_str()),
             Some(format!("replan-{}", MAX_AGENT_REPLANS + 9).as_str())
         );
+    }
+
+    /// Table-driven coverage of the single authoritative normalization pass that
+    /// `try_apply` now owns. Every case starts from a fresh default (revision 0)
+    /// and asserts the final stored fields, plus derived `missing_fields` and
+    /// `warnings`, match the pre-refactor `update_build_restrictions` behavior.
+    #[test]
+    fn try_apply_runs_single_authoritative_normalization_pass() {
+        struct Case {
+            name: &'static str,
+            patch: BuildRestrictionPatch,
+            version: Option<&'static str>,
+            requirement: Option<&'static str>,
+            loader: Option<&'static str>,
+            tags: Vec<&'static str>,
+            notes: Option<&'static str>,
+            missing: Vec<&'static str>,
+            warnings: Vec<&'static str>,
+        }
+
+        let cases = vec![
+            Case {
+                name: "valid target; tags trimmed+lowercased+deduped; requirement backfilled",
+                patch: BuildRestrictionPatch {
+                    minecraft_version: Some("1.20.1".to_string()),
+                    minecraft_version_requirement: None,
+                    loader: Some("Fabric".to_string()),
+                    feature_tags: vec![
+                        " Perf ".to_string(),
+                        "perf".to_string(),
+                        "QoL".to_string(),
+                    ],
+                    notes: Some("  keep this  ".to_string()),
+                },
+                version: Some("1.20.1"),
+                requirement: Some("1.20.1"),
+                loader: Some("fabric"),
+                tags: vec!["perf", "qol"],
+                notes: Some("keep this"),
+                missing: vec![],
+                warnings: vec![],
+            },
+            Case {
+                name: "invalid version dropped WITH a warning (authoritative), not silently",
+                patch: BuildRestrictionPatch {
+                    minecraft_version: Some("99.99".to_string()),
+                    minecraft_version_requirement: None,
+                    loader: Some("forge".to_string()),
+                    feature_tags: vec![],
+                    notes: None,
+                },
+                version: None,
+                requirement: None,
+                loader: Some("forge"),
+                tags: vec![],
+                notes: None,
+                missing: vec!["minecraft_version"],
+                warnings: vec!["ignored invalid minecraft_version: 99.99"],
+            },
+            Case {
+                name: "unsupported loader dropped with a warning; raw requirement preserved",
+                patch: BuildRestrictionPatch {
+                    minecraft_version: None,
+                    minecraft_version_requirement: Some(" 1.20.x ".to_string()),
+                    loader: Some("modloader".to_string()),
+                    feature_tags: vec!["adventure".to_string()],
+                    notes: None,
+                },
+                version: None,
+                requirement: Some("1.20.x"),
+                loader: None,
+                tags: vec!["adventure"],
+                notes: None,
+                missing: vec!["minecraft_version", "loader"],
+                warnings: vec!["ignored unsupported loader"],
+            },
+            Case {
+                name: "tags capped at 8 BEFORE dedupe, then case-folded dedupe collapses",
+                patch: BuildRestrictionPatch {
+                    minecraft_version: Some("1.19.2".to_string()),
+                    minecraft_version_requirement: Some("1.19.2".to_string()),
+                    loader: Some("NeoForge".to_string()),
+                    feature_tags: vec![
+                        "A".to_string(),
+                        "a".to_string(),
+                        "B".to_string(),
+                        "b".to_string(),
+                        "C".to_string(),
+                        "c".to_string(),
+                        "D".to_string(),
+                        "d".to_string(),
+                        "E".to_string(),
+                        "e".to_string(),
+                    ],
+                    notes: None,
+                },
+                version: Some("1.19.2"),
+                requirement: Some("1.19.2"),
+                loader: Some("neoforge"),
+                tags: vec!["a", "b", "c", "d"],
+                notes: None,
+                missing: vec![],
+                warnings: vec![],
+            },
+            Case {
+                name: "empty patch leaves both hard fields missing",
+                patch: BuildRestrictionPatch {
+                    minecraft_version: None,
+                    minecraft_version_requirement: None,
+                    loader: None,
+                    feature_tags: vec![],
+                    notes: None,
+                },
+                version: None,
+                requirement: None,
+                loader: None,
+                tags: vec![],
+                notes: None,
+                missing: vec!["minecraft_version", "loader"],
+                warnings: vec![],
+            },
+        ];
+
+        for case in cases {
+            let mut restrictions = BuildRestrictions::default();
+            let output = restrictions
+                .try_apply(
+                    0,
+                    case.patch,
+                    BuildRestrictionChangeSource::InitialPrompt,
+                    "test",
+                )
+                .unwrap_or_else(|err| panic!("{}: try_apply should succeed: {err}", case.name));
+
+            assert_eq!(
+                output.restrictions.minecraft_version.as_deref(),
+                case.version,
+                "{}: minecraft_version",
+                case.name
+            );
+            assert_eq!(
+                output.restrictions.minecraft_version_requirement.as_deref(),
+                case.requirement,
+                "{}: minecraft_version_requirement",
+                case.name
+            );
+            assert_eq!(
+                output.restrictions.loader.as_deref(),
+                case.loader,
+                "{}: loader",
+                case.name
+            );
+            let tags: Vec<&str> = output
+                .restrictions
+                .feature_tags
+                .iter()
+                .map(String::as_str)
+                .collect();
+            assert_eq!(tags, case.tags, "{}: feature_tags", case.name);
+            assert_eq!(
+                output.restrictions.notes.as_deref(),
+                case.notes,
+                "{}: notes",
+                case.name
+            );
+            let missing: Vec<&str> = output.missing_fields.iter().map(String::as_str).collect();
+            assert_eq!(missing, case.missing, "{}: missing_fields", case.name);
+            let warnings: Vec<&str> = output.warnings.iter().map(String::as_str).collect();
+            assert_eq!(warnings, case.warnings, "{}: warnings", case.name);
+
+            // The revision always advances by one and the returned view mirrors
+            // the mutated receiver exactly.
+            assert_eq!(output.restrictions.revision, 1, "{}: revision", case.name);
+            assert_eq!(output.restrictions, restrictions, "{}: mirrors self", case.name);
+        }
+    }
+
+    #[test]
+    fn try_apply_bumps_revision_and_appends_normalized_history() {
+        let mut restrictions = BuildRestrictions {
+            revision: 4,
+            ..Default::default()
+        };
+        let output = restrictions
+            .try_apply(
+                4,
+                BuildRestrictionPatch {
+                    minecraft_version: Some("1.20.1".to_string()),
+                    minecraft_version_requirement: None,
+                    loader: Some("Fabric".to_string()),
+                    feature_tags: vec![" Combat ".to_string(), "combat".to_string()],
+                    notes: None,
+                },
+                BuildRestrictionChangeSource::UserRevise,
+                "revise to fabric 1.20.1",
+            )
+            .expect("apply should succeed on a matching base revision");
+
+        assert_eq!(restrictions.revision, 5);
+        assert_eq!(output.restrictions.revision, 5);
+        assert_eq!(restrictions.history.len(), 1);
+        let change = &restrictions.history[0];
+        assert_eq!(change.revision, 5);
+        assert_eq!(change.source, BuildRestrictionChangeSource::UserRevise);
+        assert_eq!(change.summary, "revise to fabric 1.20.1");
+        // History stores the NORMALIZED patch, not the raw model output.
+        assert_eq!(change.patch.loader.as_deref(), Some("fabric"));
+        assert_eq!(change.patch.feature_tags, vec!["combat".to_string()]);
+        assert_eq!(
+            change.patch.minecraft_version_requirement.as_deref(),
+            Some("1.20.1")
+        );
+    }
+
+    #[test]
+    fn try_apply_rejects_revision_mismatch_without_mutating() {
+        let mut restrictions = BuildRestrictions {
+            revision: 3,
+            minecraft_version: Some("1.20.1".to_string()),
+            minecraft_version_requirement: Some("1.20.1".to_string()),
+            loader: Some("fabric".to_string()),
+            ..Default::default()
+        };
+        let before = restrictions.clone();
+        let err = restrictions
+            .try_apply(
+                2,
+                BuildRestrictionPatch {
+                    minecraft_version: Some("1.19.2".to_string()),
+                    minecraft_version_requirement: None,
+                    loader: Some("forge".to_string()),
+                    feature_tags: vec![],
+                    notes: None,
+                },
+                BuildRestrictionChangeSource::UserRevise,
+                "stale write",
+            )
+            .expect_err("a stale base_revision must be rejected");
+
+        assert!(
+            err.to_string().contains("revision mismatch"),
+            "unexpected error: {err}"
+        );
+        // The optimistic-concurrency guard leaves the receiver untouched.
+        assert_eq!(restrictions, before);
     }
 }

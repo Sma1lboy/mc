@@ -22,15 +22,20 @@ use crate::modplatform::{
 
 use super::llm::AgentLlmClient;
 use super::state::{
-    AgentEntry, AgentExecutionMetadata, AgentExecutionStatus, AgentIntent, AgentIntentKind,
-    AgentLaunchContext, AgentMessageKind, AgentPhase, AgentRunSnapshot, AgentStatus, AgentToolSpec,
-    AgentToolTrace, AgentWorkflowId, AgentWorkflowKind, ApprovalDecisionSpec, ApprovalKind,
-    ApprovalOption, ApprovalRequest, ApprovedModpackBuild, BuildRestrictionChange,
-    BuildRestrictionChangeSource, BuildRestrictionPatch, BuildRestrictions, ExecutionBlocked, Goal,
-    GoalKind, GoalQuery, GoalStatus, ModPlanState, ModProvenance, ModpackAgentPlan, PlanArtifact,
-    PlanReplanRequest, PlannedAction, ResolvedMod, TargetCompatibility, UpdateBuildRestrictionsInput,
-    UpdateBuildRestrictionsOutput, UserDecision, UserDecisionKind,
+    is_minecraft_version, normalize_loader, AgentEntry, AgentExecutionMetadata,
+    AgentExecutionStatus, AgentIntent, AgentIntentKind, AgentLaunchContext, AgentMessageKind,
+    AgentPhase, AgentRunSnapshot, AgentStatus, AgentToolSpec, AgentToolTrace, AgentWorkflowId,
+    AgentWorkflowKind, ApprovalDecisionSpec, ApprovalKind, ApprovalOption, ApprovalRequest,
+    ApprovedModpackBuild, BuildRestrictionChangeSource, BuildRestrictionPatch, BuildRestrictions,
+    ExecutionBlocked, Goal, GoalKind, GoalQuery, GoalStatus, ModPlanState, ModProvenance,
+    ModpackAgentPlan, PlanArtifact, PlanReplanRequest, PlannedAction, ResolvedMod,
+    TargetCompatibility, UpdateBuildRestrictionsInput, UpdateBuildRestrictionsOutput, UserDecision,
+    UserDecisionKind,
 };
+// `BuildRestrictionChange` now only appears in restriction tests; the patch
+// application that used to build it lives in `state.rs` on `try_apply`.
+#[cfg(test)]
+use super::state::BuildRestrictionChange;
 
 mod approvals;
 mod artifacts;
@@ -52,8 +57,8 @@ use artifacts::{
 
 use approvals::{
     approval_decisions, approved_build_from_payload, base_pack_selection_approval,
-    missing_restriction_fields, requirement_label, requirement_summary_message,
-    requirements_approval, requirements_plan, restrictions_from_requirement_payload,
+    requirement_label, requirement_summary_message, requirements_approval, requirements_plan,
+    restrictions_from_requirement_payload,
 };
 #[cfg(test)]
 use artifacts::{mrpack_file_payload, resolved_mod_payload};
@@ -1400,26 +1405,6 @@ fn requested_compatibility_from_restrictions(
         minecraft_version: restrictions.and_then(|r| r.minecraft_version.clone()),
         loader: restrictions.and_then(|r| r.loader.clone()),
     }
-}
-
-fn normalize_loader(value: &str) -> Option<String> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "fabric" => Some("fabric".to_string()),
-        "forge" => Some("forge".to_string()),
-        "neoforge" | "neo forge" => Some("neoforge".to_string()),
-        "quilt" => Some("quilt".to_string()),
-        _ => None,
-    }
-}
-
-fn is_minecraft_version(value: &str) -> bool {
-    let parts = value.split('.').collect::<Vec<_>>();
-    parts.len() >= 2
-        && parts.len() <= 4
-        && parts.first() == Some(&"1")
-        && parts
-            .iter()
-            .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
 }
 
 #[cfg(test)]

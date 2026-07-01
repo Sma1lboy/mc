@@ -105,17 +105,6 @@ pub(super) fn restrictions_from_requirement_payload(
     })
 }
 
-pub(super) fn missing_restriction_fields(restrictions: &BuildRestrictions) -> Vec<String> {
-    let mut missing = Vec::new();
-    if restrictions.minecraft_version.is_none() {
-        missing.push("minecraft_version".to_string());
-    }
-    if restrictions.loader.is_none() {
-        missing.push("loader".to_string());
-    }
-    missing
-}
-
 pub(super) fn requirement_label(restrictions: &BuildRestrictions) -> String {
     let mc = restrictions
         .minecraft_version

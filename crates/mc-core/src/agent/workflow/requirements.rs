@@ -226,6 +226,10 @@ pub(super) fn normalize_restriction_update_input(
     }
 }
 
+/// Thin wrapper that routes a restriction update through the single authority,
+/// [`BuildRestrictions::try_apply`]. Kept as a free fn so out-of-workflow callers
+/// (e.g. base-pack feedback) can apply a patch against an `Option` snapshot
+/// without owning a mutable `BuildRestrictions`.
 pub(super) fn update_build_restrictions(
     current: Option<BuildRestrictions>,
     input: UpdateBuildRestrictionsInput,
@@ -233,84 +237,7 @@ pub(super) fn update_build_restrictions(
     summary: impl Into<String>,
 ) -> Result<UpdateBuildRestrictionsOutput> {
     let mut restrictions = current.unwrap_or_default();
-    if input.base_revision != restrictions.revision {
-        return Err(CoreError::other(format!(
-            "{UPDATE_BUILD_RESTRICTIONS_TOOL} revision mismatch: expected {}, got {}",
-            restrictions.revision, input.base_revision
-        )));
-    }
-
-    let mut warnings = Vec::new();
-    let minecraft_version = input
-        .patch
-        .minecraft_version
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .and_then(|s| {
-            if is_minecraft_version(s) {
-                Some(s.to_string())
-            } else {
-                warnings.push(format!("ignored invalid minecraft_version: {s}"));
-                None
-            }
-        });
-    let minecraft_version_requirement = input
-        .patch
-        .minecraft_version_requirement
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(ToOwned::to_owned)
-        .or_else(|| minecraft_version.clone());
-    let loader = input.patch.loader.as_deref().and_then(normalize_loader);
-    if input.patch.loader.is_some() && loader.is_none() {
-        warnings.push("ignored unsupported loader".to_string());
-    }
-    let feature_tags = normalize_feature_tags(input.patch.feature_tags);
-    let notes = input
-        .patch
-        .notes
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(ToOwned::to_owned);
-    let patch = BuildRestrictionPatch {
-        minecraft_version,
-        minecraft_version_requirement,
-        loader,
-        feature_tags,
-        notes,
-    };
-
-    restrictions.minecraft_version = patch.minecraft_version.clone();
-    restrictions.minecraft_version_requirement = patch.minecraft_version_requirement.clone();
-    restrictions.loader = patch.loader.clone();
-    restrictions.feature_tags = patch.feature_tags.clone();
-    restrictions.notes = patch.notes.clone();
-    restrictions.revision += 1;
-    restrictions.history.push(BuildRestrictionChange {
-        revision: restrictions.revision,
-        source,
-        patch,
-        summary: summary.into(),
-    });
-
-    Ok(UpdateBuildRestrictionsOutput {
-        missing_fields: missing_restriction_fields(&restrictions),
-        restrictions,
-        warnings,
-    })
-}
-
-fn normalize_feature_tags(tags: Vec<String>) -> Vec<String> {
-    dedupe_queries(
-        tags.into_iter()
-            .map(|tag| tag.trim().to_ascii_lowercase())
-            .filter(|tag| !tag.is_empty())
-            .take(8)
-            .collect(),
-    )
+    restrictions.try_apply(input.base_revision, input.patch, source, summary)
 }
 
 pub(super) fn restriction_target_changed(

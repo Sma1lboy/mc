@@ -11,13 +11,11 @@ pub(super) fn block_customization_planning(
     blocked: CustomizationPlanningBlocked,
 ) -> AgentRunSnapshot {
     if blocked.replan_phase == AgentPhase::ConfigureRequirementsApproval {
-        let restrictions = run.restrictions.clone().unwrap_or_default();
-        let missing_fields = missing_restriction_fields(&restrictions);
-        let output = UpdateBuildRestrictionsOutput {
-            restrictions,
-            missing_fields,
-            warnings: vec![blocked.reason.clone()],
-        };
+        let output = run
+            .restrictions
+            .clone()
+            .unwrap_or_default()
+            .as_update_output(vec![blocked.reason.clone()]);
         let approval = requirements_approval(&run.user_prompt, &output);
         // Re-entry keeps the existing plan; pass it through unchanged.
         let plan = run.plan.clone();

@@ -1558,12 +1558,11 @@ fn requirements_execution_blocked_approval(
     run: &AgentRunSnapshot,
     reason: &str,
 ) -> Result<ApprovalRequest> {
-    let restrictions = run.restrictions.clone().unwrap_or_default();
-    let output = UpdateBuildRestrictionsOutput {
-        missing_fields: missing_restriction_fields(&restrictions),
-        warnings: vec![format!("Execution manifest is blocked: {reason}")],
-        restrictions,
-    };
+    let output = run
+        .restrictions
+        .clone()
+        .unwrap_or_default()
+        .as_update_output(vec![format!("Execution manifest is blocked: {reason}")]);
     let mut approval = requirements_approval(&run.user_prompt, &output);
     approval.title = "Execution manifest is blocked; adjust requirements".to_string();
     approval.message =
