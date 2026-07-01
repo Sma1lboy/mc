@@ -29,7 +29,8 @@ pub use run::{run_chat_turn, ChatEventSink, ChatTranscript, ChatTurnOutcome, Col
 pub use tools::{
     BuildBasePack, BuildModRef, BuildModpackArgs, BuildModpackOutput, BuildModpackTool,
     BuildTarget, ChatToolError, ChatToolsCtx, InspectBaseModpackArgs, InspectBaseModpackOutput,
-    InspectBaseModpackTool, ModHit, ResolveModsArgs, ResolveModsOutput, ResolveModsTool,
+    InspectBaseModpackTool, ModGetDetailArgs, ModGetDetailOutput, ModGetDetailTool, ModHit,
+    ResolveModsArgs, ResolveModsOutput, ResolveModsTool,
     SearchBaseModpacksArgs, SearchBaseModpacksOutput, SearchBaseModpacksTool, SearchModsArgs,
     SearchModsOutput, SearchModsTool,
 };

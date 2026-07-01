@@ -443,6 +443,123 @@ impl Tool for SearchModsTool {
 }
 
 // ===========================================================================
+// mod_get_detail
+// ===========================================================================
+
+/// Newest versions surfaced per `mod_get_detail` call, to keep the tool result
+/// bounded no matter how many versions a project has published.
+const MOD_DETAIL_VERSION_CAP: usize = 10;
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct ModGetDetailArgs {
+    /// "modrinth" (default) or "curseforge".
+    #[serde(default)]
+    pub provider: Option<String>,
+    /// Project id of the mod (from search_mods / inspect_base_modpack).
+    pub project_id: String,
+    /// Target Minecraft version to filter versions by, e.g. "1.20.1".
+    #[serde(default)]
+    pub minecraft_version: Option<String>,
+    /// Target loader to filter versions by, e.g. "fabric".
+    #[serde(default)]
+    pub loader: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ModDetailProject {
+    pub title: String,
+    pub slug: String,
+    pub description: String,
+    pub categories: Vec<String>,
+    pub downloads: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ModDetailVersion {
+    pub version_id: String,
+    pub version_number: String,
+    pub game_versions: Vec<String>,
+    pub loaders: Vec<String>,
+    pub dependencies_count: usize,
+    pub filename: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ModGetDetailOutput {
+    pub project: ModDetailProject,
+    /// Newest first, capped so the payload stays bounded.
+    pub versions: Vec<ModDetailVersion>,
+}
+
+/// Fetch one mod's metadata plus its available versions for a target, so the
+/// model can verify availability before proposing the mod.
+#[derive(Clone)]
+pub struct ModGetDetailTool {
+    pub registry: Arc<ProviderRegistry>,
+}
+
+impl Tool for ModGetDetailTool {
+    const NAME: &'static str = "mod_get_detail";
+    type Error = ChatToolError;
+    type Args = ModGetDetailArgs;
+    type Output = ModGetDetailOutput;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        ToolDefinition {
+            name: Self::NAME.to_string(),
+            description: "Get the details of ONE mod: its title/description/categories plus the newest versions available for a Minecraft version + loader (with real version ids, version numbers, and dependency counts). Use this to verify a specific mod actually supports the target before proposing or resolving it.".to_string(),
+            parameters: tool_parameters::<ModGetDetailArgs>(),
+        }
+    }
+
+    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        let provider_id = provider_from_slug(args.provider.as_deref().unwrap_or("modrinth"));
+        let provider = self.registry.get(provider_id).ok_or_else(|| {
+            ChatToolError::new(format!(
+                "provider {} is not registered",
+                provider_slug(provider_id)
+            ))
+        })?;
+
+        let project_id = args.project_id.trim().to_string();
+        let hits = provider.get_projects(std::slice::from_ref(&project_id)).await?;
+        let hit = hits
+            .into_iter()
+            .next()
+            .ok_or_else(|| ChatToolError::new(format!("no project found for id {project_id}")))?;
+        let project = ModDetailProject {
+            title: hit.title,
+            slug: hit.slug,
+            description: hit.description,
+            categories: hit.categories,
+            downloads: hit.downloads,
+        };
+
+        let versions = provider
+            .list_versions(
+                &project_id,
+                args.minecraft_version.as_deref(),
+                args.loader.as_deref(),
+            )
+            .await?
+            .into_iter()
+            // Providers return newest first; the cap keeps the payload bounded.
+            .take(MOD_DETAIL_VERSION_CAP)
+            .map(|v| ModDetailVersion {
+                version_id: v.id.clone(),
+                version_number: v.version_number.clone(),
+                game_versions: v.game_versions.clone(),
+                loaders: v.loaders.clone(),
+                dependencies_count: v.dependencies.len(),
+                filename: v.primary_file().map(|f| f.filename.clone()),
+            })
+            .collect();
+
+        Ok(ModGetDetailOutput { project, versions })
+    }
+}
+
+// ===========================================================================
 // resolve_mods
 // ===========================================================================
 

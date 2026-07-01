@@ -25,8 +25,9 @@ use crate::modplatform::{
 use super::run::{run_chat_turn, ChatTranscript, CollectingSink};
 use super::tools::{
     BuildModRef, BuildModpackArgs, BuildModpackTool, BuildTarget, ChatToolsCtx,
-    InspectBaseModpackArgs, InspectBaseModpackTool, ResolveModsArgs, ResolveModsTool,
-    SearchBaseModpacksArgs, SearchBaseModpacksTool, SearchModsArgs, SearchModsTool,
+    InspectBaseModpackArgs, InspectBaseModpackTool, ModGetDetailArgs, ModGetDetailTool,
+    ResolveModsArgs, ResolveModsTool, SearchBaseModpacksArgs, SearchBaseModpacksTool,
+    SearchModsArgs, SearchModsTool,
 };
 
 // ---------------------------------------------------------------------------
@@ -404,6 +405,68 @@ async fn resolve_mods_honors_already_installed() {
         .await
         .unwrap();
     assert!(out.resolved.is_empty(), "already-installed root should not be resolved again");
+}
+
+#[tokio::test]
+async fn mod_get_detail_returns_project_and_capped_versions() {
+    let mut versions = HashMap::new();
+    // 12 published versions -> only the 10 newest (provider order) survive the cap.
+    versions.insert(
+        "sodium".to_string(),
+        (0..12)
+            .map(|i| {
+                version(
+                    &format!("sodium-v{i}"),
+                    cdn_file("sodium"),
+                    if i == 0 {
+                        vec![Dependency {
+                            project_id: Some("dep".to_string()),
+                            version_id: None,
+                            dependency_type: "required".to_string(),
+                        }]
+                    } else {
+                        Vec::new()
+                    },
+                )
+            })
+            .collect(),
+    );
+    let mut projects = HashMap::new();
+    let mut sodium_hit = hit("sodium", "sodium", "Sodium");
+    sodium_hit.categories = vec!["optimization".to_string()];
+    projects.insert("sodium".to_string(), sodium_hit);
+
+    let provider = FakeChatProvider {
+        versions,
+        projects,
+        ..Default::default()
+    };
+    let tool = ModGetDetailTool {
+        registry: registry_of(provider),
+    };
+    let out = tool
+        .call(ModGetDetailArgs {
+            provider: None,
+            project_id: "sodium".to_string(),
+            minecraft_version: Some("1.20.1".to_string()),
+            loader: Some("fabric".to_string()),
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(out.project.title, "Sodium");
+    assert_eq!(out.project.slug, "sodium");
+    assert_eq!(out.project.downloads, 4242);
+    assert_eq!(out.project.categories, vec!["optimization".to_string()]);
+
+    assert_eq!(out.versions.len(), 10, "version list must be capped");
+    let first = &out.versions[0];
+    assert_eq!(first.version_id, "sodium-v0");
+    assert_eq!(first.version_number, "1.0.0");
+    assert_eq!(first.game_versions, vec!["1.20.1".to_string()]);
+    assert_eq!(first.loaders, vec!["fabric".to_string()]);
+    assert_eq!(first.dependencies_count, 1);
+    assert_eq!(first.filename.as_deref(), Some("sodium.jar"));
 }
 
 #[tokio::test]

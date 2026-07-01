@@ -27,7 +27,7 @@ use crate::error::{CoreError, Result};
 
 use super::prompt::CHAT_AGENT_SYSTEM_PROMPT;
 use super::tools::{
-    BuildModpackTool, ChatToolsCtx, InspectBaseModpackTool, ResolveModsTool,
+    BuildModpackTool, ChatToolsCtx, InspectBaseModpackTool, ModGetDetailTool, ResolveModsTool,
     SearchBaseModpacksTool, SearchModsTool,
 };
 
@@ -155,6 +155,9 @@ pub async fn run_chat_turn(
             registry: tools.registry.clone(),
         })
         .tool(SearchModsTool {
+            registry: tools.registry.clone(),
+        })
+        .tool(ModGetDetailTool {
             registry: tools.registry.clone(),
         })
         .tool(ResolveModsTool {
