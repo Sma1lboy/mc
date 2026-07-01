@@ -1,10 +1,7 @@
 use super::*;
 
 use crate::modplatform::dependency::{resolve_dependencies_with_cache, VersionLookupCache};
-use futures::StreamExt;
-
-/// 同时在途的 provider 请求上限(并发省时,又不至于猛打 provider 触发限流)。
-const PROVIDER_FANOUT: usize = 8;
+use crate::modplatform::provider::{DedupCapPolicy, ProviderTargets, PROVIDER_FANOUT};
 
 pub(super) fn block_customization_planning(
     mut run: AgentRunSnapshot,
@@ -1628,10 +1625,8 @@ async fn search_customization_mods(
             .collect(),
     );
 
-    // Freeze the provider iteration order once (HashMap order is stable for an unmutated registry,
-    // and the old loop read `registry.all()` fresh each query in the same order). One SearchQuery
-    // per text — its content is identical across providers, exactly like the old per-provider build.
-    let providers: Vec<_> = registry.all().cloned().collect();
+    // One SearchQuery per normalized text; identical across providers (`search_concurrent` fans each
+    // out to every registered provider itself, in query-major / provider order).
     let built: Vec<SearchQuery> = search_queries
         .iter()
         .map(|text| {
@@ -1643,52 +1638,27 @@ async fn search_customization_mods(
         })
         .collect();
 
-    // Run every (query × provider) search concurrently (bounded), in query-major / provider order.
-    // `buffered` preserves that order, so the dedup + per-query/total caps replayed below are
-    // byte-for-byte identical. `collect` (not `try_collect`) keeps each Result so an error from a
-    // search the caps would have skipped is discarded, just like the sequential early returns.
-    let mut futs = Vec::new();
-    for query in &built {
-        for provider in &providers {
-            futs.push(async move { (provider.id(), provider.search(query).await) });
-        }
-    }
-    let flat: Vec<(ProviderId, Result<Vec<SearchHit>>)> = futures::stream::iter(futs)
-        .buffered(PROVIDER_FANOUT)
-        .collect()
-        .await;
+    // Per-query + total caps across every provider. `search_concurrent` owns the bounded fan-out,
+    // the canonical `(provider, id)` dedup, both caps (per-query is the same soft cap that only
+    // breaks the current provider's hit stream), and the "first consumed error propagates;
+    // cap-skipped errors discarded" rule — deduped matches stay in query-major/provider order.
+    let policy = DedupCapPolicy {
+        providers: ProviderTargets::All,
+        per_query_cap: Some(MAX_PER_QUERY),
+        total_cap: MAX_RESULTS,
+    };
+    let matches = registry
+        .search_concurrent(&built, PROVIDER_FANOUT, policy)
+        .await?;
 
-    let mut out = Vec::new();
-    let mut seen = HashSet::new();
-    let mut flat_iter = flat.into_iter();
-    for text in &search_queries {
-        let mut query_results = 0;
-        for _ in 0..providers.len() {
-            let (provider_id, hits_result) = flat_iter
-                .next()
-                .expect("flat holds exactly search_queries.len() * providers.len() entries");
-            for hit in hits_result? {
-                let key = format!("{provider_id:?}:{}", hit.id);
-                if !seen.insert(key) {
-                    continue;
-                }
-                out.push(ModCandidate {
-                    provider: provider_id,
-                    hit,
-                    matched_query: text.clone(),
-                });
-                query_results += 1;
-                if out.len() >= MAX_RESULTS {
-                    return Ok(out);
-                }
-                if query_results >= MAX_PER_QUERY {
-                    break;
-                }
-            }
-        }
-    }
-
-    Ok(out)
+    Ok(matches
+        .into_iter()
+        .map(|m| ModCandidate {
+            provider: m.provider,
+            hit: m.hit,
+            matched_query: search_queries[m.query_index].clone(),
+        })
+        .collect())
 }
 
 pub(super) fn fallback_mod_search_queries(queries: &[GoalQuery]) -> Vec<String> {

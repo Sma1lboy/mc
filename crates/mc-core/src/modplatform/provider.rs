@@ -5,12 +5,13 @@
 //! 不引 `async-trait`(对齐 [`crate::modplatform`] 既有"不加依赖"的约定):trait 方法返回
 //! [`futures::future::BoxFuture`],各实现内 `Box::pin(async move { … })`。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
+use futures::StreamExt;
 
-use crate::error::Result;
+use crate::error::{CoreError, Result};
 
 use super::{
     HashAlgo, ProjectVersion, ProviderCaps, ProviderId, ResolvedFile, SearchHit, SearchQuery,
@@ -61,6 +62,47 @@ pub trait ResourceProvider: Send + Sync {
         &'a self,
         refs: &'a [(String, String)],
     ) -> BoxFuture<'a, Result<Vec<ResolvedFile>>>;
+}
+
+/// 同时在途的 provider 请求上限:并发省时,又不至于猛打 provider 触发限流。多路 agent 搜索面
+/// (base 搜整合包 / customization 搜 mod)此前各自复制一份同名常量,现集中于此。
+pub const PROVIDER_FANOUT: usize = 8;
+
+/// [`ProviderRegistry::search_concurrent`] 的一条输出:命中来自哪个 provider、由入参 `queries`
+/// 里第几条查询 surfaced、命中本身。已去重、按输入(query-major, provider)序、并按
+/// [`DedupCapPolicy`] 截断。
+#[derive(Debug, Clone)]
+pub struct SearchMatch {
+    /// 产出该命中的平台。
+    pub provider: ProviderId,
+    /// 命中所属查询在入参 `queries` 中的下标(调用方据此回填自己的 `matched_query`)。
+    pub query_index: usize,
+    /// 命中本身。
+    pub hit: SearchHit,
+}
+
+/// 并发搜索 fan-out 到哪些 provider。
+#[derive(Debug, Clone)]
+pub enum ProviderTargets {
+    /// 所有已注册 provider,按 [`ProviderRegistry::all`] 的迭代序(对未变更的注册表稳定)。
+    All,
+    /// 恰好这些 provider,按给定序;每个都必须已注册(缺任一则整次搜索报错)。
+    Only(Vec<ProviderId>),
+}
+
+/// 并发搜索的「去重 + 截断」策略。两处调用面各自的行为都能由它表达:
+/// - base 搜整合包:仅总量上限(`per_query_cap = None`),且只搜 Modrinth。
+/// - customization 搜 mod:每查询上限 + 总量上限,跨全部 provider。
+#[derive(Debug, Clone)]
+pub struct DedupCapPolicy {
+    /// fan-out 到哪些 provider。
+    pub providers: ProviderTargets,
+    /// 每条查询「计入结果」的去重命中数上限;`None` = 不限。达到上限只中断该查询**当前 provider**
+    /// 的命中流(与旧内联 `break` 逐字一致:后续 provider 仍会被消费、其首个未去重命中仍可入选,
+    /// 故多 provider 下这是软上限)。
+    pub per_query_cap: Option<usize>,
+    /// 跨所有 query × provider 的结果总量上限;一旦达到立即返回已收集结果。
+    pub total_cap: usize,
 }
 
 /// Provider 注册表:按平台 id 或按下载 host 选取。导入与导出共用同一份注册表。
@@ -118,6 +160,89 @@ impl ProviderRegistry {
     /// 遍历已注册的 provider。
     pub fn all(&self) -> impl Iterator<Item = &Arc<dyn ResourceProvider>> {
         self.by_id.values()
+    }
+
+    /// 多 provider × 多 query 的并发搜索,输出**已去重、按输入(query-major, provider)序、并按
+    /// `policy` 截断**的结果。集中了各 agent 搜索面此前逐字重复的编排:
+    ///
+    /// 1. **有界有序并发**:把每个 `(query × provider)` 搜索排成 query 大序、provider 小序,以
+    ///    `buffered(fanout)` 跑——结果按提交序产出(与完成序无关),故下面的去重 + 截断确定且与
+    ///    「逐 `(query, provider)` 顺序遍历」逐字一致。
+    /// 2. **错误的截断丢弃语义**:结果用 `Vec<Result<…>>` 收集(**非** `try_collect`),故被 cap
+    ///    跳过、从未被消费的 query/provider,其错误被丢弃;而在 cap 之前**实际消费**到的第一个错误
+    ///    仍照常经 `?` 传播。
+    /// 3. **唯一的 `(ProviderId, hit.id)` 去重键**:等价于旧的 `format!("{provider:?}:{id}")` 字符串
+    ///    键(provider Debug 名不含 `:`,首个 `:` 恒分隔平台与 id,故两者去重结果逐位相同)。
+    /// 4. **per-query / total cap** 在有序结果上重放(见 [`DedupCapPolicy`] 对软上限的说明)。
+    pub async fn search_concurrent(
+        &self,
+        queries: &[SearchQuery],
+        fanout: usize,
+        policy: DedupCapPolicy,
+    ) -> Result<Vec<SearchMatch>> {
+        // Freeze the provider fan-out set once, in the exact requested order, and reuse it for both
+        // future submission and the replay stride below.
+        let providers: Vec<Arc<dyn ResourceProvider>> = match &policy.providers {
+            ProviderTargets::All => self.all().cloned().collect(),
+            ProviderTargets::Only(ids) => {
+                let mut chosen = Vec::with_capacity(ids.len());
+                for id in ids {
+                    let provider = self.get(*id).ok_or_else(|| {
+                        CoreError::other(format!("provider {id:?} is not registered"))
+                    })?;
+                    chosen.push(provider);
+                }
+                chosen
+            }
+        };
+
+        // Fan out every (query × provider) search concurrently in query-major / provider order.
+        // `buffered` yields in that submission order regardless of completion, so the dedup + caps
+        // replayed below are deterministic. Collect into `Vec<Result<…>>` (NOT `try_collect`) so a
+        // search the caps would skip cannot surface its error — the first error we actually consume
+        // still propagates via `?`.
+        let mut futs = Vec::with_capacity(queries.len().saturating_mul(providers.len()));
+        for query in queries {
+            for provider in &providers {
+                futs.push(async move { (provider.id(), provider.search(query).await) });
+            }
+        }
+        let flat: Vec<(ProviderId, Result<Vec<SearchHit>>)> =
+            futures::stream::iter(futs).buffered(fanout).collect().await;
+
+        // Replay the ordered results into the deduped, capped output.
+        let mut out: Vec<SearchMatch> = Vec::new();
+        let mut seen: HashSet<(ProviderId, String)> = HashSet::new();
+        let mut flat_iter = flat.into_iter();
+        for (query_index, _query) in queries.iter().enumerate() {
+            let mut query_results = 0usize;
+            for _ in 0..providers.len() {
+                let (provider_id, hits_result) = flat_iter
+                    .next()
+                    .expect("flat holds exactly queries.len() * providers.len() entries");
+                for hit in hits_result? {
+                    if !seen.insert((provider_id, hit.id.clone())) {
+                        continue;
+                    }
+                    out.push(SearchMatch {
+                        provider: provider_id,
+                        query_index,
+                        hit,
+                    });
+                    query_results += 1;
+                    if out.len() >= policy.total_cap {
+                        return Ok(out);
+                    }
+                    if let Some(cap) = policy.per_query_cap {
+                        if query_results >= cap {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(out)
     }
 }
 
@@ -195,5 +320,315 @@ mod tests {
         // (CurseForge 是否在取决于环境里有没有 MC_CF_API_KEY / baked key,故只断言 Modrinth。)
         let reg = ProviderRegistry::with_defaults_keyed(None);
         assert!(reg.get(ProviderId::Modrinth).is_some());
+    }
+
+    // ---------------------------------------------------------------------
+    // search_concurrent: an in-memory registry makes the concentrated
+    // orchestration (ordering, dedup, the skip-error rule, both cap shapes)
+    // directly testable — impossible when the logic was inline over
+    // `with_defaults()`'s live Modrinth/CurseForge providers.
+    // ---------------------------------------------------------------------
+
+    use crate::modplatform::{ProjectSideSupport, ResourceKind};
+
+    /// A provider whose `search` is scripted per query text (and can be told to error), so tests can
+    /// drive `search_concurrent`'s ordering / dedup / cap / error semantics deterministically.
+    struct SearchFakeProvider {
+        caps: ProviderCaps,
+        /// query.text -> hit ids to return (in order).
+        hits: HashMap<String, Vec<String>>,
+        /// query.text values whose search returns an error instead of hits.
+        errors: HashSet<String>,
+    }
+
+    impl SearchFakeProvider {
+        fn new(id: ProviderId) -> Self {
+            Self {
+                caps: ProviderCaps {
+                    id,
+                    readable_name: "search fake",
+                    hash_algos: &[],
+                    needs_api_key: false,
+                },
+                hits: HashMap::new(),
+                errors: HashSet::new(),
+            }
+        }
+
+        fn returning(mut self, query: &str, ids: &[&str]) -> Self {
+            self.hits
+                .insert(query.to_string(), ids.iter().map(|s| s.to_string()).collect());
+            self
+        }
+
+        fn erroring(mut self, query: &str) -> Self {
+            self.errors.insert(query.to_string());
+            self
+        }
+    }
+
+    impl ResourceProvider for SearchFakeProvider {
+        fn caps(&self) -> &ProviderCaps {
+            &self.caps
+        }
+
+        fn search<'a>(&'a self, q: &'a SearchQuery) -> BoxFuture<'a, Result<Vec<SearchHit>>> {
+            Box::pin(async move {
+                if self.errors.contains(&q.text) {
+                    return Err(CoreError::other(format!("search boom: {}", q.text)));
+                }
+                let ids = self.hits.get(&q.text).cloned().unwrap_or_default();
+                Ok(ids.iter().map(|id| search_test_hit(id)).collect())
+            })
+        }
+
+        fn get_project<'a>(&'a self, _project_id: &'a str) -> BoxFuture<'a, Result<SearchHit>> {
+            Box::pin(async move { Err(CoreError::other("SearchFakeProvider::get_project unused")) })
+        }
+
+        fn get_projects<'a>(
+            &'a self,
+            _project_ids: &'a [String],
+        ) -> BoxFuture<'a, Result<Vec<SearchHit>>> {
+            Box::pin(async move { Ok(Vec::new()) })
+        }
+
+        fn list_versions<'a>(
+            &'a self,
+            _project_id: &'a str,
+            _game_version: Option<&'a str>,
+            _loader: Option<&'a str>,
+        ) -> BoxFuture<'a, Result<Vec<ProjectVersion>>> {
+            Box::pin(async move { Ok(Vec::new()) })
+        }
+
+        fn resolve_by_hashes<'a>(
+            &'a self,
+            _algo: HashAlgo,
+            _hashes: &'a [String],
+        ) -> BoxFuture<'a, Result<Vec<Option<ResolvedFile>>>> {
+            Box::pin(async move { Ok(Vec::new()) })
+        }
+
+        fn get_files_bulk<'a>(
+            &'a self,
+            _refs: &'a [(String, String)],
+        ) -> BoxFuture<'a, Result<Vec<ResolvedFile>>> {
+            Box::pin(async move { Ok(Vec::new()) })
+        }
+    }
+
+    fn search_test_hit(id: &str) -> SearchHit {
+        SearchHit {
+            id: id.to_string(),
+            slug: id.to_string(),
+            title: id.to_string(),
+            description: String::new(),
+            author: String::new(),
+            downloads: 0,
+            icon_url: None,
+            gallery_url: None,
+            categories: Vec::new(),
+            client_side: ProjectSideSupport::Unknown,
+            server_side: ProjectSideSupport::Unknown,
+        }
+    }
+
+    fn text_query(text: &str) -> SearchQuery {
+        SearchQuery::new(text, ResourceKind::Mod)
+    }
+
+    fn run<F: std::future::Future>(f: F) -> F::Output {
+        futures::executor::block_on(f)
+    }
+
+    /// Flatten matches to `(provider, query_index, hit id)` for order-sensitive assertions.
+    fn keys(matches: &[SearchMatch]) -> Vec<(ProviderId, usize, String)> {
+        matches
+            .iter()
+            .map(|m| (m.provider, m.query_index, m.hit.id.clone()))
+            .collect()
+    }
+
+    #[test]
+    fn search_concurrent_orders_query_major_then_provider() {
+        let mr = SearchFakeProvider::new(ProviderId::Modrinth)
+            .returning("q0", &["mr-a"])
+            .returning("q1", &["mr-b"]);
+        let cf = SearchFakeProvider::new(ProviderId::CurseForge)
+            .returning("q0", &["cf-a"])
+            .returning("q1", &["cf-b"]);
+        let reg = ProviderRegistry::new()
+            .with(Arc::new(mr))
+            .with(Arc::new(cf));
+        let policy = DedupCapPolicy {
+            providers: ProviderTargets::Only(vec![ProviderId::Modrinth, ProviderId::CurseForge]),
+            per_query_cap: None,
+            total_cap: 100,
+        };
+        let queries = vec![text_query("q0"), text_query("q1")];
+        let out = run(reg.search_concurrent(&queries, PROVIDER_FANOUT, policy)).unwrap();
+        assert_eq!(
+            keys(&out),
+            vec![
+                (ProviderId::Modrinth, 0, "mr-a".to_string()),
+                (ProviderId::CurseForge, 0, "cf-a".to_string()),
+                (ProviderId::Modrinth, 1, "mr-b".to_string()),
+                (ProviderId::CurseForge, 1, "cf-b".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn search_concurrent_dedups_by_provider_and_id() {
+        // (Modrinth,"dup") seen under q0 is dropped when it reappears under q1; the same id "shared"
+        // from a *different* provider is kept, proving the dedup key spans (provider, id).
+        let mr = SearchFakeProvider::new(ProviderId::Modrinth)
+            .returning("q0", &["dup", "shared"])
+            .returning("q1", &["dup"]);
+        let cf = SearchFakeProvider::new(ProviderId::CurseForge).returning("q0", &["shared"]);
+        let reg = ProviderRegistry::new()
+            .with(Arc::new(mr))
+            .with(Arc::new(cf));
+        let policy = DedupCapPolicy {
+            providers: ProviderTargets::Only(vec![ProviderId::Modrinth, ProviderId::CurseForge]),
+            per_query_cap: None,
+            total_cap: 100,
+        };
+        let queries = vec![text_query("q0"), text_query("q1")];
+        let out = run(reg.search_concurrent(&queries, PROVIDER_FANOUT, policy)).unwrap();
+        assert_eq!(
+            keys(&out),
+            vec![
+                (ProviderId::Modrinth, 0, "dup".to_string()),
+                (ProviderId::Modrinth, 0, "shared".to_string()),
+                (ProviderId::CurseForge, 0, "shared".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn search_concurrent_total_cap_discards_skipped_errors() {
+        // q0 alone fills total_cap=2; q1 would error but is never consumed → Ok. This is the exact
+        // "collect Vec<Result>, not try_collect; cap-skipped errors are discarded" rule.
+        let mr = SearchFakeProvider::new(ProviderId::Modrinth)
+            .returning("q0", &["a", "b", "c"])
+            .erroring("q1");
+        let reg = ProviderRegistry::new().with(Arc::new(mr));
+        let policy = DedupCapPolicy {
+            providers: ProviderTargets::Only(vec![ProviderId::Modrinth]),
+            per_query_cap: None,
+            total_cap: 2,
+        };
+        let queries = vec![text_query("q0"), text_query("q1")];
+        let out = run(reg.search_concurrent(&queries, PROVIDER_FANOUT, policy)).unwrap();
+        assert_eq!(
+            keys(&out),
+            vec![
+                (ProviderId::Modrinth, 0, "a".to_string()),
+                (ProviderId::Modrinth, 0, "b".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn search_concurrent_first_consumed_error_propagates() {
+        // An error in a result we actually reach (before any cap) propagates via `?`.
+        let mr = SearchFakeProvider::new(ProviderId::Modrinth).erroring("q0");
+        let reg = ProviderRegistry::new().with(Arc::new(mr));
+        let policy = DedupCapPolicy {
+            providers: ProviderTargets::Only(vec![ProviderId::Modrinth]),
+            per_query_cap: None,
+            total_cap: 100,
+        };
+        let queries = vec![text_query("q0")];
+        let err = run(reg.search_concurrent(&queries, PROVIDER_FANOUT, policy)).unwrap_err();
+        assert!(err.to_string().contains("search boom: q0"), "{err}");
+    }
+
+    #[test]
+    fn search_concurrent_per_query_cap_is_soft_across_providers() {
+        // per_query_cap=2: Modrinth's a1,a2 reach the cap and break its stream, but CurseForge is
+        // still consumed for the same query and contributes its first hit b1 → 3 for one query. This
+        // is the exact legacy `break`-the-inner-loop semantics, NOT a hard per-query cap of 2.
+        let mr = SearchFakeProvider::new(ProviderId::Modrinth).returning("q0", &["a1", "a2", "a3"]);
+        let cf = SearchFakeProvider::new(ProviderId::CurseForge).returning("q0", &["b1", "b2"]);
+        let reg = ProviderRegistry::new()
+            .with(Arc::new(mr))
+            .with(Arc::new(cf));
+        let policy = DedupCapPolicy {
+            providers: ProviderTargets::Only(vec![ProviderId::Modrinth, ProviderId::CurseForge]),
+            per_query_cap: Some(2),
+            total_cap: 100,
+        };
+        let queries = vec![text_query("q0")];
+        let out = run(reg.search_concurrent(&queries, PROVIDER_FANOUT, policy)).unwrap();
+        assert_eq!(
+            keys(&out),
+            vec![
+                (ProviderId::Modrinth, 0, "a1".to_string()),
+                (ProviderId::Modrinth, 0, "a2".to_string()),
+                (ProviderId::CurseForge, 0, "b1".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn search_concurrent_customization_shape_applies_both_caps() {
+        // per_query_cap=2 + total_cap=3 over a single provider: q0 yields a,b (per-query cap), q1
+        // yields d and hits the total cap, so e is never added.
+        let mr = SearchFakeProvider::new(ProviderId::Modrinth)
+            .returning("q0", &["a", "b", "c"])
+            .returning("q1", &["d", "e"]);
+        let reg = ProviderRegistry::new().with(Arc::new(mr));
+        let policy = DedupCapPolicy {
+            providers: ProviderTargets::All,
+            per_query_cap: Some(2),
+            total_cap: 3,
+        };
+        let queries = vec![text_query("q0"), text_query("q1")];
+        let out = run(reg.search_concurrent(&queries, PROVIDER_FANOUT, policy)).unwrap();
+        assert_eq!(
+            keys(&out),
+            vec![
+                (ProviderId::Modrinth, 0, "a".to_string()),
+                (ProviderId::Modrinth, 0, "b".to_string()),
+                (ProviderId::Modrinth, 1, "d".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn search_concurrent_all_targets_follow_registry_order() {
+        let mr = SearchFakeProvider::new(ProviderId::Modrinth).returning("q0", &["m"]);
+        let cf = SearchFakeProvider::new(ProviderId::CurseForge).returning("q0", &["c"]);
+        let reg = ProviderRegistry::new()
+            .with(Arc::new(mr))
+            .with(Arc::new(cf));
+        // `All` fans out in exactly `registry.all()` order. HashMap iteration is stable for this
+        // unmutated registry but not insertion-ordered, so compare against the observed order.
+        let order: Vec<ProviderId> = reg.all().map(|p| p.id()).collect();
+        let policy = DedupCapPolicy {
+            providers: ProviderTargets::All,
+            per_query_cap: None,
+            total_cap: 100,
+        };
+        let queries = vec![text_query("q0")];
+        let out = run(reg.search_concurrent(&queries, PROVIDER_FANOUT, policy)).unwrap();
+        let got: Vec<ProviderId> = out.iter().map(|m| m.provider).collect();
+        assert_eq!(got, order);
+    }
+
+    #[test]
+    fn search_concurrent_only_missing_provider_errors() {
+        let reg =
+            ProviderRegistry::new().with(Arc::new(SearchFakeProvider::new(ProviderId::Modrinth)));
+        let policy = DedupCapPolicy {
+            providers: ProviderTargets::Only(vec![ProviderId::CurseForge]),
+            per_query_cap: None,
+            total_cap: 100,
+        };
+        let queries = vec![text_query("q0")];
+        assert!(run(reg.search_concurrent(&queries, PROVIDER_FANOUT, policy)).is_err());
     }
 }

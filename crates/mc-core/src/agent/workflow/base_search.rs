@@ -1,11 +1,9 @@
 use super::*;
 
 use crate::modplatform::dependency::VersionLookupCache;
+use crate::modplatform::provider::{DedupCapPolicy, ProviderTargets, PROVIDER_FANOUT};
 use crate::modplatform::ProjectVersion;
 use futures::StreamExt;
-
-/// 同时在途的 provider 请求上限。取小值以并发省时又不至于猛打 provider 触发限流。
-const PROVIDER_FANOUT: usize = 8;
 
 /// 并发抓取的一条结果:候选下标 + 平台 + 项目 id + `list_versions` 结果(成功才回填缓存)。
 type FetchedVersions = (usize, ProviderId, String, Result<Vec<ProjectVersion>>);
@@ -477,13 +475,14 @@ async fn search_base_modpacks(
     mode: BaseSearchMode,
 ) -> Result<Vec<BasePackCandidate>> {
     let registry = ProviderRegistry::with_defaults();
-    let provider = registry
+    // Base search runs on Modrinth only; keep the explicit precondition (and its exact error) even
+    // though `search_concurrent` re-resolves the provider — Modrinth must be present.
+    registry
         .get(ProviderId::Modrinth)
         .ok_or_else(|| CoreError::other("Modrinth provider is not registered"))?;
-    let provider_id = provider.id();
 
     // Build one SearchQuery per query text (the per-mode limit/sort/filters are identical to the
-    // old sequential loop), then run the independent searches concurrently with bounded fan-out.
+    // old sequential loop).
     let built: Vec<SearchQuery> = queries
         .iter()
         .map(|text| {
@@ -505,37 +504,28 @@ async fn search_base_modpacks(
         })
         .collect();
 
-    // `buffered` keeps the results in input (query) order, so the cross-query dedup + cap below is
-    // byte-for-byte identical to the sequential version. Collect into `Vec<Result<…>>` (not
-    // `try_collect`) so that an error from a query the cap would have skipped is discarded, exactly
-    // as before — the first error among the queries we actually consume still propagates via `?`.
-    let results: Vec<Result<Vec<SearchHit>>> =
-        futures::stream::iter(built.iter().map(|query| provider.search(query)))
-            .buffered(PROVIDER_FANOUT)
-            .collect()
-            .await;
+    // Total-cap only, Modrinth only. `search_concurrent` owns the bounded fan-out, the canonical
+    // `(provider, id)` dedup, the "first consumed error propagates; cap-skipped errors discarded"
+    // rule, and the cap replay — the deduped matches stay in query order, so each maps 1:1 onto the
+    // old candidate (byte-identical set + order to the previous inline loop).
+    let policy = DedupCapPolicy {
+        providers: ProviderTargets::Only(vec![ProviderId::Modrinth]),
+        per_query_cap: None,
+        total_cap: BASE_SEARCH_MAX_CANDIDATES,
+    };
+    let matches = registry
+        .search_concurrent(&built, PROVIDER_FANOUT, policy)
+        .await?;
 
-    let mut out = Vec::new();
-    let mut seen = HashSet::new();
-    for (text, hits_result) in queries.iter().zip(results) {
-        for hit in hits_result? {
-            let key = format!("{provider_id:?}:{}", hit.id);
-            if !seen.insert(key) {
-                continue;
-            }
-            out.push(BasePackCandidate {
-                provider: provider_id,
-                hit,
-                matched_query: text.clone(),
-                resolved_target: None,
-            });
-            if out.len() >= BASE_SEARCH_MAX_CANDIDATES {
-                return Ok(out);
-            }
-        }
-    }
-
-    Ok(out)
+    Ok(matches
+        .into_iter()
+        .map(|m| BasePackCandidate {
+            provider: m.provider,
+            hit: m.hit,
+            matched_query: queries[m.query_index].clone(),
+            resolved_target: None,
+        })
+        .collect())
 }
 
 async fn filter_base_packs_by_restrictions(
