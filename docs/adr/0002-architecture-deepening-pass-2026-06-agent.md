@@ -37,9 +37,12 @@ deepening, so they could not run in the same parallel round. They are intentiona
   on the type; `update_build_restrictions` is a thin wrapper; the two manual Output builders became
   `as_update_output` projections. The old double-normalization only diverged in a `warnings`-on-raw-invalid-
   version edge that never fires in the real two-pass path, so behavior was preserved.
-- **`ProviderRegistry::search_concurrent`** — fold the twice-copied bounded-concurrency + (provider,id)
-  dedup + cap logic (base_search ↔ customization) behind one registry method; also unifies the three
-  divergent `(provider, id)` identity-key spellings.
+- ~~**`ProviderRegistry::search_concurrent`**~~ — **LANDED** (commit `3d208ce`). The twice-copied
+  bounded-concurrency + `(provider,id)` dedup + cap + error-discard-on-skip logic (base_search ↔
+  customization) now lives behind `ProviderRegistry::search_concurrent(queries, fanout, DedupCapPolicy)`
+  returning `Vec<SearchMatch>`; `PROVIDER_FANOUT` consolidated; both callers reduced to build-queries →
+  map-matches. Behavior-identical (dedup-key canonicalization shown injective; the soft-per-query-cap
+  quirk preserved + pinned by a test). The orchestration is now directly unit-testable (8 new tests).
 - **Inject one `ProviderRegistry`** into the agent workflow instead of `with_defaults()` rebuilt at 6
   sites (kills the documented "silent CF-unavailable" footgun; lets the FakeProvider registry drive the
   real search/version paths in tests).
