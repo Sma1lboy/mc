@@ -1,13 +1,16 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use clap::{Subcommand, ValueEnum};
 
 use mc_core::agent::{
-    AgentEntry, AgentIntentKind, AgentMessageKind, AgentPhase, AgentRunSnapshot, AgentSessionStore,
-    AgentSessionSummary, AgentStatus, ApprovalKind, ApprovalRequest, BuildRestrictions,
-    UserDecisionKind,
+    run_chat_turn, AgentEntry, AgentIntentKind, AgentMessageKind, AgentPhase, AgentRunSnapshot,
+    AgentSessionStore, AgentSessionSummary, AgentStatus, ApprovalKind, ApprovalRequest,
+    BuildRestrictions, ChatEventSink, ChatToolsCtx, ChatTranscript, UserDecisionKind,
 };
+use mc_core::modplatform::provider::ProviderRegistry;
+use mc_types::AgentStreamEvent;
 
 use crate::data_dir;
 
@@ -34,6 +37,12 @@ pub(crate) enum AgentAction {
         /// UI surface that launched this agent run.
         #[arg(long, value_enum, default_value_t = AgentStartSurface::Home)]
         surface: AgentStartSurface,
+    },
+    /// One-shot smoke test of the lean streaming chat agent: runs a single turn
+    /// against the real model + providers, streaming events to stdout.
+    Chat {
+        /// Natural-language request, e.g. "帮我做个 1.20.1 Fabric 冒险整合包".
+        prompt: String,
     },
     /// Show a saved local agent session snapshot.
     Show {
@@ -120,6 +129,7 @@ pub(crate) async fn cmd_agent(action: &AgentAction) -> Result<()> {
             )
             .await
         }
+        AgentAction::Chat { prompt } => cmd_agent_chat(prompt).await,
         AgentAction::Show { session_id, json } => cmd_agent_show(session_id, *json),
         AgentAction::Continue {
             session_id,
@@ -1004,6 +1014,44 @@ fn exec_smoke_manifest(outcome: AgentExecSmokeOutcome, reason: Option<&str>) -> 
                 "reason": reason,
             }],
         }),
+    }
+}
+
+async fn cmd_agent_chat(prompt: &str) -> Result<()> {
+    let dir = data_dir();
+    let cfg = mc_core::agent::AgentLlmConfig::from_local(&dir).with_context(|| {
+        "Failed to read the OpenRouter API key; set OPENROUTER_API_KEY or write it to .env"
+    })?;
+    let llm = mc_core::agent::AgentLlmClient::new(cfg)?;
+    let registry = Arc::new(ProviderRegistry::with_defaults());
+    let tools = ChatToolsCtx::new(registry, dir.join("agent").join("chat"));
+    let sink = StdoutSink;
+    let outcome = run_chat_turn(&llm, &tools, ChatTranscript::new(), prompt, &sink).await?;
+    println!();
+    if outcome.reply.trim().is_empty() {
+        eprintln!("(no assistant text this turn)");
+    }
+    Ok(())
+}
+
+/// Streams chat events to stdout for the `agent chat` smoke command: text deltas
+/// print live; tool calls/results show as chips.
+struct StdoutSink;
+
+impl ChatEventSink for StdoutSink {
+    fn emit(&self, event: AgentStreamEvent) {
+        use std::io::Write;
+        match event {
+            AgentStreamEvent::TextDelta { delta } => {
+                print!("{delta}");
+                let _ = std::io::stdout().flush();
+            }
+            AgentStreamEvent::Reasoning { .. } => {}
+            AgentStreamEvent::ToolCall { name, args } => println!("\n  🔧 {name}({args})"),
+            AgentStreamEvent::ToolResult { name, summary } => println!("  ✓ {name}: {summary}"),
+            AgentStreamEvent::Done => {}
+            AgentStreamEvent::Error { message } => eprintln!("\n[error] {message}"),
+        }
     }
 }
 
