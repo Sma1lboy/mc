@@ -6,8 +6,8 @@ use crate::download::Downloader;
 use crate::error::{CoreError, Result};
 use crate::modpack::formats::curseforge::FlameManifest;
 use crate::modpack::formats::mrpack::MrpackIndex;
-use crate::modplatform::dependency::ModRef;
 use crate::modplatform::ProviderId;
+use crate::modplatform::dependency::ModRef;
 
 use super::*;
 

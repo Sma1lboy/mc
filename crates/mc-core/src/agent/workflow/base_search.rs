@@ -1,7 +1,7 @@
 use super::*;
 
-use crate::modplatform::dependency::VersionLookupCache;
 use crate::modplatform::ProjectVersion;
+use crate::modplatform::dependency::VersionLookupCache;
 use futures::StreamExt;
 
 /// 同时在途的 provider 请求上限。取小值以并发省时又不至于猛打 provider 触发限流。
@@ -10,13 +10,13 @@ const PROVIDER_FANOUT: usize = 8;
 /// 并发抓取的一条结果:候选下标 + 平台 + 项目 id + `list_versions` 结果(成功才回填缓存)。
 type FetchedVersions = (usize, ProviderId, String, Result<Vec<ProjectVersion>>);
 
-pub(super) async fn continue_after_base_pack_choice(
+pub(super) async fn plan_customization_after_base_pack_choice(
     llm: &AgentLlmClient,
     mut run: AgentRunSnapshot,
     selected: ApprovalOption,
 ) -> Result<AgentRunSnapshot> {
     if selected.id == "scratch:fallback" || selected.id == "confirm:scratch_fallback" {
-        return continue_after_scratch_base_choice(llm, run).await;
+        return plan_customization_from_scratch_base(llm, run).await;
     }
 
     let base = parse_selected_base_pack(&selected)?;
@@ -107,12 +107,15 @@ pub(super) async fn continue_after_base_pack_choice(
         Some(validated.validation),
     );
 
-    run.request_approval(AgentPhase::ConfirmCustomizationApproval, approval, Some(plan));
-    run.push_trace("paused at customization confirmation gate");
-    Ok(run)
+    store_confirm_customization_approval(
+        run,
+        plan,
+        approval,
+        "prepared customization confirmation approval",
+    )
 }
 
-async fn continue_after_scratch_base_choice(
+async fn plan_customization_from_scratch_base(
     llm: &AgentLlmClient,
     mut run: AgentRunSnapshot,
 ) -> Result<AgentRunSnapshot> {
@@ -121,8 +124,7 @@ async fn continue_after_scratch_base_choice(
         AgentMessageKind::User,
         "Selected base modpack: Start from scratch",
     );
-    run.phase = AgentPhase::CustomizationPlanning;
-    run.pending_approval = None;
+    run.enter_phase(AgentPhase::CustomizationPlanning);
     run.plan = Some(scratch_build_plan(&run.user_prompt));
     run.push_trace("selected scratch base set");
     invalidate_downstream(
@@ -190,8 +192,28 @@ async fn continue_after_scratch_base_choice(
         validated.extra_mods,
         Some(validated.validation),
     );
-    run.request_approval(AgentPhase::ConfirmCustomizationApproval, approval, Some(plan));
-    run.push_trace("paused at scratch customization confirmation gate");
+    store_confirm_customization_approval(
+        run,
+        plan,
+        approval,
+        "prepared scratch customization confirmation approval",
+    )
+}
+
+fn store_confirm_customization_approval(
+    mut run: AgentRunSnapshot,
+    plan: ModpackAgentPlan,
+    approval: ApprovalRequest,
+    trace: &str,
+) -> Result<AgentRunSnapshot> {
+    let approval_value = serde_json::to_value(&approval).map_err(|err| {
+        CoreError::other(format!(
+            "could not serialize customization approval for agent memory: {err}"
+        ))
+    })?;
+    run.plan = Some(plan);
+    set_agent_memory(&mut run, "confirm_customization_approval", approval_value);
+    run.push_trace(trace);
     Ok(run)
 }
 
@@ -201,15 +223,17 @@ pub(super) fn block_base_pack_planning(
     reason: String,
 ) -> AgentRunSnapshot {
     let approval = base_pack_planning_blocked_approval(&run, base_pack_payload, &reason);
-    // This re-entry keeps the existing plan (the prior base-pack selection plan),
-    // so pass it through unchanged rather than clearing it.
-    let plan = run.plan.clone();
-    run.request_approval(AgentPhase::ChooseBasePackApproval, approval, plan);
+    let plan = approval.plan.clone().or_else(|| run.plan.clone());
+    let approval_value =
+        serde_json::to_value(&approval).expect("base-pack planning approval should serialize");
+    run.clear_user_interrupt();
+    run.plan = plan;
+    set_agent_memory(&mut run, "choose_base_pack_approval", approval_value);
     run.push_message(
         AgentMessageKind::Tool,
         format!("base-pack planning blocked: {reason}"),
     );
-    run.push_trace("base-pack planning blocked; returned to base-pack HITL gate");
+    run.push_trace("base-pack planning blocked; stored base-pack approval draft for agent loop");
     run
 }
 
@@ -228,7 +252,9 @@ fn base_pack_planning_blocked_approval(
         id: crate::agent::state::new_id("approval"),
         kind: ApprovalKind::ChooseBasePack,
         title: "Base-pack planning is blocked".to_string(),
-        message: format!("Failed to read or parse the current base-pack modlist: {reason}. Choose another base pack or change the search requirements."),
+        message: format!(
+            "Failed to read or parse the current base-pack modlist: {reason}. Choose another base pack or change the search requirements."
+        ),
         options: vec![ApprovalOption {
             id: format!("{provider}:{project_id}"),
             label: title,
@@ -240,8 +266,9 @@ fn base_pack_planning_blocked_approval(
         plan: Some(ModpackAgentPlan {
             objective: run.user_prompt.clone(),
             summary_markdown: format!("Base-pack planning is blocked: {reason}"),
-            risks: vec!["Continuing with the current base pack may hit the same block again."
-                .to_string()],
+            risks: vec![
+                "Continuing with the current base pack may hit the same block again.".to_string(),
+            ],
             planned_actions: vec![PlannedAction {
                 id: "replan-base-pack".to_string(),
                 label: "User revises base pack after planning block".to_string(),
@@ -252,142 +279,6 @@ fn base_pack_planning_blocked_approval(
             migration_notes: vec![],
         }),
     }
-}
-
-pub(super) async fn continue_to_base_pack_search(
-    llm: &AgentLlmClient,
-    mut run: AgentRunSnapshot,
-) -> Result<AgentRunSnapshot> {
-    run.phase = AgentPhase::BasePackSearch;
-    let planning_input = planning_context_input(&run);
-    let output = llm
-        .prompt_typed::<SearchQueryOutput>(
-            &[MAIN_AGENT_SYSTEM_PROMPT, SEARCH_QUERY_PROMPT],
-            planning_input.clone(),
-            300,
-            0.1,
-        )
-        .await?;
-    run.push_trace(format!("llm generated search queries via {}", llm.model()));
-
-    let queries = output.into_queries("base modpack search")?;
-    run.push_message(
-        AgentMessageKind::Assistant,
-        format!(
-            "Searching existing modpacks as the base before adding requested mods. Queries: {}",
-            queries.join(", ")
-        ),
-    );
-
-    let requested = requested_compatibility_from_restrictions(run.restrictions.as_ref());
-    let candidates = run_base_pack_search_loop(&mut run, &queries, &requested).await?;
-    run.push_trace(format!(
-        "search_modpacks returned {} candidates",
-        candidates.len()
-    ));
-    run.push_message(
-        AgentMessageKind::Tool,
-        format!("search_modpacks returned {} candidates", candidates.len()),
-    );
-
-    let plan = selection_plan(&planning_input, &queries, &candidates);
-    let approval = base_pack_selection_approval(&candidates, plan.clone());
-
-    run.request_approval(AgentPhase::ChooseBasePackApproval, approval, Some(plan));
-    run.push_trace("paused at base modpack selection approval gate");
-    Ok(run)
-}
-
-pub(super) async fn continue_after_base_pack_feedback(
-    llm: &AgentLlmClient,
-    mut run: AgentRunSnapshot,
-    feedback: &str,
-) -> Result<AgentRunSnapshot> {
-    run.push_message(
-        AgentMessageKind::User,
-        format!("Changed base-pack search requirements: {feedback}"),
-    );
-    run.phase = AgentPhase::BasePackSearch;
-    run.pending_approval = None;
-    run.push_trace("received base-pack feedback; updating restrictions and replanning candidates");
-
-    let current = run.restrictions.clone().unwrap_or_default();
-    let generated = generate_restriction_update(
-        llm,
-        &run.user_prompt,
-        &current,
-        feedback,
-        BuildRestrictionChangeSource::UserRevise,
-    )
-    .await?;
-    let output = update_build_restrictions(
-        Some(current.clone()),
-        generated.input,
-        BuildRestrictionChangeSource::UserRevise,
-        feedback,
-    )?;
-    if let Some(changed) = changed_restriction_field(&current, &output.restrictions) {
-        let patch = output
-            .restrictions
-            .history
-            .last()
-            .map(|change| change.patch.clone());
-        invalidate_downstream(
-            &mut run,
-            changed,
-            format!("base-pack feedback changed target: {feedback}"),
-            AgentPhase::ChooseBasePackApproval,
-            patch,
-        );
-    }
-    run.restrictions = Some(output.restrictions);
-    run.push_trace(format!(
-        "llm generated build restriction update via {}",
-        generated.model
-    ));
-
-    let planning_input = planning_context_input(&run);
-    let revised_prompt = format!(
-        "{planning_input}\n\nBase-pack revision feedback: {feedback}\n\nSearch again for base modpack candidates that reflect the feedback."
-    );
-    let output = llm
-        .prompt_typed::<SearchQueryOutput>(
-            &[MAIN_AGENT_SYSTEM_PROMPT, SEARCH_QUERY_PROMPT],
-            revised_prompt,
-            300,
-            0.1,
-        )
-        .await?;
-    run.push_trace(format!(
-        "llm regenerated base search queries via {}",
-        llm.model()
-    ));
-
-    let queries = output.into_queries("base modpack search")?;
-    run.push_message(
-        AgentMessageKind::Assistant,
-        format!(
-            "Searching base packs again from feedback. Queries: {}",
-            queries.join(", ")
-        ),
-    );
-
-    let requested = requested_compatibility_from_restrictions(run.restrictions.as_ref());
-    let candidates = run_base_pack_search_loop(&mut run, &queries, &requested).await?;
-    run.push_trace(format!(
-        "search_modpacks returned {} revised candidates",
-        candidates.len()
-    ));
-    run.push_message(
-        AgentMessageKind::Tool,
-        format!("search_modpacks returned {} candidates", candidates.len()),
-    );
-
-    let plan = selection_plan(&planning_input, &queries, &candidates);
-    let approval = base_pack_selection_approval(&candidates, plan.clone());
-    run.request_approval(AgentPhase::ChooseBasePackApproval, approval, Some(plan));
-    run.push_trace("paused at updated base modpack selection approval gate");
-    Ok(run)
 }
 
 pub(super) async fn run_base_pack_search_loop(
@@ -402,38 +293,52 @@ pub(super) async fn run_base_pack_search_loop(
     let mut version_cache = VersionLookupCache::new();
 
     for iteration in 1..=BASE_SEARCH_MAX_ITERATIONS {
+        let search_input = serde_json::json!({
+            "queries": queries,
+            "mode": base_search_mode_label(mode),
+            "filters": {
+                "minecraft_version": requested.minecraft_version.clone(),
+                "loader": requested.loader.clone(),
+            }
+        });
+        run.push_tool_call_started(
+            AgentPhase::BasePackSearch,
+            iteration,
+            "modpack_search",
+            search_input.clone(),
+        );
         let started = Instant::now();
         let searched = search_base_modpacks(queries, requested, mode).await?;
         run.push_tool_trace(AgentToolTrace {
-            event: "base-pack loop search_packs".into(),
+            event: "base-pack loop modpack_search".into(),
             stage: AgentPhase::BasePackSearch,
             iteration,
-            tool: "search_packs".into(),
-            input: serde_json::json!({
-                "queries": queries,
-                "mode": base_search_mode_label(mode),
-                "filters": {
-                    "minecraft_version": requested.minecraft_version.clone(),
-                    "loader": requested.loader.clone(),
-                }
-            }),
+            tool: "modpack_search".into(),
+            input: search_input,
             output: serde_json::json!({ "count": searched.len() }),
             duration_ms: started.elapsed().as_millis(),
             status: "ok".into(),
         });
 
+        let compatibility_input = serde_json::json!({
+            "minecraft_version": requested.minecraft_version.clone(),
+            "loader": requested.loader.clone(),
+        });
+        run.push_tool_call_started(
+            AgentPhase::BasePackSearch,
+            iteration,
+            "compatibility_check",
+            compatibility_input.clone(),
+        );
         let started = Instant::now();
         let filtered =
             filter_base_packs_by_restrictions(searched, requested, &mut version_cache).await?;
         run.push_tool_trace(AgentToolTrace {
-            event: "base-pack loop filter_by_restrictions".into(),
+            event: "base-pack loop compatibility_check".into(),
             stage: AgentPhase::BasePackSearch,
             iteration,
-            tool: "filter_by_restrictions".into(),
-            input: serde_json::json!({
-                "minecraft_version": requested.minecraft_version.clone(),
-                "loader": requested.loader.clone(),
-            }),
+            tool: "compatibility_check".into(),
+            input: compatibility_input,
             output: serde_json::json!({ "count": filtered.len() }),
             duration_ms: started.elapsed().as_millis(),
             status: "ok".into(),
@@ -596,7 +501,9 @@ async fn filter_base_packs_by_restrictions(
 
     let mut out = Vec::new();
     for (idx, candidate) in candidates.into_iter().enumerate() {
-        let versions = if let Some(hit) = cache.get_cloned(candidate.provider, &candidate.hit.id, mc, loader) {
+        let versions = if let Some(hit) =
+            cache.get_cloned(candidate.provider, &candidate.hit.id, mc, loader)
+        {
             hit
         } else if let Some(res) = fetched_by_idx.remove(&idx) {
             res? // first error in input order propagates, matching the sequential `?`
@@ -630,8 +537,7 @@ pub(super) fn rank_base_packs(candidates: Vec<BasePackCandidate>) -> Vec<BasePac
     // still sink genuinely oversized (> cap, unexecutable) packs to the bottom and
     // break score ties toward smaller archives, but a merely-larger size never
     // buries a popular, directly-matching pack behind a tiny obscure one.
-    let mut indexed: Vec<(usize, BasePackCandidate)> =
-        candidates.into_iter().enumerate().collect();
+    let mut indexed: Vec<(usize, BasePackCandidate)> = candidates.into_iter().enumerate().collect();
     indexed.sort_by(|(a_rank, a), (b_rank, b)| {
         base_archive_oversized(a)
             .cmp(&base_archive_oversized(b))

@@ -1,5 +1,6 @@
 use super::*;
 
+#[cfg(test)]
 pub(super) async fn generate_restriction_update(
     llm: &AgentLlmClient,
     original_user_prompt: &str,
@@ -16,37 +17,38 @@ pub(super) async fn generate_restriction_update(
         None,
     )
     .to_string();
-    // The genuine schema/parse failure happens *inside* `prompt_typed`
-    // (`serde_json::from_str` of the raw model text), so the retry must hinge on
-    // this `Err`, not on the post-parse validators (which are infallible).
-    let first_attempt = llm
-        .prompt_typed::<UpdateBuildRestrictionsInput>(
-            &[MAIN_AGENT_SYSTEM_PROMPT, REQUIREMENT_NORMALIZATION_PROMPT],
+    let first_output = llm
+        .prompt_text(
+            &[
+                MAIN_AGENT_SYSTEM_PROMPT,
+                modpack_build_react_prompt(),
+                REQUIREMENT_NORMALIZATION_PROMPT,
+            ],
             input,
             260,
             0.0,
         )
-        .await;
+        .await?;
+    let first_attempt = parse_restriction_update_response(&first_output)
+        .and_then(validate_restriction_update_input);
     let input = match first_attempt {
-        Ok(response) => validate_restriction_update_input(response)?,
+        Ok(response) => response,
         Err(first_err) => {
-            // Re-prompt once, feeding back the genuine error string the model
-            // failed on (the raw parse/schema violation, not a Debug dump of an
-            // already-parsed struct) so it can correct the malformed output.
-            let schema_violation = first_err.to_string();
+            let parse_error = first_err.to_string();
             let retry_input = restriction_update_request_payload(
                 original_user_prompt,
                 current,
                 user_message,
                 source,
-                Some(schema_violation.clone()),
-                Some(schema_violation),
+                Some(parse_error),
+                Some(first_output),
             )
             .to_string();
-            let retry = llm
-                .prompt_typed::<UpdateBuildRestrictionsInput>(
+            let retry_output = llm
+                .prompt_text(
                     &[
                         MAIN_AGENT_SYSTEM_PROMPT,
+                        modpack_build_react_prompt(),
                         REQUIREMENT_NORMALIZATION_PROMPT,
                         REQUIREMENT_NORMALIZATION_RETRY_PROMPT,
                     ],
@@ -57,22 +59,27 @@ pub(super) async fn generate_restriction_update(
                 .await
                 .map_err(|second_err| {
                     CoreError::other(format!(
-                        "could not parse restriction tool schema output after retry: {second_err}; first error: {first_err}"
+                        "could not request restriction tool arguments after retry: {second_err}; first error: {first_err}"
                     ))
                 })?;
+            let retry = parse_restriction_update_response(&retry_output).map_err(|second_err| {
+                CoreError::other(format!(
+                    "could not parse restriction tool arguments after retry: {second_err}; first error: {first_err}"
+                ))
+            })?;
             validate_restriction_update_retry(retry, &first_err)?
         }
     };
-    let model = llm.model().to_string();
-    Ok(GeneratedRestrictionUpdate { model, input })
+    Ok(GeneratedRestrictionUpdate { input })
 }
 
+#[cfg(test)]
 pub(super) fn restriction_update_request_payload(
     original_user_prompt: &str,
     current: &BuildRestrictions,
     user_message: &str,
     source: BuildRestrictionChangeSource,
-    schema_violation: Option<String>,
+    parse_error: Option<String>,
     previous_output: Option<String>,
 ) -> serde_json::Value {
     let mut payload = serde_json::json!({
@@ -84,11 +91,8 @@ pub(super) fn restriction_update_request_payload(
         "latest_user_message": user_message,
     });
     if let Some(obj) = payload.as_object_mut() {
-        if let Some(schema_violation) = schema_violation {
-            obj.insert(
-                "schema_violation".to_string(),
-                serde_json::json!(schema_violation),
-            );
+        if let Some(parse_error) = parse_error {
+            obj.insert("parse_error".to_string(), serde_json::json!(parse_error));
         }
         if let Some(previous_output) = previous_output {
             obj.insert(
@@ -106,7 +110,7 @@ pub(super) fn parse_restriction_update_response(
 ) -> Result<UpdateBuildRestrictionsInput> {
     let value = serde_json::from_str::<serde_json::Value>(text.trim()).map_err(|err| {
         CoreError::other(format!(
-            "could not parse single restriction tool schema object: {err}: {text}"
+            "could not parse single restriction tool argument object: {err}: {text}"
         ))
     })?;
     let base_revision = value
@@ -162,23 +166,26 @@ pub(super) fn parse_restriction_update_response(
     ))
 }
 
+#[cfg(test)]
 fn validate_restriction_update_input(
     input: UpdateBuildRestrictionsInput,
 ) -> Result<UpdateBuildRestrictionsInput> {
     Ok(normalize_restriction_update_input(input))
 }
 
+#[cfg(test)]
 pub(super) fn validate_restriction_update_retry(
     input: UpdateBuildRestrictionsInput,
     first_err: &CoreError,
 ) -> Result<UpdateBuildRestrictionsInput> {
     validate_restriction_update_input(input).map_err(|second_err| {
         CoreError::other(format!(
-            "could not parse restriction tool schema output after retry: {second_err}; first error: {first_err}"
+            "could not parse restriction tool arguments after retry: {second_err}; first error: {first_err}"
         ))
     })
 }
 
+#[cfg(test)]
 pub(super) fn normalize_restriction_update_input(
     input: UpdateBuildRestrictionsInput,
 ) -> UpdateBuildRestrictionsInput {
@@ -240,6 +247,7 @@ pub(super) fn update_build_restrictions(
     restrictions.try_apply(input.base_revision, input.patch, source, summary)
 }
 
+#[cfg(test)]
 pub(super) fn restriction_target_changed(
     before: &BuildRestrictions,
     after: &BuildRestrictions,
@@ -251,25 +259,6 @@ pub(super) fn restriction_target_changed(
         return false;
     }
     before.minecraft_version_requirement != after.minecraft_version_requirement
-}
-
-pub(super) fn changed_restriction_field(
-    before: &BuildRestrictions,
-    after: &BuildRestrictions,
-) -> Option<ChangedField> {
-    if before.minecraft_version != after.minecraft_version {
-        Some(ChangedField::MinecraftVersion)
-    } else if before.loader != after.loader {
-        Some(ChangedField::Loader)
-    } else if before.minecraft_version_requirement != after.minecraft_version_requirement {
-        Some(ChangedField::VersionRequirement)
-    } else if before.feature_tags != after.feature_tags {
-        Some(ChangedField::ContentPreference)
-    } else if before.notes != after.notes {
-        Some(ChangedField::SearchPreference)
-    } else {
-        None
-    }
 }
 
 pub(super) const ALL_CHANGED_FIELDS: &[ChangedField] = &[
@@ -433,6 +422,7 @@ fn clears_mod_plan(changed: ChangedField) -> bool {
     )
 }
 
+#[cfg(test)]
 pub(super) fn apply_requirements_replan(
     mut run: AgentRunSnapshot,
     output: UpdateBuildRestrictionsOutput,
@@ -477,133 +467,15 @@ pub(super) fn apply_requirements_replan(
     run
 }
 
-pub(super) async fn continue_after_requirements_confirmation(
-    llm: &AgentLlmClient,
-    mut run: AgentRunSnapshot,
-    selected: ApprovalOption,
-) -> Result<AgentRunSnapshot> {
-    let restrictions = run
-        .restrictions
-        .clone()
-        .or_else(|| {
-            selected
-                .payload
-                .as_ref()
-                .and_then(restrictions_from_requirement_payload)
-        })
-        .ok_or_else(|| CoreError::other("requirements approval has no restrictions state"))?;
-
-    run.push_message(
-        AgentMessageKind::User,
-        format!(
-            "Confirmed modpack requirements: {}",
-            requirement_label(&restrictions)
-        ),
-    );
-    run.restrictions = Some(restrictions);
-    run.approved_build = None;
-    run.execution = None;
-    run.pending_approval = None;
-    run.push_trace("approved normalized build requirements");
-    continue_to_base_pack_search(llm, run).await
-}
-
-pub(super) async fn continue_after_requirements_feedback(
-    llm: &AgentLlmClient,
-    mut run: AgentRunSnapshot,
-    feedback: &str,
-) -> Result<AgentRunSnapshot> {
-    run.push_message(
-        AgentMessageKind::User,
-        format!("Changed modpack requirements: {feedback}"),
-    );
-    run.pending_approval = None;
-    run.push_trace("received build requirement feedback; updating restrictions");
-
-    let current = run.restrictions.clone().unwrap_or_default();
-    let generated = generate_restriction_update(
-        llm,
-        &run.user_prompt,
-        &current,
-        feedback,
-        BuildRestrictionChangeSource::UserRevise,
-    )
-    .await?;
-    let output = update_build_restrictions(
-        Some(current.clone()),
-        generated.input,
-        BuildRestrictionChangeSource::UserRevise,
-        feedback,
-    )?;
-    run.push_trace(format!(
-        "llm generated build restriction update via {}",
-        generated.model
-    ));
-    run.push_message(
-        AgentMessageKind::Assistant,
-        requirement_summary_message(&output),
-    );
-    let run = apply_requirements_replan(
-        run,
-        output,
-        format!("requirements revised: {feedback}"),
-        AgentPhase::ConfigureRequirementsApproval,
-    );
-    continue_to_base_pack_search(llm, run).await
-}
-
-pub(super) async fn maybe_replan_requirements_from_feedback(
-    llm: &AgentLlmClient,
-    mut run: AgentRunSnapshot,
-    feedback: &str,
-) -> Result<Option<AgentRunSnapshot>> {
-    let current = run.restrictions.clone().unwrap_or_default();
-    let generated = generate_restriction_update(
-        llm,
-        &run.user_prompt,
-        &current,
-        feedback,
-        BuildRestrictionChangeSource::UserRevise,
-    )
-    .await?;
-    let output = update_build_restrictions(
-        Some(current.clone()),
-        generated.input,
-        BuildRestrictionChangeSource::UserRevise,
-        feedback,
-    )?;
-    if !restriction_target_changed(&current, &output.restrictions) {
-        return Ok(None);
-    }
-
-    let from_phase = run.phase.clone();
-    run.push_message(
-        AgentMessageKind::User,
-        format!("Changed customization requirements: {feedback}"),
-    );
-    let mut replanned = apply_requirements_replan(
-        run,
-        output,
-        format!("user changed version/loader during customization: {feedback}"),
-        from_phase,
-    );
-    replanned.push_trace(format!(
-        "llm generated build restriction replan via {}",
-        generated.model
-    ));
-    Ok(Some(continue_to_base_pack_search(llm, replanned).await?))
-}
-
 #[cfg(test)]
 mod retry_tests {
     use super::*;
 
     /// Minimal local HTTP server that serves two sequential responses. The shared
     /// `one_response_server` test helpers only answer a single connection; the
-    /// schema-retry path issues two `prompt_typed` calls, so we need to answer the
-    /// initial attempt and the retry. Each response sets `Connection: close`, so
-    /// the client opens a fresh connection per call and the bodies are consumed in
-    /// order.
+    /// parse-retry path issues two model calls, so we need to answer the initial
+    /// attempt and the retry. Each response sets `Connection: close`, so the client
+    /// opens a fresh connection per call and the bodies are consumed in order.
     fn two_response_server(first: Vec<u8>, second: Vec<u8>) -> String {
         use std::io::{Read, Write};
         use std::net::TcpListener;
@@ -631,8 +503,7 @@ mod retry_tests {
 
     /// Wrap raw assistant text in an OpenRouter chat-completion envelope. `content`
     /// is returned verbatim as the model output, so passing non-JSON text exercises
-    /// the genuine `prompt_typed` parse failure (its internal `serde_json::from_str`
-    /// rejects it).
+    /// the local tool-argument parser.
     fn openrouter_response_body(content: &str) -> Vec<u8> {
         serde_json::json!({
             "id": "chatcmpl_test",
@@ -663,9 +534,8 @@ mod retry_tests {
     const VALID_RETRY_OUTPUT: &str = r#"{"base_revision":0,"patch":{"minecraft_version":"1.20.1","loader":"Fabric","feature_tags":[" performance ","performance"],"notes":"  keep this  "}}"#;
 
     #[tokio::test]
-    async fn schema_retry_recovers_after_one_malformed_response() {
-        // First attempt returns text that is not valid JSON for the schema, so the
-        // initial `prompt_typed` errors inside its `serde_json::from_str`. The retry
+    async fn tool_argument_retry_recovers_after_one_malformed_response() {
+        // First attempt returns text that is not valid JSON tool arguments. The retry
         // returns a valid object; the function must return it after exactly one retry.
         let base_url = two_response_server(
             openrouter_response_body("this is not a json object"),
@@ -703,7 +573,7 @@ mod retry_tests {
     }
 
     #[tokio::test]
-    async fn schema_retry_surfaces_clear_error_when_retry_also_malformed() {
+    async fn tool_argument_retry_surfaces_clear_error_when_retry_also_malformed() {
         // Both attempts are malformed: the initial parse fails, the retry parse also
         // fails, and the function surfaces a clear error after the single retry.
         let base_url = two_response_server(

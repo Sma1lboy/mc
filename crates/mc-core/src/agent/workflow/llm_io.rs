@@ -1,36 +1,7 @@
 use super::*;
 
-use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub(super) enum AgentIntentOutputKind {
-    BuildModpack,
-    Unknown,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub(super) struct AgentIntentOutput {
-    pub intent: AgentIntentOutputKind,
-    pub confidence: f32,
-    pub rationale: String,
-}
-
-impl AgentIntentOutput {
-    pub(super) fn into_agent_intent(self) -> AgentIntent {
-        AgentIntent {
-            kind: match self.intent {
-                AgentIntentOutputKind::BuildModpack => AgentIntentKind::BuildModpack,
-                AgentIntentOutputKind::Unknown => AgentIntentKind::Unknown,
-            },
-            confidence: self.confidence.clamp(0.0, 1.0),
-            rationale: (!self.rationale.trim().is_empty()).then_some(self.rationale),
-        }
-    }
-}
-
-#[cfg(test)]
 pub(super) fn parse_intent_response(text: &str) -> Option<AgentIntent> {
     let value = parse_first_json_object(text)?;
     let raw = value.get("intent")?.as_str()?;
@@ -52,7 +23,6 @@ pub(super) fn parse_intent_response(text: &str) -> Option<AgentIntent> {
     })
 }
 
-#[cfg(test)]
 pub(super) fn parse_first_json_object(text: &str) -> Option<serde_json::Value> {
     let trimmed = text.trim();
     if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
@@ -90,7 +60,6 @@ pub(super) fn parse_first_json_object(text: &str) -> Option<serde_json::Value> {
     None
 }
 
-#[cfg(test)]
 fn intent_kind(value: &str) -> AgentIntentKind {
     match value.trim().to_ascii_lowercase().as_str() {
         "build_modpack" | "modpack_build" | "create_modpack" => AgentIntentKind::BuildModpack,
@@ -104,36 +73,15 @@ pub(super) enum ApprovalRoute {
     NeedsClarification { reason: String },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(super) enum ApprovalDecisionOutputKind {
+pub(super) enum ApprovalDecisionKind {
     Approve,
     Revise,
     Cancel,
     NeedsClarification,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub(super) struct ApprovalRouteOutput {
-    pub decision: ApprovalDecisionOutputKind,
-    pub selected_option_id: Option<String>,
-    pub message: Option<String>,
-    pub rationale: String,
-}
-
-impl ApprovalRouteOutput {
-    pub(super) fn into_route(self, approval: &ApprovalRequest) -> Result<ApprovalRoute> {
-        approval_route_from_parts(
-            self.decision,
-            self.selected_option_id,
-            self.message,
-            self.rationale,
-            approval,
-        )
-    }
-}
-
-#[cfg(test)]
 pub(super) fn parse_approval_route_response(
     text: &str,
     approval: &ApprovalRequest,
@@ -163,10 +111,10 @@ pub(super) fn parse_approval_route_response(
         .map(ToOwned::to_owned);
 
     let decision = match decision.as_str() {
-        "approve" => ApprovalDecisionOutputKind::Approve,
-        "revise" => ApprovalDecisionOutputKind::Revise,
-        "cancel" => ApprovalDecisionOutputKind::Cancel,
-        "needs_clarification" => ApprovalDecisionOutputKind::NeedsClarification,
+        "approve" => ApprovalDecisionKind::Approve,
+        "revise" => ApprovalDecisionKind::Revise,
+        "cancel" => ApprovalDecisionKind::Cancel,
+        "needs_clarification" => ApprovalDecisionKind::NeedsClarification,
         other => {
             return Err(CoreError::other(format!(
                 "unsupported approval decision: {other}"
@@ -189,7 +137,7 @@ pub(super) fn parse_approval_route_response(
 }
 
 fn approval_route_from_parts(
-    decision: ApprovalDecisionOutputKind,
+    decision: ApprovalDecisionKind,
     raw_selected_option_id: Option<String>,
     raw_message: Option<String>,
     rationale: String,
@@ -206,12 +154,10 @@ fn approval_route_from_parts(
         .filter(|s| !s.is_empty())
         .map(ToOwned::to_owned);
     let (kind, selected_option_id, message) = match decision {
-        ApprovalDecisionOutputKind::Approve => {
-            (UserDecisionKind::Approve, selected_option_id, None)
-        }
-        ApprovalDecisionOutputKind::Revise => (UserDecisionKind::Revise, None, message),
-        ApprovalDecisionOutputKind::Cancel => (UserDecisionKind::Cancel, None, None),
-        ApprovalDecisionOutputKind::NeedsClarification => {
+        ApprovalDecisionKind::Approve => (UserDecisionKind::Approve, selected_option_id, None),
+        ApprovalDecisionKind::Revise => (UserDecisionKind::Revise, None, message),
+        ApprovalDecisionKind::Cancel => (UserDecisionKind::Cancel, None, None),
+        ApprovalDecisionKind::NeedsClarification => {
             let reason = if rationale.trim().is_empty() {
                 "approval decision needs clarification"
             } else {
@@ -267,25 +213,14 @@ pub(super) fn update_build_restrictions_tool_spec() -> AgentToolSpec {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub(super) struct SearchQueryOutput {
-    pub queries: Vec<String>,
-}
-
 #[cfg(test)]
 pub(super) fn search_queries(model_text: &str) -> Result<Vec<String>> {
     let queries = parse_search_query_response(model_text, "base modpack search")?;
     Ok(dedupe_queries(queries).into_iter().take(6).collect())
 }
 
-impl SearchQueryOutput {
-    pub(super) fn into_queries(self, context: &str) -> Result<Vec<String>> {
-        normalize_search_queries(self.queries, context, 4)
-    }
-}
-
 #[cfg(test)]
-fn parse_search_query_response(model_text: &str, context: &str) -> Result<Vec<String>> {
+pub(super) fn parse_search_query_response(model_text: &str, context: &str) -> Result<Vec<String>> {
     let value = parse_first_json_object(model_text).ok_or_else(|| {
         CoreError::other(format!(
             "could not parse {context} query JSON from model output: {model_text}"
@@ -304,6 +239,7 @@ fn parse_search_query_response(model_text: &str, context: &str) -> Result<Vec<St
     normalize_search_queries(queries, context, 4)
 }
 
+#[cfg(test)]
 fn normalize_search_queries(
     queries: Vec<String>,
     context: &str,
@@ -390,67 +326,7 @@ fn normalize_mod_query_output(
     }
 }
 
-#[cfg(test)]
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub(super) enum CustomizationCritiqueVerdictOutput {
-    Pass,
-    Revise,
-}
-
-#[cfg(test)]
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub(super) struct CustomizationCritiqueOutput {
-    pub verdict: CustomizationCritiqueVerdictOutput,
-    pub remove_project_ids: Vec<String>,
-    pub additional_queries: Vec<String>,
-    pub rationale: String,
-}
-
-#[cfg(test)]
-impl CustomizationCritiqueOutput {
-    pub(super) fn into_critique(self) -> Result<GeneratedCustomizationCritique> {
-        Ok(normalize_customization_critique_output(
-            self.verdict,
-            self.remove_project_ids,
-            self.additional_queries,
-            self.rationale,
-        ))
-    }
-}
-
-#[cfg(test)]
-fn normalize_customization_critique_output(
-    verdict: CustomizationCritiqueVerdictOutput,
-    remove_project_ids: Vec<String>,
-    additional_queries: Vec<String>,
-    rationale: String,
-) -> GeneratedCustomizationCritique {
-    let verdict = match verdict {
-        CustomizationCritiqueVerdictOutput::Pass => CustomizationCritiqueVerdict::Pass,
-        CustomizationCritiqueVerdictOutput::Revise => CustomizationCritiqueVerdict::Revise,
-    };
-    let remove_project_ids = remove_project_ids
-        .into_iter()
-        .map(|id| id.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>();
-    let additional_queries = additional_queries
-        .into_iter()
-        .map(|q| clean_query_text(&q))
-        .filter(|s| is_search_query_text(s))
-        .take(3)
-        .collect::<Vec<_>>();
-
-    GeneratedCustomizationCritique {
-        verdict,
-        remove_project_ids,
-        additional_queries: dedupe_queries(additional_queries),
-        rationale: rationale.trim().to_string(),
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct ModPlanStep {
     #[serde(default)]
     pub selections: Vec<ModSelection>,
@@ -458,34 +334,26 @@ pub(super) struct ModPlanStep {
     pub removals: Vec<String>,
     #[serde(default)]
     pub next_queries: Vec<GoalQuery>,
-    pub control: ModPlanControl,
     pub rationale: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct ModSelection {
     pub goal_id: String,
     pub project_id: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub(super) enum ModPlanControl {
-    Continue,
-    Done,
 }
 
 /// Typed output of the base-pack coverage analysis step. Given the requested
 /// theme goals and the selected base pack's own (enriched) modlist, the model
 /// reports which goals the base pack already satisfies so the planner can skip
 /// searching for them.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub(super) struct BaseCoverageOutput {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(super) struct BaseCoverageReport {
     #[serde(default)]
     pub covered_goals: Vec<BaseCoveredGoal>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct BaseCoveredGoal {
     pub goal_id: String,
     /// Titles (or project ids) of the base-pack mods that satisfy this goal.
@@ -495,7 +363,7 @@ pub(super) struct BaseCoveredGoal {
     pub rationale: String,
 }
 
-impl BaseCoverageOutput {
+impl BaseCoverageReport {
     /// Distinct, trimmed goal ids that are both reported covered and still an
     /// open theme goal we asked about. Hallucinated or duplicate ids are
     /// dropped so the model can only ever close goals that actually exist.
@@ -523,6 +391,78 @@ impl BaseCoverageOutput {
             })
             .collect()
     }
+}
+
+pub(super) fn parse_mod_plan_step_response(
+    model_text: &str,
+    candidate_project_ids: &HashSet<String>,
+    goal_ids: &HashSet<String>,
+    default_goal_id: Option<&str>,
+) -> Result<ModPlanStep> {
+    let mut value = parse_first_json_object(model_text).ok_or_else(|| {
+        CoreError::other(format!(
+            "could not parse mod plan tool arguments from model output: {model_text}"
+        ))
+    })?;
+    normalize_mod_plan_step_json(&mut value, default_goal_id);
+    let step = serde_json::from_value::<ModPlanStep>(value)
+        .map_err(|err| CoreError::other(format!("invalid mod plan tool arguments: {err}")))?;
+    Ok(step.normalized(candidate_project_ids, goal_ids))
+}
+
+fn normalize_mod_plan_step_json(value: &mut serde_json::Value, default_goal_id: Option<&str>) {
+    let Some(default_goal_id) = default_goal_id
+        .map(str::trim)
+        .filter(|goal_id| !goal_id.is_empty())
+    else {
+        return;
+    };
+    normalize_goal_scoped_items(value, "selections", default_goal_id, "project_id");
+    normalize_goal_scoped_items(value, "next_queries", default_goal_id, "query");
+}
+
+fn normalize_goal_scoped_items(
+    value: &mut serde_json::Value,
+    key: &str,
+    default_goal_id: &str,
+    text_field: &str,
+) {
+    let Some(items) = value.get_mut(key).and_then(|v| v.as_array_mut()) else {
+        return;
+    };
+    for item in items {
+        if let Some(text) = item.as_str().map(str::trim).filter(|text| !text.is_empty()) {
+            *item = serde_json::json!({
+                "goal_id": default_goal_id,
+                text_field: text,
+            });
+            continue;
+        }
+        let Some(obj) = item.as_object_mut() else {
+            continue;
+        };
+        let has_goal_id = obj
+            .get("goal_id")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .is_some_and(|goal_id| !goal_id.is_empty());
+        if !has_goal_id {
+            obj.insert(
+                "goal_id".to_string(),
+                serde_json::Value::String(default_goal_id.to_string()),
+            );
+        }
+    }
+}
+
+pub(super) fn parse_base_coverage_response(model_text: &str) -> Result<BaseCoverageReport> {
+    let value = parse_first_json_object(model_text).ok_or_else(|| {
+        CoreError::other(format!(
+            "could not parse base coverage tool arguments from model output: {model_text}"
+        ))
+    })?;
+    serde_json::from_value::<BaseCoverageReport>(value)
+        .map_err(|err| CoreError::other(format!("invalid base coverage tool arguments: {err}")))
 }
 
 impl ModPlanStep {
@@ -586,7 +526,6 @@ impl ModPlanStep {
             selections,
             removals,
             next_queries,
-            control: self.control,
             rationale: self.rationale.trim().to_string(),
         }
     }

@@ -15,12 +15,13 @@ Important fields for UI:
 |------|---------|
 | `id` | Stable session id. |
 | `status` | `running`, `waiting_for_user`, `completed`, or `failed`. |
-| `phase` | Workflow phase. Drives which UI panel is shown. |
+| `phase` | UI phase projection. Use it to choose the panel; do not treat it as workflow control state. |
 | `messages` | Audit/user-visible messages. Not a complete chat response contract. |
+| `pending_interrupt` | Durable runtime pause/resume primitive when user input is required. |
 | `pending_approval` | Current HITL gate, if the agent is waiting for user input. |
 | `plan` | Human-readable plan summary for the current phase. |
 | `restrictions` | Normalized Minecraft/loader/content requirements. |
-| `mod_plan` | In-progress reducer state for extra mod planning. Mostly diagnostic. |
+| `mod_plan` | In-progress extra-mod planning state. Mostly diagnostic. |
 | `approved_build` | Final approved build contract used by execution. |
 | `execution` | Execution status/manifest/blocking reason. |
 | `trace` | Internal audit/debug trace. Do not render as primary UI. |
@@ -28,9 +29,88 @@ Important fields for UI:
 The frontend should treat snapshots as the single source of truth. Re-render from
 the latest snapshot after every command.
 
+## Stream Events
+
+`trace` remains an audit/debug log, but new events may include
+`stream_kind`. The UI can consume these as a stream-friendly projection without
+using trace text as business state.
+
+Known `stream_kind` values:
+
+| Value | Meaning |
+|------|---------|
+| `message_delta` | Assistant text delta for future streaming chat output. |
+| `tool_call_started` | A factual tool call started. |
+| `tool_call_result` | A factual tool call completed and produced compact output. |
+| `milestone` | Progress marker such as entering the prompt-guided modpack runner. |
+| `input_required` | The run paused for structured user input such as a version picker. |
+| `clarification_needed` | User text did not map to the current gate; render the existing gate and ask again. |
+| `approval_required` | The run paused at a HITL approval gate. |
+| `final` | Final assistant/result event for future streaming APIs. |
+| `error` | Recoverable or terminal error event for future streaming APIs. |
+
+HITL is a runtime interrupt, not an agent tool. The durable pause invariant is:
+
+```text
+status == waiting_for_user
+pending_interrupt != null
+```
+
+Approval interrupts also carry the existing approval payload:
+
+```text
+pending_approval != null
+```
+
+The stream event is only a notification that the durable snapshot has paused.
+Resume with `agent_action` using `pending_interrupt.resume_token`. For approval
+interrupts this token is the same structured approval id used by
+`pending_approval`.
+
+## Input Interrupts
+
+When `status == waiting_for_user` and `pending_interrupt.kind == user_input`,
+render `pending_interrupt` directly. In this case `pending_approval` is null.
+
+For Minecraft version selection:
+
+```json
+{
+  "kind": "user_input",
+  "input_kind": "select_minecraft_version",
+  "title": "Choose Minecraft version",
+  "message": "Choose a concrete Minecraft version for the requested version range: 1.20.x.",
+  "resume_token": "interrupt-...",
+  "allow_freeform": true,
+  "value": {
+    "field": "minecraft_version",
+    "version_request": "1.20.x",
+    "loader": "fabric"
+  },
+  "options": [
+    {
+      "id": "1.20.4",
+      "label": "1.20.4",
+      "payload": { "minecraft_version": "1.20.4" }
+    },
+    {
+      "id": "1.20.1",
+      "label": "1.20.1",
+      "payload": { "minecraft_version": "1.20.1" }
+    }
+  ]
+}
+```
+
+The frontend should render this as a picker. On selection, call `agent_action`
+with the interrupt `resume_token` and the selected version string. The daemon
+applies the version to `BuildRestrictions` deterministically before returning to
+the agent loop.
+
 ## Approval Gate
 
-When `status == waiting_for_user`, render `pending_approval`.
+When `status == waiting_for_user` and `pending_approval != null`, render
+`pending_approval`.
 
 `ApprovalRequest` fields:
 
@@ -143,6 +223,10 @@ pub enum AgentClientAction {
     Cancel {
         approval_id: String,
     },
+    ProvideInput {
+        resume_token: String,
+        value: String,
+    },
     ContinueText {
         message: String,
     },
@@ -174,7 +258,7 @@ Suggested UI panels:
 |------|----|
 | `ConfigureRequirementsApproval` | Requirements summary, missing fields, confirm/revise/cancel. |
 | `ChooseBasePackApproval` | Base-pack option cards plus "Start from scratch". |
-| `CustomizationPlanning` | Progress/loading state. The reducer may call provider APIs and LLM. |
+| `CustomizationPlanning` | Progress/loading state while the prompt-guided runner calls tools. |
 | `ConfirmCustomizationApproval` | Final mod list, unresolved requests, confirm/revise/back. |
 | `ExecutionReady` | Export destination picker and explicit "Export .mrpack" action. |
 | `Executing` / `Verifying` | Progress/status. |
@@ -232,7 +316,7 @@ Flow:
    `execution.status=NotStarted`.
 3. UI asks for/export path.
 4. UI calls `agent_execute_export(session_id, output_path)`.
-5. The daemon calls deterministic `advance`/execution.
+5. The daemon calls `MainAgentRuntime::execute_tool("export_mrpack_artifact", ...)`.
 6. Return updated snapshot.
 
 If the session is not executable, return a user-facing error such as:
@@ -269,7 +353,7 @@ approval gate with a clarification message.
 
 - Version-flexible base-pack discovery is not implemented. Requests like
   "version does not matter; find a Terraria-like modpack" still need a separate
-  workflow change.
+  capability change.
 - Mod planning quality is still improving. Some baseline/search goals can select
   unrelated projects; render unresolved and allow revise.
 - Long-running agent operations are currently snapshot-returning calls. A future

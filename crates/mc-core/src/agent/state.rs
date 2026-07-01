@@ -3,14 +3,12 @@
 //! The launcher daemon remains the source of truth for game operations. The
 //! agent can return approval gates, but it does not own installation or writes.
 
-use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::error::{CoreError, Result};
 use crate::modplatform::{Dependency, VersionFile};
 
 pub const AGENT_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
@@ -140,6 +138,77 @@ pub enum ApprovalKind {
     ReviewDraftPlan,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentInterruptKind {
+    UserApproval,
+    UserInput,
+    UserClarification,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentInputKind {
+    SelectMinecraftVersion,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentInputOption {
+    pub id: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentInterrupt {
+    pub id: String,
+    pub kind: AgentInterruptKind,
+    pub title: String,
+    pub message: String,
+    pub resume_token: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_kind: Option<AgentInputKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub options: Vec<AgentInputOption>,
+    #[serde(default)]
+    pub allow_freeform: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval_kind: Option<ApprovalKind>,
+}
+
+impl AgentInterrupt {
+    pub fn user_input(
+        input_kind: AgentInputKind,
+        title: impl Into<String>,
+        message: impl Into<String>,
+        options: Vec<AgentInputOption>,
+        allow_freeform: bool,
+        value: Option<serde_json::Value>,
+    ) -> Self {
+        let id = new_id("interrupt");
+        Self {
+            id: id.clone(),
+            kind: AgentInterruptKind::UserInput,
+            title: title.into(),
+            message: message.into(),
+            resume_token: id,
+            input_kind: Some(input_kind),
+            value,
+            options,
+            allow_freeform,
+            approval_id: None,
+            approval_kind: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApprovalRequest {
     pub id: String,
@@ -227,6 +296,8 @@ pub struct AgentRunSnapshot {
     pub messages: Vec<AgentMessage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_approval: Option<ApprovalRequest>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_interrupt: Option<AgentInterrupt>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<AgentToolSpec>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -239,6 +310,11 @@ pub struct AgentRunSnapshot {
     pub approved_build: Option<ApprovedModpackBuild>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub execution: Option<AgentExecutionMetadata>,
+    /// Opaque tool-loop memory for the modpack agent. This is not workflow
+    /// control state; it stores factual tool outputs that the next model turn can
+    /// inspect after resume.
+    #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+    pub agent_memory: serde_json::Value,
     #[serde(default)]
     pub replans: Vec<PlanReplanRequest>,
     #[serde(default)]
@@ -258,12 +334,14 @@ impl AgentRunSnapshot {
             user_prompt: user_prompt.into(),
             messages: Vec::new(),
             pending_approval: None,
+            pending_interrupt: None,
             tools: Vec::new(),
             plan: None,
             restrictions: None,
             mod_plan: None,
             approved_build: None,
             execution: None,
+            agent_memory: serde_json::Value::Null,
             replans: Vec::new(),
             trace: Vec::new(),
         }
@@ -280,6 +358,7 @@ impl AgentRunSnapshot {
     pub fn push_trace(&mut self, event: impl Into<String>) {
         self.trace.push(AgentTraceEvent {
             at_ms: now_ms(),
+            stream_kind: Some(AgentStreamEventKind::Milestone),
             event: event.into(),
             stage: None,
             iteration: None,
@@ -292,9 +371,54 @@ impl AgentRunSnapshot {
         self.trim_trace();
     }
 
+    pub fn push_tool_call_started(
+        &mut self,
+        stage: AgentPhase,
+        iteration: u32,
+        tool: impl Into<String>,
+        input: Value,
+    ) {
+        self.trace.push(AgentTraceEvent {
+            at_ms: now_ms(),
+            stream_kind: Some(AgentStreamEventKind::ToolCallStarted),
+            event: "tool call started".to_string(),
+            stage: Some(stage),
+            iteration: Some(iteration),
+            tool: Some(tool.into()),
+            input: Some(input),
+            output: None,
+            duration_ms: None,
+            status: Some("started".to_string()),
+        });
+        self.trim_trace();
+    }
+
+    pub fn push_stream_event(
+        &mut self,
+        stream_kind: AgentStreamEventKind,
+        event: impl Into<String>,
+        stage: Option<AgentPhase>,
+        output: Value,
+    ) {
+        self.trace.push(AgentTraceEvent {
+            at_ms: now_ms(),
+            stream_kind: Some(stream_kind),
+            event: event.into(),
+            stage,
+            iteration: None,
+            tool: None,
+            input: None,
+            output: Some(output),
+            duration_ms: None,
+            status: None,
+        });
+        self.trim_trace();
+    }
+
     pub fn push_tool_trace(&mut self, trace: AgentToolTrace) {
         self.trace.push(AgentTraceEvent {
             at_ms: now_ms(),
+            stream_kind: Some(AgentStreamEventKind::ToolCallResult),
             event: trace.event,
             stage: Some(trace.stage),
             iteration: Some(trace.iteration),
@@ -324,10 +448,67 @@ impl AgentRunSnapshot {
         approval: ApprovalRequest,
         plan: Option<ModpackAgentPlan>,
     ) {
+        let interrupt = approval_interrupt(&approval);
+        let interrupt_id = interrupt.id.clone();
+        let approval_id = approval.id.clone();
+        let approval_kind =
+            serde_json::to_value(&approval.kind).unwrap_or_else(|_| serde_json::json!("unknown"));
         self.status = AgentStatus::WaitingForUser;
         self.phase = phase;
         self.pending_approval = Some(approval);
+        self.pending_interrupt = Some(interrupt);
         self.plan = plan;
+        self.trace.push(AgentTraceEvent {
+            at_ms: now_ms(),
+            stream_kind: Some(AgentStreamEventKind::ApprovalRequired),
+            event: "approval required".to_string(),
+            stage: Some(self.phase.clone()),
+            iteration: None,
+            tool: None,
+            input: None,
+            output: Some(serde_json::json!({
+                "interrupt_id": interrupt_id,
+                "interrupt_kind": "user_approval",
+                "approval_id": approval_id,
+                "approval_kind": approval_kind,
+            })),
+            duration_ms: None,
+            status: Some("waiting_for_user".to_string()),
+        });
+        self.trim_trace();
+    }
+
+    pub fn request_input(&mut self, phase: AgentPhase, interrupt: AgentInterrupt) {
+        let interrupt_id = interrupt.id.clone();
+        let input_kind =
+            serde_json::to_value(&interrupt.input_kind).unwrap_or_else(|_| serde_json::Value::Null);
+        self.status = AgentStatus::WaitingForUser;
+        self.phase = phase;
+        self.pending_approval = None;
+        self.pending_interrupt = Some(interrupt);
+        self.trace.push(AgentTraceEvent {
+            at_ms: now_ms(),
+            stream_kind: Some(AgentStreamEventKind::InputRequired),
+            event: "input required".to_string(),
+            stage: Some(self.phase.clone()),
+            iteration: None,
+            tool: None,
+            input: None,
+            output: Some(serde_json::json!({
+                "interrupt_id": interrupt_id,
+                "interrupt_kind": "user_input",
+                "input_kind": input_kind,
+            })),
+            duration_ms: None,
+            status: Some("waiting_for_user".to_string()),
+        });
+        self.trim_trace();
+    }
+
+    pub fn clear_user_interrupt(&mut self) {
+        self.status = AgentStatus::Running;
+        self.pending_approval = None;
+        self.pending_interrupt = None;
     }
 
     /// Leave any gate into a running `phase`, clearing the pending approval so the
@@ -336,6 +517,7 @@ impl AgentRunSnapshot {
         self.status = AgentStatus::Running;
         self.phase = phase;
         self.pending_approval = None;
+        self.pending_interrupt = None;
     }
 
     /// Terminate the run as completed at `phase`, clearing any pending approval.
@@ -343,6 +525,7 @@ impl AgentRunSnapshot {
         self.status = AgentStatus::Completed;
         self.phase = phase;
         self.pending_approval = None;
+        self.pending_interrupt = None;
     }
 
     /// Terminate the run as failed at `phase`, clearing any pending approval.
@@ -350,6 +533,7 @@ impl AgentRunSnapshot {
         self.status = AgentStatus::Failed;
         self.phase = phase;
         self.pending_approval = None;
+        self.pending_interrupt = None;
     }
 
     fn trim_messages(&mut self) {
@@ -383,6 +567,22 @@ impl AgentRunSnapshot {
     }
 }
 
+fn approval_interrupt(approval: &ApprovalRequest) -> AgentInterrupt {
+    AgentInterrupt {
+        id: new_id("interrupt"),
+        kind: AgentInterruptKind::UserApproval,
+        title: approval.title.clone(),
+        message: approval.message.clone(),
+        resume_token: approval.id.clone(),
+        input_kind: None,
+        value: None,
+        options: Vec::new(),
+        allow_freeform: false,
+        approval_id: Some(approval.id.clone()),
+        approval_kind: Some(approval.kind.clone()),
+    }
+}
+
 fn default_snapshot_schema_version() -> u32 {
     AGENT_SNAPSHOT_SCHEMA_VERSION
 }
@@ -396,6 +596,20 @@ pub enum AgentMessageKind {
     Tool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentStreamEventKind {
+    MessageDelta,
+    ToolCallStarted,
+    ToolCallResult,
+    Milestone,
+    InputRequired,
+    ClarificationNeeded,
+    ApprovalRequired,
+    Final,
+    Error,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentMessage {
     pub kind: AgentMessageKind,
@@ -405,6 +619,8 @@ pub struct AgentMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentTraceEvent {
     pub at_ms: u128,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream_kind: Option<AgentStreamEventKind>,
     pub event: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stage: Option<AgentPhase>,
@@ -461,245 +677,13 @@ pub struct PlannedAction {
     pub requires_approval: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, JsonSchema)]
-pub struct BuildRestrictions {
-    pub revision: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub minecraft_version: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub minecraft_version_requirement: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub loader: Option<String>,
-    #[serde(default)]
-    pub feature_tags: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub notes: Option<String>,
-    #[serde(default)]
-    pub history: Vec<BuildRestrictionChange>,
-}
+mod restrictions;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct BuildRestrictionsLlmView {
-    pub revision: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub minecraft_version: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub minecraft_version_requirement: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub loader: Option<String>,
-    #[serde(default)]
-    pub feature_tags: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub notes: Option<String>,
-}
-
-impl BuildRestrictions {
-    pub fn llm_view(&self) -> BuildRestrictionsLlmView {
-        BuildRestrictionsLlmView {
-            revision: self.revision,
-            minecraft_version: self.minecraft_version.clone(),
-            minecraft_version_requirement: self.minecraft_version_requirement.clone(),
-            loader: self.loader.clone(),
-            feature_tags: self.feature_tags.clone(),
-            notes: self.notes.clone(),
-        }
-    }
-
-    /// Apply a restriction patch under optimistic concurrency and return the
-    /// resulting view.
-    ///
-    /// This is the single authority for mutating build restrictions. It rejects
-    /// the write when `base_revision` no longer matches the current revision
-    /// (same `Err` shape the caller relied on before), then runs ONE
-    /// normalization pass: an invalid `minecraft_version` is dropped *with a
-    /// warning* (not silently), the version requirement falls back to the
-    /// concrete version, the loader is whitelisted (warning on an unsupported
-    /// one), and feature tags are trimmed, lowercased, capped, then deduped.
-    /// The normalized patch is stored, the revision is bumped, and a history
-    /// entry is appended. `missing_fields`/`warnings` are derived from the
-    /// stored result. The free `update_build_restrictions` wrapper and every
-    /// replan route here, so the two normalization passes that used to drift
-    /// can no longer disagree.
-    pub(super) fn try_apply(
-        &mut self,
-        base_revision: u64,
-        patch: BuildRestrictionPatch,
-        source: BuildRestrictionChangeSource,
-        summary: impl Into<String>,
-    ) -> Result<UpdateBuildRestrictionsOutput> {
-        if base_revision != self.revision {
-            return Err(CoreError::other(format!(
-                "update_build_restrictions revision mismatch: expected {}, got {}",
-                self.revision, base_revision
-            )));
-        }
-
-        let mut warnings = Vec::new();
-        let minecraft_version = patch
-            .minecraft_version
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .and_then(|s| {
-                if is_minecraft_version(s) {
-                    Some(s.to_string())
-                } else {
-                    warnings.push(format!("ignored invalid minecraft_version: {s}"));
-                    None
-                }
-            });
-        let minecraft_version_requirement = patch
-            .minecraft_version_requirement
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(ToOwned::to_owned)
-            .or_else(|| minecraft_version.clone());
-        let loader = patch.loader.as_deref().and_then(normalize_loader);
-        if patch.loader.is_some() && loader.is_none() {
-            warnings.push("ignored unsupported loader".to_string());
-        }
-        let notes = patch
-            .notes
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(ToOwned::to_owned);
-        let normalized = BuildRestrictionPatch {
-            minecraft_version,
-            minecraft_version_requirement,
-            loader,
-            feature_tags: normalize_feature_tags(patch.feature_tags),
-            notes,
-        };
-
-        self.minecraft_version = normalized.minecraft_version.clone();
-        self.minecraft_version_requirement = normalized.minecraft_version_requirement.clone();
-        self.loader = normalized.loader.clone();
-        self.feature_tags = normalized.feature_tags.clone();
-        self.notes = normalized.notes.clone();
-        self.revision += 1;
-        self.history.push(BuildRestrictionChange {
-            revision: self.revision,
-            source,
-            patch: normalized,
-            summary: summary.into(),
-        });
-
-        Ok(UpdateBuildRestrictionsOutput {
-            missing_fields: missing_restriction_fields(self),
-            restrictions: self.clone(),
-            warnings,
-        })
-    }
-
-    /// Project the current restrictions into an update output *without* applying
-    /// a patch, deriving `missing_fields` exactly as [`Self::try_apply`] does.
-    /// Gates that must surface the existing restrictions plus a contextual
-    /// warning (customization/execution blocks) use this so they never re-derive
-    /// the output shape by hand.
-    pub(super) fn as_update_output(&self, warnings: Vec<String>) -> UpdateBuildRestrictionsOutput {
-        UpdateBuildRestrictionsOutput {
-            missing_fields: missing_restriction_fields(self),
-            restrictions: self.clone(),
-            warnings,
-        }
-    }
-}
-
-/// Which hard-requirement fields are still unset. Kept next to [`BuildRestrictions::try_apply`]
-/// since both the applied output and the projected output derive from it.
-fn missing_restriction_fields(restrictions: &BuildRestrictions) -> Vec<String> {
-    let mut missing = Vec::new();
-    if restrictions.minecraft_version.is_none() {
-        missing.push("minecraft_version".to_string());
-    }
-    if restrictions.loader.is_none() {
-        missing.push("loader".to_string());
-    }
-    missing
-}
-
-/// A permissive "looks like a Minecraft release" check (`1.x[.y[.z]]`).
-pub(super) fn is_minecraft_version(value: &str) -> bool {
-    let parts = value.split('.').collect::<Vec<_>>();
-    parts.len() >= 2
-        && parts.len() <= 4
-        && parts.first() == Some(&"1")
-        && parts
-            .iter()
-            .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
-}
-
-/// Whitelist a loader name to its canonical lowercase form, or `None` if
-/// unsupported.
-pub(super) fn normalize_loader(value: &str) -> Option<String> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "fabric" => Some("fabric".to_string()),
-        "forge" => Some("forge".to_string()),
-        "neoforge" | "neo forge" => Some("neoforge".to_string()),
-        "quilt" => Some("quilt".to_string()),
-        _ => None,
-    }
-}
-
-/// Trim + lowercase feature tags, cap at eight, then dedupe (first occurrence
-/// wins). The cap is applied before the dedupe so it matches the pre-refactor
-/// authoritative pass exactly.
-fn normalize_feature_tags(tags: Vec<String>) -> Vec<String> {
-    let mut seen = HashSet::new();
-    tags.into_iter()
-        .map(|tag| tag.trim().to_ascii_lowercase())
-        .filter(|tag| !tag.is_empty())
-        .take(8)
-        .filter(|tag| seen.insert(tag.clone()))
-        .collect()
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct BuildRestrictionPatch {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub minecraft_version: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub minecraft_version_requirement: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub loader: Option<String>,
-    #[serde(default)]
-    pub feature_tags: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub notes: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct UpdateBuildRestrictionsInput {
-    pub base_revision: u64,
-    pub patch: BuildRestrictionPatch,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct UpdateBuildRestrictionsOutput {
-    pub restrictions: BuildRestrictions,
-    #[serde(default)]
-    pub missing_fields: Vec<String>,
-    #[serde(default)]
-    pub warnings: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct BuildRestrictionChange {
-    pub revision: u64,
-    pub source: BuildRestrictionChangeSource,
-    pub patch: BuildRestrictionPatch,
-    pub summary: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum BuildRestrictionChangeSource {
-    InitialPrompt,
-    UserRevise,
-    UiEdit,
-}
+pub use restrictions::{
+    BuildRestrictionChange, BuildRestrictionChangeSource, BuildRestrictionPatch, BuildRestrictions,
+    BuildRestrictionsLlmView, UpdateBuildRestrictionsInput, UpdateBuildRestrictionsOutput,
+};
+pub(in crate::agent) use restrictions::{is_minecraft_version, normalize_loader};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TargetCompatibility {
@@ -813,7 +797,7 @@ pub struct GoalQuery {
 }
 
 /// The structured plan approved by a human at the end of
-/// `ModpackBuildWorkflow` planning. This is plan metadata: it captures what
+/// modpack-build agent planning. This is plan metadata: it captures what
 /// the user approved plus a deterministic execution recipe. The executor owns
 /// any later execution manifest generated from this recipe.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -898,379 +882,4 @@ fn now_ms() -> u128 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn new_snapshot_starts_running_at_intent_phase() {
-        let run = AgentRunSnapshot::new("make an aviation colony pack");
-        assert_eq!(run.workflow, AgentWorkflowKind::ModpackBuild);
-        assert_eq!(run.schema_version, AGENT_SNAPSHOT_SCHEMA_VERSION);
-        assert_eq!(run.status, AgentStatus::Running);
-        assert_eq!(run.phase, AgentPhase::IntentExtraction);
-        assert!(run.pending_approval.is_none());
-        assert!(run.restrictions.is_none());
-        assert!(run.id.starts_with("agent-run-"));
-    }
-
-    #[test]
-    fn transition_methods_keep_status_and_pending_approval_in_lockstep() {
-        let approval = ApprovalRequest {
-            id: "approval-test".to_string(),
-            kind: ApprovalKind::ChooseBasePack,
-            title: "title".to_string(),
-            message: "message".to_string(),
-            options: Vec::new(),
-            available_decisions: Vec::new(),
-            tools: Vec::new(),
-            plan: None,
-        };
-        let plan = ModpackAgentPlan {
-            objective: "objective".to_string(),
-            summary_markdown: "summary".to_string(),
-            risks: Vec::new(),
-            planned_actions: Vec::new(),
-            migration_notes: Vec::new(),
-        };
-
-        let mut run = AgentRunSnapshot::new("make a pack");
-
-        // request_approval pauses at WaitingForUser with the approval + plan held.
-        run.request_approval(
-            AgentPhase::ChooseBasePackApproval,
-            approval.clone(),
-            Some(plan.clone()),
-        );
-        assert_eq!(run.status, AgentStatus::WaitingForUser);
-        assert_eq!(run.phase, AgentPhase::ChooseBasePackApproval);
-        assert!(run.pending_approval.is_some());
-        assert!(run.plan.is_some());
-
-        // enter_phase leaves the gate into Running and clears the pending approval.
-        run.enter_phase(AgentPhase::Executing);
-        assert_eq!(run.status, AgentStatus::Running);
-        assert_eq!(run.phase, AgentPhase::Executing);
-        assert!(run.pending_approval.is_none());
-
-        // complete() from a re-entered gate must clear the pending approval.
-        run.request_approval(
-            AgentPhase::ConfirmCustomizationApproval,
-            approval.clone(),
-            None,
-        );
-        assert!(run.pending_approval.is_some());
-        run.complete(AgentPhase::Completed);
-        assert_eq!(run.status, AgentStatus::Completed);
-        assert_eq!(run.phase, AgentPhase::Completed);
-        assert!(run.pending_approval.is_none());
-
-        // fail() from a re-entered gate must likewise clear the pending approval.
-        run.request_approval(AgentPhase::ConfirmCustomizationApproval, approval, None);
-        assert!(run.pending_approval.is_some());
-        run.fail(AgentPhase::Failed);
-        assert_eq!(run.status, AgentStatus::Failed);
-        assert_eq!(run.phase, AgentPhase::Failed);
-        assert!(run.pending_approval.is_none());
-    }
-
-    #[test]
-    fn snapshot_messages_are_soft_capped_and_keep_original_prompt() {
-        let mut run = AgentRunSnapshot::new("original prompt");
-        run.push_message(AgentMessageKind::User, "original prompt");
-
-        for idx in 0..(MAX_AGENT_MESSAGES + 25) {
-            run.push_message(AgentMessageKind::Assistant, format!("revision {idx}"));
-        }
-
-        assert_eq!(run.messages.len(), MAX_AGENT_MESSAGES);
-        assert_eq!(run.messages[0].kind, AgentMessageKind::User);
-        assert_eq!(run.messages[0].text, "original prompt");
-        assert_eq!(
-            run.messages.last().map(|message| message.text.as_str()),
-            Some(format!("revision {}", MAX_AGENT_MESSAGES + 24).as_str())
-        );
-    }
-
-    #[test]
-    fn snapshot_trace_and_replans_are_soft_capped() {
-        let mut run = AgentRunSnapshot::new("make a pack");
-
-        for idx in 0..(MAX_AGENT_TRACE_EVENTS + 10) {
-            run.push_trace(format!("trace {idx}"));
-        }
-        for idx in 0..(MAX_AGENT_REPLANS + 10) {
-            run.push_replan(PlanReplanRequest {
-                id: format!("replan-{idx}"),
-                reason: format!("reason {idx}"),
-                from_phase: AgentPhase::ChooseBasePackApproval,
-                target_phase: AgentPhase::ConfigureRequirementsApproval,
-                restriction_patch: None,
-                invalidates: vec![PlanArtifact::BasePack],
-            });
-        }
-
-        assert_eq!(run.trace.len(), MAX_AGENT_TRACE_EVENTS);
-        assert_eq!(
-            run.trace.first().map(|event| event.event.as_str()),
-            Some("trace 10")
-        );
-        assert_eq!(
-            run.trace.last().map(|event| event.event.as_str()),
-            Some(format!("trace {}", MAX_AGENT_TRACE_EVENTS + 9).as_str())
-        );
-        assert_eq!(run.replans.len(), MAX_AGENT_REPLANS);
-        assert_eq!(
-            run.replans.first().map(|replan| replan.id.as_str()),
-            Some("replan-10")
-        );
-        assert_eq!(
-            run.replans.last().map(|replan| replan.id.as_str()),
-            Some(format!("replan-{}", MAX_AGENT_REPLANS + 9).as_str())
-        );
-    }
-
-    /// Table-driven coverage of the single authoritative normalization pass that
-    /// `try_apply` now owns. Every case starts from a fresh default (revision 0)
-    /// and asserts the final stored fields, plus derived `missing_fields` and
-    /// `warnings`, match the pre-refactor `update_build_restrictions` behavior.
-    #[test]
-    fn try_apply_runs_single_authoritative_normalization_pass() {
-        struct Case {
-            name: &'static str,
-            patch: BuildRestrictionPatch,
-            version: Option<&'static str>,
-            requirement: Option<&'static str>,
-            loader: Option<&'static str>,
-            tags: Vec<&'static str>,
-            notes: Option<&'static str>,
-            missing: Vec<&'static str>,
-            warnings: Vec<&'static str>,
-        }
-
-        let cases = vec![
-            Case {
-                name: "valid target; tags trimmed+lowercased+deduped; requirement backfilled",
-                patch: BuildRestrictionPatch {
-                    minecraft_version: Some("1.20.1".to_string()),
-                    minecraft_version_requirement: None,
-                    loader: Some("Fabric".to_string()),
-                    feature_tags: vec![
-                        " Perf ".to_string(),
-                        "perf".to_string(),
-                        "QoL".to_string(),
-                    ],
-                    notes: Some("  keep this  ".to_string()),
-                },
-                version: Some("1.20.1"),
-                requirement: Some("1.20.1"),
-                loader: Some("fabric"),
-                tags: vec!["perf", "qol"],
-                notes: Some("keep this"),
-                missing: vec![],
-                warnings: vec![],
-            },
-            Case {
-                name: "invalid version dropped WITH a warning (authoritative), not silently",
-                patch: BuildRestrictionPatch {
-                    minecraft_version: Some("99.99".to_string()),
-                    minecraft_version_requirement: None,
-                    loader: Some("forge".to_string()),
-                    feature_tags: vec![],
-                    notes: None,
-                },
-                version: None,
-                requirement: None,
-                loader: Some("forge"),
-                tags: vec![],
-                notes: None,
-                missing: vec!["minecraft_version"],
-                warnings: vec!["ignored invalid minecraft_version: 99.99"],
-            },
-            Case {
-                name: "unsupported loader dropped with a warning; raw requirement preserved",
-                patch: BuildRestrictionPatch {
-                    minecraft_version: None,
-                    minecraft_version_requirement: Some(" 1.20.x ".to_string()),
-                    loader: Some("modloader".to_string()),
-                    feature_tags: vec!["adventure".to_string()],
-                    notes: None,
-                },
-                version: None,
-                requirement: Some("1.20.x"),
-                loader: None,
-                tags: vec!["adventure"],
-                notes: None,
-                missing: vec!["minecraft_version", "loader"],
-                warnings: vec!["ignored unsupported loader"],
-            },
-            Case {
-                name: "tags capped at 8 BEFORE dedupe, then case-folded dedupe collapses",
-                patch: BuildRestrictionPatch {
-                    minecraft_version: Some("1.19.2".to_string()),
-                    minecraft_version_requirement: Some("1.19.2".to_string()),
-                    loader: Some("NeoForge".to_string()),
-                    feature_tags: vec![
-                        "A".to_string(),
-                        "a".to_string(),
-                        "B".to_string(),
-                        "b".to_string(),
-                        "C".to_string(),
-                        "c".to_string(),
-                        "D".to_string(),
-                        "d".to_string(),
-                        "E".to_string(),
-                        "e".to_string(),
-                    ],
-                    notes: None,
-                },
-                version: Some("1.19.2"),
-                requirement: Some("1.19.2"),
-                loader: Some("neoforge"),
-                tags: vec!["a", "b", "c", "d"],
-                notes: None,
-                missing: vec![],
-                warnings: vec![],
-            },
-            Case {
-                name: "empty patch leaves both hard fields missing",
-                patch: BuildRestrictionPatch {
-                    minecraft_version: None,
-                    minecraft_version_requirement: None,
-                    loader: None,
-                    feature_tags: vec![],
-                    notes: None,
-                },
-                version: None,
-                requirement: None,
-                loader: None,
-                tags: vec![],
-                notes: None,
-                missing: vec!["minecraft_version", "loader"],
-                warnings: vec![],
-            },
-        ];
-
-        for case in cases {
-            let mut restrictions = BuildRestrictions::default();
-            let output = restrictions
-                .try_apply(
-                    0,
-                    case.patch,
-                    BuildRestrictionChangeSource::InitialPrompt,
-                    "test",
-                )
-                .unwrap_or_else(|err| panic!("{}: try_apply should succeed: {err}", case.name));
-
-            assert_eq!(
-                output.restrictions.minecraft_version.as_deref(),
-                case.version,
-                "{}: minecraft_version",
-                case.name
-            );
-            assert_eq!(
-                output.restrictions.minecraft_version_requirement.as_deref(),
-                case.requirement,
-                "{}: minecraft_version_requirement",
-                case.name
-            );
-            assert_eq!(
-                output.restrictions.loader.as_deref(),
-                case.loader,
-                "{}: loader",
-                case.name
-            );
-            let tags: Vec<&str> = output
-                .restrictions
-                .feature_tags
-                .iter()
-                .map(String::as_str)
-                .collect();
-            assert_eq!(tags, case.tags, "{}: feature_tags", case.name);
-            assert_eq!(
-                output.restrictions.notes.as_deref(),
-                case.notes,
-                "{}: notes",
-                case.name
-            );
-            let missing: Vec<&str> = output.missing_fields.iter().map(String::as_str).collect();
-            assert_eq!(missing, case.missing, "{}: missing_fields", case.name);
-            let warnings: Vec<&str> = output.warnings.iter().map(String::as_str).collect();
-            assert_eq!(warnings, case.warnings, "{}: warnings", case.name);
-
-            // The revision always advances by one and the returned view mirrors
-            // the mutated receiver exactly.
-            assert_eq!(output.restrictions.revision, 1, "{}: revision", case.name);
-            assert_eq!(output.restrictions, restrictions, "{}: mirrors self", case.name);
-        }
-    }
-
-    #[test]
-    fn try_apply_bumps_revision_and_appends_normalized_history() {
-        let mut restrictions = BuildRestrictions {
-            revision: 4,
-            ..Default::default()
-        };
-        let output = restrictions
-            .try_apply(
-                4,
-                BuildRestrictionPatch {
-                    minecraft_version: Some("1.20.1".to_string()),
-                    minecraft_version_requirement: None,
-                    loader: Some("Fabric".to_string()),
-                    feature_tags: vec![" Combat ".to_string(), "combat".to_string()],
-                    notes: None,
-                },
-                BuildRestrictionChangeSource::UserRevise,
-                "revise to fabric 1.20.1",
-            )
-            .expect("apply should succeed on a matching base revision");
-
-        assert_eq!(restrictions.revision, 5);
-        assert_eq!(output.restrictions.revision, 5);
-        assert_eq!(restrictions.history.len(), 1);
-        let change = &restrictions.history[0];
-        assert_eq!(change.revision, 5);
-        assert_eq!(change.source, BuildRestrictionChangeSource::UserRevise);
-        assert_eq!(change.summary, "revise to fabric 1.20.1");
-        // History stores the NORMALIZED patch, not the raw model output.
-        assert_eq!(change.patch.loader.as_deref(), Some("fabric"));
-        assert_eq!(change.patch.feature_tags, vec!["combat".to_string()]);
-        assert_eq!(
-            change.patch.minecraft_version_requirement.as_deref(),
-            Some("1.20.1")
-        );
-    }
-
-    #[test]
-    fn try_apply_rejects_revision_mismatch_without_mutating() {
-        let mut restrictions = BuildRestrictions {
-            revision: 3,
-            minecraft_version: Some("1.20.1".to_string()),
-            minecraft_version_requirement: Some("1.20.1".to_string()),
-            loader: Some("fabric".to_string()),
-            ..Default::default()
-        };
-        let before = restrictions.clone();
-        let err = restrictions
-            .try_apply(
-                2,
-                BuildRestrictionPatch {
-                    minecraft_version: Some("1.19.2".to_string()),
-                    minecraft_version_requirement: None,
-                    loader: Some("forge".to_string()),
-                    feature_tags: vec![],
-                    notes: None,
-                },
-                BuildRestrictionChangeSource::UserRevise,
-                "stale write",
-            )
-            .expect_err("a stale base_revision must be rejected");
-
-        assert!(
-            err.to_string().contains("revision mismatch"),
-            "unexpected error: {err}"
-        );
-        // The optimistic-concurrency guard leaves the receiver untouched.
-        assert_eq!(restrictions, before);
-    }
-}
+mod tests;

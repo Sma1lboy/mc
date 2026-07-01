@@ -1,14 +1,13 @@
 //! Rig-backed LLM runtime for the agent.
 //!
 //! The workflow owns durable state and phase transitions. This module only
-//! owns model configuration and typed structured-output calls.
+//! owns model configuration and text completion calls.
 
 use std::path::{Path, PathBuf};
 
-use rig_core::prelude::{CompletionClient, TypedPrompt};
+use rig_core::completion::Prompt;
+use rig_core::prelude::CompletionClient;
 use rig_core::providers::openrouter;
-use schemars::JsonSchema;
-use serde::de::DeserializeOwned;
 
 use crate::error::{CoreError, Result};
 
@@ -98,16 +97,13 @@ impl AgentLlmClient {
         &self.config.model
     }
 
-    pub(crate) async fn prompt_typed<T>(
+    pub(crate) async fn prompt_text(
         &self,
         instructions: &[&str],
         input: String,
         max_output_tokens: u64,
         temperature: f64,
-    ) -> Result<T>
-    where
-        T: JsonSchema + DeserializeOwned + Send + 'static,
-    {
+    ) -> Result<String> {
         let preamble = instructions
             .iter()
             .map(|s| s.trim())
@@ -122,10 +118,9 @@ impl AgentLlmClient {
             .max_tokens(max_output_tokens)
             .build();
         agent
-            .prompt_typed::<T>(input)
-            .max_turns(1)
+            .prompt(input)
             .await
-            .map_err(|e| CoreError::other(format!("Rig structured output failed: {e}")))
+            .map_err(|e| CoreError::other(format!("Rig text prompt failed: {e}")))
     }
 }
 

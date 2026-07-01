@@ -174,8 +174,7 @@ pub(super) fn requirements_plan(
             requirement_description(output)
         ),
         risks: if missing.is_empty() {
-            vec!["No search/export/write work runs before requirements are confirmed."
-                .to_string()]
+            vec!["No search/export/write work runs before requirements are confirmed.".to_string()]
         } else {
             vec![format!(
                 "Missing requirements: {}. If confirmed, search continues with broader constraints and relaxed compatibility filters.",
