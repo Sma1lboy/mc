@@ -6,6 +6,7 @@ import {
   on,
   onMount,
   onCleanup,
+  untrack,
   For,
   Show,
 } from "solid-js";
@@ -1021,8 +1022,10 @@ export const InstanceManageDialog: Component<{
             );
         })
         .catch((e) => toast({ type: "error", message: t("instance.readConfigFailed", { err: String(e) }) }));
-      // 系统内存只取一次;推荐值按本实例 mod 数计算,随实例变化。
-      if (sysTotalMb() === null)
+      // 系统内存只取一次;推荐值按本实例 mod 数计算,随实例变化。untrack 读——否则本
+      // effect 会订阅它自己 set 的 sysTotalMb,首次解析(null→值)重跑整个 effect、
+      // 重复拉 getInstanceConfig/suggestInstanceMemory 并闪一下配置 spinner。
+      if (untrack(sysTotalMb) === null)
         api.systemMemory().then((m) => setSysTotalMb(m.total_mb)).catch(() => {});
       api.suggestInstanceMemory(activeRoot(), inst.id).then(setSuggestedMb).catch(() => {});
     } else if (!active()) {
