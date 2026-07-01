@@ -1,6 +1,6 @@
-import { Component, JSX } from "solid-js";
-import { Portal } from "solid-js/web";
-import { Tooltip as Ark } from "@ark-ui/solid/tooltip";
+import type { ReactNode } from "react";
+import { Tooltip as Ark } from "@ark-ui/react/tooltip";
+import { Portal } from "@ark-ui/react/portal";
 
 /**
  * Tooltip —— 基于 Ark UI(headless)的house-styled 悬浮提示。
@@ -8,32 +8,32 @@ import { Tooltip as Ark } from "@ark-ui/solid/tooltip";
  */
 export interface TooltipProps {
   /** 提示内容(文本或任意节点)。 */
-  content: JSX.Element;
+  content: ReactNode;
   /** 触发元素(图标/按钮等);Trigger 自身渲染成 button。 */
-  children: JSX.Element;
+  children: ReactNode;
   placement?: "top" | "bottom" | "left" | "right";
   openDelay?: number;
 }
 
-export const Tooltip: Component<TooltipProps> = (props) => {
+export function Tooltip({ content, children, placement, openDelay }: TooltipProps) {
   return (
     <Ark.Root
-      openDelay={props.openDelay ?? 300}
+      openDelay={openDelay ?? 300}
       closeDelay={80}
-      positioning={{ placement: props.placement ?? "top" }}
+      positioning={{ placement: placement ?? "top" }}
     >
-      <Ark.Trigger class="inline-flex items-center bg-transparent border-none p-0 cursor-help text-muted hover:text-fg transition-colors duration-150">
-        {props.children}
+      <Ark.Trigger className="inline-flex items-center bg-transparent border-none p-0 cursor-help text-muted hover:text-fg transition-colors duration-150">
+        {children}
       </Ark.Trigger>
       <Portal>
         <Ark.Positioner>
-          <Ark.Content class="z-[300] max-w-[280px] px-[10px] py-[6px] rounded-none border border-titlebar bg-panel-2 shadow-raised text-fg text-[12px] leading-[1.5]">
-            {props.content}
+          <Ark.Content className="z-[300] max-w-[280px] px-[10px] py-[6px] rounded-none border border-titlebar bg-panel-2 shadow-raised text-fg text-[12px] leading-[1.5]">
+            {content}
           </Ark.Content>
         </Ark.Positioner>
       </Portal>
     </Ark.Root>
   );
-};
+}
 
 export default Tooltip;

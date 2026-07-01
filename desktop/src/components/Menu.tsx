@@ -1,6 +1,6 @@
-import { JSX } from "solid-js";
-import { Portal } from "solid-js/web";
-import { Menu as Ark } from "@ark-ui/solid/menu";
+import type { ReactNode } from "react";
+import { Menu as Ark } from "@ark-ui/react/menu";
+import { Portal } from "@ark-ui/react/portal";
 
 /**
  * Menu —— 基于 Ark UI(headless)的house-styled 菜单 seam,与 Select/Tooltip/Dialog
@@ -24,22 +24,22 @@ const ITEM_DANGER =
   "text-danger-text data-[highlighted]:bg-danger-soft motion-reduce:transition-none";
 
 interface MenuContentProps {
-  children: JSX.Element;
+  children: ReactNode;
   /** 追加类名(如收窄/加宽);默认外壳已含 z/边框/圆角/底色/阴影。 */
-  class?: string;
+  className?: string;
 }
-function MenuContent(props: MenuContentProps): JSX.Element {
+function MenuContent({ children, className }: MenuContentProps) {
   return (
     <Portal>
       <Ark.Positioner>
         <Ark.Content
-          class={
+          className={
             "z-[300] min-w-[168px] p-[4px] rounded-none bg-panel-2 text-fg border border-titlebar shadow-raised " +
             "flex flex-col gap-[2px] text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent " +
-            (props.class ?? "")
+            (className ?? "")
           }
         >
-          {props.children}
+          {children}
         </Ark.Content>
       </Ark.Positioner>
     </Portal>
@@ -49,22 +49,22 @@ function MenuContent(props: MenuContentProps): JSX.Element {
 interface MenuItemProps {
   value: string;
   danger?: boolean;
-  class?: string;
-  children: JSX.Element;
+  className?: string;
+  children: ReactNode;
 }
-function MenuItem(props: MenuItemProps): JSX.Element {
+function MenuItem({ value, danger, className, children }: MenuItemProps) {
   return (
     <Ark.Item
-      value={props.value}
-      class={(props.danger ? ITEM_DANGER : ITEM_NORMAL) + (props.class ? " " + props.class : "")}
+      value={value}
+      className={(danger ? ITEM_DANGER : ITEM_NORMAL) + (className ? " " + className : "")}
     >
-      {props.children}
+      {children}
     </Ark.Item>
   );
 }
 
-function MenuSeparator(props: { class?: string }): JSX.Element {
-  return <Ark.Separator class={"my-[4px] h-px bg-titlebar border-none " + (props.class ?? "")} />;
+function MenuSeparator({ className }: { className?: string }) {
+  return <Ark.Separator className={"my-[4px] h-px bg-titlebar border-none " + (className ?? "")} />;
 }
 
 export const Menu = {
