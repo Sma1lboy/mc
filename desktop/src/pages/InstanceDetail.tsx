@@ -8,7 +8,7 @@ import { api, onInstallProgress } from "../ipc/api";
 import { cached } from "../ipc/cache";
 import { openInstanceDir, deleteInstance } from "../util/instanceActions";
 import { loaderLabel as fmtLoader } from "../util/loaders";
-import { activeRoot, isRunning, isLaunching, playInstance, currentInstanceId, closeInstance, openInstance, refreshInstances, socialEnabled } from "../store";
+import { activeRoot, isRunning, isLaunching, playInstance, currentInstanceId, closeInstance, openInstance, instances, refreshInstances, socialEnabled } from "../store";
 import { renderMarkdown } from "../util/markdown";
 import { t } from "../i18n";
 import "./ModpackDetail.css"; // .md 样式(整合包更新日志渲染)
@@ -20,15 +20,10 @@ import "./ModpackDetail.css"; // .md 样式(整合包更新日志渲染)
  * 由 store.openInstance(id) 进入,closeInstance() 返回来源页。
  */
 const InstanceDetail: Component = () => {
-  const [data, { refetch }] = createResource(
-    () => [activeRoot(), currentInstanceId()] as const,
-    async ([root, id]) => {
-      if (!id) return null;
-      const list = await api.listInstances(root);
-      return list.find((i) => i.id === id) ?? null;
-    },
-  );
-  const inst = () => data() ?? null;
+  // 从全局 store 的 instances() 派生,别再自持一份"整机实例列表"的 resource:开详情时
+  // 就不会多打一次 listInstances,也不会在 pending 时闪 t('instance.loading')——数据本就
+  // 在内存里(store 声明它是 library/home/rail/安装目标 的唯一来源)。刷新走 refreshInstances()。
+  const inst = () => (instances() ?? []).find((i) => i.id === currentInstanceId()) ?? null;
   // 整合包更新检查(仅对由 Modrinth 整合包安装的实例返回非空);失败/无来源都安静返回空。
   const [updates, { refetch: refetchUpdates }] = createResource(
     () => currentInstanceId(),
@@ -66,7 +61,6 @@ const InstanceDetail: Component = () => {
     void api.backfillInstanceIcon(activeRoot(), i.id, url).then((done) => {
       if (done) {
         refreshInstances();
-        void refetch();
       }
     });
   });
@@ -95,7 +89,7 @@ const InstanceDetail: Component = () => {
       if (out.removed.length > 0)
         toast({ type: "info", message: t("instance.updateRemoved", { count: out.removed.length }) });
       setUpdateOpen(false);
-      void refetch();
+      void refreshInstances();
       void refetchUpdates();
     } catch (e) {
       toast({ type: "error", message: t("instance.updateFailed", { err: String(e) }) });
@@ -122,7 +116,6 @@ const InstanceDetail: Component = () => {
     try {
       await api.setInstanceTags(activeRoot(), i.id, next);
       refreshInstances();
-      void refetch();
     } catch (e) {
       toast({ type: "error", message: t("tags.saveError", { err: String(e) }) });
     }
@@ -375,7 +368,7 @@ const InstanceDetail: Component = () => {
       <Show when={socialEnabled() && !browsing() && !inst()?.realm && inst()}>
         {(i) => (
           <div class="shrink-0 border-b border-titlebar overflow-y-auto max-h-[55vh]">
-            <RealmPanel instance={i()} onChanged={() => void refetch()} />
+            <RealmPanel instance={i()} onChanged={() => void refreshInstances()} />
           </div>
         )}
       </Show>
@@ -388,7 +381,7 @@ const InstanceDetail: Component = () => {
               embedded
               open
               instance={i()}
-              onChanged={() => void refetch()}
+              onChanged={() => void refreshInstances()}
               onCopied={(newId) => openInstance(newId)}
               onBrowsingChange={setBrowsing}
             />
