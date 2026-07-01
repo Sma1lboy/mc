@@ -1,8 +1,7 @@
 {
   "compilerOptions": {
-    /* SolidJS 要求把 JSX 交给它自己的编译器处理:preserve + jsxImportSource。 */
-    "jsx": "preserve",
-    "jsxImportSource": "solid-js",
+    /* React 17+ 自动运行时:无需手动 import React。 */
+    "jsx": "react-jsx",
 
     /* 现代 ES 目标,配合 Vite 的 esnext 产物。 */
     "target": "ESNext",
