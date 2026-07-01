@@ -21,6 +21,7 @@ import {
   onCleanup,
   onMount,
   createRenderEffect,
+  untrack,
   children as resolveChildren,
   type Accessor,
   type JSX,
@@ -28,7 +29,7 @@ import {
 
 import { DUR } from "./tokens";
 import { type EasingFn, EASINGS } from "./easings";
-import { animate, type AnimationHandle } from "./engine";
+import { animate, cancelKey, type AnimationHandle } from "./engine";
 import { reduced } from "./reduced";
 import { PRESETS, staggerDelay, type MotionPreset, type PresetName } from "./presets";
 
@@ -55,6 +56,8 @@ export function createTween(
 ): [Accessor<number>, (to: number, opts?: TweenToOptions) => AnimationHandle] {
   const [value, setValue] = createSignal<number>(initial);
   const key = `tween#${nextTweenId++}`;
+  // 拥有者卸载时取消在飞的 tween,别让 rAF 继续对已卸载组件的 setValue 空转。
+  onCleanup(() => cancelKey(key));
 
   const animateTo = (to: number, opts: TweenToOptions = {}): AnimationHandle => {
     if (opts.immediate) {
@@ -212,8 +215,10 @@ export function Presence(props: PresenceProps): JSX.Element {
       return;
     }
 
-    // incoming 变空:对当前 held 的 DOM 跑退场,播完清空。
-    const current = held();
+    // incoming 变空:对当前 held 的 DOM 跑退场,播完清空。held 是本 effect 自己写的
+    // 信号(equals:false),必须 untrack 读——否则 setHeld 会重排本 effect,退场清空
+    // 时 undefined→undefined 无限自触发。渲染处 `<>{held()}</>` 仍响应式读它。
+    const current = untrack(held);
     if (isEmptyChild(current) || exiting) {
       if (isEmptyChild(current)) setHeld(() => undefined);
       return;
