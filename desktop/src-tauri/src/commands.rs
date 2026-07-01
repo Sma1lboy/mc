@@ -6,6 +6,13 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+use mc_core::agent::chat::{
+    tool_build_modpack, tool_inspect_base_modpack, tool_mod_get_detail, tool_resolve_mods,
+    tool_search_base_modpacks, tool_search_mods, BuildModpackArgs, BuildModpackOutput,
+    InspectBaseModpackArgs, InspectBaseModpackOutput, ModGetDetailArgs, ModGetDetailOutput,
+    ResolveModsArgs, ResolveModsOutput, SearchBaseModpacksArgs, SearchBaseModpacksOutput,
+    SearchModsArgs, SearchModsOutput,
+};
 use mc_core::agent::{run_chat_turn, ChatEventSink, ChatToolsCtx, ChatTranscript};
 use mc_core::auth::{AccountStore, MsaClient, StoredAccount};
 use mc_core::download::Downloader;
@@ -3280,4 +3287,116 @@ pub fn agent_chat_reset(state: State<'_, ChatSessions>, session_id: String) -> C
     state.reset(&session_id);
     mc_core::agent::delete_transcript(&data_dir(), &session_id).map_err(err)?;
     Ok(())
+}
+
+// --- agent deterministic tools (for a TS-side agent loop) -----------------
+//
+// The same six deterministic tools the Rust chat agent uses, exposed one-per-
+// command so a TS agent brain (Vercel AI SDK in the webview) can run the tool-use
+// loop itself and dispatch each tool via `invoke()`. Every command is a thin
+// wrapper over the single-source `tool_*` fn in `mc_core::agent::chat` — no logic
+// here. Safety is unchanged: the tools only ever return real provider/resolver
+// data, and `agent_tool_build_modpack` re-resolves every file through the provider.
+
+/// Shared, lazily-built [`ChatToolsCtx`] for the `agent_tool_*` commands: one
+/// provider registry (Modrinth + CurseForge-when-keyed) and one build output dir
+/// (`<data_dir>/agent/chat`), initialized once and reused across every tool call.
+#[derive(Default)]
+pub struct AgentToolsState(std::sync::OnceLock<ChatToolsCtx>);
+
+impl AgentToolsState {
+    fn ctx(&self) -> ChatToolsCtx {
+        self.0
+            .get_or_init(|| {
+                let registry =
+                    Arc::new(mc_core::modplatform::provider::ProviderRegistry::with_defaults());
+                ChatToolsCtx::new(registry, data_dir().join("agent").join("chat"))
+            })
+            .clone()
+    }
+}
+
+/// Search Modrinth for modpacks usable as a base pack.
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_tool_search_base_modpacks(
+    state: State<'_, AgentToolsState>,
+    args: SearchBaseModpacksArgs,
+) -> CmdResult<SearchBaseModpacksOutput> {
+    tool_search_base_modpacks(&state.ctx(), args).await.map_err(err)
+}
+
+/// Inspect a base modpack: its bundled mods and the feature areas it covers.
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_tool_inspect_base_modpack(
+    state: State<'_, AgentToolsState>,
+    args: InspectBaseModpackArgs,
+) -> CmdResult<InspectBaseModpackOutput> {
+    tool_inspect_base_modpack(&state.ctx(), args).await.map_err(err)
+}
+
+/// Search all registered providers for individual mods.
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_tool_search_mods(
+    state: State<'_, AgentToolsState>,
+    args: SearchModsArgs,
+) -> CmdResult<SearchModsOutput> {
+    tool_search_mods(&state.ctx(), args).await.map_err(err)
+}
+
+/// Get one mod's metadata plus the versions available for a target.
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_tool_mod_get_detail(
+    state: State<'_, AgentToolsState>,
+    args: ModGetDetailArgs,
+) -> CmdResult<ModGetDetailOutput> {
+    tool_mod_get_detail(&state.ctx(), args).await.map_err(err)
+}
+
+/// Resolve project ids into concrete, download-ready files (walks dependencies).
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_tool_resolve_mods(
+    state: State<'_, AgentToolsState>,
+    args: ResolveModsArgs,
+) -> CmdResult<ResolveModsOutput> {
+    tool_resolve_mods(&state.ctx(), args).await.map_err(err)
+}
+
+/// Deterministically build + verify a `.mrpack` from a base pack (or scratch) plus
+/// extra mods. Writes to disk; the TS loop must gate this behind user confirmation.
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_tool_build_modpack(
+    state: State<'_, AgentToolsState>,
+    args: BuildModpackArgs,
+) -> CmdResult<BuildModpackOutput> {
+    tool_build_modpack(&state.ctx(), args).await.map_err(err)
+}
+
+/// The local OpenRouter config (key / model / base_url) resolved from env + the
+/// repo-root `.env` via [`AgentLlmConfig::from_local`].
+///
+/// NOTE: this hands the user's own API key to the webview so a TS agent loop can
+/// call OpenRouter directly. Acceptable for a local desktop app using the user's
+/// key; it never leaves this machine except to OpenRouter.
+#[derive(Serialize, specta::Type)]
+pub struct AgentLlmConfigDto {
+    pub api_key: String,
+    pub model: String,
+    pub base_url: String,
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn agent_llm_config() -> CmdResult<AgentLlmConfigDto> {
+    let cfg = mc_core::agent::AgentLlmConfig::from_local(&data_dir()).map_err(err)?;
+    Ok(AgentLlmConfigDto {
+        api_key: cfg.api_key,
+        model: cfg.model,
+        base_url: cfg.base_url,
+    })
 }

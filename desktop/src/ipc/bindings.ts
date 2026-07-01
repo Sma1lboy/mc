@@ -470,6 +470,22 @@ export const commands = {
 	 *  the next [`agent_chat`] starts a brand-new conversation.
 	 */
 	agentChatReset: (sessionId: string) => typedError<null, string>(__TAURI_INVOKE("agent_chat_reset", { sessionId })),
+	/**  Search Modrinth for modpacks usable as a base pack. */
+	agentToolSearchBaseModpacks: (args: SearchBaseModpacksArgs) => typedError<SearchBaseModpacksOutput, string>(__TAURI_INVOKE("agent_tool_search_base_modpacks", { args })),
+	/**  Inspect a base modpack: its bundled mods and the feature areas it covers. */
+	agentToolInspectBaseModpack: (args: InspectBaseModpackArgs) => typedError<InspectBaseModpackOutput, string>(__TAURI_INVOKE("agent_tool_inspect_base_modpack", { args })),
+	/**  Search all registered providers for individual mods. */
+	agentToolSearchMods: (args: SearchModsArgs) => typedError<SearchModsOutput, string>(__TAURI_INVOKE("agent_tool_search_mods", { args })),
+	/**  Get one mod's metadata plus the versions available for a target. */
+	agentToolModGetDetail: (args: ModGetDetailArgs) => typedError<ModGetDetailOutput, string>(__TAURI_INVOKE("agent_tool_mod_get_detail", { args })),
+	/**  Resolve project ids into concrete, download-ready files (walks dependencies). */
+	agentToolResolveMods: (args: ResolveModsArgs) => typedError<ResolveModsOutput, string>(__TAURI_INVOKE("agent_tool_resolve_mods", { args })),
+	/**
+	 *  Deterministically build + verify a `.mrpack` from a base pack (or scratch) plus
+	 *  extra mods. Writes to disk; the TS loop must gate this behind user confirmation.
+	 */
+	agentToolBuildModpack: (args: BuildModpackArgs) => typedError<BuildModpackOutput, string>(__TAURI_INVOKE("agent_tool_build_modpack", { args })),
+	agentLlmConfig: () => typedError<AgentLlmConfigDto, string>(__TAURI_INVOKE("agent_llm_config")),
 	/**  是否处于画廊模式(环境变量 `MC_GALLERY` 非空且非 "0")。前端据此决定是否自动跑截图流程。 */
 	galleryEnabled: () => typedError<boolean, string>(__TAURI_INVOKE("gallery_enabled")),
 	/**  抓「main」窗口当前画面到 `<data_dir>/gallery/<name>.png`,返回文件绝对路径。 */
@@ -491,6 +507,20 @@ export type AccountSummary = {
 	selected?: boolean,
 	/**  Whether the account owns Minecraft (Microsoft accounts only). */
 	owns_game?: boolean,
+};
+
+/**
+ *  The local OpenRouter config (key / model / base_url) resolved from env + the
+ *  repo-root `.env` via [`AgentLlmConfig::from_local`].
+ * 
+ *  NOTE: this hands the user's own API key to the webview so a TS agent loop can
+ *  call OpenRouter directly. Acceptable for a local desktop app using the user's
+ *  key; it never leaves this machine except to OpenRouter.
+ */
+export type AgentLlmConfigDto = {
+	api_key: string,
+	model: string,
+	base_url: string,
 };
 
 /**
@@ -540,12 +570,70 @@ export type AuthUser = {
 	username?: string | null,
 };
 
+export type BaseModpackCandidate = {
+	provider: string,
+	project_id: string,
+	slug: string,
+	title: string,
+	author: string,
+	downloads: number,
+	description: string,
+};
+
 /**  一个 blocked 文件(CurseForge 作者禁第三方分发)的 UI 视图:需用户手动下载。 */
 export type BlockedFileDto = {
 	name: string,
 	website_url: string,
 	target_dir: string,
 	required: boolean,
+};
+
+export type BuildBasePack = {
+	/**  Modrinth project id of the base pack. */
+	project_id: string,
+	/**  The exact base pack version id to build on (from inspect/search). */
+	version_id: string,
+	title?: string | null,
+	slug?: string | null,
+};
+
+export type BuildModRef = {
+	/**  "modrinth" (default) or "curseforge". */
+	provider?: string | null,
+	project_id: string,
+	/**  The resolved version id (from resolve_mods). */
+	version_id: string,
+	title?: string | null,
+};
+
+export type BuildModpackArgs = {
+	target: BuildTarget,
+	/**  The chosen base pack, or null to start from scratch (empty base). */
+	base_pack?: BuildBasePack | null,
+	/**  Extra mods to add, as resolved refs from resolve_mods. */
+	extra_mods?: BuildModRef[],
+	/**
+	 *  Output file name (no path). ".mrpack" is appended if missing. The launcher
+	 *  decides the directory; the model only names the file.
+	 */
+	output_filename: string,
+};
+
+export type BuildModpackOutput = {
+	status: string,
+	output_path: string | null,
+	output_size: number | null,
+	/**
+	 *  Full execution manifest for diagnostics (blocked reasons, counts, ...).
+	 *  Wire stays `serde_json::Value`; the specta override shapes the exported TS
+	 *  as [`JsonValue`] (specta can't inline recursive `serde_json::Value`).
+	 */
+	manifest: JsonValue,
+};
+
+export type BuildTarget = {
+	mc_version: string,
+	loader: string,
 };
 
 /**  profile 里的一条披风。`url` 是 PNG 预览;`alias` 是披风名(如 `Migrator`)。 */
@@ -700,6 +788,34 @@ export type ImportOutcomeDto = {
 	instance_id: string,
 	blocked: BlockedFileDto[],
 	skipped_optional: string[],
+};
+
+export type InspectBaseModpackArgs = {
+	/**  Modrinth project id of the base modpack (from search_base_modpacks). */
+	project_id: string,
+	/**  Target Minecraft version, used to pick the right pack version. */
+	mc_version?: string | null,
+	/**  Target loader, used to pick the right pack version. */
+	loader?: string | null,
+};
+
+export type InspectBaseModpackOutput = {
+	title: string,
+	mc_version: string | null,
+	loader: string | null,
+	mod_count: number,
+	mods: InspectedMod[],
+	/**
+	 *  Distinct mod categories present in the pack — a real, deterministic signal
+	 *  of which feature areas the base pack already covers. The model reads this
+	 *  to decide what still needs adding.
+	 */
+	covered_features: string[],
+};
+
+export type InspectedMod = {
+	title: string,
+	categories: string[],
 };
 
 /**  一个已成功安装的 mod 记录。 */
@@ -932,6 +1048,49 @@ export type ManifestVersion = {
 	sha1?: string,
 	/**  ISO-8601 release time. */
 	release_time?: string,
+};
+
+export type ModDetailProject = {
+	title: string,
+	slug: string,
+	description: string,
+	categories: string[],
+	downloads: number,
+};
+
+export type ModDetailVersion = {
+	version_id: string,
+	version_number: string,
+	game_versions: string[],
+	loaders: string[],
+	dependencies_count: number,
+	filename: string | null,
+};
+
+export type ModGetDetailArgs = {
+	/**  "modrinth" (default) or "curseforge". */
+	provider?: string | null,
+	/**  Project id of the mod (from search_mods / inspect_base_modpack). */
+	project_id: string,
+	/**  Target Minecraft version to filter versions by, e.g. "1.20.1". */
+	minecraft_version?: string | null,
+	/**  Target loader to filter versions by, e.g. "fabric". */
+	loader?: string | null,
+};
+
+export type ModGetDetailOutput = {
+	project: ModDetailProject,
+	/**  Newest first, capped so the payload stays bounded. */
+	versions: ModDetailVersion[],
+};
+
+export type ModHit = {
+	provider: string,
+	project_id: string,
+	slug: string,
+	title: string,
+	downloads: number,
+	description: string,
 };
 
 /**  单个本地 mod 的元数据视图。字段尽量贴近 UI 列表展示所需。 */
@@ -1188,6 +1347,43 @@ export type RealmSummary = {
 /**  The release channel of a Minecraft version. */
 export type ReleaseKind = "release" | "snapshot" | "old_beta" | "old_alpha";
 
+export type ResolveModsArgs = {
+	/**  Project ids to resolve. Each is a bare id (Modrinth) or "<provider>:<id>". */
+	project_ids: string[],
+	/**  Target Minecraft version. */
+	mc_version: string,
+	/**  Target loader. */
+	loader: string,
+	/**
+	 *  Project keys ("<provider>:<id>" or bare) already installed; treated as
+	 *  satisfied and not resolved again.
+	 */
+	already_installed?: string[] | null,
+};
+
+export type ResolveModsOutput = {
+	/**
+	 *  Concrete, download-ready file references (roots + required dependencies).
+	 *  These are the TRUSTED refs to pass to build_modpack.
+	 */
+	resolved: ResolvedModRef[],
+	/**  Project refs that have no version compatible with the target. */
+	unresolved: UnresolvedRef[],
+	/**  Project refs declared incompatible by a resolved version (conflicts). */
+	conflicts: UnresolvedRef[],
+};
+
+export type ResolvedModRef = {
+	provider: string,
+	project_id: string,
+	version_id: string,
+	filename: string,
+	url: string,
+	sha1: string | null,
+	sha512: string | null,
+	size: number | null,
+};
+
 /**  How a game-root directory was discovered. See `docs/07-directory-model-portability.md`. */
 export type RootKind = 
 /**  Detected next to / inside the launcher executable directory (portable). */
@@ -1217,6 +1413,19 @@ export type ScreenshotInfo = {
 	size: number,
 	/**  修改时间(epoch 毫秒;取不到为 0)。用于倒序排列。 */
 	modified: number,
+};
+
+export type SearchBaseModpacksArgs = {
+	/**  English search keywords describing the desired modpack. */
+	query: string,
+	/**  Target Minecraft version, e.g. "1.20.1". Omit to search all versions. */
+	mc_version?: string | null,
+	/**  Target loader, e.g. "fabric" / "quilt" / "forge" / "neoforge". */
+	loader?: string | null,
+};
+
+export type SearchBaseModpacksOutput = {
+	candidates: BaseModpackCandidate[],
 };
 
 /**
@@ -1255,6 +1464,19 @@ export type SearchHit = {
 	categories: string[],
 	client_side?: ProjectSideSupport,
 	server_side?: ProjectSideSupport,
+};
+
+export type SearchModsArgs = {
+	/**  English search keywords for the mod / feature to find. */
+	query: string,
+	/**  Target Minecraft version, e.g. "1.20.1". */
+	mc_version: string,
+	/**  Target loader, e.g. "fabric". */
+	loader: string,
+};
+
+export type SearchModsOutput = {
+	mods: ModHit[],
 };
 
 /**
@@ -1323,6 +1545,11 @@ export type ThemeConfig = {
 	saturation: number | null,
 	/**  Accent lightness 0-100. */
 	lightness: number | null,
+};
+
+export type UnresolvedRef = {
+	provider: string,
+	project_id: string,
 };
 
 /**
