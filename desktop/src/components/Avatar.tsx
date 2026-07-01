@@ -1,4 +1,4 @@
-import { Component, createEffect, createSignal } from "solid-js";
+import { useEffect, useState } from "react";
 
 /**
  * 玩家头像。正版(microsoft)账号按 uuid 去 Crafatar 取皮肤头像(带帽层);离线 /
@@ -25,28 +25,26 @@ export function skinBodyUrl(uuid: string | undefined): string {
   return `https://mc-heads.net/body/${id || "MHF_Steve"}/90`;
 }
 
-export const Avatar: Component<{
+export function Avatar(props: {
   uuid?: string;
   /** 账号类型;仅 "microsoft" 会去取真实皮肤,其余用 Steve。 */
   kind?: string;
-  class?: string;
+  className?: string;
   title?: string;
-}> = (props) => {
-  const [failed, setFailed] = createSignal(false);
+}): React.ReactElement {
+  const [failed, setFailed] = useState(false);
   // 账号变了就重置失败态,避免一次取失败后对新账号也只显示 Steve。
-  createEffect(() => {
-    props.uuid;
-    props.kind;
+  useEffect(() => {
     setFailed(false);
-  });
+  }, [props.uuid, props.kind]);
 
-  const online = () => props.kind === "microsoft" && !!props.uuid;
-  const src = () => (online() && !failed() ? headUrl(props.uuid) : STEVE_AVATAR);
+  const online = props.kind === "microsoft" && !!props.uuid;
+  const src = online && !failed ? headUrl(props.uuid) : STEVE_AVATAR;
 
   return (
     <img
-      class={`mc-avatar-img shadow-raised rounded-none${props.class ? ` ${props.class}` : ""}`}
-      src={src()}
+      className={`mc-avatar-img shadow-raised rounded-none${props.className ? ` ${props.className}` : ""}`}
+      src={src}
       alt=""
       width="64"
       height="64"
@@ -55,4 +53,4 @@ export const Avatar: Component<{
       onError={() => setFailed(true)}
     />
   );
-};
+}

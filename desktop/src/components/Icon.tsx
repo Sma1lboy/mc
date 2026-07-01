@@ -1,5 +1,3 @@
-import { JSX, mergeProps } from "solid-js";
-
 /* ============================================================================
  * components/Icon.tsx —— 统一图标组件(docs/modules/ui-polish.md §3 / §5)
  *
@@ -191,43 +189,43 @@ export interface IconProps {
   /** 像素尺寸(宽=高),默认 18。 */
   size?: number;
   /** 额外类名(定位/着色 hook)。 */
-  class?: string;
+  className?: string;
   /** 无障碍标签;省略则视为装饰性(aria-hidden)。 */
   label?: string;
 }
+
+// .ui-icon 的等价 Tailwind:inline-block + shrink-0 + 垂直居中,color 走 currentColor,
+// 颜色/填充/描边过渡读 --mo-dur-fast(120ms,fast 档)+ --mo-ease-out(= ease-emph)。
+const ICON_BASE =
+  "inline-block shrink-0 align-middle text-current " +
+  "transition-[color,fill,stroke] duration-[var(--mo-dur-fast)] ease-emph";
 
 /**
  * <Icon name="power" />:内联 SVG,currentColor 着色,颜色过渡走 CSS。
  * 描边图标用统一的 round 线帽/线接,与 Toast 视觉一致。
  */
-export function Icon(props: IconProps): JSX.Element {
-  const merged = mergeProps({ size: 18 }, props);
-  const def = (): IconDef => REGISTRY[merged.name];
-  const decorative = (): boolean => merged.label === undefined;
-
-  // .ui-icon 的等价 Tailwind:inline-block + shrink-0 + 垂直居中,color 走 currentColor,
-  // 颜色/填充/描边过渡读 --mo-dur-fast(120ms,fast 档)+ --mo-ease-out(= ease-emph)。
-  const ICON_BASE =
-    "inline-block shrink-0 align-middle text-current " +
-    "transition-[color,fill,stroke] duration-[var(--mo-dur-fast)] ease-emph";
+export function Icon(props: IconProps): React.ReactElement {
+  const size = props.size ?? 18;
+  const def: IconDef = REGISTRY[props.name];
+  const decorative = props.label === undefined;
 
   return (
     <svg
-      class={`${ICON_BASE}${merged.class ? " " + merged.class : ""}`}
-      width={merged.size}
-      height={merged.size}
-      viewBox={def().viewBox}
-      fill={def().mode === "fill" ? "currentColor" : "none"}
-      stroke={def().mode === "stroke" ? "currentColor" : "none"}
-      stroke-width={def().mode === "stroke" ? (def().strokeWidth ?? 1.8) : undefined}
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      role={decorative() ? undefined : "img"}
-      aria-hidden={decorative() ? "true" : undefined}
-      aria-label={decorative() ? undefined : merged.label}
+      className={`${ICON_BASE}${props.className ? " " + props.className : ""}`}
+      width={size}
+      height={size}
+      viewBox={def.viewBox}
+      fill={def.mode === "fill" ? "currentColor" : "none"}
+      stroke={def.mode === "stroke" ? "currentColor" : "none"}
+      strokeWidth={def.mode === "stroke" ? (def.strokeWidth ?? 1.8) : undefined}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      role={decorative ? undefined : "img"}
+      aria-hidden={decorative ? "true" : undefined}
+      aria-label={decorative ? undefined : props.label}
     >
-      {def().paths.map((p) => (
-        <path d={p.d} />
+      {def.paths.map((p) => (
+        <path key={p.d} d={p.d} />
       ))}
     </svg>
   );

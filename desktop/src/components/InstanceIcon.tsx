@@ -1,5 +1,3 @@
-import { JSX, Show, mergeProps } from "solid-js";
-
 /* ============================================================================
  * components/InstanceIcon.tsx —— 实例图标(自定义图 / MC 像素占位)
  *
@@ -64,45 +62,44 @@ export interface InstanceIconProps {
  * <InstanceIcon name icon /> —— 铺满父容器(父负责尺寸/圆角/裁剪)。
  * 自定义图走 <img object-cover>;占位走 MC 像素 SVG。
  */
-export function InstanceIcon(props: InstanceIconProps): JSX.Element {
-  const merged = mergeProps({ alt: "" }, props);
-  const seed = () => merged.name?.trim() || "?";
-  const sprite = () => pixelSprite(seed());
+export function InstanceIcon(props: InstanceIconProps): React.ReactElement {
+  const alt = props.alt ?? "";
+  const seed = props.name?.trim() || "?";
+  const sprite = pixelSprite(seed);
 
-  return (
-    <Show
-      when={merged.icon}
-      fallback={
-        <svg
-          viewBox="0 0 8 8"
-          class="w-full h-full block"
-          shape-rendering="crispEdges"
-          preserveAspectRatio="none"
-          role={merged.alt ? "img" : undefined}
-          aria-hidden={merged.alt ? undefined : "true"}
-          aria-label={merged.alt || undefined}
-        >
-          <rect x="0" y="0" width="8" height="8" fill={sprite().dark} />
-          {sprite().cells.map((on, i) =>
-            on ? (
-              <rect x={i % 8} y={Math.floor(i / 8)} width="1" height="1" fill={sprite().light} />
-            ) : null,
-          )}
-        </svg>
-      }
-    >
-      {/* 整合包平台图标五花八门:有的满幅方图、有的是透明底的圆形 logo、有的留白。
-          统一塞进我们的圆角方块容器:中性玻璃底兜住透明像素,object-cover 充满裁掉异形边,
-          让任何来源的图标都对味、不假设是圆的。 */}
+  if (props.icon) {
+    return (
+      // 整合包平台图标五花八门:有的满幅方图、有的是透明底的圆形 logo、有的留白。
+      // 统一塞进我们的圆角方块容器:中性玻璃底兜住透明像素,object-cover 充满裁掉异形边,
+      // 让任何来源的图标都对味、不假设是圆的。
       <img
-        src={merged.icon}
-        alt={merged.alt}
+        src={props.icon}
+        alt={alt}
         loading="lazy"
         // 透明图标的兜底底色用草方块渐变,与 ModpackListItem 的缩略图底一致(rail/库/发现统一)。
-        class="w-full h-full object-cover block"
+        className="w-full h-full object-cover block"
         style={{ background: "linear-gradient(var(--grass-top) 0 42%, var(--grass-side) 42% 100%)" }}
       />
-    </Show>
+    );
+  }
+
+  return (
+    <svg
+      viewBox="0 0 8 8"
+      className="w-full h-full block"
+      shapeRendering="crispEdges"
+      preserveAspectRatio="none"
+      role={alt ? "img" : undefined}
+      aria-hidden={alt ? undefined : "true"}
+      aria-label={alt || undefined}
+    >
+      <rect x="0" y="0" width="8" height="8" fill={sprite.dark} />
+      {sprite.cells.map((on, i) =>
+        on ? (
+          <rect key={i} x={i % 8} y={Math.floor(i / 8)} width="1" height="1" fill={sprite.light} />
+        ) : null,
+      )}
+    </svg>
   );
 }
 

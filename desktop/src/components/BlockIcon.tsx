@@ -1,4 +1,4 @@
-import { JSX } from "solid-js";
+import type { CSSProperties } from "react";
 
 /* ============================================================================
  * BlockIcon —— Blocky Craft 草方块占位(Logo / 简单实例占位)。
@@ -7,25 +7,20 @@ import { JSX } from "solid-js";
  * ========================================================================== */
 
 export interface BlockIconProps {
-  class?: string;
+  className?: string;
   title?: string;
-  style?: JSX.CSSProperties | string;
+  style?: CSSProperties;
 }
 
-export function BlockIcon(props: BlockIconProps): JSX.Element {
+export function BlockIcon(props: BlockIconProps): React.ReactElement {
   return (
     <div
       title={props.title}
-      class={`shadow-raised rounded-none${props.class ? " " + props.class : ""}`}
-      style={
-        typeof props.style === "string"
-          ? props.style
-          : {
-              background:
-                "linear-gradient(var(--grass-top) 0 42%, var(--grass-side) 42% 100%)",
-              ...(props.style ?? {}),
-            }
-      }
+      className={`shadow-raised rounded-none${props.className ? " " + props.className : ""}`}
+      style={{
+        background: "linear-gradient(var(--grass-top) 0 42%, var(--grass-side) 42% 100%)",
+        ...(props.style ?? {}),
+      }}
     />
   );
 }

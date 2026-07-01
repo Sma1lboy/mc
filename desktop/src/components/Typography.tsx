@@ -1,5 +1,4 @@
-import { JSX, splitProps } from "solid-js";
-import { Dynamic } from "solid-js/web";
+import type { CSSProperties, ElementType, ReactNode } from "react";
 
 /* ============================================================================
  * Typography —— Blocky Craft 字体角色封装。
@@ -24,43 +23,45 @@ export interface HeadingProps {
   size?: "page" | "section" | "sub" | "mini";
   /** 渲染标签,默认 div(标题层级由页面语义决定,这里只管视觉)。 */
   as?: string;
-  children: JSX.Element;
-  class?: string;
-  style?: JSX.CSSProperties | string;
+  children: ReactNode;
+  className?: string;
+  style?: CSSProperties;
   title?: string;
 }
 
-export function Heading(props: HeadingProps): JSX.Element {
-  const [local, rest] = splitProps(props, ["size", "as", "children", "class"]);
+export function Heading(props: HeadingProps): React.ReactElement {
+  const { size, as, children, className, style, title } = props;
+  const Comp = (as ?? "div") as ElementType;
   return (
-    <Dynamic
-      component={local.as ?? "div"}
-      {...rest}
-      class={`font-display font-medium leading-tight text-fg ${HEADING_SIZE[local.size ?? "section"]}${
-        local.class ? " " + local.class : ""
+    <Comp
+      style={style}
+      title={title}
+      className={`font-display font-medium leading-tight text-fg ${HEADING_SIZE[size ?? "section"]}${
+        className ? " " + className : ""
       }`}
     >
-      {local.children}
-    </Dynamic>
+      {children}
+    </Comp>
   );
 }
 
 export interface PixelLabelProps {
-  children: JSX.Element;
-  class?: string;
-  style?: JSX.CSSProperties | string;
+  children: ReactNode;
+  className?: string;
+  style?: CSSProperties;
   title?: string;
 }
 
-/** 点阵短词(Press Start 2P)。默认 10px;字号/颜色由 class 调。 */
-export function PixelLabel(props: PixelLabelProps): JSX.Element {
-  const [local, rest] = splitProps(props, ["children", "class"]);
+/** 点阵短词(Press Start 2P)。默认 10px;字号/颜色由 className 调。 */
+export function PixelLabel(props: PixelLabelProps): React.ReactElement {
+  const { children, className, style, title } = props;
   return (
     <span
-      {...rest}
-      class={`font-pixel text-[10px] leading-none${local.class ? " " + local.class : ""}`}
+      style={style}
+      title={title}
+      className={`font-pixel text-[10px] leading-none${className ? " " + className : ""}`}
     >
-      {local.children}
+      {children}
     </span>
   );
 }
