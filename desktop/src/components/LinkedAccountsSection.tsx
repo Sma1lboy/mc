@@ -1,8 +1,9 @@
-import { Component, createResource, createSignal, For, Show } from "solid-js";
+import { useState } from "react";
 import { toast } from "./Toast";
 import { api } from "../ipc/api";
-import { accountIdentities, refreshIdentities } from "../store";
-import { t } from "../i18n";
+import { useAppStore, refreshIdentities } from "../store";
+import { useAsync } from "../util/useAsync";
+import { t, useLang } from "../i18n";
 import type { AccountSummary, Identity } from "../ipc/bindings";
 
 /**
@@ -10,15 +11,16 @@ import type { AccountSummary, Identity } from "../ipc/bindings";
  * (账号的 MC 资料 UUID)绑定到当前 kobeMC 用户,展示已关联的身份并支持解绑。
  * 仅在登录 kobeMC 后由 KobeAccountChip 渲染。
  */
-export const LinkedAccountsSection: Component = () => {
+export function LinkedAccountsSection(): React.ReactElement {
+  useLang();
   // 已关联身份来自 store(单一真相);listAccounts 是本地廉价调用,保留本地 resource。
-  const identities = accountIdentities;
-  const [accounts] = createResource(() => api.listAccounts());
-  const [busy, setBusy] = createSignal(false);
+  const identities = useAppStore((s) => s.accountIdentities);
+  const { data: accounts } = useAsync(() => api.listAccounts(), []);
+  const [busy, setBusy] = useState(false);
 
-  const msAccounts = () => (accounts() ?? []).filter((a) => a.kind === "microsoft");
+  const msAccounts = (accounts ?? []).filter((a) => a.kind === "microsoft");
   const isLinked = (acc: AccountSummary) =>
-    (identities() ?? []).some((i) => i.provider === "microsoft" && i.account_id === acc.uuid);
+    (identities ?? []).some((i) => i.provider === "microsoft" && i.account_id === acc.uuid);
 
   const providerLabel = (i: Identity) => {
     if (i.provider === "microsoft") return t("link.providerMicrosoft");
@@ -27,7 +29,7 @@ export const LinkedAccountsSection: Component = () => {
   };
 
   async function act(fn: () => Promise<void>) {
-    if (busy()) return;
+    if (busy) return;
     setBusy(true);
     try {
       await fn();
@@ -53,62 +55,56 @@ export const LinkedAccountsSection: Component = () => {
     });
 
   return (
-    <div class="mt-[12px] pt-[12px] border-t border-titlebar">
-      <div class="text-[13px] text-strong font-display mb-[6px]">{t("link.title")}</div>
-      <p class="text-[12px] text-muted leading-[1.5] mb-[8px]">{t("link.hint")}</p>
+    <div className="mt-[12px] pt-[12px] border-t border-titlebar">
+      <div className="text-[13px] text-strong font-display mb-[6px]">{t("link.title")}</div>
+      <p className="text-[12px] text-muted leading-[1.5] mb-[8px]">{t("link.hint")}</p>
 
       {/* 已关联的身份 */}
-      <Show when={(identities() ?? []).length > 0}>
-        <div class="flex flex-col gap-[4px] mb-[8px]">
-          <For each={identities()}>
-            {(i) => (
-              <div class="flex items-center gap-[8px] bg-sidebar shadow-input px-[8px] py-[5px]">
-                <span class="text-[13px] text-fg truncate flex-1">{providerLabel(i)}</span>
-                <span class="text-[11px] text-faint truncate max-w-[80px]" title={i.account_id}>
-                  {i.account_id.slice(0, 8)}
-                </span>
-                <Show when={i.provider !== "credential"}>
-                  <button
-                    class="text-[11px] text-danger-text hover:underline bg-transparent border-none cursor-pointer disabled:opacity-50"
-                    disabled={busy()}
-                    onClick={() => void unlink(i.provider)}
-                  >
-                    {t("link.unlink")}
-                  </button>
-                </Show>
-              </div>
-            )}
-          </For>
+      {(identities ?? []).length > 0 && (
+        <div className="flex flex-col gap-[4px] mb-[8px]">
+          {(identities ?? []).map((i) => (
+            <div key={i.provider} className="flex items-center gap-[8px] bg-sidebar shadow-input px-[8px] py-[5px]">
+              <span className="text-[13px] text-fg truncate flex-1">{providerLabel(i)}</span>
+              <span className="text-[11px] text-faint truncate max-w-[80px]" title={i.account_id}>
+                {i.account_id.slice(0, 8)}
+              </span>
+              {i.provider !== "credential" && (
+                <button
+                  className="text-[11px] text-danger-text hover:underline bg-transparent border-none cursor-pointer disabled:opacity-50"
+                  disabled={busy}
+                  onClick={() => void unlink(i.provider)}
+                >
+                  {t("link.unlink")}
+                </button>
+              )}
+            </div>
+          ))}
         </div>
-      </Show>
+      )}
 
       {/* 绑定微软账号 */}
-      <Show
-        when={msAccounts().length > 0}
-        fallback={<p class="text-[12px] text-faint leading-[1.5]">{t("link.noMsAccount")}</p>}
-      >
-        <div class="flex flex-col gap-[4px]">
-          <For each={msAccounts()}>
-            {(acc) => (
-              <div class="flex items-center gap-[8px] px-[2px] py-[3px]">
-                <span class="text-[13px] text-fg truncate flex-1">{acc.username}</span>
-                <Show
-                  when={!isLinked(acc)}
-                  fallback={<span class="text-[11px] text-muted">{t("link.alreadyLinked")}</span>}
+      {msAccounts.length > 0 ? (
+        <div className="flex flex-col gap-[4px]">
+          {msAccounts.map((acc) => (
+            <div key={acc.uuid} className="flex items-center gap-[8px] px-[2px] py-[3px]">
+              <span className="text-[13px] text-fg truncate flex-1">{acc.username}</span>
+              {!isLinked(acc) ? (
+                <button
+                  className="text-[12px] text-accent hover:underline bg-transparent border-none cursor-pointer disabled:opacity-50"
+                  disabled={busy}
+                  onClick={() => void link(acc)}
                 >
-                  <button
-                    class="text-[12px] text-accent hover:underline bg-transparent border-none cursor-pointer disabled:opacity-50"
-                    disabled={busy()}
-                    onClick={() => void link(acc)}
-                  >
-                    {t("link.bind")}
-                  </button>
-                </Show>
-              </div>
-            )}
-          </For>
+                  {t("link.bind")}
+                </button>
+              ) : (
+                <span className="text-[11px] text-muted">{t("link.alreadyLinked")}</span>
+              )}
+            </div>
+          ))}
         </div>
-      </Show>
+      ) : (
+        <p className="text-[12px] text-faint leading-[1.5]">{t("link.noMsAccount")}</p>
+      )}
     </div>
   );
-};
+}

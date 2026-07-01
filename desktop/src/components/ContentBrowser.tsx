@@ -1,4 +1,5 @@
-import { Component, createEffect, createSignal, onCleanup, For, Show } from "solid-js";
+import { useEffect, useRef, useState } from "react";
+import clsx from "clsx";
 import { ModpackListItem } from "./ModpackListItem";
 import type { ModpackHit } from "./ModpackCard";
 import { ACCENT_BTN_COMPACT } from "./styles";
@@ -9,7 +10,7 @@ import { toast } from "./Toast";
 import { Segmented } from "./Segmented";
 import { Button } from "./Button";
 import { searchContent, SEARCH_PAGE } from "../util/contentSearch";
-import { t } from "../i18n";
+import { t, useLang } from "../i18n";
 import type { ProjectKind, SearchHit } from "../ipc/types";
 
 /**
@@ -96,15 +97,15 @@ export interface ContentBrowserProps {
   /** 行内下载进度查询:返回 undefined=无进度条;null=不确定;0..1=定量。供安装中的行显示进度条。 */
   progressOf?: (id: string) => number | null | undefined;
   /** Discover 的多选内容分类(每个各成一 AND 组);仅 Modrinth 消费。缺省=无过滤。 */
-  categories?: () => string[];
+  categories?: string[];
   /** Discover 的多选 loader(合成一 OR 组);仅 Modrinth 消费。缺省=无过滤。 */
-  loaders?: () => string[];
+  loaders?: string[];
   /** Discover 的多选游戏版本(合成一 OR 组);仅 Modrinth 消费。缺省=无过滤。 */
-  gameVersions?: () => string[];
+  gameVersions?: string[];
   /** Discover 的运行环境("client"/"server");仅 Modrinth 消费。缺省=不过滤。 */
-  environment?: () => string | null;
+  environment?: string | null;
   /** Discover License:仅开源;仅 Modrinth 消费。缺省=不过滤。 */
-  openSource?: () => boolean;
+  openSource?: boolean;
   /** 内部内容平台切换时上报(Discover 据此决定 facet 弹层显示哪些组)。 */
   onProviderChange?: (provider: ContentProvider) => void;
   /** 首屏搜索 loading 变化回调(Discover 据此判断「整体就绪」,统一渲染。 */
@@ -116,59 +117,64 @@ const ADD_BTN = ACCENT_BTN_COMPACT;
 const ADDED_BTN =
   "shrink-0 h-[28px] px-[12px] rounded-none bg-panel-3 text-accent text-[12px] font-semibold cursor-default shadow-raised";
 
-export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
-  const [query, setQuery] = createSignal("");
-  const [debounced, setDebounced] = createSignal("");
-  const [backendUnavailable, setBackendUnavailable] = createSignal(false);
-  let timer: number | undefined;
+export function ContentBrowser(props: ContentBrowserProps): React.ReactElement {
+  useLang();
+  const [query, setQuery] = useState("");
+  const [debounced, setDebounced] = useState("");
+  const [backendUnavailable, setBackendUnavailable] = useState(false);
+  const timer = useRef<number | undefined>(undefined);
 
   function onInput(v: string) {
     setQuery(v);
-    clearTimeout(timer);
-    timer = window.setTimeout(() => setDebounced(v), 350);
+    clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => setDebounced(v), 350);
   }
   // 卸载时清掉未触发的防抖定时器,避免在已销毁组件上 setDebounced(无效更新 + 计时器悬挂)。
-  onCleanup(() => clearTimeout(timer));
+  useEffect(() => () => clearTimeout(timer.current), []);
 
-  const [results, setResults] = createSignal<SearchHit[]>([]);
-  const [loading, setLoading] = createSignal(true);
-  const [loadingMore, setLoadingMore] = createSignal(false);
-  const [reachedEnd, setReachedEnd] = createSignal(false);
+  const [results, setResults] = useState<SearchHit[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [reachedEnd, setReachedEnd] = useState(false);
   // 搜索失败(非「后端未连」)单独成态:区分「真的没结果」与「搜挂了」,后者给重试。
-  const [searchError, setSearchError] = createSignal<string | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   // 内容平台:默认 Modrinth。CurseForge 在切换/搜索时若返回「未配置 API Key」则禁用并提示。
-  const [provider, setProvider] = createSignal<ContentProvider>("modrinth");
-  const [cfUnavailable, setCfUnavailable] = createSignal(false);
-  const [sort, setSort] = createSignal<SortKey>("relevance");
-
-  // 「更多筛选」弹层开合(锚定按钮的就地下拉面板)。
+  const [provider, setProvider] = useState<ContentProvider>("modrinth");
+  const [cfUnavailable, setCfUnavailable] = useState(false);
+  const [sort, setSort] = useState<SortKey>("relevance");
 
   function switchProvider(p: ContentProvider) {
-    if (p === provider()) return;
-    if (p === "curseforge" && cfUnavailable()) return;
+    if (p === provider) return;
+    if (p === "curseforge" && cfUnavailable) return;
     setProvider(p);
   }
 
   // 平台变化(用户切换或 CF 未配置回退)即上报,供 Discover 调整 facet 弹层。
-  createEffect(() => props.onProviderChange?.(provider()));
+  useEffect(() => {
+    props.onProviderChange?.(provider);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [provider]);
   // 首屏搜索 loading 变化上报,Discover 据此与 facet 一起判定「整体就绪」。
-  createEffect(() => props.onLoadingChange?.(loading()));
+  useEffect(() => {
+    props.onLoadingChange?.(loading);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
 
   // Discover 的多选 facet → 后端 SearchFacetsArg(仅 Modrinth 消费;CF 忽略)。
   // 任一维度非空才下发,否则传 null 保持原行为(实例弹窗等不传 facet props 的场景)。
   function buildFacets() {
-    const categories = props.categories?.() ?? [];
-    const loaders = props.loaders?.() ?? [];
-    const gameVersions = props.gameVersions?.() ?? [];
-    const environment = props.environment?.() ?? null;
-    const openSource = props.openSource?.() ?? false;
+    const categories = props.categories ?? [];
+    const loaders = props.loaders ?? [];
+    const gameVersions = props.gameVersions ?? [];
+    const environment = props.environment ?? null;
+    const openSource = props.openSource ?? false;
     if (!categories.length && !loaders.length && !gameVersions.length && !environment && !openSource) return null;
     return { categories, loaders, game_versions: gameVersions, environment, open_source: openSource };
   }
 
   async function fetchPage(q: string, offset: number): Promise<SearchHit[] | null> {
-    const p = provider();
+    const p = provider;
     const facets = buildFacets();
     try {
       const hits = await searchContent({
@@ -177,7 +183,7 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
         mcVersion: props.mcVersion,
         loader: props.loader,
         query: q,
-        sort: sort(),
+        sort,
         facets,
         offset,
       });
@@ -199,51 +205,52 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
     }
   }
 
-  // 关键词 / 类型 / 实例版本 / 加载器 / 平台 / 排序变化 → 重新拉第一页(替换)。
-  createEffect(() => {
-    const q = debounced();
-    // 订阅以下信号,使切换实例/类型/平台/排序/facet 时也会重搜(从 offset 0)。
-    void props.kind;
-    void props.mcVersion;
-    void props.loader;
-    void provider();
-    void sort();
-    void props.categories?.();
-    void props.loaders?.();
-    void props.gameVersions?.();
-    void props.environment?.();
-    void props.openSource?.();
+  // 关键词 / 类型 / 实例版本 / 加载器 / 平台 / 排序 / facet 变化 → 重新拉第一页(替换)。
+  useEffect(() => {
     setBackendUnavailable(false);
     setSearchError(null);
     setLoading(true);
     setReachedEnd(false);
-    void fetchPage(q, 0).then((hits) => {
+    void fetchPage(debounced, 0).then((hits) => {
       setResults(hits ?? []);
       setLoading(false);
     });
-  });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    debounced,
+    props.kind,
+    props.mcVersion,
+    props.loader,
+    provider,
+    sort,
+    props.categories,
+    props.loaders,
+    props.gameVersions,
+    props.environment,
+    props.openSource,
+  ]);
 
   // 首屏失败后的重试:清错、重拉第一页。
   function retry() {
     setSearchError(null);
     setLoading(true);
     setReachedEnd(false);
-    void fetchPage(debounced(), 0).then((hits) => {
+    void fetchPage(debounced, 0).then((hits) => {
       setResults(hits ?? []);
       setLoading(false);
     });
   }
 
   async function loadMore() {
-    if (loadingMore() || reachedEnd()) return;
+    if (loadingMore || reachedEnd) return;
     setLoadingMore(true);
-    const hits = await fetchPage(debounced(), results().length);
+    const hits = await fetchPage(debounced, results.length);
     if (hits) setResults((prev) => [...prev, ...hits]);
     setLoadingMore(false);
   }
 
   // 取值时求值 t(),避免 module-const 冻结语言。
-  const SORTS = (): { key: SortKey; label: string }[] => [
+  const SORTS: { key: SortKey; label: string }[] = [
     { key: "relevance", label: t("discover.sortRelevance") },
     { key: "downloads", label: t("discover.sortDownloads") },
     { key: "updated", label: t("discover.sortUpdated") },
@@ -251,31 +258,31 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
   ];
 
   return (
-    <div class="flex flex-col gap-[12px]">
+    <div className="flex flex-col gap-[12px]">
       {/* 工具条第一行:源切换(分段,pixel)+ 满宽搜索 + 排序下拉。切换平台/排序均从 offset 0 重搜。 */}
-      <div class="flex items-center gap-[10px] flex-wrap">
+      <div className="flex items-center gap-[10px] flex-wrap">
         <Segmented
           ariaLabel={t("discover.sourceLabel")}
           pixel
-          value={provider()}
+          value={provider}
           onChange={(v) => switchProvider(v as ContentProvider)}
           options={[
             { value: "modrinth", label: t("discover.sourceModrinth") },
             {
               value: "curseforge",
               label: t("discover.sourceCurseforge"),
-              title: cfUnavailable() ? t("discover.cfUnconfiguredHint") : undefined,
+              title: cfUnavailable ? t("discover.cfUnconfiguredHint") : undefined,
             },
           ]}
         />
-        <div class="flex-1 min-w-[200px]">
+        <div className="flex-1 min-w-[200px]">
           <SearchBox
-            value={query()}
+            value={query}
             onInput={onInput}
             autofocus={props.autofocus}
             onEscape={() => {
               // 有搜索词先清空;已空则上抛(退出浏览)。
-              if (query()) {
+              if (query) {
                 setQuery("");
                 setDebounced("");
               } else {
@@ -285,111 +292,98 @@ export const ContentBrowser: Component<ContentBrowserProps> = (props) => {
             placeholder={props.placeholder ?? t("discover.searchPlaceholder")}
           />
         </div>
-        <div class="inline-flex items-center gap-[6px] text-muted text-[12px]">
+        <div className="inline-flex items-center gap-[6px] text-muted text-[12px]">
           {t("discover.sortLabel")}
           <Select
-            class="!min-w-[140px]"
-            value={sort()}
+            className="!min-w-[140px]"
+            value={sort}
             onChange={(v) => setSort(v as SortKey)}
-            options={SORTS().map((o) => ({ value: o.key, label: o.label }))}
+            options={SORTS.map((o) => ({ value: o.key, label: o.label }))}
           />
         </div>
       </div>
 
-      <Show when={cfUnavailable()}>
-        <div class="text-[12px] text-muted bg-panel-2 shadow-input rounded-none px-[12px] py-[8px]">
+      {cfUnavailable && (
+        <div className="text-[12px] text-muted bg-panel-2 shadow-input rounded-none px-[12px] py-[8px]">
           {t("discover.cfUnconfiguredHint")}
         </div>
-      </Show>
+      )}
 
-      <Show when={!loading()} fallback={<div class="flex justify-center p-[28px]"><Spinner /></div>}>
-        <Show
-          when={results().length > 0}
-          fallback={
-            <Show
-              when={!searchError()}
-              fallback={
-                <div class="flex flex-col items-center justify-center gap-[12px] py-[36px] text-center">
-                  <div class="text-muted text-[13px]">{t("discover.searchFailedRetry")}</div>
-                  <Button variant="ghost" onClick={retry}>
-                    {t("discover.retry")}
-                  </Button>
-                </div>
-              }
-            >
-            <div class="p-[24px] text-muted text-center text-[13px]">
-              <Show
-                when={!backendUnavailable()}
-                fallback={t("discover.backendUnavailable")}
-              >
-                {debounced().trim() ? t("discover.noResults") : t("discover.enterKeyword")}
-              </Show>
-            </div>
-            </Show>
-          }
-        >
-          <div
-            class={
-              "flex flex-col gap-[8px]" +
-              (props.compact ? " max-h-[340px] overflow-y-auto pr-[2px]" : "")
-            }
-          >
-            <For each={results()}>
-              {(raw) => {
-                const hit = toHit(raw);
-                const reason = () => props.disabledReason?.(hit) ?? null;
-                const added = () => props.addedIds?.has(hit.id) ?? false;
-                const busy = () => props.addingIds?.has(hit.id) ?? false;
-                // 只禁用「这一行」(已添加 / 该行安装中 / 该行有禁用原因);其它行后台并行不受影响。
-                const disabled = () => reason() != null || added() || busy();
-                const onAdd = props.onAdd;
-                const onOpenDetail = props.onOpenDetail;
-                const open = onOpenDetail
-                  ? (h: ModpackHit) => onOpenDetail(h, provider())
-                  : onAdd
-                    ? (h: ModpackHit) => onAdd(h, provider())
-                    : () => {};
-                return (
-                  <ModpackListItem
-                    hit={hit}
-                    onClick={open}
-                    progress={props.progressOf?.(hit.id)}
-                    action={
-                      onAdd ? (
-                        <button
-                          class={
-                            (added() ? ADDED_BTN : ADD_BTN) +
-                            // 默认「添加」态仅悬停整行(或键盘聚焦)时显示,避免一列橙按钮太抢眼;
-                            // 「已添加」「安装中」常显以保留反馈。
-                            (!added() && !busy()
-                              ? " opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
-                              : "")
-                          }
-                          disabled={disabled()}
-                          title={reason() ?? ""}
-                          onClick={() => onAdd(hit, provider())}
-                        >
-                          {added() ? t("discover.added") : busy() ? t("discover.installing") : t("discover.add")}
-                        </button>
-                      ) : undefined
-                    }
-                  />
-                );
-              }}
-            </For>
+      {loading ? (
+        <div className="flex justify-center p-[28px]">
+          <Spinner />
+        </div>
+      ) : results.length > 0 ? (
+        <>
+          <div className={clsx("flex flex-col gap-[8px]", props.compact && "max-h-[340px] overflow-y-auto pr-[2px]")}>
+            {results.map((raw) => {
+              const hit = toHit(raw);
+              const reason = props.disabledReason?.(hit) ?? null;
+              const added = props.addedIds?.has(hit.id) ?? false;
+              const busy = props.addingIds?.has(hit.id) ?? false;
+              // 只禁用「这一行」(已添加 / 该行安装中 / 该行有禁用原因);其它行后台并行不受影响。
+              const disabled = reason != null || added || busy;
+              const onAdd = props.onAdd;
+              const onOpenDetail = props.onOpenDetail;
+              const open = onOpenDetail
+                ? (h: ModpackHit) => onOpenDetail(h, provider)
+                : onAdd
+                  ? (h: ModpackHit) => onAdd(h, provider)
+                  : () => {};
+              return (
+                <ModpackListItem
+                  key={raw.id}
+                  hit={hit}
+                  onClick={open}
+                  progress={props.progressOf?.(hit.id)}
+                  action={
+                    onAdd ? (
+                      <button
+                        className={clsx(
+                          added ? ADDED_BTN : ADD_BTN,
+                          // 默认「添加」态仅悬停整行(或键盘聚焦)时显示,避免一列橙按钮太抢眼;
+                          // 「已添加」「安装中」常显以保留反馈。
+                          !added && !busy && "opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100",
+                        )}
+                        disabled={disabled}
+                        title={reason ?? ""}
+                        onClick={() => onAdd(hit, provider)}
+                      >
+                        {added ? t("discover.added") : busy ? t("discover.installing") : t("discover.add")}
+                      </button>
+                    ) : undefined
+                  }
+                />
+              );
+            })}
           </div>
 
-          <Show when={!reachedEnd()}>
-            <div class="flex justify-center mt-[8px]">
-              <Button variant="ghost" disabled={loadingMore()} onClick={loadMore}>
-                {loadingMore() ? t("discover.loadingMore") : t("discover.loadMore")}
+          {!reachedEnd && (
+            <div className="flex justify-center mt-[8px]">
+              <Button variant="ghost" disabled={loadingMore} onClick={loadMore}>
+                {loadingMore ? t("discover.loadingMore") : t("discover.loadMore")}
               </Button>
             </div>
-          </Show>
-        </Show>
-      </Show>
+          )}
+        </>
+      ) : !searchError ? (
+        <div className="p-[24px] text-muted text-center text-[13px]">
+          {backendUnavailable
+            ? t("discover.backendUnavailable")
+            : debounced.trim()
+              ? t("discover.noResults")
+              : t("discover.enterKeyword")}
+        </div>
+      ) : (
+        <div className="flex flex-col items-center justify-center gap-[12px] py-[36px] text-center">
+          <div className="text-muted text-[13px]">{t("discover.searchFailedRetry")}</div>
+          <Button variant="ghost" onClick={retry}>
+            {t("discover.retry")}
+          </Button>
+        </div>
+      )}
     </div>
   );
-};
+}
 
 export default ContentBrowser;

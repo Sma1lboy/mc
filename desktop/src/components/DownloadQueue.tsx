@@ -1,10 +1,9 @@
-import { useSyncExternalStore } from "react";
 import clsx from "clsx";
 import { Popover } from "@ark-ui/react/popover";
 import { Portal } from "@ark-ui/react/portal";
 import { Icon } from "./Icon";
 import {
-  tasks,
+  useTasks,
   fractionOf,
   dismissDownload,
   clearFinished,
@@ -18,17 +17,6 @@ import { t, useLang } from "../i18n";
  * (整合包 / mod / 光影 …):图标 + 标题 + 状态 + 进度条,已结束的可单条清除 / 一键清空。
  * 状态读 util/downloads 的全局队列,与 Discover 列表行的行内进度条同源。
  */
-
-// ponytail: util/downloads.ts 仍是 Solid createSignal(阶段⑤ 才迁 zustand),没有框架无关的
-// subscribe。迁移前用 200ms 轮询把 tasks() 快照喂给 React——setTasks 每次换新数组引用,
-// useSyncExternalStore 的 Object.is 比对天然去重(引用没变不重渲染)。ceiling:进度条最多 5fps
-// 刷新,够用;downloads.ts 迁到 zustand 后换它的 subscribe、删掉轮询。
-function useTasks(): DownloadTask[] {
-  return useSyncExternalStore((onChange) => {
-    const h = setInterval(onChange, 200);
-    return () => clearInterval(h);
-  }, tasks);
-}
 
 function DownloadRow({ task }: { task: DownloadTask }) {
   useLang();

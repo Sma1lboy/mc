@@ -1,7 +1,9 @@
-import { Component, createResource, createSignal, For, Show } from "solid-js";
+import { useState } from "react";
+import clsx from "clsx";
 import { api } from "../ipc/api";
 import { cached } from "../ipc/cache";
 import { activeRoot } from "../store";
+import { useAsync } from "../util/useAsync";
 import { toast } from "./Toast";
 import { Spinner } from "./Spinner";
 import { Panel } from "./Panel";
@@ -10,7 +12,7 @@ import { Toggle } from "./Toggle";
 import { ACCENT_BTN_COMPACT } from "./styles";
 import { renderMarkdown } from "../util/markdown";
 import { acceptedLoaders } from "../util/loaders";
-import { t } from "../i18n";
+import { t, useLang } from "../i18n";
 import type { ModrinthVersion } from "../ipc/types";
 import "../pages/ModpackDetail.css"; // 复用 .md markdown 排版
 
@@ -21,7 +23,7 @@ import "../pages/ModpackDetail.css"; // 复用 .md markdown 排版
  * 默认只列出与本实例 mc 版本 +(mod 的)加载器兼容的版本;可切到「全部版本」。
  * 安装走 install_version_file(指定 version id,不解析依赖 —— 用户已显式选版)。
  */
-export const ProjectDetailPanel: Component<{
+export function ProjectDetailPanel(props: {
   projectId: string;
   title: string;
   iconUrl?: string | null;
@@ -37,34 +39,30 @@ export const ProjectDetailPanel: Component<{
   provider?: string;
   onClose: () => void;
   onInstalled: () => void;
-}> = (props) => {
-  const [project] = createResource(
-    () => props.projectId,
-    (id) => cached(`project|${props.provider ?? "modrinth"}|${id}`, () => api.modrinthProject(id)),
+}): React.ReactElement {
+  useLang();
+  const provider = props.provider ?? "modrinth";
+  const { data: project, loading: projectLoading } = useAsync(
+    () => cached(`project|${provider}|${props.projectId}`, () => api.modrinthProject(props.projectId)),
+    [props.projectId, provider],
   );
-  const [versions] = createResource(
-    () => props.projectId,
-    (id) =>
-      cached(`versions|${props.provider ?? "modrinth"}|${id}`, () =>
-        api.modrinthVersions(id, props.provider ?? "modrinth"),
-      ),
+  const { data: versions, loading: versionsLoading } = useAsync(
+    () => cached(`versions|${provider}|${props.projectId}`, () => api.modrinthVersions(props.projectId, provider)),
+    [props.projectId, provider],
   );
-  const [installing, setInstalling] = createSignal<string | null>(null);
-  const [showAll, setShowAll] = createSignal(false);
+  const [installing, setInstalling] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
 
   function compatible(v: ModrinthVersion): boolean {
     const okGame = v.game_versions.includes(props.mcVersion);
     // loader 为 null(资源包/光影)不按加载器分;Quilt 实例同时接受 fabric 版本。
-    const okLoader =
-      props.loader == null || acceptedLoaders(props.loader).some((l) => v.loaders.includes(l));
+    const okLoader = props.loader == null || acceptedLoaders(props.loader).some((l) => v.loaders.includes(l));
     return okGame && okLoader;
   }
   // 默认只显示兼容版本;没有兼容版本时回退显示全部(否则空列表会让人误以为没版本)。
-  const shown = () => {
-    const all = versions() ?? [];
-    const compat = all.filter(compatible);
-    return showAll() || compat.length === 0 ? all : compat;
-  };
+  const all = versions ?? [];
+  const compat = all.filter(compatible);
+  const shown = showAll || compat.length === 0 ? all : compat;
 
   // 仅 mod 的加载器/版本不匹配是硬性不可装(必崩);资源包/光影的版本差异只是软提示。
   const blocked = (v: ModrinthVersion) => props.target === "mod" && !compatible(v);
@@ -86,7 +84,7 @@ export const ProjectDetailPanel: Component<{
         isMod ? props.mcVersion : null,
         isMod ? props.loader : null,
         props.target === "datapack" ? props.world ?? null : null,
-        props.provider ?? "modrinth",
+        provider,
         props.projectId,
       );
       const parts = [t("projectDetail.installedVersion", { version: v.version_number })];
@@ -109,102 +107,89 @@ export const ProjectDetailPanel: Component<{
   }
 
   return (
-    <Panel as="div" variant="sunken" class="absolute inset-0 z-20 flex flex-col bg-window">
-      <div class="flex items-center gap-[10px] px-[16px] py-[12px] border-b border-titlebar">
+    <Panel as="div" variant="sunken" className="absolute inset-0 z-20 flex flex-col bg-window">
+      <div className="flex items-center gap-[10px] px-[16px] py-[12px] border-b border-titlebar">
         <button
-          class="shrink-0 h-[28px] px-[12px] rounded-none bg-panel-3 text-fg text-[12px] cursor-pointer shadow-raised active:shadow-pressed transition-[box-shadow] duration-[var(--dur)] ease-app"
+          className="shrink-0 h-[28px] px-[12px] rounded-none bg-panel-3 text-fg text-[12px] cursor-pointer shadow-raised active:shadow-pressed transition-[box-shadow] duration-[var(--dur)] ease-app"
           onClick={props.onClose}
         >
           {t("projectDetail.back")}
         </button>
-        <Show when={props.iconUrl}>
-          <img src={props.iconUrl!} alt="" width="26" height="26" class="w-[26px] h-[26px] rounded-none object-cover shrink-0 shadow-sunken" style="image-rendering:pixelated" />
-        </Show>
-        <Heading size="sub" class="whitespace-nowrap overflow-hidden text-ellipsis">
+        {props.iconUrl && (
+          <img
+            src={props.iconUrl}
+            alt=""
+            width="26"
+            height="26"
+            className="w-[26px] h-[26px] rounded-none object-cover shrink-0 shadow-sunken"
+            style={{ imageRendering: "pixelated" }}
+          />
+        )}
+        <Heading size="sub" className="whitespace-nowrap overflow-hidden text-ellipsis">
           {props.title}
         </Heading>
       </div>
 
-      <div class="flex-1 overflow-y-auto p-[16px] flex flex-col gap-[16px]">
+      <div className="flex-1 overflow-y-auto p-[16px] flex flex-col gap-[16px]">
         {/* 简介 */}
-        <Show
-          when={!project.loading}
-          fallback={
-            <div class="flex items-center gap-[10px] text-muted text-[13px] py-[8px]">
-              <Spinner size={16} /> {t("projectDetail.loadingAbout")}
-            </div>
-          }
-        >
-          <Show
-            when={project()?.body?.trim()}
-            fallback={<div class="text-muted text-[13px]">{t("projectDetail.noAbout")}</div>}
-          >
-            {/* renderMarkdown 转义优先,输出仅含白名单标签,innerHTML 安全 */}
-            <div class="md text-[13px] text-sub" innerHTML={renderMarkdown(project()!.body)} />
-          </Show>
-        </Show>
+        {projectLoading ? (
+          <div className="flex items-center gap-[10px] text-muted text-[13px] py-[8px]">
+            <Spinner size={16} /> {t("projectDetail.loadingAbout")}
+          </div>
+        ) : project?.body?.trim() ? (
+          // renderMarkdown 转义优先,输出仅含白名单标签,dangerouslySetInnerHTML 安全
+          <div className="md text-[13px] text-sub" dangerouslySetInnerHTML={{ __html: renderMarkdown(project.body) }} />
+        ) : (
+          <div className="text-muted text-[13px]">{t("projectDetail.noAbout")}</div>
+        )}
 
         {/* 版本 */}
-        <div class="flex items-center justify-between">
+        <div className="flex items-center justify-between">
           <Heading size="sub">{t("projectDetail.versions")}</Heading>
-          <label class="flex items-center gap-[8px] text-[11px] text-muted cursor-pointer select-none">
+          <label className="flex items-center gap-[8px] text-[11px] text-muted cursor-pointer select-none">
             {t("projectDetail.showAllVersions")}
-            <Toggle checked={showAll()} onChange={setShowAll} />
+            <Toggle checked={showAll} onChange={setShowAll} />
           </label>
         </div>
 
-        <Show
-          when={!versions.loading}
-          fallback={
-            <div class="flex items-center gap-[10px] text-muted text-[13px] py-[8px]">
-              <Spinner size={16} /> {t("projectDetail.loadingVersions")}
-            </div>
-          }
-        >
-          <Show
-            when={shown().length > 0}
-            fallback={<div class="text-muted text-[13px]">{t("projectDetail.noVersions")}</div>}
-          >
-            <div class="flex flex-col gap-[6px]">
-              <For each={shown()}>
-                {(v) => (
-                  <Panel
-                    variant="sunken"
-                    class="flex items-center gap-[10px] py-[8px] px-[10px] bg-panel-2"
-                    classList={{ "opacity-60": !compatible(v) }}
-                  >
-                    <div class="flex-1 min-w-0">
-                      <div class="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">
-                        {v.version_number}
-                        <span class="text-[11px] text-muted ml-[6px]">{v.version_type}</span>
-                      </div>
-                      <div class="text-[11px] text-muted whitespace-nowrap overflow-hidden text-ellipsis">
-                        {[
-                          v.game_versions.join(", "),
-                          v.loaders.join(", "),
-                          fmtDate(v.date_published),
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </div>
-                    </div>
-                    <button
-                      class={ACCENT_BTN_COMPACT}
-                      disabled={installing() !== null || blocked(v)}
-                      title={blocked(v) ? t("projectDetail.incompatibleTooltip") : ""}
-                      onClick={() => install(v)}
-                    >
-                      {installing() === v.id ? t("projectDetail.installing") : t("projectDetail.install")}
-                    </button>
-                  </Panel>
-                )}
-              </For>
-            </div>
-          </Show>
-        </Show>
+        {versionsLoading ? (
+          <div className="flex items-center gap-[10px] text-muted text-[13px] py-[8px]">
+            <Spinner size={16} /> {t("projectDetail.loadingVersions")}
+          </div>
+        ) : shown.length > 0 ? (
+          <div className="flex flex-col gap-[6px]">
+            {shown.map((v) => (
+              <Panel
+                key={v.id}
+                variant="sunken"
+                className={clsx("flex items-center gap-[10px] py-[8px] px-[10px] bg-panel-2", { "opacity-60": !compatible(v) })}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">
+                    {v.version_number}
+                    <span className="text-[11px] text-muted ml-[6px]">{v.version_type}</span>
+                  </div>
+                  <div className="text-[11px] text-muted whitespace-nowrap overflow-hidden text-ellipsis">
+                    {[v.game_versions.join(", "), v.loaders.join(", "), fmtDate(v.date_published)].filter(Boolean).join(" · ")}
+                  </div>
+                </div>
+                <button
+                  className={ACCENT_BTN_COMPACT}
+                  disabled={installing !== null || blocked(v)}
+                  title={blocked(v) ? t("projectDetail.incompatibleTooltip") : ""}
+                  onClick={() => install(v)}
+                >
+                  {installing === v.id ? t("projectDetail.installing") : t("projectDetail.install")}
+                </button>
+              </Panel>
+            ))}
+          </div>
+        ) : (
+          <div className="text-muted text-[13px]">{t("projectDetail.noVersions")}</div>
+        )}
       </div>
     </Panel>
   );
-};
+}
 
 export default ProjectDetailPanel;
