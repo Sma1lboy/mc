@@ -1468,10 +1468,16 @@ export type SyncPlan = {
 	/**  Files in the manifest that are missing locally or fail their hash. */
 	download: RealmFile[],
 	/**
-	 *  Paths (relative to the instance dir) under the managed dirs that are
-	 *  present locally but absent from the manifest.
+	 *  Previously syncer-installed paths (per the [`SyncState`] ledger) that the
+	 *  current manifest dropped and that still exist locally. Never includes
+	 *  files the member added themselves.
 	 */
 	remove: string[],
+	/**
+	 *  Every safe, url-carrying manifest path — what the ledger will record as
+	 *  syncer-managed once the plan is applied.
+	 */
+	managed: string[],
 	/**  Manifest files with no download url — the member must add them by hand. */
 	manual: RealmFile[],
 	/**  Manifest version this plan targets. */
