@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use crate::error::{CoreError, Result};
 
 const DEFAULT_OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
-const DEFAULT_OPENROUTER_MODEL: &str = "deepseek/deepseek-v4-pro";
+const DEFAULT_OPENROUTER_MODEL: &str = "deepseek/deepseek-v4-flash";
 const OPENROUTER_KEY_ENV: &str = "OPENROUTER_API_KEY";
 const OPENROUTER_BASE_URL_ENV: &str = "OPENROUTER_BASE_URL";
 const OPENROUTER_MODEL_ENV: &str = "OPENROUTER_MODEL";
