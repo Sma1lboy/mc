@@ -1,8 +1,8 @@
-// 整合包助手聊天 store —— zustand(单一真相,任何组件 useChatStore 即读,任何模块 action 即写)。
+// 整合包助手聊天 store —— zustand 管 active chat window,各入口 / scope 的会话彼此隔离。
 // ------------------------------------------------------------------
 // 大脑是 TS(@kobemc/agent-core,在 webview 内跑 AI SDK 的 tool-use loop);Rust 聊天大脑已删除。
 //
-// 会话就是一个 `UIMessage[]`(AI SDK 原生消息 —— 单一真相:既渲染又喂模型)。发送 / 续跑都走
+// 单个窗口的会话就是一个 `UIMessage[]`(AI SDK 原生消息:既渲染又喂模型)。发送 / 续跑都走
 // `agent.run(history, onUpdate)`:onUpdate 每次给出「正在生长的助手 UIMessage」,直接替换到列表尾;
 // 文本 / 思考 / 工具调用(input-streaming → available → output 状态机)全由 AI SDK 累积,不再手写归约器。
 //
@@ -18,7 +18,31 @@ import type { AgentToolContext, ModpackAgent } from "@kobemc/agent-core";
 import { setCurrentPage } from "../store";
 import { t } from "../i18n";
 
+const DEFAULT_CHAT_WINDOW_KEY = "build";
+
+// 稳定的自增 id(仅前端展示 key;convertToModelMessages 会丢弃 UIMessage.id)。
+let seq = 0;
+const nextId = (): string => `${Date.now().toString(36)}-${(seq++).toString(36)}`;
+
+// 会话 id:一次「对话」一个,newChat 时轮换。
+const mintConvId = (): string =>
+  `chat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+interface ChatWindowSession {
+  convId: string;
+  messages: UIMessage[];
+  streaming: boolean;
+  queued: string[];
+  error: string | null;
+  draft: string | null;
+  toolContext: AgentToolContext | null;
+}
+
 interface ChatState {
+  /** 当前激活的聊天窗口:build 或某个 wiki scope。 */
+  windowKey: string;
+  /** 各入口 / scope 的独立窗口状态。 */
+  windows: Record<string, ChatWindowSession>;
   /** 会话消息(AI SDK 原生 UIMessage:含 text / reasoning / tool parts)。 */
   messages: UIMessage[];
   /** 是否正在流式(显示指示器)。同一会话同一时刻只允许一轮。 */
@@ -40,7 +64,47 @@ interface ChatState {
   conversations: ConversationRecord[];
 }
 
+function createWindowSession(toolContext: AgentToolContext | null): ChatWindowSession {
+  return {
+    convId: mintConvId(),
+    messages: [],
+    streaming: false,
+    queued: [],
+    error: null,
+    draft: null,
+    toolContext,
+  };
+}
+
+function chatWindowKey(context: AgentToolContext | null | undefined): string {
+  if (context?.profile === "wiki") {
+    const wiki = context.wiki;
+    const scope = wiki?.instanceId || wiki?.modpackId || wiki?.sourcePaths?.[0] || "current";
+    return `wiki:${scope}`;
+  }
+  return DEFAULT_CHAT_WINDOW_KEY;
+}
+
+function activeState(windowKey: string, session: ChatWindowSession): Pick<
+  ChatState,
+  "windowKey" | "messages" | "streaming" | "queued" | "error" | "draft" | "toolContext"
+> {
+  return {
+    windowKey,
+    messages: session.messages,
+    streaming: session.streaming,
+    queued: session.queued,
+    error: session.error,
+    draft: session.draft,
+    toolContext: session.toolContext,
+  };
+}
+
+const initialBuildWindow = createWindowSession(null);
+
 export const useChatStore = create<ChatState>(() => ({
+  windowKey: DEFAULT_CHAT_WINDOW_KEY,
+  windows: { [DEFAULT_CHAT_WINDOW_KEY]: initialBuildWindow },
   messages: [],
   streaming: false,
   queued: [],
@@ -49,6 +113,37 @@ export const useChatStore = create<ChatState>(() => ({
   toolContext: null,
   conversations: loadConversations(),
 }));
+
+function getWindowSession(windowKey: string): ChatWindowSession {
+  const state = useChatStore.getState();
+  return (
+    state.windows[windowKey] ?? {
+      convId: mintConvId(),
+      messages: [],
+      streaming: false,
+      queued: [],
+      error: null,
+      draft: null,
+      toolContext: null,
+    }
+  );
+}
+
+function patchWindowSession(windowKey: string, patch: Partial<ChatWindowSession>): void {
+  useChatStore.setState((state) => {
+    const current = state.windows[windowKey] ?? createWindowSession(patch.toolContext ?? null);
+    const next = { ...current, ...patch };
+    const windows = { ...state.windows, [windowKey]: next };
+    return state.windowKey === windowKey ? { windows, ...activeState(windowKey, next) } : { windows };
+  });
+}
+
+function activateWindow(windowKey: string, session: ChatWindowSession): void {
+  useChatStore.setState((state) => ({
+    windows: { ...state.windows, [windowKey]: session },
+    ...activeState(windowKey, session),
+  }));
+}
 
 // 惰性拉起 TS 大脑(动态 import desktopAdapter → 独立 chunk,`ai` 及 provider 不进主包)。
 let tsAgent: Promise<ModpackAgent> | null = null;
@@ -73,18 +168,10 @@ async function getAgent(context?: AgentToolContext | null): Promise<ModpackAgent
   }
 }
 
-// 稳定的自增 id(仅前端展示 key;convertToModelMessages 会丢弃 UIMessage.id)。
-let seq = 0;
-const nextId = (): string => `${Date.now().toString(36)}-${(seq++).toString(36)}`;
-
-// 会话 id:一次「对话」一个,newChat 时轮换。
-const mintConvId = (): string =>
-  `chat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-let currentConvId = mintConvId();
-
 /** 当前会话 id。dev 调试面板复制它,或按 id 回溯整轮 flow。 */
 export function currentChatSessionId(): string {
-  return currentConvId;
+  const state = useChatStore.getState();
+  return getWindowSession(state.windowKey).convId;
 }
 
 /* ——— 会话记录(dev 调试:按时间选不同对话)———
@@ -92,6 +179,7 @@ export function currentChatSessionId(): string {
  * 记录就是 UIMessage[](既渲染又能喂模型),切换会话即无缝续聊。 */
 export interface ConversationRecord {
   id: string;
+  windowKey?: string;
   createdAt: number;
   updatedAt: number;
   /** 首条用户消息(截断),用作列表标题。 */
@@ -132,17 +220,19 @@ function firstUserText(messages: UIMessage[]): string {
     .trim();
 }
 
-// 把当前对话 upsert 进记录列表(每轮结束调用)。空对话不存。
-function saveCurrentConversation(): void {
-  const messages = useChatStore.getState().messages;
+// 把指定窗口的当前对话 upsert 进记录列表(每轮结束调用)。空对话不存。
+function saveCurrentConversation(windowKey = useChatStore.getState().windowKey): void {
+  const session = getWindowSession(windowKey);
+  const messages = session.messages;
   if (messages.length === 0) return;
-  const toolContext = useChatStore.getState().toolContext;
+  const toolContext = session.toolContext;
   const now = Date.now();
   const list = useChatStore.getState().conversations.slice();
-  const i = list.findIndex((c) => c.id === currentConvId);
+  const i = list.findIndex((c) => c.id === session.convId);
   const createdAt = i >= 0 ? list[i].createdAt : now;
   const rec: ConversationRecord = {
-    id: currentConvId,
+    id: session.convId,
+    windowKey,
     createdAt,
     updatedAt: now,
     title: firstUserText(messages).slice(0, 60),
@@ -160,8 +250,16 @@ export function loadConversation(id: string): void {
   if (useChatStore.getState().streaming) return;
   const rec = useChatStore.getState().conversations.find((c) => c.id === id);
   if (!rec) return;
-  currentConvId = id;
-  useChatStore.setState({ messages: rec.messages, toolContext: rec.toolContext ?? null, error: null });
+  const windowKey = rec.windowKey ?? chatWindowKey(rec.toolContext ?? null);
+  activateWindow(windowKey, {
+    convId: id,
+    messages: rec.messages,
+    streaming: false,
+    queued: [],
+    error: null,
+    draft: null,
+    toolContext: rec.toolContext ?? null,
+  });
 }
 
 /**
@@ -171,32 +269,32 @@ export function loadConversation(id: string): void {
 // 当前在飞的一轮的中断句柄(stopTurn 用);仅活动轮期间非空。
 let currentAbort: AbortController | null = null;
 
-async function drive(history: UIMessage[]): Promise<void> {
+async function drive(history: UIMessage[], windowKey: string): Promise<void> {
   const abort = new AbortController();
   currentAbort = abort;
-  useChatStore.setState({ streaming: true, error: null });
+  patchWindowSession(windowKey, { streaming: true, error: null });
   try {
-    const agent = await getAgent(useChatStore.getState().toolContext);
+    const agent = await getAgent(getWindowSession(windowKey).toolContext);
     const { messages, error } = await agent.run(
       history,
       (assistant) => {
-        useChatStore.setState({ messages: [...history, assistant] });
+        patchWindowSession(windowKey, { messages: [...history, assistant] });
       },
       abort.signal,
     );
-    useChatStore.setState({ messages, streaming: false, error: error ?? null });
+    patchWindowSession(windowKey, { messages, streaming: false, error: error ?? null });
   } catch (e) {
-    useChatStore.setState({ streaming: false, error: String(e) });
+    patchWindowSession(windowKey, { streaming: false, error: String(e) });
   }
   if (currentAbort === abort) currentAbort = null;
-  saveCurrentConversation(); // 每轮结束存档,供 dev 会话选择器按时间列出
+  saveCurrentConversation(windowKey); // 每轮结束存档,供 dev 会话选择器按时间列出
   // 本轮结束(正常完成或被中断),若有排队消息则取队首各自成一轮(递归排空,FIFO)。
   // 于是「打断当前 + 发下一条」= 打字入队 → stopTurn 中断 → 队列在此自动放行下一条。
-  const queued = useChatStore.getState().queued;
+  const queued = getWindowSession(windowKey).queued;
   if (queued.length > 0) {
     const [next, ...rest] = queued;
-    useChatStore.setState({ queued: rest });
-    await sendOne(next);
+    patchWindowSession(windowKey, { queued: rest });
+    await sendOne(next, windowKey);
   }
 }
 
@@ -206,11 +304,11 @@ export function stopTurn(): void {
 }
 
 /** 追加一条用户消息到会话尾并跑一轮。 */
-async function sendOne(text: string): Promise<void> {
+async function sendOne(text: string, windowKey = useChatStore.getState().windowKey): Promise<void> {
   const userMsg: UIMessage = { id: nextId(), role: "user", parts: [{ type: "text", text }] };
-  const history = [...useChatStore.getState().messages, userMsg];
-  useChatStore.setState({ messages: history });
-  await drive(history);
+  const history = [...getWindowSession(windowKey).messages, userMsg];
+  patchWindowSession(windowKey, { messages: history });
+  await drive(history, windowKey);
 }
 
 /**
@@ -219,23 +317,26 @@ async function sendOne(text: string): Promise<void> {
 export async function sendMessage(raw: string): Promise<void> {
   const text = raw.trim();
   if (!text) return;
-  if (useChatStore.getState().streaming) {
+  const windowKey = useChatStore.getState().windowKey;
+  if (getWindowSession(windowKey).streaming) {
     enqueueMessage(text);
     return;
   }
-  await sendOne(text);
+  await sendOne(text, windowKey);
 }
 
 /** 把一条消息压入待发队列(流式期间的发送落点)。空白忽略。 */
 export function enqueueMessage(raw: string): void {
   const text = raw.trim();
   if (!text) return;
-  useChatStore.setState((s) => ({ queued: [...s.queued, text] }));
+  const windowKey = useChatStore.getState().windowKey;
+  patchWindowSession(windowKey, { queued: [...getWindowSession(windowKey).queued, text] });
 }
 
 /** 取消一条排队中的消息(用户点 × 撤回)。 */
 export function dequeueQueued(index: number): void {
-  useChatStore.setState((s) => ({ queued: s.queued.filter((_, i) => i !== index) }));
+  const windowKey = useChatStore.getState().windowKey;
+  patchWindowSession(windowKey, { queued: getWindowSession(windowKey).queued.filter((_, i) => i !== index) });
 }
 
 /**
@@ -245,8 +346,9 @@ export function dequeueQueued(index: number): void {
  */
 export function submitAskUserAnswer(msgId: string, toolCallId: string, selected: string[]): void {
   if (selected.length === 0 || useChatStore.getState().streaming) return;
+  const windowKey = useChatStore.getState().windowKey;
   // 1) 把该 tool part 置为 output-available(模型据此拿到结构化结果、UI 标记已答)。
-  const answered = useChatStore.getState().messages.map((m) => {
+  const answered = getWindowSession(windowKey).messages.map((m) => {
     if (m.id !== msgId) return m;
     return {
       ...m,
@@ -264,8 +366,8 @@ export function submitAskUserAnswer(msgId: string, toolCallId: string, selected:
     parts: [{ type: "text", text: selected.join("、") }],
   };
   const history = [...answered, echo];
-  useChatStore.setState({ messages: history });
-  void drive(history);
+  patchWindowSession(windowKey, { messages: history });
+  void drive(history, windowKey);
 }
 
 /** 是否为工具 part(UIMessage 里工具 part 的 type 形如 "tool-<name>",带 toolCallId)。 */
@@ -281,8 +383,8 @@ export function newChat(opts?: { preserveToolContext?: boolean }): void {
   if (useChatStore.getState().streaming) return;
   saveCurrentConversation(); // 开新对话前把当前的存档,别丢
   const toolContext = opts?.preserveToolContext ? useChatStore.getState().toolContext : null;
-  currentConvId = mintConvId();
-  useChatStore.setState({ messages: [], error: null, queued: [], toolContext });
+  const windowKey = opts?.preserveToolContext ? useChatStore.getState().windowKey : chatWindowKey(toolContext);
+  activateWindow(windowKey, createWindowSession(toolContext));
 }
 
 /**
@@ -290,13 +392,16 @@ export function newChat(opts?: { preserveToolContext?: boolean }): void {
  * 不自动发送——ChatPage 取草稿后填进输入框、聚焦,由用户审阅 / 编辑再发。
  */
 export function openAgentChat(prompt: string, context?: AgentToolContext): void {
-  useChatStore.setState({ draft: prompt, toolContext: context ?? null });
+  const toolContext = context ?? null;
+  const windowKey = chatWindowKey(toolContext);
+  const session = getWindowSession(windowKey);
+  activateWindow(windowKey, { ...session, draft: prompt, toolContext });
   setCurrentPage("agent");
 }
 
 /** ChatPage 取用一次性草稿后清空(避免重渲染 / 重挂载再次注入)。 */
 export function clearDraft(): void {
-  useChatStore.setState({ draft: null });
+  patchWindowSession(useChatStore.getState().windowKey, { draft: null });
 }
 
 // ——— 上下文提示词 ———
