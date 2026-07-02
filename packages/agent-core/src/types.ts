@@ -38,6 +38,27 @@ export interface AgentLlmSettings {
   baseUrl: string;
 }
 
+/** Named agent profile selected by the host entrypoint. */
+export type AgentProfile = "build" | "wiki";
+
+/** Tool names that can be injected into an agent profile. */
+export type AgentToolName =
+  | "search_base_modpacks"
+  | "inspect_base_modpack"
+  | "search_mods"
+  | "mod_get_detail"
+  | "resolve_mods"
+  | "build_modpack"
+  | "wiki_search"
+  | "wiki_open"
+  | "ask_user_question";
+
+/** Prompt + tool slice injected for a concrete agent profile. */
+export interface AgentInjection {
+  systemPrompt: string;
+  toolNames: readonly AgentToolName[];
+}
+
 /** Host-owned wiki scope and source selection for current-modpack wiki tools. */
 export interface WikiToolContext {
   modpackId: string;
@@ -47,5 +68,6 @@ export interface WikiToolContext {
 
 /** Optional host context injected into deterministic tools. */
 export interface AgentToolContext {
+  profile?: AgentProfile;
   wiki?: WikiToolContext;
 }

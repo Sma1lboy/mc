@@ -1,9 +1,15 @@
 import { describe, it, expect } from "vitest";
 import type { UIMessage } from "ai";
 
-import { createModpackAgent, toolSchemas } from "../src/index";
+import {
+  BUILD_AGENT_SYSTEM_PROMPT,
+  WIKI_AGENT_SYSTEM_PROMPT,
+  buildTools,
+  createModpackAgent,
+  resolveAgentInjection,
+  toolSchemas,
+} from "../src/index";
 import { mockExecutor } from "../src/executors/index";
-import { CHAT_AGENT_SYSTEM_PROMPT } from "../src/prompt";
 import { startMockServer } from "./fixtures/mockOpenRouter.mjs";
 
 const settings = (baseUrl: string) => ({ apiKey: "test", model: "mock", baseUrl });
@@ -109,6 +115,7 @@ describe("runTurn", () => {
         },
       });
       const agent = createModpackAgent(settings(mock.url), exec, {
+        profile: "wiki",
         wiki: {
           modpackId: "better-mc",
           instanceId: "local-instance",
@@ -131,10 +138,21 @@ describe("runTurn", () => {
     }
   });
 
-  it("(e) routes current-modpack knowledge questions through wiki tools", () => {
-    expect(CHAT_AGENT_SYSTEM_PROMPT).toContain("wiki_search");
-    expect(CHAT_AGENT_SYSTEM_PROMPT).toContain("wiki_open");
-    expect(CHAT_AGENT_SYSTEM_PROMPT).toContain("current modpack");
-    expect(CHAT_AGENT_SYSTEM_PROMPT).toContain("Do not ask the user for modpack ids or source paths");
+  it("(e) injects build vs wiki prompt/tool profiles separately", () => {
+    const buildInjection = resolveAgentInjection();
+    const wikiInjection = resolveAgentInjection("wiki");
+
+    expect(BUILD_AGENT_SYSTEM_PROMPT).not.toContain("wiki_search");
+    expect(Object.keys(buildTools(mockExecutor(), undefined, buildInjection.toolNames))).not.toContain(
+      "wiki_search",
+    );
+
+    expect(WIKI_AGENT_SYSTEM_PROMPT).toContain("wiki_search");
+    expect(WIKI_AGENT_SYSTEM_PROMPT).toContain("wiki_open");
+    expect(wikiInjection.systemPrompt).toBe(WIKI_AGENT_SYSTEM_PROMPT);
+    expect(Object.keys(buildTools(mockExecutor(), { profile: "wiki" }, wikiInjection.toolNames))).toEqual([
+      "wiki_search",
+      "wiki_open",
+    ]);
   });
 });

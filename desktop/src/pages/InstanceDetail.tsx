@@ -161,6 +161,7 @@ export default function InstanceDetail() {
     try {
       const dir = await api.instanceDir(activeRoot(), i.id);
       openAgentChat(modpackWikiPrompt(project()?.title || i.name || i.id), {
+        profile: "wiki",
         wiki: {
           modpackId: `${source.provider}:${source.project_id}`,
           instanceId: i.id,

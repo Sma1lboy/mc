@@ -22,9 +22,15 @@ import {
 } from "ai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 
-import { CHAT_AGENT_SYSTEM_PROMPT } from "./prompt";
-import { buildTools } from "./tools";
-import type { AgentLlmSettings, AgentToolContext, ToolExecutor } from "./types";
+import { BUILD_AGENT_SYSTEM_PROMPT, WIKI_AGENT_SYSTEM_PROMPT } from "./prompt";
+import { BUILD_TOOL_NAMES, WIKI_TOOL_NAMES, buildTools } from "./tools";
+import type {
+  AgentInjection,
+  AgentLlmSettings,
+  AgentProfile,
+  AgentToolContext,
+  ToolExecutor,
+} from "./types";
 
 /** Max tool round-trips per turn. */
 const MAX_STEPS = 16;
@@ -59,6 +65,19 @@ export interface ModpackAgent {
   ): Promise<TurnResult>;
 }
 
+export function resolveAgentInjection(profile: AgentProfile = "build"): AgentInjection {
+  if (profile === "wiki") {
+    return {
+      systemPrompt: WIKI_AGENT_SYSTEM_PROMPT,
+      toolNames: WIKI_TOOL_NAMES,
+    };
+  }
+  return {
+    systemPrompt: BUILD_AGENT_SYSTEM_PROMPT,
+    toolNames: BUILD_TOOL_NAMES,
+  };
+}
+
 /**
  * Create a modpack agent bound to an LLM endpoint and a host tool backend.
  * The provider is an OpenAI-compatible client over `settings.baseUrl`.
@@ -70,7 +89,8 @@ export function createModpackAgent(
 ): ModpackAgent {
   const provider = createOpenRouter({ apiKey: settings.apiKey, baseURL: settings.baseUrl });
   const model = provider.chat(settings.model);
-  const toolSet = buildTools(tools, context);
+  const injection = resolveAgentInjection(context?.profile);
+  const toolSet = buildTools(tools, context, injection.toolNames);
 
   // Stream one assistant turn from the given UI history. Returns the updated
   // history (+ the streamed assistant) and any error. Never throws.
@@ -88,7 +108,7 @@ export function createModpackAgent(
       });
       const result = streamText({
         model,
-        system: CHAT_AGENT_SYSTEM_PROMPT,
+        system: injection.systemPrompt,
         messages: modelMessages,
         tools: toolSet,
         temperature: TEMPERATURE,
