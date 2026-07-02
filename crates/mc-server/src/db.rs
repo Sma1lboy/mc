@@ -73,13 +73,18 @@ CREATE INDEX IF NOT EXISTS idx_accounts_user_id ON accounts(user_id);
 CREATE INDEX IF NOT EXISTS idx_accounts_provider_account ON accounts(provider_id, account_id);
 "#;
 
-/// Our own `shares` table (separate from better-auth's tables).
+/// Our own `shares` table (separate from better-auth's tables). `user_id` is
+/// the publishing user (nullable: rows shared before auth-gating have none);
+/// the `ALTER` upgrades already-deployed databases idempotently.
 const SHARES_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS shares (
     id         TEXT PRIMARY KEY,
     json       TEXT NOT NULL,
+    user_id    TEXT REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE shares ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_shares_user_id ON shares(user_id);
 "#;
 
 /// Private realms (临时领域)+ their members. A realm is a code-joined, *non*-

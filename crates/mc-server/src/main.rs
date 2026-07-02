@@ -74,17 +74,22 @@ async fn main() {
     // sign-out, …), mounted under /v1/auth.
     let auth_router: Router = auth.clone().axum_router().with_state(auth);
 
-    // Our own routes (separate state).
-    let api: Router = Router::new()
+    // Public routes — the explicit allowlist. Everything else in `authed` below
+    // sits behind `session::auth_middleware` (auth by default; fail closed).
+    let public: Router<AppState> = Router::new()
         .route("/v1/health", get(health))
         .route("/v1/meta/versions", get(versions))
         .route("/v1/meta/loaders/{mc_version}", get(loaders))
         .route("/v1/news", get(get_news))
-        .route("/v1/instances/share", post(share_instance))
+        // Reading a share stays public — that's the whole point of a share link.
         .route("/v1/instances/{id}", get(get_instance))
-        // Public agent chat-transcript sharing (no auth; reuses the shares table).
+        .route("/v1/agent/conversations/{id}", get(get_conversation));
+
+    // Authed routes (default for anything new).
+    let authed: Router<AppState> = Router::new()
+        // Publishing a share requires a signed-in user (owner is recorded).
+        .route("/v1/instances/share", post(share_instance))
         .route("/v1/agent/conversations", post(share_conversation))
-        .route("/v1/agent/conversations/{id}", get(get_conversation))
         // Account linking (bind Microsoft to a kobeMC user; authed).
         .route("/v1/account/link/microsoft", post(account::link_microsoft))
         .route("/v1/account/identities", get(account::list_identities))
@@ -120,7 +125,12 @@ async fn main() {
         // Notifications inbox (friend requests/accepts + realm invites; authed).
         .route("/v1/notifications", get(notification::list))
         .route("/v1/notifications/read", post(notification::read_all))
-        .with_state(state);
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            session::auth_middleware,
+        ));
+
+    let api: Router = public.merge(authed).with_state(state);
 
     let app = Router::new()
         .nest("/v1/auth", auth_router)
@@ -163,9 +173,10 @@ async fn get_news() -> Json<Vec<news::NewsItem>> {
 
 async fn share_instance(
     State(s): State<AppState>,
+    user: session::AuthUser,
     Json(inst): Json<SharedInstance>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let id = s.shares.put(inst).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let id = s.shares.put(inst, &user.0).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(serde_json::json!({ "id": id })))
 }
 
@@ -177,9 +188,11 @@ async fn get_instance(
 }
 
 /// Publish an agent chat transcript (opaque JSON: the UIMessage[] + optional
-/// title/model) and get a public id. Body is stored as-is; capped at ~1 MiB.
+/// title/model) and get a public id. Requires a signed-in user (the owner is
+/// recorded on the share). Body is stored as-is; capped at ~1 MiB.
 async fn share_conversation(
     State(s): State<AppState>,
+    user: session::AuthUser,
     Json(payload): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     if serde_json::to_string(&payload).map(|j| j.len()).unwrap_or(usize::MAX) > 1_048_576 {
@@ -187,13 +200,14 @@ async fn share_conversation(
     }
     let id = s
         .shares
-        .put_raw(&payload)
+        .put_raw(&payload, &user.0)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(serde_json::json!({ "id": id })))
 }
 
-/// Fetch a shared conversation by id (public, no auth). JSON only — the
+/// Fetch a shared conversation by id (public — share links must open for
+/// anyone). JSON only — the
 /// human-facing rendering lives in the landing frontend (`kobemc.sma1lboy.me/share/{id}`),
 /// which fetches this endpoint; the API stays pure data.
 async fn get_conversation(

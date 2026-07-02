@@ -42,16 +42,27 @@ impl ShareStore {
         Self { pool }
     }
 
-    pub async fn put(&self, mut inst: SharedInstance) -> anyhow::Result<String> {
+    pub async fn put(&self, mut inst: SharedInstance, user_id: &str) -> anyhow::Result<String> {
         let id = derive_id(&inst);
         inst.id = id.clone();
         let json = serde_json::to_string(&inst)?;
-        sqlx::query("INSERT INTO shares (id, json) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET json = EXCLUDED.json")
-            .bind(&id)
-            .bind(&json)
-            .execute(&self.pool)
-            .await?;
+        self.insert(&id, &json, user_id).await?;
         Ok(id)
+    }
+
+    /// Shared upsert: content-derived id ⇒ resubmits are idempotent; the last
+    /// publisher becomes the recorded owner.
+    async fn insert(&self, id: &str, json: &str, user_id: &str) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO shares (id, json, user_id) VALUES ($1, $2, $3)
+             ON CONFLICT (id) DO UPDATE SET json = EXCLUDED.json, user_id = EXCLUDED.user_id",
+        )
+        .bind(id)
+        .bind(json)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     pub async fn get(&self, id: &str) -> Option<SharedInstance> {
@@ -67,14 +78,10 @@ impl ShareStore {
     /// Store an opaque JSON blob (e.g. an agent chat transcript) under a
     /// content-derived id, reusing the same `shares` table. Idempotent: the same
     /// payload yields the same id. Used for public conversation sharing.
-    pub async fn put_raw(&self, value: &serde_json::Value) -> anyhow::Result<String> {
+    pub async fn put_raw(&self, value: &serde_json::Value, user_id: &str) -> anyhow::Result<String> {
         let json = serde_json::to_string(value)?;
         let id = derive_raw_id(&json);
-        sqlx::query("INSERT INTO shares (id, json) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET json = EXCLUDED.json")
-            .bind(&id)
-            .bind(&json)
-            .execute(&self.pool)
-            .await?;
+        self.insert(&id, &json, user_id).await?;
         Ok(id)
     }
 
@@ -140,9 +147,14 @@ mod tests {
     #[tokio::test]
     async fn put_get_roundtrip_and_stable_id() {
         let Some(pool) = crate::db::test_pool().await else { return };
+        // Publisher must exist (shares.user_id FK).
+        sqlx::query("INSERT INTO users (id, name) VALUES ('share-test-user', 'tester') ON CONFLICT (id) DO NOTHING")
+            .execute(&pool)
+            .await
+            .unwrap();
         let store = ShareStore::new(pool);
-        let id1 = store.put(sample()).await.unwrap();
-        let id2 = store.put(sample()).await.unwrap();
+        let id1 = store.put(sample(), "share-test-user").await.unwrap();
+        let id2 = store.put(sample(), "share-test-user").await.unwrap();
         assert_eq!(id1, id2); // deterministic / idempotent
         assert_eq!(store.get(&id1).await.unwrap().name, "Pack");
         assert!(store.get("nonexistent").await.is_none());

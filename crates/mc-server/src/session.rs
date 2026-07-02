@@ -7,7 +7,11 @@
 //! handling. Both the cookie and `Authorization: Bearer <token>` are accepted
 //! (the launcher's `ServerClient` sends the cookie via its cookie store).
 
+use axum::extract::{FromRequestParts, Request, State};
+use axum::http::request::Parts;
 use axum::http::{header, HeaderMap, StatusCode};
+use axum::middleware::Next;
+use axum::response::Response;
 use sqlx::PgPool;
 
 const COOKIE_NAME: &str = "better-auth.session-token";
@@ -44,4 +48,34 @@ pub async fn require_user(pool: &PgPool, headers: &HeaderMap) -> Result<String, 
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     row.map(|(uid,)| uid).ok_or(StatusCode::UNAUTHORIZED)
+}
+
+/// The authenticated user id for the current request. Handlers behind
+/// [`auth_middleware`] declare `user: AuthUser` as a parameter — the session was
+/// already validated once by the middleware, so extraction is a free extensions
+/// lookup (a `401` outside the middleware, so a forgotten route grouping fails
+/// closed instead of panicking).
+#[derive(Clone)]
+pub struct AuthUser(pub String);
+
+impl<S: Send + Sync> FromRequestParts<S> for AuthUser {
+    type Rejection = StatusCode;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, StatusCode> {
+        parts.extensions.get::<AuthUser>().cloned().ok_or(StatusCode::UNAUTHORIZED)
+    }
+}
+
+/// Default-deny auth layer: every route behind it requires a valid session
+/// (`401` otherwise). Validates once and stashes [`AuthUser`] in request
+/// extensions for handlers. New endpoints are authed by default — a route is
+/// public only by being explicitly placed in the public router in `main.rs`.
+pub async fn auth_middleware(
+    State(state): State<crate::AppState>,
+    mut req: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let user_id = require_user(&state.pool, req.headers()).await?;
+    req.extensions_mut().insert(AuthUser(user_id));
+    Ok(next.run(req).await)
 }
