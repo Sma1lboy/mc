@@ -8,10 +8,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{CoreError, Result};
 
-// TEMP DEV default: the current Railway dev deployment of mc-server. This URL may
-// be rotated/refreshed — override with `MC_SERVER_URL`, and swap to the stable
-// production host before GA. Marked temporary on purpose.
-const DEFAULT_BASE: &str = "https://mc-server-production-9152.up.railway.app";
+// Stable custom API domain (Cloudflare → Railway mc-server). Override with
+// `MC_SERVER_URL`. The raw Railway URL still works as a fallback host.
+const DEFAULT_BASE: &str = "https://kobemc-api.sma1lboy.me";
 
 /// Public marketing domain that hosts the read-only share page (a static page
 /// that fetches the shared conversation JSON from the API and renders it). The
