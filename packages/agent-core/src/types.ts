@@ -4,6 +4,7 @@
 // UI code — only `ai`, `zod`, and std TS. Everything host-specific (Tauri invoke,
 // an HTTP route, the daemon) lives in an adapter that injects a `ToolExecutor`.
 
+import { z } from "zod";
 import type { ModelMessage } from "ai";
 
 /**
@@ -20,8 +21,21 @@ export type AgentStreamEvent =
   | { type: "reasoning"; delta: string }
   | { type: "tool_call"; name: string; args: unknown }
   | { type: "tool_result"; name: string; summary: string }
+  | { type: "ask_user"; tool_call_id: string; question: string; options: AskUserOption[]; multi_select: boolean }
   | { type: "done" }
   | { type: "error"; message: string };
+
+/**
+ * Option schema for an `ask_user` choice — the single source for both the
+ * `ask_user_question` tool's option schema and the event's option type (mirrors
+ * Rust `AskUserOption`). Derive the type with `z.infer`; don't re-declare it.
+ */
+export const askUserOptionSchema = z.object({
+  label: z.string().describe("The visible choice text, in the user's language."),
+  id: z.string().optional().describe("Optional stable id; defaults to the label."),
+  description: z.string().optional().describe("Optional one-line detail shown under the label."),
+});
+export type AskUserOption = z.infer<typeof askUserOptionSchema>;
 
 /**
  * The transcript currency: the AI SDK's `ModelMessage` (a.k.a. CoreMessage).
