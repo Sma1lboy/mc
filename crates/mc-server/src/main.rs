@@ -16,7 +16,8 @@ mod session;
 mod share;
 
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use better_auth::handlers::AxumIntegration;
@@ -189,10 +190,24 @@ async fn share_conversation(
     Ok(Json(serde_json::json!({ "id": id })))
 }
 
-/// Fetch a shared conversation by id (public, no auth).
+/// Fetch a shared conversation by id (public, no auth). Content-negotiated:
+/// a browser (`Accept: text/html`) gets a rendered conversation page that mirrors
+/// the desktop chat UI; anything else gets the raw JSON payload.
 async fn get_conversation(
     State(s): State<AppState>,
+    headers: HeaderMap,
     Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
-    s.shares.get_raw(&id).await.map(Json).ok_or(StatusCode::NOT_FOUND)
+) -> Response {
+    let Some(value) = s.shares.get_raw(&id).await else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let wants_html = headers
+        .get(axum::http::header::ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|a| a.contains("text/html"));
+    if wants_html {
+        Html(share::render_conversation_html(&value)).into_response()
+    } else {
+        Json(value).into_response()
+    }
 }
