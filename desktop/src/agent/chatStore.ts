@@ -1,7 +1,7 @@
 // 整合包助手聊天 store —— zustand(单一真相,任何组件 useChatStore 即读,任何模块 action 即写)。
 // ------------------------------------------------------------------
-// 一条会话(sessionId)在后端保有完整 transcript:多轮对话复用同一个 sessionId,
-// 每次 sendMessage 只跑「一轮」流式;newChat 调 agentChatReset 清空后端 transcript。
+// 大脑是 TS(@kobemc/agent-core,在 webview 内跑 AI SDK 的 tool-use loop);Rust 聊天大脑已删除。
+// 每次 sendMessage 只跑「一轮」流式;上下文(tsHistory)存在本模块,newChat 轮换会话并清空它。
 //
 // 事件归约(reduce):把 AgentStreamEvent 折进「当前打开的助手消息」的有序 parts 里——
 //   text_delta   → 追加到当前打开的文本 part(纯字符串);
@@ -11,17 +11,13 @@
 //   tool_result  → 同 tool_call,压入工具结果芯片 part;
 //   done / error → 终止本轮:清 streaming;error 追加错误 part。
 //
-// 与 Solid 版的区别:part 内容改成普通 `string`(不再是逐帧 rAF 刷新的信号)。text_delta
-// 每次直接 setState 追加——Streamdown 内部按块记忆、未变的块不重解析,逐 delta 更新成本已足够低,
-// 故省掉了旧的 requestAnimationFrame 批量层与 chatTick 滴答(页面直接订阅 messages 自动滚底)。
+// text_delta 每次直接 setState 追加——Streamdown 内部按块记忆、未变的块不重解析,逐 delta 更新成本足够低。
 //
-// 幂等终止:失败可能同时以 error 事件与 agentChat Promise resolve {status:"error"} 到达,
-// finalize 用 terminated 标志守卫,二者视作同一次终止,不重复追加错误 part / 不卡死。
+// 幂等终止:finalize 用 terminated 标志守卫,error 事件与 loop 抛错视作同一次终止,不重复追加 / 不卡死。
 // ------------------------------------------------------------------
 
 import { create } from "zustand";
-import { Channel } from "@tauri-apps/api/core";
-import { commands, type AgentStreamEvent, type JsonValue } from "../ipc/bindings";
+import { type AgentStreamEvent, type JsonValue } from "../ipc/bindings";
 // Type-only imports: erased at build, so the host-agnostic brain (and its `ai`
 // dependency) stays out of the main bundle — the TS path is dynamic-imported below.
 import type { ChatMessage as BrainMessage, ModpackAgent } from "@kobemc/agent-core";
@@ -67,51 +63,25 @@ export interface ChatMessage {
   parts: ChatPart[];
 }
 
-/** 大脑实现:rust = 后端 rig loop(Channel);ts = 前端 AI SDK loop(本模块)。 */
-export type Brain = "rust" | "ts";
-
 interface ChatState {
   messages: ChatMessage[];
   /** 是否正在流式(禁用输入 / 显示指示器)。同一会话同一时刻只允许一轮。 */
   streaming: boolean;
-  /** 当前大脑(dev 开关);持久化到 localStorage。 */
-  brain: Brain;
   /**
    * 一次性输入草稿:外部入口(发现页 / 新建实例)经 openAgentChat 预填一句上下文提示,
    * ChatPage 变为活动页后取用一次(填进输入框、聚焦,不自动发送),随即清回 null。
    */
   draft: string | null;
-}
-
-const BRAIN_KEY = "mc-launcher.agentBrain";
-// Default is now the TS brain; a user who explicitly picked "rust" (persisted)
-// keeps it. Only an explicit stored "rust" opts out — anything else → "ts".
-function readInitialBrain(): Brain {
-  if (typeof window === "undefined") return "ts";
-  try {
-    return window.localStorage.getItem(BRAIN_KEY) === "rust" ? "rust" : "ts";
-  } catch {
-    return "ts";
-  }
+  /** 历史对话记录(dev 调试选择器用;localStorage 持久)。见 ConversationRecord。 */
+  conversations: ConversationRecord[];
 }
 
 export const useChatStore = create<ChatState>(() => ({
   messages: [],
   streaming: false,
-  brain: readInitialBrain(),
   draft: null,
+  conversations: loadConversations(),
 }));
-
-/** 切换大脑(流式中忽略,避免半途换实现);持久化。 */
-export function setBrain(next: Brain): void {
-  if (useChatStore.getState().streaming) return;
-  useChatStore.setState({ brain: next });
-  try {
-    window.localStorage.setItem(BRAIN_KEY, next);
-  } catch {
-    /* 加固 WebView 里 localStorage 可能不可用 */
-  }
-}
 
 // TS 大脑的「客户端」transcript(ModelMessage[])。与 rust 路径分属两套会话:
 // rust 的 transcript 存在后端(按 sessionId 续接),ts 的存在这里——中途切换大脑会
@@ -124,8 +94,95 @@ let tsAgent: Promise<ModpackAgent> | null = null;
 let seq = 0;
 const nextId = (): string => `${Date.now().toString(36)}-${(seq++).toString(36)}`;
 
-// 本次 app 运行内稳定的会话 id;多轮复用它,后端据此续接 transcript。
-const sessionId = `chat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+// 会话 id:一次「对话」一个,newChat 时轮换(见下)。rust 大脑据此续接后端 transcript。
+const mintConvId = (): string =>
+  `chat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+let currentConvId = mintConvId();
+
+/** 当前会话 id。dev 调试面板复制它,或按 id 回溯整轮 flow。 */
+export function currentChatSessionId(): string {
+  return currentConvId;
+}
+
+/* ——— 会话记录(dev 调试:按时间选不同对话)———
+ * 每完成一轮把当前对话(messages + 时间 + 标题)存到 localStorage;DebugTools 据此列出、切换。
+ * dev-only(不向普通用户暴露);记录含渲染视图 + 模型上下文,切换会话可无缝续聊。 */
+export interface ConversationRecord {
+  id: string;
+  createdAt: number;
+  updatedAt: number;
+  /** 首条用户消息(截断),用作列表标题。 */
+  title: string;
+  /** 渲染视图(给人看)。 */
+  messages: ChatMessage[];
+  /**
+   * ts 大脑的模型上下文(ModelMessage[])。与 messages 是同一段对话的两种表示:
+   * messages 给 UI 渲染,brainHistory 喂模型。载入会话时一并还原 → 续聊无缝、不丢上下文。
+   * rust 大脑的上下文存后端(按 id 续接),故此字段仅 ts 路径需要。
+   */
+  brainHistory?: BrainMessage[];
+}
+
+const CONV_KEY = "mc-launcher.agentConversations";
+const CONV_LIMIT = 50;
+
+function loadConversations(): ConversationRecord[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(CONV_KEY);
+    const list = raw ? (JSON.parse(raw) as ConversationRecord[]) : [];
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistConversations(list: ConversationRecord[]): void {
+  try {
+    window.localStorage.setItem(CONV_KEY, JSON.stringify(list.slice(0, CONV_LIMIT)));
+  } catch {
+    /* WebView 里 localStorage 可能不可用 */
+  }
+}
+
+// 把当前对话 upsert 进记录列表(每轮结束调用)。空对话不存。
+function saveCurrentConversation(): void {
+  const msgs = useChatStore.getState().messages;
+  if (msgs.length === 0) return;
+  const firstUser = msgs.find((m) => m.role === "user");
+  const title = firstUser
+    ? firstUser.parts.map((p) => (p.kind === "text" ? p.text : "")).join("").trim().slice(0, 60)
+    : "";
+  const now = Date.now();
+  const list = useChatStore.getState().conversations.slice();
+  const i = list.findIndex((c) => c.id === currentConvId);
+  const createdAt = i >= 0 ? list[i].createdAt : now;
+  const rec: ConversationRecord = {
+    id: currentConvId,
+    createdAt,
+    updatedAt: now,
+    title,
+    messages: msgs,
+    brainHistory: tsHistory.slice(), // 存模型上下文,载入时无缝续聊
+  };
+  if (i >= 0) list[i] = rec;
+  else list.unshift(rec);
+  persistConversations(list);
+  useChatStore.setState({ conversations: list });
+}
+
+/**
+ * 载入一条历史对话(dev)。同时还原渲染视图(messages)与 ts 大脑模型上下文(brainHistory),
+ * 故可无缝续聊。rust 大脑靠 id 切到后端已存的 transcript,同样续得上。流式中忽略。
+ */
+export function loadConversation(id: string): void {
+  if (useChatStore.getState().streaming) return;
+  const rec = useChatStore.getState().conversations.find((c) => c.id === id);
+  if (!rec) return;
+  currentConvId = id;
+  tsHistory = rec.brainHistory ? rec.brainHistory.slice() : []; // 还原模型上下文 → 无缝续聊
+  useChatStore.setState({ messages: rec.messages });
+}
 
 /**
  * 发送一条用户消息并跑一轮流式。追加「用户消息 + 一条打开的助手消息」,
@@ -184,6 +241,7 @@ export async function sendMessage(raw: string): Promise<void> {
     terminated = true;
     if (errMessage) patchParts((parts) => [...parts, { kind: "error", message: errMessage }]);
     useChatStore.setState({ streaming: false });
+    saveCurrentConversation(); // 每轮结束存档,供 dev 会话选择器按时间列出
   };
 
   const reduce = (ev: AgentStreamEvent): void => {
@@ -211,24 +269,8 @@ export async function sendMessage(raw: string): Promise<void> {
     }
   };
 
-  // TS 大脑:同一个 reduce 归约器,但事件由前端 loop 直接回调(不走 Channel)。
-  if (useChatStore.getState().brain === "ts") {
-    await runTsTurn(text, reduce, finalize);
-    return;
-  }
-
-  const ch = new Channel<AgentStreamEvent>();
-  ch.onmessage = reduce;
-
-  try {
-    const res = await commands.agentChat(sessionId, text, ch);
-    // 失败也会作为 error 事件到达;这里的 {status:"error"} 是同一次终止的安全网(幂等)。
-    // 成功时 done 事件已在此前把本轮终止,finalize() 为无操作。
-    if (res.status === "error") finalize(res.error);
-    else finalize();
-  } catch (e) {
-    finalize(String(e));
-  }
+  // 唯一大脑:TS(webview 内 AI SDK loop)。事件由前端 loop 直接回调进同一个 reduce 归约器。
+  await runTsTurn(text, reduce, finalize);
 }
 
 /**
@@ -256,17 +298,13 @@ async function runTsTurn(
   }
 }
 
-/** 新对话:清空后端 transcript 与前端消息(流式中忽略,避免半途重置)。 */
-export async function newChat(): Promise<void> {
+/** 新对话:归档当前对话,轮换到新会话 id,清空前端消息与后端 transcript(流式中忽略)。 */
+export function newChat(): void {
   if (useChatStore.getState().streaming) return;
+  saveCurrentConversation(); // 开新对话前把当前的存档,别丢
+  currentConvId = mintConvId(); // 轮换:新对话是独立记录,dev 选择器可回切旧的
   useChatStore.setState({ messages: [] });
-  tsHistory = []; // 同时清 TS 大脑的客户端 transcript
-  try {
-    // 清后端会话;失败不阻断(UI 已清空,下一轮仍会复用同一 sessionId)。
-    await commands.agentChatReset(sessionId);
-  } catch {
-    /* best-effort */
-  }
+  tsHistory = []; // 清 TS 大脑的客户端 transcript(上下文)
 }
 
 /**

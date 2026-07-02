@@ -1,33 +1,19 @@
-//! A lean, streaming, tool-use chat agent for the kobeMC modpack workflow.
+//! Deterministic, real-data tools for the kobeMC modpack agent.
 //!
-//! This is the *agentic* counterpart to the fixed-pipeline state machine in
-//! [`crate::agent::workflow`]. Instead of a rigid phase/approval reducer, the flow
-//! lives in a system prompt ([`CHAT_AGENT_SYSTEM_PROMPT`]) and a handful of
-//! deterministic tools; a streaming tool-use loop ([`run_chat_turn`]) lets the
-//! model chat, orchestrate those tools, and ask the user. **Safety comes from the
-//! tools returning only real provider/resolver data** (they never let the model
-//! fabricate ids/urls/hashes) and from `build_modpack` being gated behind explicit
-//! user confirmation — not from a state machine.
-//!
-//! The two coexist: this module is purely additive and reuses the same
-//! deterministic `mc-core` primitives (provider search, dependency resolution,
-//! the base-modlist parser, the `.mrpack` executor).
-//!
-//! Streaming approach (STEP 0 finding): Rig 0.39 provides a built-in streaming
-//! multi-turn tool-use loop, so we use it directly rather than hand-rolling SSE
-//! parsing — see [`run`].
+//! Once the home of a rust streaming chat *brain* (rig tool-use loop) too; that
+//! brain was retired in favour of the TS brain (`@kobemc/agent-core`, runs in the
+//! webview). What remains here is the **deterministic tool layer**: `tool_*` fns +
+//! their arg/output types, exposed to the TS brain via the `agent_tool_*` Tauri
+//! commands. **Safety lives here** — the tools return only real provider/resolver
+//! data (never let the model fabricate ids/urls/hashes) and `build_modpack` stays
+//! Rust-side. Reuses the same `mc-core` primitives (provider search, dependency
+//! resolution, base-modlist parser, `.mrpack` executor).
 
-mod prompt;
-mod run;
-mod store;
 mod tools;
 
 #[cfg(test)]
 mod tests;
 
-pub use prompt::CHAT_AGENT_SYSTEM_PROMPT;
-pub use run::{run_chat_turn, ChatEventSink, ChatTranscript, ChatTurnOutcome, CollectingSink};
-pub use store::{delete_transcript, load_transcript, save_transcript};
 pub use tools::{
     tool_build_modpack, tool_inspect_base_modpack, tool_mod_get_detail, tool_resolve_mods,
     tool_search_base_modpacks, tool_search_mods, BuildBasePack, BuildModRef, BuildModpackArgs,
@@ -37,7 +23,3 @@ pub use tools::{
     ResolveModsTool, SearchBaseModpacksArgs, SearchBaseModpacksOutput, SearchBaseModpacksTool,
     SearchModsArgs, SearchModsOutput, SearchModsTool,
 };
-
-/// The transcript message type, re-exported so callers can persist/inspect
-/// history without depending on `rig-core` paths directly.
-pub use rig_core::completion::Message as ChatMessage;

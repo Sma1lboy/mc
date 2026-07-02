@@ -35,11 +35,12 @@ impl Progress {
     }
 }
 
-/// A single streamed event from the lean tool-use chat agent
-/// (`mc_core::agent::chat`). This is the wire-level seam between the agent loop
-/// and any front-end: the loop pushes these through a `ChatEventSink`, and the
-/// Tauri command layer forwards them over an `ipc::Channel` — mirroring how
-/// long-running tasks stream [`Progress`].
+/// A single streamed event from the modpack chat agent. This is the wire-level
+/// seam between the agent brain and the UI: the TS brain (`@kobemc/agent-core`,
+/// running in the webview) emits these per turn and the chat store reduces them
+/// into the rendered message — mirroring how long-running tasks stream [`Progress`].
+/// Kept in `mc-types` (and registered with specta) so the shape stays the single
+/// source of truth for the generated TS bindings.
 ///
 /// Serialized as an internally-tagged union (`{"type": "text_delta", ...}`) so
 /// the UI can `switch` on `type`.
