@@ -478,6 +478,8 @@ export const commands = {
 	agentToolWikiSearch: (args: WikiSearchArgs) => typedError<WikiSearchOutput_Serialize, string>(__TAURI_INVOKE("agent_tool_wiki_search", { args })),
 	/**  Open one wiki chunk by chunk_id returned from wiki_search. */
 	agentToolWikiOpen: (args: WikiOpenArgs) => typedError<WikiOpenOutput_Serialize, string>(__TAURI_INVOKE("agent_tool_wiki_open", { args })),
+	/**  Debug action: rebuild the persisted wiki corpus cache for one installed instance. */
+	rebuildWikiCorpus: (root: string, instanceId: string, modpackId: string | null) => typedError<string, string>(__TAURI_INVOKE("rebuild_wiki_corpus", { root, instanceId, modpackId })),
 	agentLlmConfig: () => typedError<AgentLlmConfigDto, string>(__TAURI_INVOKE("agent_llm_config")),
 	/**  是否处于画廊模式(环境变量 `MC_GALLERY` 非空且非 "0")。前端据此决定是否自动跑截图流程。 */
 	galleryEnabled: () => typedError<boolean, string>(__TAURI_INVOKE("gallery_enabled")),

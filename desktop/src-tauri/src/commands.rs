@@ -7,8 +7,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use mc_core::agent::tools::{
+    prebuild_wiki_corpus_cache,
     tool_build_modpack, tool_inspect_base_modpack, tool_mod_get_detail, tool_resolve_mods,
     tool_search_base_modpacks, tool_search_mods, tool_wiki_open, tool_wiki_search,
+    wiki_corpus_cache_path,
     BuildModpackArgs, BuildModpackOutput, InspectBaseModpackArgs, InspectBaseModpackOutput,
     ModGetDetailArgs, ModGetDetailOutput, ResolveModsArgs, ResolveModsOutput,
     SearchBaseModpacksArgs, SearchBaseModpacksOutput, SearchModsArgs, SearchModsOutput,
@@ -3274,6 +3276,30 @@ pub async fn agent_tool_wiki_open(args: WikiOpenArgs) -> CmdResult<WikiOpenOutpu
     tool_wiki_open(args).await.map_err(err)
 }
 
+/// Debug action: rebuild the persisted wiki corpus cache for one installed instance.
+#[tauri::command]
+#[specta::specta]
+pub async fn rebuild_wiki_corpus(
+    root: String,
+    instance_id: String,
+    modpack_id: Option<String>,
+) -> CmdResult<String> {
+    let paths = root_paths(&root);
+    let instance = Instance::new(instance_id.clone(), paths.root().to_path_buf());
+    let instance_dir = instance.game_dir();
+    let modpack_id = modpack_id
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .unwrap_or_else(|| instance_id.clone());
+
+    prebuild_wiki_corpus_cache(modpack_id, Some(instance_id), &instance_dir)
+        .await
+        .map_err(err)?;
+    Ok(wiki_corpus_cache_path(&instance_dir)
+        .to_string_lossy()
+        .to_string())
+}
+
 /// The local OpenRouter config (key / model / base_url) resolved from env + the
 /// repo-root `.env` via [`AgentLlmConfig::from_local`].
 ///
@@ -3296,4 +3322,55 @@ pub fn agent_llm_config() -> CmdResult<AgentLlmConfigDto> {
         model: cfg.model,
         base_url: cfg.base_url,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_game_root(tag: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time before unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "mc-launcher-desktop-{tag}-{}-{nanos}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        root
+    }
+
+    #[tokio::test]
+    async fn rebuild_wiki_corpus_command_writes_instance_cache() {
+        let root = temp_game_root("wiki-rebuild");
+        let instance_id = "debug-instance";
+        let instance_dir = root.join("versions").join(instance_id);
+        std::fs::create_dir_all(&instance_dir).expect("create instance dir");
+        std::fs::write(
+            instance_dir.join("guide.md"),
+            "Crimson gear is documented in this debug wiki corpus.",
+        )
+        .expect("write guide");
+
+        let cache_path = rebuild_wiki_corpus(
+            root.to_string_lossy().to_string(),
+            instance_id.to_string(),
+            Some("modrinth:debug-pack".to_string()),
+        )
+        .await
+        .expect("rebuild wiki corpus");
+
+        assert_eq!(
+            PathBuf::from(cache_path),
+            instance_dir.join("wiki-corpus.json")
+        );
+        let cache =
+            std::fs::read_to_string(instance_dir.join("wiki-corpus.json")).expect("read cache");
+        assert!(cache
+            .contains("\"corpus_id\": \"modpack:modrinth:debug-pack:instance:debug-instance\""));
+        assert!(cache.contains("Crimson gear"));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
 }

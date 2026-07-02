@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { BookOpen } from "lucide-react";
+import { BookOpen, RefreshCw } from "lucide-react";
 import { InstanceManageDialog, InstanceIcon, Dialog, ExportModpackDialog, toast, Button, Chip, Heading, PixelLabel, Tag, type InstanceRowData } from "../components";
 import { PlayButton } from "../components/PlayButton";
 import { RealmPanel } from "../components/RealmPanel";
@@ -116,6 +116,7 @@ export default function InstanceDetail() {
   // 进入「添加」浏览模式时整页让给复用的探索视图,隐藏头部(返回路径用视图内的「← 返回已安装」)。
   const [browsing, setBrowsing] = useState(false);
   const [wikiOpening, setWikiOpening] = useState(false);
+  const [wikiRebuilding, setWikiRebuilding] = useState(false);
   // 删除实例前确认(与实例行的删除确认一致,避免 ⋮ 菜单一点就删)。
   const [confirmDel, setConfirmDel] = useState(false);
   // 导出整合包:选格式弹窗(非空 = 打开)。
@@ -153,17 +154,32 @@ export default function InstanceDetail() {
     void saveTags((i.tags ?? []).filter((x) => x !== tag));
   }
 
+  function wikiModpackIdFromSource(source: { provider: string; project_id: string } | null | undefined): string | null {
+    return source ? `${source.provider}:${source.project_id}` : null;
+  }
+
+  function currentWikiModpackId(): string | null {
+    return wikiModpackIdFromSource(cfg()?.source);
+  }
+
+  async function loadCurrentWikiModpackId(instanceId: string): Promise<string | null> {
+    const current = currentWikiModpackId();
+    if (current) return current;
+    const freshCfg = await api.getInstanceConfig(activeRoot(), instanceId).catch(() => null);
+    return wikiModpackIdFromSource(freshCfg?.source);
+  }
+
   async function openCurrentModpackWiki() {
     const i = inst();
-    const source = cfg()?.source;
-    if (!i || !source || wikiOpening) return;
+    const modpackId = currentWikiModpackId();
+    if (!i || !modpackId || wikiOpening) return;
     setWikiOpening(true);
     try {
       const dir = await api.instanceDir(activeRoot(), i.id);
       openAgentChat(modpackWikiPrompt(project()?.title || i.name || i.id), {
         profile: "wiki",
         wiki: {
-          modpackId: `${source.provider}:${source.project_id}`,
+          modpackId,
           instanceId: i.id,
           sourcePaths: [dir],
         },
@@ -172,6 +188,20 @@ export default function InstanceDetail() {
       toast({ type: "error", message: t("instance.askWikiFailed", { err: String(e) }) });
     } finally {
       setWikiOpening(false);
+    }
+  }
+
+  async function rebuildCurrentWikiCorpus() {
+    const i = inst();
+    if (!i || wikiRebuilding) return;
+    setWikiRebuilding(true);
+    try {
+      await api.rebuildWikiCorpus(activeRoot(), i.id, await loadCurrentWikiModpackId(i.id));
+      toast({ type: "success", message: t("instance.rebuildWikiCorpusSuccess") });
+    } catch (e) {
+      toast({ type: "error", message: t("instance.rebuildWikiCorpusFailed", { err: String(e) }) });
+    } finally {
+      setWikiRebuilding(false);
     }
   }
 
@@ -381,6 +411,19 @@ export default function InstanceDetail() {
                   >
                     <BookOpen className="w-[15px] h-[15px]" aria-hidden="true" />
                     <span className="text-[12px] font-semibold">{t("instance.askWiki")}</span>
+                  </button>
+                )}
+                {import.meta.env.DEV && i.installed && (
+                  <button
+                    type="button"
+                    className="inline-flex items-center justify-center gap-[6px] h-[38px] px-[12px] border-none bg-panel-3 text-sub rounded-none shadow-raised cursor-pointer transition-[filter,color,box-shadow] duration-[var(--dur)] ease-app hover:brightness-110 hover:text-fg active:shadow-pressed disabled:opacity-50 disabled:cursor-default"
+                    disabled={wikiRebuilding}
+                    title={t("instance.rebuildWikiCorpusTitle")}
+                    aria-label={t("instance.rebuildWikiCorpusTitle")}
+                    onClick={() => void rebuildCurrentWikiCorpus()}
+                  >
+                    <RefreshCw className={`w-[15px] h-[15px] ${wikiRebuilding ? "animate-spin" : ""}`} aria-hidden="true" />
+                    <span className="text-[12px] font-semibold">{t("instance.rebuildWikiCorpus")}</span>
                   </button>
                 )}
                 <Menu.Root positioning={{ placement: "bottom-end" }} onSelect={(d: { value: string }) => void onMenuAction(d.value)}>
