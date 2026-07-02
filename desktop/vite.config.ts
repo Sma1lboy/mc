@@ -23,5 +23,21 @@ export default defineConfig({
     emptyOutDir: true,
     // 生产构建不需要 sourcemap(可按需打开);此处保持精简。
     sourcemap: false,
+    // 把大块第三方库拆出主包,避免单 chunk 超过 500kB 的告警。
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return;
+          if (id.includes("/react") || id.includes("/scheduler")) return "react";
+          if (id.includes("/streamdown") || id.includes("/shiki") || id.includes("/marked")
+            || id.includes("/katex") || id.includes("/remark") || id.includes("/rehype")
+            || id.includes("/micromark") || id.includes("/mdast") || id.includes("/hast")
+            || id.includes("/unified") || id.includes("/unist") || id.includes("/vfile"))
+            return "markdown";
+          if (id.includes("/motion") || id.includes("/framer-motion")) return "motion";
+          if (id.includes("/lucide-react")) return "icons";
+        },
+      },
+    },
   },
 });
