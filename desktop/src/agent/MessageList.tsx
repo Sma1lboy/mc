@@ -81,11 +81,25 @@ export function MessageList({
   messages: UIMessage[];
   streaming: boolean;
 }) {
+  // 发送后、首个 token 到达前助手消息还没创建(最后一条仍是用户消息),此时补一个
+  // 独立的「思考中…」行,免得空窗期什么都不显示。
+  const pendingReply =
+    streaming && (messages.length === 0 || messages[messages.length - 1].role === "user");
   return (
     <div className="flex flex-col gap-[18px]">
       {messages.map((msg, i) => (
         <MessageRow key={msg.id} msg={msg} last={i === messages.length - 1} streaming={streaming} />
       ))}
+      {pendingReply && (
+        <div className="flex justify-start">
+          <Panel variant="sunken" className="min-w-0 px-[14px] py-[11px]">
+            <div className="flex items-center gap-[7px] text-[12px] text-muted">
+              <Spinner size={14} />
+              <span>{t("agent.streaming")}</span>
+            </div>
+          </Panel>
+        </div>
+      )}
     </div>
   );
 }
