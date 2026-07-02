@@ -125,7 +125,11 @@ impl ServerClient {
     }
 
     /// 非 2xx 状态的统一映射(标准接口错误策略的单一来源);返回原 `Response` 供继续读取。
+    /// 401 单独映射成 `CoreError::Auth`——服务端所有非公开接口默认要求登录,UI 据此提示登录。
     fn checked(&self, resp: reqwest::Response, path: &str) -> Result<reqwest::Response> {
+        if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+            return Err(CoreError::Auth("未登录或会话已过期,请先登录 kobeMC 账号".into()));
+        }
         if !resp.status().is_success() {
             return Err(CoreError::other(format!("server {} returned {}", path, resp.status())));
         }

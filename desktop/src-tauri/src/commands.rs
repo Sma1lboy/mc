@@ -1599,15 +1599,17 @@ pub struct SharedConversation {
 }
 
 /// Publish the current agent chat transcript to the deployed mc-server for public
-/// sharing (always cloud — no local fallback). Anyone can share for now; a future
-/// change will gate this behind a signed-in account. `payload_json` is the
-/// JSON.stringify'd transcript (String, to avoid exporting a recursive
-/// `serde_json::Value` through specta).
+/// sharing (always cloud — no local fallback). Requires a signed-in kobeMC
+/// account: uses the shared managed client so the better-auth session cookie is
+/// sent. `payload_json` is the JSON.stringify'd transcript (String, to avoid
+/// exporting a recursive `serde_json::Value` through specta).
 #[tauri::command]
 #[specta::specta]
-pub async fn agent_share_conversation(payload_json: String) -> CmdResult<SharedConversation> {
+pub async fn agent_share_conversation(
+    client: tauri::State<'_, mc_core::server::ServerClient>,
+    payload_json: String,
+) -> CmdResult<SharedConversation> {
     let payload: serde_json::Value = serde_json::from_str(&payload_json).map_err(err)?;
-    let client = mc_core::server::ServerClient::new().map_err(err)?;
     let (id, url) = client.share_conversation(&payload).await.map_err(err)?;
     Ok(SharedConversation { id, url })
 }
