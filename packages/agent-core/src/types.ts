@@ -37,3 +37,15 @@ export interface AgentLlmSettings {
   model: string;
   baseUrl: string;
 }
+
+/** Host-owned wiki scope and source selection for current-modpack wiki tools. */
+export interface WikiToolContext {
+  modpackId: string;
+  instanceId?: string;
+  sourcePaths: string[];
+}
+
+/** Optional host context injected into deterministic tools. */
+export interface AgentToolContext {
+  wiki?: WikiToolContext;
+}

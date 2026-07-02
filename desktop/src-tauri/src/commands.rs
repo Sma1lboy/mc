@@ -8,10 +8,11 @@ use std::sync::{Arc, Mutex};
 
 use mc_core::agent::tools::{
     tool_build_modpack, tool_inspect_base_modpack, tool_mod_get_detail, tool_resolve_mods,
-    tool_search_base_modpacks, tool_search_mods, BuildModpackArgs, BuildModpackOutput,
-    InspectBaseModpackArgs, InspectBaseModpackOutput, ModGetDetailArgs, ModGetDetailOutput,
-    ResolveModsArgs, ResolveModsOutput, SearchBaseModpacksArgs, SearchBaseModpacksOutput,
-    SearchModsArgs, SearchModsOutput,
+    tool_search_base_modpacks, tool_search_mods, tool_wiki_open, tool_wiki_search,
+    BuildModpackArgs, BuildModpackOutput, InspectBaseModpackArgs, InspectBaseModpackOutput,
+    ModGetDetailArgs, ModGetDetailOutput, ResolveModsArgs, ResolveModsOutput,
+    SearchBaseModpacksArgs, SearchBaseModpacksOutput, SearchModsArgs, SearchModsOutput,
+    WikiOpenArgs, WikiOpenOutput, WikiSearchArgs, WikiSearchOutput,
 };
 use mc_core::agent::ChatToolsCtx;
 use mc_core::auth::{AccountStore, MsaClient, StoredAccount};
@@ -3173,7 +3174,7 @@ pub fn lobby_privileged_ready() -> CmdResult<bool> {
 
 // --- agent deterministic tools (for a TS-side agent loop) -----------------
 //
-// Six deterministic modpack tools, exposed one-per-command so the TS agent brain
+// Deterministic modpack tools, exposed one-per-command so the TS agent brain
 // (Vercel AI SDK in the webview) can run the tool-use loop itself and dispatch each
 // tool via `invoke()`. Every command is a thin wrapper over the single-source
 // `tool_*` fn in `mc_core::agent::tools` — no logic
@@ -3257,6 +3258,20 @@ pub async fn agent_tool_build_modpack(
     args: BuildModpackArgs,
 ) -> CmdResult<BuildModpackOutput> {
     tool_build_modpack(&state.ctx(), args).await.map_err(err)
+}
+
+/// Search the current modpack's scoped wiki/knowledge corpus.
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_tool_wiki_search(args: WikiSearchArgs) -> CmdResult<WikiSearchOutput> {
+    tool_wiki_search(args).await.map_err(err)
+}
+
+/// Open one wiki chunk by chunk_id returned from wiki_search.
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_tool_wiki_open(args: WikiOpenArgs) -> CmdResult<WikiOpenOutput> {
+    tool_wiki_open(args).await.map_err(err)
 }
 
 /// The local OpenRouter config (key / model / base_url) resolved from env + the

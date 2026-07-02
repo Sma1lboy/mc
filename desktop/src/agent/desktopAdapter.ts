@@ -1,6 +1,6 @@
 // Desktop host adapter for the modpack-agent brain.
 //
-// Builds the injected `ToolExecutor` from the six Tauri tool commands and reads
+// Builds the injected `ToolExecutor` from the Tauri tool commands and reads
 // the LLM settings from `agent_llm_config`. This is the ONLY place that touches
 // Tauri (via the tauri-specta typed `commands`); `core/` stays host-agnostic.
 // Loaded lazily by chatStore (dynamic import) so `ai` + provider never enter the
@@ -8,7 +8,7 @@
 
 import { commands } from "../ipc/bindings";
 import { createModpackAgent, type ModpackAgent } from "@kobemc/agent-core";
-import type { AgentLlmSettings, ToolExecutor } from "@kobemc/agent-core";
+import type { AgentLlmSettings, AgentToolContext, ToolExecutor } from "@kobemc/agent-core";
 
 // tauri-specta commands return { status:"ok",data } | { status:"error",error }.
 type SpectaResult<T> = { status: "ok"; data: T } | { status: "error"; error: string };
@@ -34,6 +34,8 @@ function buildExecutor(): ToolExecutor {
     mod_get_detail: bind(commands.agentToolModGetDetail),
     resolve_mods: bind(commands.agentToolResolveMods),
     build_modpack: bind(commands.agentToolBuildModpack),
+    wiki_search: bind(commands.agentToolWikiSearch),
+    wiki_open: bind(commands.agentToolWikiOpen),
   };
 }
 
@@ -43,7 +45,7 @@ async function loadSettings(): Promise<AgentLlmSettings> {
 }
 
 /** Create a desktop-hosted modpack agent (LLM config + Tauri tool backend). */
-export async function createDesktopAgent(): Promise<ModpackAgent> {
+export async function createDesktopAgent(context?: AgentToolContext): Promise<ModpackAgent> {
   const settings = await loadSettings();
-  return createModpackAgent(settings, buildExecutor());
+  return createModpackAgent(settings, buildExecutor(), context);
 }

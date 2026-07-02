@@ -24,7 +24,7 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 
 import { CHAT_AGENT_SYSTEM_PROMPT } from "./prompt";
 import { buildTools } from "./tools";
-import type { AgentLlmSettings, ToolExecutor } from "./types";
+import type { AgentLlmSettings, AgentToolContext, ToolExecutor } from "./types";
 
 /** Max tool round-trips per turn. */
 const MAX_STEPS = 16;
@@ -63,10 +63,14 @@ export interface ModpackAgent {
  * Create a modpack agent bound to an LLM endpoint and a host tool backend.
  * The provider is an OpenAI-compatible client over `settings.baseUrl`.
  */
-export function createModpackAgent(settings: AgentLlmSettings, tools: ToolExecutor): ModpackAgent {
+export function createModpackAgent(
+  settings: AgentLlmSettings,
+  tools: ToolExecutor,
+  context?: AgentToolContext,
+): ModpackAgent {
   const provider = createOpenRouter({ apiKey: settings.apiKey, baseURL: settings.baseUrl });
   const model = provider.chat(settings.model);
-  const toolSet = buildTools(tools);
+  const toolSet = buildTools(tools, context);
 
   // Stream one assistant turn from the given UI history. Returns the updated
   // history (+ the streamed assistant) and any error. Never throws.

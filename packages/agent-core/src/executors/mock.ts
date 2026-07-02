@@ -83,6 +83,31 @@ const DEFAULTS: ToolExecutor = {
     output_size: 1024,
     manifest: { status: "ok" },
   }),
+  wiki_search: async () => ({
+    scope: { modpack_id: "mock-pack", corpus_id: "modpack:mock-pack" },
+    source_count: 1,
+    hits: [
+      {
+        chunk_id: "chunk:0:0",
+        title: "mock/wiki.md",
+        snippet: "A canned wiki hit.",
+        source_label: "mock/wiki.md",
+        location: "lines 1-1",
+        score: 1,
+      },
+    ],
+  }),
+  wiki_open: async () => ({
+    scope: { modpack_id: "mock-pack", corpus_id: "modpack:mock-pack" },
+    chunk: {
+      chunk_id: "chunk:0:0",
+      document_id: "doc:0",
+      title: "mock/wiki.md",
+      source_label: "mock/wiki.md",
+      location: "lines 1-1",
+      content: "A canned wiki chunk.",
+    },
+  }),
 };
 
 /** Build a canned executor; `fixtures` overrides individual tools. */

@@ -5,13 +5,15 @@
 import type { ToolSet } from "ai";
 import type { z } from "zod";
 
-import type { ToolExecutor } from "../types";
+import type { AgentToolContext, ToolExecutor } from "../types";
 import { searchBaseModpacks } from "./search-base-modpacks";
 import { inspectBaseModpack } from "./inspect-base-modpack";
 import { searchMods } from "./search-mods";
 import { modGetDetail } from "./mod-get-detail";
 import { resolveMods } from "./resolve-mods";
 import { buildModpack } from "./build-modpack";
+import { wikiSearch } from "./wiki-search";
+import { wikiOpen } from "./wiki-open";
 import { askUserQuestion } from "./ask-user-question";
 
 export { ASK_USER_TOOL } from "./ask-user-question";
@@ -21,7 +23,7 @@ export { ASK_USER_TOOL } from "./ask-user-question";
  * backend; the client tool (`ask_user_question`) ignores it. Listed explicitly
  * (not a loop) so each tool keeps its own concrete input type for SDK inference.
  */
-export function buildTools(exec: ToolExecutor): ToolSet {
+export function buildTools(exec: ToolExecutor, context?: AgentToolContext): ToolSet {
   return {
     search_base_modpacks: searchBaseModpacks(exec),
     inspect_base_modpack: inspectBaseModpack(exec),
@@ -29,6 +31,8 @@ export function buildTools(exec: ToolExecutor): ToolSet {
     mod_get_detail: modGetDetail(exec),
     resolve_mods: resolveMods(exec),
     build_modpack: buildModpack(exec),
+    wiki_search: wikiSearch(exec, context),
+    wiki_open: wikiOpen(exec, context),
     ask_user_question: askUserQuestion(),
   };
 }

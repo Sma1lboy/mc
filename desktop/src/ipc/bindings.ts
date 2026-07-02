@@ -474,6 +474,10 @@ export const commands = {
 	 *  extra mods. Writes to disk; the TS loop must gate this behind user confirmation.
 	 */
 	agentToolBuildModpack: (args: BuildModpackArgs) => typedError<BuildModpackOutput, string>(__TAURI_INVOKE("agent_tool_build_modpack", { args })),
+	/**  Search the current modpack's scoped wiki/knowledge corpus. */
+	agentToolWikiSearch: (args: WikiSearchArgs) => typedError<WikiSearchOutput_Serialize, string>(__TAURI_INVOKE("agent_tool_wiki_search", { args })),
+	/**  Open one wiki chunk by chunk_id returned from wiki_search. */
+	agentToolWikiOpen: (args: WikiOpenArgs) => typedError<WikiOpenOutput_Serialize, string>(__TAURI_INVOKE("agent_tool_wiki_open", { args })),
 	agentLlmConfig: () => typedError<AgentLlmConfigDto, string>(__TAURI_INVOKE("agent_llm_config")),
 	/**  是否处于画廊模式(环境变量 `MC_GALLERY` 非空且非 "0")。前端据此决定是否自动跑截图流程。 */
 	galleryEnabled: () => typedError<boolean, string>(__TAURI_INVOKE("gallery_enabled")),
@@ -1562,6 +1566,81 @@ export type VersionInstallReport = {
 	incompatible?: string[],
 	/**  CurseForge 作者禁第三方分发时需用户手动下载的文件;非空时前端弹 BlockedFilesDialog。 */
 	blocked?: BlockedFileDto[],
+};
+
+export type WikiChunk = {
+	chunk_id: string,
+	document_id: string,
+	title: string,
+	source_label: string,
+	location: string,
+	content: string,
+};
+
+export type WikiOpenArgs = {
+	modpack_id: string,
+	instance_id?: string | null,
+	/**  Same source list used for `wiki_search`; `chunk_id` is stable within it. */
+	source_paths?: string[],
+	chunk_id: string,
+};
+
+export type WikiOpenOutput = WikiOpenOutput_Serialize | WikiOpenOutput_Deserialize;
+
+export type WikiOpenOutput_Deserialize = {
+	scope: WikiScope_Deserialize,
+	chunk: WikiChunk,
+};
+
+export type WikiOpenOutput_Serialize = {
+	scope: WikiScope_Serialize,
+	chunk: WikiChunk,
+};
+
+export type WikiScope = WikiScope_Serialize | WikiScope_Deserialize;
+
+export type WikiScope_Deserialize = {
+	modpack_id: string,
+	instance_id?: string | null,
+	corpus_id: string,
+};
+
+export type WikiScope_Serialize = {
+	modpack_id: string,
+	instance_id?: string | null,
+	corpus_id: string,
+};
+
+export type WikiSearchArgs = {
+	modpack_id: string,
+	instance_id?: string | null,
+	/**  Local files, directories, `.mrpack`, or `.zip` archives selected by the host. */
+	source_paths?: string[],
+	query: string,
+	top_k?: number | null,
+};
+
+export type WikiSearchHit = {
+	chunk_id: string,
+	title: string,
+	snippet: string,
+	source_label: string,
+	location: string,
+	score: number | null,
+};
+
+export type WikiSearchOutput = WikiSearchOutput_Serialize | WikiSearchOutput_Deserialize;
+
+export type WikiSearchOutput_Deserialize = {
+	scope: WikiScope_Deserialize,
+	source_count: number,
+	hits: WikiSearchHit[],
+};
+
+export type WikiSearchOutput_Serialize = {
+	scope: WikiScope_Serialize,
+	source_count: number,
+	hits: WikiSearchHit[],
 };
 
 /**

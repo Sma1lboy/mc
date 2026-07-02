@@ -161,6 +161,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::agent_tool_mod_get_detail,
             commands::agent_tool_resolve_mods,
             commands::agent_tool_build_modpack,
+            commands::agent_tool_wiki_search,
+            commands::agent_tool_wiki_open,
             commands::agent_llm_config,
             gallery::gallery_enabled,
             gallery::gallery_capture,

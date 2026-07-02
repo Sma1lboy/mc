@@ -76,5 +76,57 @@ describe("runTurn", () => {
       toolSchemas.search_mods.safeParse({ query: "x", mc_version: "1.20.1", loader: "fabric" })
         .success,
     ).toBe(true);
+    // wiki tools expose only query/open parameters; host injects modpack scope + sources.
+    expect(toolSchemas.wiki_search.safeParse({}).success).toBe(false);
+    expect(toolSchemas.wiki_search.safeParse({ query: "aether portal" }).success).toBe(true);
+    expect(toolSchemas.wiki_open.safeParse({}).success).toBe(false);
+    expect(toolSchemas.wiki_open.safeParse({ chunk_id: "chunk:0:0" }).success).toBe(true);
+    expect(
+      toolSchemas.wiki_search.safeParse({
+        query: "aether portal",
+        modpack_id: "model-must-not-pass-this",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("(d) dispatches wiki_search to the injected executor", async () => {
+    const mock = await startMockServer({
+      scenario: "tool",
+      toolName: "wiki_search",
+      toolArgs: { query: "aether portal" },
+    });
+    try {
+      const calls: unknown[] = [];
+      const exec = mockExecutor({
+        wiki_search: async (args) => {
+          calls.push(args);
+          return {
+            scope: { modpack_id: "better-mc", corpus_id: "modpack:better-mc" },
+            source_count: 1,
+            hits: [],
+          };
+        },
+      });
+      const agent = createModpackAgent(settings(mock.url), exec, {
+        wiki: {
+          modpackId: "better-mc",
+          instanceId: "local-instance",
+          sourcePaths: ["/tmp/wiki-source"],
+        },
+      });
+      const { error } = await agent.run([userMsg("how do I open the aether portal?")], () => {});
+
+      expect(error).toBeUndefined();
+      expect(calls).toEqual([
+        {
+          query: "aether portal",
+          modpack_id: "better-mc",
+          instance_id: "local-instance",
+          source_paths: ["/tmp/wiki-source"],
+        },
+      ]);
+    } finally {
+      await mock.close();
+    }
   });
 });
