@@ -133,22 +133,48 @@
   margin: 1.2em 0;
 }
 
-/* 表格 */
+/* 表格。Streamdown 结构:
+ *   div[table-wrapper] > (可选)工具栏 div + div(滚动容器) > table[table]
+ *     thead[table-header] > tr[table-row] > th[table-header-cell]
+ *     tbody[table-body]  > tr[table-row] > td[table-cell]
+ * 工具栏(复制/下载/全屏)与其下拉、全屏浮层全靠未被 JIT 生成的 Tailwind 类,展开即破样,
+ * 且聊天里的表格用不上,故整条隐藏(只隐藏没有表格的那个直接子 div,滚动容器保留)。 */
 .chat-md [data-streamdown="table-wrapper"] {
   margin: 0.7em 0;
+}
+.chat-md [data-streamdown="table-wrapper"] > div:not(:has([data-streamdown="table"])) {
+  display: none;
+}
+.chat-md [data-streamdown="table-wrapper"] > div:has([data-streamdown="table"]) {
   overflow-x: auto;
+  box-shadow: var(--shadow-sunken, inset 0 0 0 1px rgba(0, 0, 0, 0.4));
 }
 .chat-md [data-streamdown="table"] {
   border-collapse: collapse;
   width: 100%;
+  font-size: 0.9em;
+}
+.chat-md [data-streamdown="table-header"] {
+  background: var(--panel-2, #2a2c20);
 }
 .chat-md [data-streamdown="table-header-cell"],
 .chat-md [data-streamdown="table-cell"] {
-  border: 1px solid var(--bg-titlebar, rgba(0, 0, 0, 0.45));
-  padding: 5px 10px;
+  padding: 6px 10px;
   text-align: left;
+  border-bottom: 1px solid var(--bg-titlebar, rgba(0, 0, 0, 0.45));
 }
 .chat-md [data-streamdown="table-header-cell"] {
-  background: var(--panel-2, #2a2c20);
+  color: var(--text-strong, #f3ecda);
   font-weight: 600;
+  white-space: nowrap;
+}
+.chat-md [data-streamdown="table-cell"] {
+  color: var(--text-sub, #a39f8e);
+  vertical-align: top;
+}
+.chat-md [data-streamdown="table-body"] [data-streamdown="table-row"]:nth-child(even) {
+  background: var(--panel, #1d1f15);
+}
+.chat-md [data-streamdown="table-body"] [data-streamdown="table-row"]:last-child [data-streamdown="table-cell"] {
+  border-bottom: none;
 }
