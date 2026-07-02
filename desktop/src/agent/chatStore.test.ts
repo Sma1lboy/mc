@@ -155,10 +155,11 @@ describe("chatStore agent context", () => {
     expect(messageTexts()).toEqual(["Aether portal?"]);
   });
 
-  it("builds a modpack wiki entry prompt that directly starts wiki_search", () => {
+  it("builds a user-facing modpack wiki entry prompt", () => {
     const prompt = modpackWikiPrompt("Better MC");
 
     expect(prompt).toContain("Better MC");
-    expect(prompt).toContain("wiki_search");
+    expect(prompt).toContain("查询");
+    expect(prompt).not.toContain("wiki_search");
   });
 });

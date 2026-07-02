@@ -55,8 +55,7 @@ const dict = {
     discoverPromptOpen: "帮我推荐一个耐玩的整合包{{ constraints }}",
     instancePrompt: "帮我为新建的实例生成一个整合包{{ constraints }}",
     currentModpack: "当前整合包",
-    modpackWikiPrompt:
-      "请先调用 `wiki_search` 查询当前整合包「{{ name }}」的 guide overview quests progression,然后基于搜索结果总结这个整合包里可用的玩法、任务或说明资料。不要先做意图判断。",
+    modpackWikiPrompt: "帮我查询当前整合包「{{ name }}」的玩法、任务、进度和配置说明。",
   } as Record<string, string>,
   en: {
     title: "Modpack Assistant",
@@ -113,8 +112,7 @@ const dict = {
     discoverPromptOpen: "Recommend and build a modpack worth playing{{ constraints }}",
     instancePrompt: "Build a modpack for my new instance{{ constraints }}",
     currentModpack: "current modpack",
-    modpackWikiPrompt:
-      "Call `wiki_search` first for the current modpack \"{{ name }}\" using guide overview quests progression, then summarize the available gameplay, quest, or documentation evidence from the search results. Do not do intent detection first.",
+    modpackWikiPrompt: "Help me look up gameplay, quests, progression, and config notes for the current modpack \"{{ name }}\".",
   } as Record<string, string>,
 };
 

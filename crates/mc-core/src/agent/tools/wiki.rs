@@ -13,11 +13,23 @@ use serde::{Deserialize, Serialize};
 
 use super::ChatToolError;
 use crate::error::{CoreError, IoResultExt, Result as CoreResult};
+use crate::instance::InstanceConfig;
+use crate::version::pack::PackProfile;
 
 const WIKI_FILE_MAX_BYTES: u64 = 256 * 1024;
 const WIKI_SEARCH_DEFAULT_TOP_K: usize = 5;
 const WIKI_SEARCH_MAX_TOP_K: usize = 8;
 const WIKI_CHUNK_MAX_LINES: usize = 80;
+const INSTANCE_DATA_MAX_ENTRIES: usize = 200;
+const INSTANCE_DATA_DIRS: &[&str] = &[
+    "mods",
+    "config",
+    "resourcepacks",
+    "shaderpacks",
+    "datapacks",
+    "scripts",
+    "kubejs",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub struct WikiScope {
@@ -270,6 +282,11 @@ fn read_local_wiki_documents(paths: &[PathBuf]) -> CoreResult<Vec<WikiSourceDocu
         if is_archive_path(path) {
             docs.extend(read_archive_wiki_texts(path)?);
         } else {
+            if path.is_dir() {
+                if let Some(doc) = generated_instance_data_document(path)? {
+                    docs.push(doc);
+                }
+            }
             let mut files = Vec::new();
             collect_wiki_files(path, &mut files)?;
             files.sort();
@@ -285,6 +302,123 @@ fn read_local_wiki_documents(paths: &[PathBuf]) -> CoreResult<Vec<WikiSourceDocu
     }
     docs.sort_by(|a, b| a.uri.cmp(&b.uri));
     Ok(docs)
+}
+
+fn generated_instance_data_document(path: &Path) -> CoreResult<Option<WikiSourceDocument>> {
+    let mut lines = vec![
+        "Current modpack instance data".to_string(),
+        format!("Instance directory: {}", path.display()),
+    ];
+    let mut has_data = false;
+
+    let instance_config_path = path.join("instance.json");
+    if instance_config_path.is_file() {
+        if let Ok(config) = InstanceConfig::load(&instance_config_path) {
+            has_data = true;
+            lines.push(String::new());
+            lines.push("Instance config:".to_string());
+            if let Some(name) = config.name.filter(|name| !name.trim().is_empty()) {
+                lines.push(format!("Instance name: {name}"));
+            }
+            lines.push(format!("Memory: {} MB", config.memory_mb));
+            if let Some(server) = config.server.filter(|server| !server.trim().is_empty()) {
+                lines.push(format!("Server: {server}"));
+            }
+            if !config.tags.is_empty() {
+                lines.push(format!("Tags: {}", config.tags.join(", ")));
+            }
+            if let Some(source) = config.source {
+                lines.push(format!("Source provider: {}", source.provider));
+                lines.push(format!("Source project id: {}", source.project_id));
+                if let Some(version_id) = source.version_id {
+                    lines.push(format!("Source version id: {version_id}"));
+                }
+            }
+        }
+    }
+
+    if let Ok(Some(pack)) = PackProfile::load(path) {
+        has_data = true;
+        lines.push(String::new());
+        lines.push("Version components:".to_string());
+        if let Some(mc) = pack.minecraft_version() {
+            lines.push(format!("Minecraft version: {mc}"));
+        }
+        lines.push(format!("Detected loader: {:?}", pack.detect_loader()));
+        for component in pack
+            .components
+            .iter()
+            .filter(|component| component.is_active())
+        {
+            let version = component.version.as_deref().unwrap_or("unknown");
+            lines.push(format!("- {}: {version}", component.uid));
+        }
+    }
+
+    for rel in INSTANCE_DATA_DIRS {
+        let entries = collect_instance_data_entries(path, rel)?;
+        if entries.is_empty() {
+            continue;
+        }
+        has_data = true;
+        lines.push(String::new());
+        lines.push(format!("{rel} files:"));
+        for entry in entries {
+            lines.push(format!("- {entry}"));
+        }
+    }
+
+    if !has_data {
+        return Ok(None);
+    }
+    Ok(Some(WikiSourceDocument {
+        title: "Current modpack instance data".to_string(),
+        source_label: "generated:instance-data".to_string(),
+        uri: format!("generated://instance-data/{}", path.display()),
+        content: lines.join("\n"),
+    }))
+}
+
+fn collect_instance_data_entries(root: &Path, rel: &str) -> CoreResult<Vec<String>> {
+    let dir = root.join(rel);
+    if !dir.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut entries = Vec::new();
+    collect_instance_data_entries_inner(root, &dir, &mut entries)?;
+    entries.sort();
+    entries.truncate(INSTANCE_DATA_MAX_ENTRIES);
+    Ok(entries)
+}
+
+fn collect_instance_data_entries_inner(
+    root: &Path,
+    dir: &Path,
+    entries: &mut Vec<String>,
+) -> CoreResult<()> {
+    if entries.len() >= INSTANCE_DATA_MAX_ENTRIES {
+        return Ok(());
+    }
+    for entry in std::fs::read_dir(dir).with_path(dir)? {
+        let entry = entry.with_path(dir)?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_instance_data_entries_inner(root, &path, entries)?;
+            continue;
+        }
+        if path.is_file() {
+            let rel = path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            entries.push(rel);
+        }
+        if entries.len() >= INSTANCE_DATA_MAX_ENTRIES {
+            break;
+        }
+    }
+    Ok(())
 }
 
 fn collect_wiki_files(path: &Path, files: &mut Vec<PathBuf>) -> CoreResult<()> {

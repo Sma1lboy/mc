@@ -51,9 +51,10 @@ async fn search_base_modpacks_maps_provider_hits() {
             query: "tech exploration".to_string(),
             mc_version: Some("1.20.1".to_string()),
             loader: Some("fabric".to_string()),
-        })
-        .await
-        .unwrap();
+        },
+    )
+    .await
+    .unwrap();
     assert_eq!(out.candidates.len(), 1);
     let c = &out.candidates[0];
     assert_eq!(c.provider, "modrinth");
@@ -75,9 +76,10 @@ async fn search_mods_maps_provider_hits() {
             query: "performance".to_string(),
             mc_version: "1.20.1".to_string(),
             loader: "fabric".to_string(),
-        })
-        .await
-        .unwrap();
+        },
+    )
+    .await
+    .unwrap();
     assert_eq!(out.mods.len(), 1);
     assert_eq!(out.mods[0].project_id, "sodium");
     assert_eq!(out.mods[0].provider, "modrinth");
@@ -113,16 +115,21 @@ async fn resolve_mods_walks_required_dependencies() {
             mc_version: "1.20.1".to_string(),
             loader: "fabric".to_string(),
             already_installed: None,
-        })
-        .await
-        .unwrap();
+        },
+    )
+    .await
+    .unwrap();
 
     let mut ids: Vec<_> = out.resolved.iter().map(|r| r.project_id.clone()).collect();
     ids.sort();
     assert_eq!(ids, vec!["dep".to_string(), "root".to_string()]);
     assert!(out.unresolved.is_empty());
     // Resolved refs carry real version ids + urls echoed straight from the provider.
-    let root = out.resolved.iter().find(|r| r.project_id == "root").unwrap();
+    let root = out
+        .resolved
+        .iter()
+        .find(|r| r.project_id == "root")
+        .unwrap();
     assert_eq!(root.version_id, "root-v1");
     assert!(root.url.starts_with("https://cdn.modrinth.com/data/root/"));
 }
@@ -145,10 +152,14 @@ async fn resolve_mods_honors_already_installed() {
             mc_version: "1.20.1".to_string(),
             loader: "fabric".to_string(),
             already_installed: Some(vec!["modrinth:root".to_string()]),
-        })
-        .await
-        .unwrap();
-    assert!(out.resolved.is_empty(), "already-installed root should not be resolved again");
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        out.resolved.is_empty(),
+        "already-installed root should not be resolved again"
+    );
 }
 
 #[tokio::test]
@@ -192,9 +203,10 @@ async fn mod_get_detail_returns_project_and_capped_versions() {
             project_id: "sodium".to_string(),
             minecraft_version: Some("1.20.1".to_string()),
             loader: Some("fabric".to_string()),
-        })
-        .await
-        .unwrap();
+        },
+    )
+    .await
+    .unwrap();
 
     assert_eq!(out.project.title, "Sodium");
     assert_eq!(out.project.slug, "sodium");
@@ -233,7 +245,10 @@ async fn inspect_base_modpack_parses_modlist_and_enriches() {
     let mut base_file = cdn_file("basepack");
     base_file.url = archive_url;
     let mut versions = HashMap::new();
-    versions.insert("basepack".to_string(), vec![version("basepack-v1", base_file, Vec::new())]);
+    versions.insert(
+        "basepack".to_string(),
+        vec![version("basepack-v1", base_file, Vec::new())],
+    );
 
     let mut projects = HashMap::new();
     let mut sodium_hit = hit("sodium", "sodium", "Sodium");
@@ -251,9 +266,10 @@ async fn inspect_base_modpack_parses_modlist_and_enriches() {
             project_id: "basepack".to_string(),
             mc_version: Some("1.20.1".to_string()),
             loader: Some("fabric".to_string()),
-        })
-        .await
-        .unwrap();
+        },
+    )
+    .await
+    .unwrap();
 
     assert_eq!(out.mod_count, 1);
     assert_eq!(out.mods.len(), 1);
@@ -292,9 +308,10 @@ async fn build_modpack_from_scratch_writes_verified_mrpack() {
             // A path-traversal attempt: it must be reduced to a bare basename
             // inside the sandbox, never escaping output_dir.
             output_filename: "../../my pack".to_string(),
-        })
-        .await
-        .unwrap();
+        },
+    )
+    .await
+    .unwrap();
 
     // The executor writes, then re-verifies the archive before reporting done.
     assert_eq!(out.status, "completed", "manifest: {}", out.manifest);
@@ -341,9 +358,71 @@ async fn wiki_search_reads_local_text_sources_and_opens_chunks() {
         "modpack:better-mc:instance:local-instance"
     );
     assert_eq!(out.source_count, 1);
+    let hit = out
+        .hits
+        .iter()
+        .find(|hit| hit.source_label.ends_with("the_aether.snbt"))
+        .expect("raw quest source should be searchable");
+    assert!(hit.snippet.contains("Aether portal"));
+
+    let opened = tool_wiki_open(WikiOpenArgs {
+        modpack_id: "better-mc".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        chunk_id: hit.chunk_id.clone(),
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(opened.chunk.chunk_id, hit.chunk_id);
+    assert!(opened.chunk.content.contains("Glowstone"));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn wiki_search_includes_generated_instance_data() {
+    let dir = temp_dir("wiki-instance-data");
+    std::fs::create_dir_all(dir.join("mods")).unwrap();
+    std::fs::write(dir.join("mods").join("sodium-fabric.jar"), b"").unwrap();
+    std::fs::write(
+        dir.join("instance.json"),
+        r#"{
+            "name": "Better MC",
+            "source": {
+                "provider": "modrinth",
+                "project_id": "better-mc",
+                "version_id": "v1"
+            },
+            "tags": ["questing"]
+        }"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("mmc-pack.json"),
+        r#"{
+            "formatVersion": 1,
+            "components": [
+                { "uid": "net.minecraft", "version": "1.20.1", "important": true },
+                { "uid": "net.fabricmc.fabric-loader", "version": "0.15.7", "important": true }
+            ]
+        }"#,
+    )
+    .unwrap();
+
+    let out = tool_wiki_search(WikiSearchArgs {
+        modpack_id: "better-mc".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        query: "sodium".to_string(),
+        top_k: Some(5),
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(out.source_count, 1);
     assert_eq!(out.hits.len(), 1);
-    assert!(out.hits[0].snippet.contains("Aether portal"));
-    assert!(out.hits[0].source_label.ends_with("the_aether.snbt"));
+    assert_eq!(out.hits[0].source_label, "generated:instance-data");
 
     let opened = tool_wiki_open(WikiOpenArgs {
         modpack_id: "better-mc".to_string(),
@@ -354,8 +433,12 @@ async fn wiki_search_reads_local_text_sources_and_opens_chunks() {
     .await
     .unwrap();
 
-    assert_eq!(opened.chunk.chunk_id, out.hits[0].chunk_id);
-    assert!(opened.chunk.content.contains("Glowstone"));
+    assert!(opened.chunk.content.contains("Instance name: Better MC"));
+    assert!(opened
+        .chunk
+        .content
+        .contains("net.fabricmc.fabric-loader: 0.15.7"));
+    assert!(opened.chunk.content.contains("sodium-fabric.jar"));
 
     let _ = std::fs::remove_dir_all(&dir);
 }
