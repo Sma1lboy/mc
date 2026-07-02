@@ -95,6 +95,18 @@ const DESCRIPTIONS: Record<string, string> = {
     "Deterministically build and verify a .mrpack from a base pack (or from scratch) plus extra mods. THIS WRITES TO DISK — only call it after the user has explicitly confirmed the final plan.",
 };
 
+// The zod schema for each tool, keyed by name. Exported so hosts/tests can
+// validate a raw tool-call payload before dispatch (the SDK validates these
+// internally during a turn; this is the same source of truth).
+export const toolSchemas = {
+  search_base_modpacks: searchBaseModpacksArgs,
+  inspect_base_modpack: inspectBaseModpackArgs,
+  search_mods: searchModsArgs,
+  mod_get_detail: modGetDetailArgs,
+  resolve_mods: resolveModsArgs,
+  build_modpack: buildModpackArgs,
+} as const;
+
 // One tool, with its `execute` bound to `exec[name]`. Generic over the schema so
 // each call keeps a single concrete input type (indexing a union of schemas would
 // collapse the SDK's inference to `never`).

@@ -24,8 +24,7 @@ import { Channel } from "@tauri-apps/api/core";
 import { commands, type AgentStreamEvent, type JsonValue } from "../ipc/bindings";
 // Type-only imports: erased at build, so the host-agnostic brain (and its `ai`
 // dependency) stays out of the main bundle — the TS path is dynamic-imported below.
-import type { ChatMessage as BrainMessage } from "./core/types";
-import type { ModpackAgent } from "./core/agent";
+import type { ChatMessage as BrainMessage, ModpackAgent } from "@kobemc/agent-core";
 
 export type ChatRole = "user" | "assistant";
 
@@ -78,12 +77,14 @@ interface ChatState {
 }
 
 const BRAIN_KEY = "mc-launcher.agentBrain";
+// Default is now the TS brain; a user who explicitly picked "rust" (persisted)
+// keeps it. Only an explicit stored "rust" opts out — anything else → "ts".
 function readInitialBrain(): Brain {
-  if (typeof window === "undefined") return "rust";
+  if (typeof window === "undefined") return "ts";
   try {
-    return window.localStorage.getItem(BRAIN_KEY) === "ts" ? "ts" : "rust";
+    return window.localStorage.getItem(BRAIN_KEY) === "rust" ? "rust" : "ts";
   } catch {
-    return "rust";
+    return "ts";
   }
 }
 

@@ -7,8 +7,8 @@
 // main bundle for rust-brain users.
 
 import { commands } from "../ipc/bindings";
-import { createModpackAgent, type ModpackAgent } from "./core/agent";
-import type { AgentLlmSettings, ToolExecutor } from "./core/types";
+import { createModpackAgent, type ModpackAgent } from "@kobemc/agent-core";
+import type { AgentLlmSettings, ToolExecutor } from "@kobemc/agent-core";
 
 // tauri-specta commands return { status:"ok",data } | { status:"error",error }.
 type SpectaResult<T> = { status: "ok"; data: T } | { status: "error"; error: string };
