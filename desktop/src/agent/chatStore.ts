@@ -324,3 +324,9 @@ export function discoverPrompt(query: string, version: string | null, loader: st
 export function instancePrompt(version: string | null, loader: string | null): string {
   return t("agent.instancePrompt", { constraints: constraintClause(version, loader) });
 }
+
+/** 已安装整合包 Wiki 入口:明确要求先查 wiki,不让模型先做意图识别。 */
+export function modpackWikiPrompt(name: string): string {
+  const modpack = name.trim() || t("agent.currentModpack");
+  return t("agent.modpackWikiPrompt", { name: modpack });
+}

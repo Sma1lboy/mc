@@ -11,7 +11,7 @@ vi.mock("./desktopAdapter", () => ({
   createDesktopAgent: mocks.createDesktopAgent,
 }));
 
-import { loadConversation, newChat, openAgentChat, sendMessage, useChatStore } from "./chatStore";
+import { loadConversation, modpackWikiPrompt, newChat, openAgentChat, sendMessage, useChatStore } from "./chatStore";
 import { useAppStore } from "../store";
 
 const WIKI_CONTEXT: AgentToolContext = {
@@ -80,5 +80,12 @@ describe("chatStore agent context", () => {
     loadConversation("chat-1");
 
     expect(useChatStore.getState().toolContext).toEqual(WIKI_CONTEXT);
+  });
+
+  it("builds a modpack wiki entry prompt that directly starts wiki_search", () => {
+    const prompt = modpackWikiPrompt("Better MC");
+
+    expect(prompt).toContain("Better MC");
+    expect(prompt).toContain("wiki_search");
   });
 });

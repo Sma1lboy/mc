@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { BookOpen } from "lucide-react";
 import { InstanceManageDialog, InstanceIcon, Dialog, ExportModpackDialog, toast, Button, Chip, Heading, PixelLabel, Tag, type InstanceRowData } from "../components";
 import { PlayButton } from "../components/PlayButton";
 import { RealmPanel } from "../components/RealmPanel";
@@ -10,6 +11,7 @@ import { useAsync } from "../util/useAsync";
 import { openInstanceDir, deleteInstance } from "../util/instanceActions";
 import { loaderLabel as fmtLoader } from "../util/loaders";
 import { useAppStore, activeRoot, isRunning, playInstance, closeInstance, openInstance, refreshInstances } from "../store";
+import { modpackWikiPrompt, openAgentChat } from "../agent/chatStore";
 import { renderMarkdown } from "../util/markdown";
 import { t, useLang } from "../i18n";
 import "./ModpackDetail.css"; // .md 样式(整合包更新日志渲染)
@@ -113,6 +115,7 @@ export default function InstanceDetail() {
   }
   // 进入「添加」浏览模式时整页让给复用的探索视图,隐藏头部(返回路径用视图内的「← 返回已安装」)。
   const [browsing, setBrowsing] = useState(false);
+  const [wikiOpening, setWikiOpening] = useState(false);
   // 删除实例前确认(与实例行的删除确认一致,避免 ⋮ 菜单一点就删)。
   const [confirmDel, setConfirmDel] = useState(false);
   // 导出整合包:选格式弹窗(非空 = 打开)。
@@ -148,6 +151,27 @@ export default function InstanceDetail() {
     const i = inst();
     if (!i) return;
     void saveTags((i.tags ?? []).filter((x) => x !== tag));
+  }
+
+  async function openCurrentModpackWiki() {
+    const i = inst();
+    const source = cfg()?.source;
+    if (!i || !source || wikiOpening) return;
+    setWikiOpening(true);
+    try {
+      const dir = await api.instanceDir(activeRoot(), i.id);
+      openAgentChat(modpackWikiPrompt(project()?.title || i.name || i.id), {
+        wiki: {
+          modpackId: `${source.provider}:${source.project_id}`,
+          instanceId: i.id,
+          sourcePaths: [dir],
+        },
+      });
+    } catch (e) {
+      toast({ type: "error", message: t("instance.askWikiFailed", { err: String(e) }) });
+    } finally {
+      setWikiOpening(false);
+    }
   }
 
   // Esc 返回上一页(与详情页导航一致);浏览模式有自己的 Esc,正在输入文本时不抢。
@@ -345,6 +369,19 @@ export default function InstanceDetail() {
                   disabled={launching.has(i.id) || !i.installed}
                   onClick={() => void playInstance(i.id)}
                 />
+                {cfg()?.source && i.installed && (
+                  <button
+                    type="button"
+                    className="inline-flex items-center justify-center gap-[6px] h-[38px] px-[12px] border-none bg-panel-3 text-sub rounded-none shadow-raised cursor-pointer transition-[filter,color,box-shadow] duration-[var(--dur)] ease-app hover:brightness-110 hover:text-fg active:shadow-pressed disabled:opacity-50 disabled:cursor-default"
+                    disabled={wikiOpening}
+                    title={t("instance.askWikiTitle")}
+                    aria-label={t("instance.askWikiTitle")}
+                    onClick={() => void openCurrentModpackWiki()}
+                  >
+                    <BookOpen className="w-[15px] h-[15px]" aria-hidden="true" />
+                    <span className="text-[12px] font-semibold">{t("instance.askWiki")}</span>
+                  </button>
+                )}
                 <Menu.Root positioning={{ placement: "bottom-end" }} onSelect={(d: { value: string }) => void onMenuAction(d.value)}>
                   <Menu.Trigger
                     className="inline-flex items-center justify-center w-[38px] h-[38px] border-none bg-panel-3 text-sub rounded-none shadow-raised cursor-pointer transition-[filter,color] duration-[var(--dur)] ease-app hover:brightness-110 hover:text-fg active:shadow-pressed data-[state=open]:shadow-pressed data-[state=open]:text-fg"
