@@ -444,6 +444,88 @@ async fn wiki_search_includes_generated_instance_data() {
 }
 
 #[tokio::test]
+async fn wiki_search_reads_complete_ftb_quest_sources() {
+    let dir = temp_dir("wiki-ftb-quests");
+    let quests_dir = dir
+        .join("config")
+        .join("ftbquests")
+        .join("quests")
+        .join("chapters");
+    std::fs::create_dir_all(&quests_dir).unwrap();
+    std::fs::write(
+        quests_dir.join("getting_started.snbt"),
+        r#"{
+            title: "Getting Started"
+            quests: [{
+                title: "Make a Crushing Wheel"
+                subtitle: "Create automation"
+                description: ["Craft Andesite Alloy", "Use Create stress units"]
+                tasks: [{ type: "item", item: "create:crushing_wheel" }]
+                rewards: [{ type: "item", item: "minecraft:diamond" }]
+                dependencies: ["long_unique_gate"]
+            }]
+        }"#,
+    )
+    .unwrap();
+
+    let out = tool_wiki_search(WikiSearchArgs {
+        modpack_id: "create-pack".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        query: "crushing wheel".to_string(),
+        top_k: Some(5),
+    })
+    .await
+    .unwrap();
+
+    let hit = out
+        .hits
+        .iter()
+        .find(|hit| hit.source_label == "generated:ftb-quests")
+        .expect("FTB quest source should be searchable through generated source");
+    assert!(hit
+        .title
+        .contains("config/ftbquests/quests/chapters/getting_started.snbt"));
+
+    let opened = tool_wiki_open(WikiOpenArgs {
+        modpack_id: "create-pack".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        chunk_id: hit.chunk_id.clone(),
+    })
+    .await
+    .unwrap();
+
+    assert!(opened
+        .chunk
+        .content
+        .contains("FTB Quests source file: config/ftbquests/quests/chapters/getting_started.snbt"));
+    assert!(opened.chunk.content.contains(r#"title: "Getting Started""#));
+    assert!(opened
+        .chunk
+        .content
+        .contains(r#"title: "Make a Crushing Wheel""#));
+    assert!(opened
+        .chunk
+        .content
+        .contains(r#"description: ["Craft Andesite Alloy", "Use Create stress units"]"#));
+    assert!(opened
+        .chunk
+        .content
+        .contains(r#"tasks: [{ type: "item", item: "create:crushing_wheel" }]"#));
+    assert!(opened
+        .chunk
+        .content
+        .contains(r#"rewards: [{ type: "item", item: "minecraft:diamond" }]"#));
+    assert!(opened
+        .chunk
+        .content
+        .contains(r#"dependencies: ["long_unique_gate"]"#));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
 async fn wiki_corpus_searches_through_unified_source_interface() {
     let dir = temp_dir("wiki-source-interface");
     std::fs::create_dir_all(&dir).unwrap();

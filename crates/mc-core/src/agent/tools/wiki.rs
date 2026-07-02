@@ -30,6 +30,13 @@ const INSTANCE_DATA_DIRS: &[&str] = &[
     "scripts",
     "kubejs",
 ];
+const FTB_QUESTS_FILE_MAX_BYTES: u64 = 1024 * 1024;
+const FTB_QUESTS_DIRS: &[&str] = &[
+    "config/ftbquests",
+    "defaultconfigs/ftbquests",
+    "serverconfig/ftbquests",
+    "world/serverconfig/ftbquests",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub struct WikiScope {
@@ -286,6 +293,7 @@ fn read_local_wiki_documents(paths: &[PathBuf]) -> CoreResult<Vec<WikiSourceDocu
                 if let Some(doc) = generated_instance_data_document(path)? {
                     docs.push(doc);
                 }
+                docs.extend(read_ftb_quest_documents(path)?);
             }
             let mut files = Vec::new();
             collect_wiki_files(path, &mut files)?;
@@ -379,6 +387,63 @@ fn generated_instance_data_document(path: &Path) -> CoreResult<Option<WikiSource
     }))
 }
 
+fn read_ftb_quest_documents(root: &Path) -> CoreResult<Vec<WikiSourceDocument>> {
+    let mut files = Vec::new();
+    for rel in FTB_QUESTS_DIRS {
+        let dir = root.join(rel);
+        if dir.is_dir() {
+            collect_ftb_quest_files(&dir, &mut files)?;
+        }
+    }
+    files.sort();
+    files.dedup();
+
+    let mut docs = Vec::new();
+    for file in files {
+        if !is_allowed_ftb_quest_file(&file)? {
+            continue;
+        }
+        let Ok(content) = std::fs::read_to_string(&file) else {
+            continue;
+        };
+        let rel = relative_slash_path(root, &file);
+        docs.push(WikiSourceDocument {
+            title: format!("FTB Quests: {rel}"),
+            source_label: "generated:ftb-quests".to_string(),
+            uri: format!("generated://ftb-quests/{rel}"),
+            content: format!("FTB Quests source file: {rel}\n\n{content}"),
+        });
+    }
+    Ok(docs)
+}
+
+fn collect_ftb_quest_files(dir: &Path, files: &mut Vec<PathBuf>) -> CoreResult<()> {
+    for entry in std::fs::read_dir(dir).with_path(dir)? {
+        let entry = entry.with_path(dir)?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_ftb_quest_files(&path, files)?;
+        } else if path.is_file() {
+            files.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn is_allowed_ftb_quest_file(path: &Path) -> CoreResult<bool> {
+    let meta = std::fs::metadata(path).with_path(path)?;
+    if !meta.is_file() || meta.len() > FTB_QUESTS_FILE_MAX_BYTES {
+        return Ok(false);
+    }
+    let Some(ext) = path.extension().and_then(|ext| ext.to_str()) else {
+        return Ok(false);
+    };
+    Ok(matches!(
+        ext.to_ascii_lowercase().as_str(),
+        "snbt" | "json" | "json5" | "txt" | "md"
+    ))
+}
+
 fn collect_instance_data_entries(root: &Path, rel: &str) -> CoreResult<Vec<String>> {
     let dir = root.join(rel);
     if !dir.is_dir() {
@@ -419,6 +484,13 @@ fn collect_instance_data_entries_inner(
         }
     }
     Ok(())
+}
+
+fn relative_slash_path(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
 }
 
 fn collect_wiki_files(path: &Path, files: &mut Vec<PathBuf>) -> CoreResult<()> {
