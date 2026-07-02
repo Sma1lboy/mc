@@ -94,7 +94,11 @@ if (!executor) {
 
 const clip = (s, n = 200) => (s.length > n ? s.slice(0, n) + "…" : s);
 
-function onEvent(ev) {
+// `agent.run(history, onUpdate)` calls onUpdate with the whole growing assistant
+// UIMessage on each stream tick (text/reasoning/tool parts with an
+// input-streaming → available → output state machine). We diff it into
+// pi-style events so --json stays an event stream and pretty mode reads live.
+function emit(ev) {
   if (flags.json) {
     process.stdout.write(JSON.stringify(ev) + "\n");
     return;
@@ -102,6 +106,13 @@ function onEvent(ev) {
   switch (ev.type) {
     case "text_delta":
       process.stdout.write(ev.delta);
+      break;
+    case "reasoning_delta":
+      break; // not surfaced in pretty mode
+    case "ask_user":
+      process.stdout.write(`\n⏸  ask_user_question — turn paused for user input (client-side tool):\n`);
+      process.stdout.write(`   Q: ${ev.question}\n`);
+      ev.options.forEach((o, k) => process.stdout.write(`   ${k + 1}. ${o}\n`));
       break;
     case "tool_call":
       process.stdout.write(`\n🔧 ${ev.name}(${clip(JSON.stringify(ev.args ?? {}))})\n`);
@@ -112,15 +123,57 @@ function onEvent(ev) {
     case "error":
       process.stderr.write(`\n[error] ${ev.message}\n`);
       break;
-    // reasoning / done: not surfaced in pretty mode.
   }
 }
 
+// One diff cursor per turn: how much of each text/reasoning part we've printed,
+// and which tool calls/results we've already surfaced.
+function makeOnUpdate() {
+  const printed = new Map(); // part index -> chars already emitted
+  const seen = new Set(); // "<toolCallId>:call" / ":result"
+  return (assistant) => {
+    assistant.parts.forEach((part, idx) => {
+      if (part.type === "text" || part.type === "reasoning") {
+        const prev = printed.get(idx) ?? 0;
+        const text = part.text ?? "";
+        if (text.length > prev) {
+          emit({ type: part.type === "text" ? "text_delta" : "reasoning_delta", delta: text.slice(prev) });
+          printed.set(idx, text.length);
+        }
+        return;
+      }
+      if (typeof part.toolCallId !== "string") return;
+      const name = part.type.replace(/^tool-/, "");
+      if (part.state === "input-available" && !seen.has(`${part.toolCallId}:call`)) {
+        seen.add(`${part.toolCallId}:call`);
+        if (name === "ask_user_question") {
+          const inp = part.input ?? {};
+          emit({
+            type: "ask_user",
+            question: inp.question ?? "",
+            options: (Array.isArray(inp.options) ? inp.options : []).map((o) => o?.label ?? String(o)),
+          });
+        } else {
+          emit({ type: "tool_call", name, args: part.input });
+        }
+      }
+      if (part.state === "output-available" && !seen.has(`${part.toolCallId}:result`)) {
+        seen.add(`${part.toolCallId}:result`);
+        emit({ type: "tool_result", name, summary: clip(JSON.stringify(part.output ?? {})) });
+      }
+    });
+  };
+}
+
+let uid = 0;
+const nextId = () => `m${++uid}`;
 const agent = createModpackAgent(settings, executor);
 let history = [];
 for (const [i, msg] of messages.entries()) {
   if (!flags.json) process.stdout.write(`\n${i > 0 ? "\n" : ""}› ${msg}\n`);
-  const res = await agent.runTurn(history, msg, onEvent);
-  history = res.history;
+  history = [...history, { id: nextId(), role: "user", parts: [{ type: "text", text: msg }] }];
+  const res = await agent.run(history, makeOnUpdate());
+  if (res.error) emit({ type: "error", message: res.error });
+  history = res.messages;
 }
 if (!flags.json) process.stdout.write("\n");
