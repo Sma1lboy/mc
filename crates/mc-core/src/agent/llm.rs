@@ -1,14 +1,9 @@
-//! Rig-backed LLM runtime for the agent.
+//! OpenRouter config loader for the TS agent brain.
 //!
-//! The workflow owns durable state and phase transitions. This module only
-//! owns model configuration and typed structured-output calls.
+//! The launcher owns the API key (env / repo-root `.env`); the webview asks for
+//! it via the `agent_llm_config` command. No LLM calls happen in Rust.
 
 use std::path::{Path, PathBuf};
-
-use rig_core::prelude::{CompletionClient, TypedPrompt};
-use rig_core::providers::openrouter;
-use schemars::JsonSchema;
-use serde::de::DeserializeOwned;
 
 use crate::error::{CoreError, Result};
 
@@ -27,14 +22,6 @@ pub struct AgentLlmConfig {
 }
 
 impl AgentLlmConfig {
-    pub fn new(api_key: impl Into<String>) -> Self {
-        Self {
-            api_key: api_key.into(),
-            model: DEFAULT_OPENROUTER_MODEL.to_string(),
-            base_url: DEFAULT_OPENROUTER_BASE_URL.to_string(),
-        }
-    }
-
     /// Load config from local process state.
     ///
     /// Key priority:
@@ -47,10 +34,6 @@ impl AgentLlmConfig {
     pub fn from_local(data_dir: &Path) -> Result<Self> {
         let env_files = dotenv_candidates(data_dir);
         config_from_env_files(&env_files)
-    }
-
-    pub fn local_env_paths(data_dir: &Path) -> Vec<PathBuf> {
-        dotenv_candidates(data_dir)
     }
 }
 
@@ -74,59 +57,6 @@ fn config_from_env_files(env_files: &[PathBuf]) -> Result<AgentLlmConfig> {
         model,
         base_url,
     })
-}
-
-#[derive(Clone)]
-pub struct AgentLlmClient {
-    config: AgentLlmConfig,
-    client: openrouter::Client,
-}
-
-impl AgentLlmClient {
-    pub fn new(config: AgentLlmConfig) -> Result<Self> {
-        let client = openrouter::Client::builder()
-            .api_key(config.api_key.trim())
-            .base_url(config.base_url.trim_end_matches('/'))
-            .build()
-            .map_err(|e| {
-                CoreError::other(format!("failed to initialize Rig OpenRouter client: {e}"))
-            })?;
-        Ok(Self { config, client })
-    }
-
-    pub fn model(&self) -> &str {
-        &self.config.model
-    }
-
-    pub(crate) async fn prompt_typed<T>(
-        &self,
-        instructions: &[&str],
-        input: String,
-        max_output_tokens: u64,
-        temperature: f64,
-    ) -> Result<T>
-    where
-        T: JsonSchema + DeserializeOwned + Send + 'static,
-    {
-        let preamble = instructions
-            .iter()
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<_>>()
-            .join("\n\n");
-        let agent = self
-            .client
-            .agent(self.config.model.clone())
-            .preamble(&preamble)
-            .temperature(temperature)
-            .max_tokens(max_output_tokens)
-            .build();
-        agent
-            .prompt_typed::<T>(input)
-            .max_turns(1)
-            .await
-            .map_err(|e| CoreError::other(format!("Rig structured output failed: {e}")))
-    }
 }
 
 fn env_value(name: &str, env_files: &[PathBuf]) -> Option<String> {

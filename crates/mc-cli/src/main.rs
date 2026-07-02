@@ -18,9 +18,6 @@ use mc_core::settings::GlobalSettings;
 use mc_core::types::{AccountKind, ReleaseKind};
 use mc_core::{java, meta, LAUNCHER_NAME, LAUNCHER_VERSION};
 
-mod agent_cli;
-
-use agent_cli::{cmd_agent, AgentAction};
 
 #[derive(Parser)]
 #[command(name = "mc", version, about = "A fast Minecraft launcher core (CLI)")]
@@ -206,11 +203,6 @@ enum Command {
         #[arg(long)]
         loader_version: Option<String>,
     },
-    /// Exercise the local main-agent workflow harness.
-    Agent {
-        #[command(subcommand)]
-        action: AgentAction,
-    },
 }
 
 #[derive(Subcommand)]
@@ -371,7 +363,6 @@ async fn main() -> Result<()> {
             )
             .await
         }
-        Command::Agent { action } => cmd_agent(action).await,
     }
 }
 

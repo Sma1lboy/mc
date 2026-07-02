@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use mc_core::agent::chat::{
+use mc_core::agent::tools::{
     tool_build_modpack, tool_inspect_base_modpack, tool_mod_get_detail, tool_resolve_mods,
     tool_search_base_modpacks, tool_search_mods, BuildModpackArgs, BuildModpackOutput,
     InspectBaseModpackArgs, InspectBaseModpackOutput, ModGetDetailArgs, ModGetDetailOutput,
@@ -3155,7 +3155,7 @@ pub fn lobby_privileged_ready() -> CmdResult<bool> {
 // Six deterministic modpack tools, exposed one-per-command so the TS agent brain
 // (Vercel AI SDK in the webview) can run the tool-use loop itself and dispatch each
 // tool via `invoke()`. Every command is a thin wrapper over the single-source
-// `tool_*` fn in `mc_core::agent::chat` — no logic
+// `tool_*` fn in `mc_core::agent::tools` — no logic
 // here. Safety is unchanged: the tools only ever return real provider/resolver
 // data, and `agent_tool_build_modpack` re-resolves every file through the provider.
 

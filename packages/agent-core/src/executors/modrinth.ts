@@ -2,14 +2,14 @@
 //
 // This is the host backend a server would use to run the brain WITHOUT a
 // desktop app: the five non-writing tools hit Modrinth directly and return JSON
-// whose field names match the Rust tools (`mc_core::agent::chat::tools`) exactly
+// whose field names match the Rust tools (`mc_core::agent::tools`) exactly
 // (snake_case), so the same UI/model round-trips through either host. It never
 // writes to disk; `build_modpack` returns a structured "unsupported here" error
 // (the trust-critical .mrpack writer stays in Rust — see README, "Hosting").
 //
 // Everything is a straight port of the Rust primitives: search facets
 // (`modplatform::modrinth`), the "best compatible version" pick + dependency BFS
-// (`modplatform::dependency`), and the base-modlist parse (`agent::workflow::
+// (`modplatform::dependency`), and the base-modlist parse (`agent::build::
 // base_modlist`). No new dependencies — global `fetch` + node:zlib for the one
 // zip entry `inspect_base_modpack` reads out of a `.mrpack`.
 
