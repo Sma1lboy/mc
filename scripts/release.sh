@@ -82,7 +82,8 @@ replace_toml_version("Cargo.toml", "workspace.package")
 replace_toml_version("desktop/src-tauri/Cargo.toml", "package")
 replace_json_version("desktop/src-tauri/tauri.conf.json", [["version"]])
 replace_json_version("desktop/package.json", [["version"]])
-replace_json_version("desktop/package-lock.json", [["version"], ["packages", "", "version"]])
+# npm workspaces:唯一真相是仓库根 package-lock.json(desktop/package-lock.json 已废弃)。
+replace_json_version("package-lock.json", [["packages", "desktop", "version"]])
 PY
 
 echo "==> Syncing lockfiles"

@@ -157,6 +157,13 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::check_all_updates,
             commands::agent_chat,
             commands::agent_chat_reset,
+            commands::agent_tool_search_base_modpacks,
+            commands::agent_tool_inspect_base_modpack,
+            commands::agent_tool_search_mods,
+            commands::agent_tool_mod_get_detail,
+            commands::agent_tool_resolve_mods,
+            commands::agent_tool_build_modpack,
+            commands::agent_llm_config,
             gallery::gallery_enabled,
             gallery::gallery_capture,
             gallery::gallery_build,
@@ -217,6 +224,8 @@ pub fn run() {
         .manage(commands::RunningGames::default())
         // 流式聊天 agent 的每会话 transcript(rig 原始 transcript 不过 Tauri 边界)。
         .manage(commands::ChatSessions::default())
+        // Shared tool context for the `agent_tool_*` commands (a TS-side agent loop).
+        .manage(commands::AgentToolsState::default())
         // EasyTier 联机会话状态(同一时刻最多一个会话)。
         .manage(commands::LobbyState::default())
         // Shared mc-server client — kobeMC auth session cookie persists across calls.

@@ -5,6 +5,8 @@ import {
   useChatStore,
   sendMessage,
   newChat,
+  setBrain,
+  type Brain,
   clearDraft,
   type ChatMessage,
   type ToolCallPart,
@@ -161,6 +163,33 @@ function MessageRow({ msg, last, streaming }: { msg: ChatMessage; last: boolean;
   );
 }
 
+// 大脑开关(dev):rust|ts 分段徽标;流式期间禁用。切换即换 sendMessage 的实现路径。
+function BrainToggle() {
+  const brain = useChatStore((s) => s.brain);
+  const streaming = useChatStore((s) => s.streaming);
+  const options: Brain[] = ["rust", "ts"];
+  return (
+    <div className="inline-flex items-center gap-[6px] text-[12px]">
+      <span className="text-faint">{t("agent.brainLabel")}</span>
+      <div className="inline-flex rounded-none bg-panel-2 shadow-sunken p-[2px]">
+        {options.map((b) => (
+          <button
+            key={b}
+            type="button"
+            disabled={streaming}
+            onClick={() => setBrain(b)}
+            className={`px-[9px] h-[22px] leading-none text-[11px] rounded-none transition-colors duration-[var(--dur)] ease-app disabled:opacity-60 ${
+              brain === b ? "bg-accent text-accent-text shadow-raised" : "text-sub hover:text-fg cursor-pointer"
+            }`}
+          >
+            {b === "rust" ? t("agent.brainRust") : t("agent.brainTs")}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function ChatPage() {
   useLang();
   const messages = useChatStore((s) => s.messages);
@@ -231,9 +260,12 @@ export default function ChatPage() {
           <Heading size="section" as="h1">{t("agent.title")}</Heading>
           <div className="mt-[4px] text-[12px] text-muted truncate">{t("agent.subtitle")}</div>
         </div>
-        <Button variant="ghost" disabled={streaming} onClick={() => void newChat()}>
-          {t("agent.newChat")}
-        </Button>
+        <div className="shrink-0 flex items-center gap-[12px]">
+          <BrainToggle />
+          <Button variant="ghost" disabled={streaming} onClick={() => void newChat()}>
+            {t("agent.newChat")}
+          </Button>
+        </div>
       </header>
 
       {/* 消息列表(滚动) */}

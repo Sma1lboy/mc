@@ -29,12 +29,13 @@ pub use prompt::CHAT_AGENT_SYSTEM_PROMPT;
 pub use run::{run_chat_turn, ChatEventSink, ChatTranscript, ChatTurnOutcome, CollectingSink};
 pub use store::{delete_transcript, load_transcript, save_transcript};
 pub use tools::{
-    BuildBasePack, BuildModRef, BuildModpackArgs, BuildModpackOutput, BuildModpackTool,
-    BuildTarget, ChatToolError, ChatToolsCtx, InspectBaseModpackArgs, InspectBaseModpackOutput,
-    InspectBaseModpackTool, ModGetDetailArgs, ModGetDetailOutput, ModGetDetailTool, ModHit,
-    ResolveModsArgs, ResolveModsOutput, ResolveModsTool,
-    SearchBaseModpacksArgs, SearchBaseModpacksOutput, SearchBaseModpacksTool, SearchModsArgs,
-    SearchModsOutput, SearchModsTool,
+    tool_build_modpack, tool_inspect_base_modpack, tool_mod_get_detail, tool_resolve_mods,
+    tool_search_base_modpacks, tool_search_mods, BuildBasePack, BuildModRef, BuildModpackArgs,
+    BuildModpackOutput, BuildModpackTool, BuildTarget, ChatToolError, ChatToolsCtx,
+    InspectBaseModpackArgs, InspectBaseModpackOutput, InspectBaseModpackTool, ModGetDetailArgs,
+    ModGetDetailOutput, ModGetDetailTool, ModHit, ResolveModsArgs, ResolveModsOutput,
+    ResolveModsTool, SearchBaseModpacksArgs, SearchBaseModpacksOutput, SearchBaseModpacksTool,
+    SearchModsArgs, SearchModsOutput, SearchModsTool,
 };
 
 /// The transcript message type, re-exported so callers can persist/inspect

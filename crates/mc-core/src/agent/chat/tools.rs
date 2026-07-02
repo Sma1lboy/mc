@@ -21,6 +21,8 @@ use serde::{Deserialize, Serialize};
 use rig_core::completion::ToolDefinition;
 use rig_core::tool::Tool;
 
+use mc_types::JsonValue;
+
 use crate::agent::state::ApprovedModpackBuild;
 use crate::agent::workflow::{
     base_modlist_cache_from_archive_bytes, execute_mrpack_build_to_path_with_registry,
@@ -83,6 +85,13 @@ impl ChatToolsCtx {
     }
 }
 
+/// Wrap a bare registry into a [`ChatToolsCtx`] for a read-only tool. Only
+/// `build_modpack` writes to disk, so the `output_dir` is a placeholder here.
+// ponytail: placeholder path; every tool but build_modpack ignores output_dir.
+fn ctx_from_registry(registry: &Arc<ProviderRegistry>) -> ChatToolsCtx {
+    ChatToolsCtx::new(registry.clone(), PathBuf::new())
+}
+
 fn tool_parameters<T: JsonSchema>() -> serde_json::Value {
     let schema = schemars::SchemaGenerator::default().into_root_schema_for::<T>();
     serde_json::to_value(schema).unwrap_or_else(|_| serde_json::json!({ "type": "object" }))
@@ -139,7 +148,7 @@ fn version_file_json(file: &VersionFile) -> serde_json::Value {
 // search_base_modpacks
 // ===========================================================================
 
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, specta::Type)]
 pub struct SearchBaseModpacksArgs {
     /// English search keywords describing the desired modpack.
     pub query: String,
@@ -151,7 +160,7 @@ pub struct SearchBaseModpacksArgs {
     pub loader: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct BaseModpackCandidate {
     pub provider: String,
     pub project_id: String,
@@ -162,7 +171,7 @@ pub struct BaseModpackCandidate {
     pub description: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct SearchBaseModpacksOutput {
     pub candidates: Vec<BaseModpackCandidate>,
 }
@@ -188,43 +197,52 @@ impl Tool for SearchBaseModpacksTool {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let mut query = SearchQuery::new(args.query.trim(), ResourceKind::Modpack);
-        query.limit = BASE_SEARCH_TOTAL_CAP as u32;
-        query.sort = SortMethod::Relevance;
-        query.game_version = args.mc_version.clone();
-        query.loader = args.loader.clone();
-
-        let policy = DedupCapPolicy {
-            providers: ProviderTargets::Only(vec![ProviderId::Modrinth]),
-            per_query_cap: None,
-            total_cap: BASE_SEARCH_TOTAL_CAP,
-        };
-        let matches = self
-            .registry
-            .search_concurrent(std::slice::from_ref(&query), PROVIDER_FANOUT, policy)
-            .await?;
-
-        let candidates = matches
-            .into_iter()
-            .map(|m| BaseModpackCandidate {
-                provider: provider_slug(m.provider).to_string(),
-                project_id: m.hit.id,
-                slug: m.hit.slug,
-                title: m.hit.title,
-                author: m.hit.author,
-                downloads: m.hit.downloads,
-                description: m.hit.description,
-            })
-            .collect();
-        Ok(SearchBaseModpacksOutput { candidates })
+        tool_search_base_modpacks(&ctx_from_registry(&self.registry), args).await
     }
+}
+
+/// Search Modrinth for modpacks usable as a base. Single source of truth shared by
+/// the [`SearchBaseModpacksTool`] rig tool and the Tauri command layer.
+pub async fn tool_search_base_modpacks(
+    ctx: &ChatToolsCtx,
+    args: SearchBaseModpacksArgs,
+) -> Result<SearchBaseModpacksOutput, ChatToolError> {
+    let mut query = SearchQuery::new(args.query.trim(), ResourceKind::Modpack);
+    query.limit = BASE_SEARCH_TOTAL_CAP as u32;
+    query.sort = SortMethod::Relevance;
+    query.game_version = args.mc_version.clone();
+    query.loader = args.loader.clone();
+
+    let policy = DedupCapPolicy {
+        providers: ProviderTargets::Only(vec![ProviderId::Modrinth]),
+        per_query_cap: None,
+        total_cap: BASE_SEARCH_TOTAL_CAP,
+    };
+    let matches = ctx
+        .registry
+        .search_concurrent(std::slice::from_ref(&query), PROVIDER_FANOUT, policy)
+        .await?;
+
+    let candidates = matches
+        .into_iter()
+        .map(|m| BaseModpackCandidate {
+            provider: provider_slug(m.provider).to_string(),
+            project_id: m.hit.id,
+            slug: m.hit.slug,
+            title: m.hit.title,
+            author: m.hit.author,
+            downloads: m.hit.downloads,
+            description: m.hit.description,
+        })
+        .collect();
+    Ok(SearchBaseModpacksOutput { candidates })
 }
 
 // ===========================================================================
 // inspect_base_modpack
 // ===========================================================================
 
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, specta::Type)]
 pub struct InspectBaseModpackArgs {
     /// Modrinth project id of the base modpack (from search_base_modpacks).
     pub project_id: String,
@@ -236,13 +254,13 @@ pub struct InspectBaseModpackArgs {
     pub loader: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct InspectedMod {
     pub title: String,
     pub categories: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct InspectBaseModpackOutput {
     pub title: String,
     pub mc_version: Option<String>,
@@ -277,96 +295,103 @@ impl Tool for InspectBaseModpackTool {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let provider = self
-            .registry
-            .get(ProviderId::Modrinth)
-            .ok_or_else(|| ChatToolError::new("Modrinth provider is not registered"))?;
-
-        let mc = args.mc_version.as_deref();
-        let loader = args.loader.as_deref();
-        let versions = provider
-            .list_versions(&args.project_id, mc, loader)
-            .await?;
-        let version = versions
-            .into_iter()
-            .find(|v| v.primary_file().is_some())
-            .ok_or_else(|| {
-                ChatToolError::new(format!(
-                    "no downloadable version found for base pack {} (mc={:?}, loader={:?})",
-                    args.project_id, args.mc_version, args.loader
-                ))
-            })?;
-        let archive = version
-            .primary_file()
-            .cloned()
-            .ok_or_else(|| ChatToolError::new("selected base pack version has no primary file"))?;
-
-        let downloader = Downloader::new(2)?;
-        let bytes = downloader
-            .get_bytes_capped(archive.url.trim(), MAX_BASE_ARCHIVE_BYTES)
-            .await?;
-        let cache = base_modlist_cache_from_archive_bytes(&bytes)?;
-
-        // Enrich each mod ref into a title + categories via the provider. Group
-        // refs by provider so each backend gets one bulk call.
-        let mut modrinth_ids = Vec::new();
-        let mut curseforge_ids = Vec::new();
-        for r in &cache.refs {
-            match r.provider {
-                ProviderId::Modrinth => modrinth_ids.push(r.project_id.clone()),
-                ProviderId::CurseForge => curseforge_ids.push(r.project_id.clone()),
-            }
-        }
-        let mut mods = Vec::new();
-        let mut categories = HashSet::new();
-        for (pid, ids) in [
-            (ProviderId::Modrinth, modrinth_ids),
-            (ProviderId::CurseForge, curseforge_ids),
-        ] {
-            if ids.is_empty() {
-                continue;
-            }
-            let Some(p) = self.registry.get(pid) else {
-                continue;
-            };
-            let hits = p.get_projects(&ids).await?;
-            for hit in hits {
-                for c in &hit.categories {
-                    categories.insert(c.clone());
-                }
-                mods.push(InspectedMod {
-                    title: hit.title,
-                    categories: hit.categories,
-                });
-            }
-        }
-        mods.sort_by_key(|m| m.title.to_lowercase());
-        let mut covered_features: Vec<String> = categories.into_iter().collect();
-        covered_features.sort();
-
-        let mc_version = mc
-            .map(str::to_string)
-            .or_else(|| version.game_versions.first().cloned());
-        let loader = loader
-            .map(str::to_string)
-            .or_else(|| version.loaders.first().cloned());
-
-        Ok(InspectBaseModpackOutput {
-            title: version.name,
-            mc_version,
-            loader,
-            mod_count: cache.refs.len(),
-            mods,
-            covered_features,
-        })
+        tool_inspect_base_modpack(&ctx_from_registry(&self.registry), args).await
     }
+}
+
+/// Inspect a base modpack archive and report its mods + covered feature areas.
+/// Single source of truth shared by the rig tool and the Tauri command layer.
+pub async fn tool_inspect_base_modpack(
+    ctx: &ChatToolsCtx,
+    args: InspectBaseModpackArgs,
+) -> Result<InspectBaseModpackOutput, ChatToolError> {
+    let provider = ctx
+        .registry
+        .get(ProviderId::Modrinth)
+        .ok_or_else(|| ChatToolError::new("Modrinth provider is not registered"))?;
+
+    let mc = args.mc_version.as_deref();
+    let loader = args.loader.as_deref();
+    let versions = provider.list_versions(&args.project_id, mc, loader).await?;
+    let version = versions
+        .into_iter()
+        .find(|v| v.primary_file().is_some())
+        .ok_or_else(|| {
+            ChatToolError::new(format!(
+                "no downloadable version found for base pack {} (mc={:?}, loader={:?})",
+                args.project_id, args.mc_version, args.loader
+            ))
+        })?;
+    let archive = version
+        .primary_file()
+        .cloned()
+        .ok_or_else(|| ChatToolError::new("selected base pack version has no primary file"))?;
+
+    let downloader = Downloader::new(2)?;
+    let bytes = downloader
+        .get_bytes_capped(archive.url.trim(), MAX_BASE_ARCHIVE_BYTES)
+        .await?;
+    let cache = base_modlist_cache_from_archive_bytes(&bytes)?;
+
+    // Enrich each mod ref into a title + categories via the provider. Group
+    // refs by provider so each backend gets one bulk call.
+    let mut modrinth_ids = Vec::new();
+    let mut curseforge_ids = Vec::new();
+    for r in &cache.refs {
+        match r.provider {
+            ProviderId::Modrinth => modrinth_ids.push(r.project_id.clone()),
+            ProviderId::CurseForge => curseforge_ids.push(r.project_id.clone()),
+        }
+    }
+    let mut mods = Vec::new();
+    let mut categories = HashSet::new();
+    for (pid, ids) in [
+        (ProviderId::Modrinth, modrinth_ids),
+        (ProviderId::CurseForge, curseforge_ids),
+    ] {
+        if ids.is_empty() {
+            continue;
+        }
+        let Some(p) = ctx.registry.get(pid) else {
+            continue;
+        };
+        let hits = p.get_projects(&ids).await?;
+        for hit in hits {
+            for c in &hit.categories {
+                categories.insert(c.clone());
+            }
+            mods.push(InspectedMod {
+                title: hit.title,
+                categories: hit.categories,
+            });
+        }
+    }
+    mods.sort_by_key(|m| m.title.to_lowercase());
+    let mut covered_features: Vec<String> = categories.into_iter().collect();
+    covered_features.sort();
+
+    let mc_version = mc
+        .map(str::to_string)
+        .or_else(|| version.game_versions.first().cloned());
+    let loader = loader
+        .map(str::to_string)
+        .or_else(|| version.loaders.first().cloned());
+
+    Ok(InspectBaseModpackOutput {
+        title: version.name,
+        mc_version,
+        loader,
+        mod_count: cache.refs.len(),
+        mods,
+        covered_features,
+    })
 }
 
 // ===========================================================================
 // search_mods
 // ===========================================================================
 
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, specta::Type)]
 pub struct SearchModsArgs {
     /// English search keywords for the mod / feature to find.
     pub query: String,
@@ -376,7 +401,7 @@ pub struct SearchModsArgs {
     pub loader: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct ModHit {
     pub provider: String,
     pub project_id: String,
@@ -386,7 +411,7 @@ pub struct ModHit {
     pub description: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct SearchModsOutput {
     pub mods: Vec<ModHit>,
 }
@@ -412,34 +437,43 @@ impl Tool for SearchModsTool {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let mut query = SearchQuery::new(args.query.trim(), ResourceKind::Mod);
-        query.limit = MOD_SEARCH_PER_QUERY_CAP as u32;
-        query.game_version = Some(args.mc_version.clone());
-        query.loader = Some(args.loader.clone());
-
-        let policy = DedupCapPolicy {
-            providers: ProviderTargets::All,
-            per_query_cap: Some(MOD_SEARCH_PER_QUERY_CAP),
-            total_cap: MOD_SEARCH_TOTAL_CAP,
-        };
-        let matches = self
-            .registry
-            .search_concurrent(std::slice::from_ref(&query), PROVIDER_FANOUT, policy)
-            .await?;
-
-        let mods = matches
-            .into_iter()
-            .map(|m| ModHit {
-                provider: provider_slug(m.provider).to_string(),
-                project_id: m.hit.id,
-                slug: m.hit.slug,
-                title: m.hit.title,
-                downloads: m.hit.downloads,
-                description: m.hit.description,
-            })
-            .collect();
-        Ok(SearchModsOutput { mods })
+        tool_search_mods(&ctx_from_registry(&self.registry), args).await
     }
+}
+
+/// Search all registered providers for individual mods. Single source of truth
+/// shared by the [`SearchModsTool`] rig tool and the Tauri command layer.
+pub async fn tool_search_mods(
+    ctx: &ChatToolsCtx,
+    args: SearchModsArgs,
+) -> Result<SearchModsOutput, ChatToolError> {
+    let mut query = SearchQuery::new(args.query.trim(), ResourceKind::Mod);
+    query.limit = MOD_SEARCH_PER_QUERY_CAP as u32;
+    query.game_version = Some(args.mc_version.clone());
+    query.loader = Some(args.loader.clone());
+
+    let policy = DedupCapPolicy {
+        providers: ProviderTargets::All,
+        per_query_cap: Some(MOD_SEARCH_PER_QUERY_CAP),
+        total_cap: MOD_SEARCH_TOTAL_CAP,
+    };
+    let matches = ctx
+        .registry
+        .search_concurrent(std::slice::from_ref(&query), PROVIDER_FANOUT, policy)
+        .await?;
+
+    let mods = matches
+        .into_iter()
+        .map(|m| ModHit {
+            provider: provider_slug(m.provider).to_string(),
+            project_id: m.hit.id,
+            slug: m.hit.slug,
+            title: m.hit.title,
+            downloads: m.hit.downloads,
+            description: m.hit.description,
+        })
+        .collect();
+    Ok(SearchModsOutput { mods })
 }
 
 // ===========================================================================
@@ -450,7 +484,7 @@ impl Tool for SearchModsTool {
 /// bounded no matter how many versions a project has published.
 const MOD_DETAIL_VERSION_CAP: usize = 10;
 
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, specta::Type)]
 pub struct ModGetDetailArgs {
     /// "modrinth" (default) or "curseforge".
     #[serde(default)]
@@ -465,7 +499,7 @@ pub struct ModGetDetailArgs {
     pub loader: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct ModDetailProject {
     pub title: String,
     pub slug: String,
@@ -474,7 +508,7 @@ pub struct ModDetailProject {
     pub downloads: u64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct ModDetailVersion {
     pub version_id: String,
     pub version_number: String,
@@ -484,7 +518,7 @@ pub struct ModDetailVersion {
     pub filename: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct ModGetDetailOutput {
     pub project: ModDetailProject,
     /// Newest first, capped so the payload stays bounded.
@@ -513,57 +547,66 @@ impl Tool for ModGetDetailTool {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let provider_id = provider_from_slug(args.provider.as_deref().unwrap_or("modrinth"));
-        let provider = self.registry.get(provider_id).ok_or_else(|| {
-            ChatToolError::new(format!(
-                "provider {} is not registered",
-                provider_slug(provider_id)
-            ))
-        })?;
-
-        let project_id = args.project_id.trim().to_string();
-        let hits = provider.get_projects(std::slice::from_ref(&project_id)).await?;
-        let hit = hits
-            .into_iter()
-            .next()
-            .ok_or_else(|| ChatToolError::new(format!("no project found for id {project_id}")))?;
-        let project = ModDetailProject {
-            title: hit.title,
-            slug: hit.slug,
-            description: hit.description,
-            categories: hit.categories,
-            downloads: hit.downloads,
-        };
-
-        let versions = provider
-            .list_versions(
-                &project_id,
-                args.minecraft_version.as_deref(),
-                args.loader.as_deref(),
-            )
-            .await?
-            .into_iter()
-            // Providers return newest first; the cap keeps the payload bounded.
-            .take(MOD_DETAIL_VERSION_CAP)
-            .map(|v| ModDetailVersion {
-                version_id: v.id.clone(),
-                version_number: v.version_number.clone(),
-                game_versions: v.game_versions.clone(),
-                loaders: v.loaders.clone(),
-                dependencies_count: v.dependencies.len(),
-                filename: v.primary_file().map(|f| f.filename.clone()),
-            })
-            .collect();
-
-        Ok(ModGetDetailOutput { project, versions })
+        tool_mod_get_detail(&ctx_from_registry(&self.registry), args).await
     }
+}
+
+/// Fetch one mod's metadata + available versions for a target. Single source of
+/// truth shared by the [`ModGetDetailTool`] rig tool and the Tauri command layer.
+pub async fn tool_mod_get_detail(
+    ctx: &ChatToolsCtx,
+    args: ModGetDetailArgs,
+) -> Result<ModGetDetailOutput, ChatToolError> {
+    let provider_id = provider_from_slug(args.provider.as_deref().unwrap_or("modrinth"));
+    let provider = ctx.registry.get(provider_id).ok_or_else(|| {
+        ChatToolError::new(format!(
+            "provider {} is not registered",
+            provider_slug(provider_id)
+        ))
+    })?;
+
+    let project_id = args.project_id.trim().to_string();
+    let hits = provider.get_projects(std::slice::from_ref(&project_id)).await?;
+    let hit = hits
+        .into_iter()
+        .next()
+        .ok_or_else(|| ChatToolError::new(format!("no project found for id {project_id}")))?;
+    let project = ModDetailProject {
+        title: hit.title,
+        slug: hit.slug,
+        description: hit.description,
+        categories: hit.categories,
+        downloads: hit.downloads,
+    };
+
+    let versions = provider
+        .list_versions(
+            &project_id,
+            args.minecraft_version.as_deref(),
+            args.loader.as_deref(),
+        )
+        .await?
+        .into_iter()
+        // Providers return newest first; the cap keeps the payload bounded.
+        .take(MOD_DETAIL_VERSION_CAP)
+        .map(|v| ModDetailVersion {
+            version_id: v.id.clone(),
+            version_number: v.version_number.clone(),
+            game_versions: v.game_versions.clone(),
+            loaders: v.loaders.clone(),
+            dependencies_count: v.dependencies.len(),
+            filename: v.primary_file().map(|f| f.filename.clone()),
+        })
+        .collect();
+
+    Ok(ModGetDetailOutput { project, versions })
 }
 
 // ===========================================================================
 // resolve_mods
 // ===========================================================================
 
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, specta::Type)]
 pub struct ResolveModsArgs {
     /// Project ids to resolve. Each is a bare id (Modrinth) or "<provider>:<id>".
     pub project_ids: Vec<String>,
@@ -577,7 +620,7 @@ pub struct ResolveModsArgs {
     pub already_installed: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct ResolvedModRef {
     pub provider: String,
     pub project_id: String,
@@ -589,13 +632,13 @@ pub struct ResolvedModRef {
     pub size: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct UnresolvedRef {
     pub provider: String,
     pub project_id: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct ResolveModsOutput {
     /// Concrete, download-ready file references (roots + required dependencies).
     /// These are the TRUSTED refs to pass to build_modpack.
@@ -627,73 +670,83 @@ impl Tool for ResolveModsTool {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let roots: Vec<ModRef> = args.project_ids.iter().map(|s| parse_mod_ref(s)).collect();
-        let already: HashSet<String> = args
-            .already_installed
-            .unwrap_or_default()
-            .iter()
-            .map(|s| normalize_installed_key(s))
-            .collect();
-
-        let resolution = resolve_dependencies(
-            &self.registry,
-            &roots,
-            args.mc_version.trim(),
-            args.loader.trim(),
-            &already,
-        )
-        .await?;
-
-        let resolved = resolution
-            .to_install
-            .into_iter()
-            .map(|r| ResolvedModRef {
-                provider: provider_slug(r.provider).to_string(),
-                project_id: r.project_id,
-                version_id: r.version_id,
-                filename: r.file.filename,
-                url: r.file.url,
-                sha1: r.file.sha1,
-                sha512: r.file.sha512,
-                size: r.file.size,
-            })
-            .collect();
-        let unresolved = resolution
-            .unresolved
-            .into_iter()
-            .map(|r| UnresolvedRef {
-                provider: provider_slug(r.provider).to_string(),
-                project_id: r.project_id,
-            })
-            .collect();
-        let conflicts = resolution
-            .incompatible
-            .into_iter()
-            .map(|r| UnresolvedRef {
-                provider: provider_slug(r.provider).to_string(),
-                project_id: r.project_id,
-            })
-            .collect();
-
-        Ok(ResolveModsOutput {
-            resolved,
-            unresolved,
-            conflicts,
-        })
+        tool_resolve_mods(&ctx_from_registry(&self.registry), args).await
     }
+}
+
+/// Resolve project ids into concrete files, walking required dependencies. Single
+/// source of truth shared by the [`ResolveModsTool`] rig tool and the Tauri
+/// command layer.
+pub async fn tool_resolve_mods(
+    ctx: &ChatToolsCtx,
+    args: ResolveModsArgs,
+) -> Result<ResolveModsOutput, ChatToolError> {
+    let roots: Vec<ModRef> = args.project_ids.iter().map(|s| parse_mod_ref(s)).collect();
+    let already: HashSet<String> = args
+        .already_installed
+        .unwrap_or_default()
+        .iter()
+        .map(|s| normalize_installed_key(s))
+        .collect();
+
+    let resolution = resolve_dependencies(
+        &ctx.registry,
+        &roots,
+        args.mc_version.trim(),
+        args.loader.trim(),
+        &already,
+    )
+    .await?;
+
+    let resolved = resolution
+        .to_install
+        .into_iter()
+        .map(|r| ResolvedModRef {
+            provider: provider_slug(r.provider).to_string(),
+            project_id: r.project_id,
+            version_id: r.version_id,
+            filename: r.file.filename,
+            url: r.file.url,
+            sha1: r.file.sha1,
+            sha512: r.file.sha512,
+            size: r.file.size,
+        })
+        .collect();
+    let unresolved = resolution
+        .unresolved
+        .into_iter()
+        .map(|r| UnresolvedRef {
+            provider: provider_slug(r.provider).to_string(),
+            project_id: r.project_id,
+        })
+        .collect();
+    let conflicts = resolution
+        .incompatible
+        .into_iter()
+        .map(|r| UnresolvedRef {
+            provider: provider_slug(r.provider).to_string(),
+            project_id: r.project_id,
+        })
+        .collect();
+
+    Ok(ResolveModsOutput {
+        resolved,
+        unresolved,
+        conflicts,
+    })
 }
 
 // ===========================================================================
 // build_modpack
 // ===========================================================================
 
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, specta::Type)]
 pub struct BuildTarget {
     pub mc_version: String,
     pub loader: String,
 }
 
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, specta::Type)]
 pub struct BuildBasePack {
     /// Modrinth project id of the base pack.
     pub project_id: String,
@@ -705,7 +758,7 @@ pub struct BuildBasePack {
     pub slug: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, specta::Type)]
 pub struct BuildModRef {
     /// "modrinth" (default) or "curseforge".
     #[serde(default)]
@@ -717,7 +770,7 @@ pub struct BuildModRef {
     pub title: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, specta::Type)]
 pub struct BuildModpackArgs {
     pub target: BuildTarget,
     /// The chosen base pack, or null to start from scratch (empty base).
@@ -731,12 +784,15 @@ pub struct BuildModpackArgs {
     pub output_filename: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct BuildModpackOutput {
     pub status: String,
     pub output_path: Option<String>,
     pub output_size: Option<u64>,
     /// Full execution manifest for diagnostics (blocked reasons, counts, ...).
+    /// Wire stays `serde_json::Value`; the specta override shapes the exported TS
+    /// as [`JsonValue`] (specta can't inline recursive `serde_json::Value`).
+    #[specta(type = JsonValue)]
     pub manifest: serde_json::Value,
 }
 
@@ -749,31 +805,31 @@ pub struct BuildModpackTool {
     pub output_dir: PathBuf,
 }
 
-impl BuildModpackTool {
-    /// Fetch the single concrete provider file for a `(project_id, version_id)`.
-    async fn resolve_file(
-        &self,
-        provider: ProviderId,
-        project_id: &str,
-        version_id: &str,
-    ) -> Result<VersionFile, ChatToolError> {
-        let p = self.registry.get(provider).ok_or_else(|| {
-            ChatToolError::new(format!("provider {} is not registered", provider_slug(provider)))
-        })?;
-        let refs = [(project_id.to_string(), version_id.to_string())];
-        let resolved = p.get_files_bulk(&refs).await?;
-        resolved
-            .into_iter()
-            .next()
-            .map(|r| r.file)
-            .ok_or_else(|| {
-                ChatToolError::new(format!(
-                    "no file for {}:{} version {version_id}",
-                    provider_slug(provider),
-                    project_id
-                ))
-            })
-    }
+/// Fetch the single concrete provider file for a `(project_id, version_id)`.
+/// `build_modpack` re-resolves every file through this so urls/hashes are trusted,
+/// not model-supplied.
+async fn resolve_build_file(
+    registry: &ProviderRegistry,
+    provider: ProviderId,
+    project_id: &str,
+    version_id: &str,
+) -> Result<VersionFile, ChatToolError> {
+    let p = registry.get(provider).ok_or_else(|| {
+        ChatToolError::new(format!("provider {} is not registered", provider_slug(provider)))
+    })?;
+    let refs = [(project_id.to_string(), version_id.to_string())];
+    let resolved = p.get_files_bulk(&refs).await?;
+    resolved
+        .into_iter()
+        .next()
+        .map(|r| r.file)
+        .ok_or_else(|| {
+            ChatToolError::new(format!(
+                "no file for {}:{} version {version_id}",
+                provider_slug(provider),
+                project_id
+            ))
+        })
 }
 
 impl Tool for BuildModpackTool {
@@ -791,106 +847,122 @@ impl Tool for BuildModpackTool {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        // Base pack: re-resolve the archive file from the provider so its url and
-        // hashes are trusted, not model-supplied.
-        let (base_pack_json, base_pack_ref, recipe_kind) = match &args.base_pack {
-            Some(bp) => {
-                let archive = self
-                    .resolve_file(ProviderId::Modrinth, &bp.project_id, &bp.version_id)
-                    .await?;
-                let slug = bp.slug.clone().unwrap_or_else(|| bp.project_id.clone());
-                let title = bp.title.clone().unwrap_or_else(|| "base pack".to_string());
-                let base_pack = serde_json::json!({
-                    "provider": "modrinth",
-                    "project_id": bp.project_id,
-                    "slug": slug,
-                    "title": title,
-                });
-                let base_ref = serde_json::json!({
-                    "provider": "modrinth",
-                    "project_id": bp.project_id,
-                    "source_ref": { "archive_file": version_file_json(&archive) },
-                });
-                (base_pack, Some(base_ref), "mrpack_from_base_modpack")
-            }
-            None => (
-                serde_json::json!({
-                    "provider": "scratch",
-                    "project_id": "scratch",
-                    "slug": "scratch",
-                    "title": "Start from scratch",
-                }),
-                None,
-                "mrpack_from_scratch",
-            ),
-        };
-
-        // Extra mods: re-resolve each file through its provider.
-        let mut extra_mods = Vec::new();
-        for m in &args.extra_mods {
-            let provider = provider_from_slug(m.provider.as_deref().unwrap_or("modrinth"));
-            let file = self
-                .resolve_file(provider, &m.project_id, &m.version_id)
-                .await?;
-            let title = m.title.clone().unwrap_or_else(|| m.project_id.clone());
-            extra_mods.push(serde_json::json!({
-                "title": title,
-                "project_id": m.project_id,
-                "source_ref": {
-                    "kind": "mod_file",
-                    "provider": provider_slug(provider),
-                    "project_id": m.project_id,
-                    "version_id": m.version_id,
-                    "file": version_file_json(&file),
-                },
-            }));
-        }
-
-        let execution_recipe = serde_json::json!({
-            "schema_version": 1,
-            "kind": recipe_kind,
-            "format": "mrpack",
-            "base_pack_ref": base_pack_ref,
-            "extra_mod_refs": extra_mods.clone(),
-        });
-        let approved = ApprovedModpackBuild {
-            base_pack: base_pack_json,
-            target: serde_json::json!({
-                "minecraft_version": args.target.mc_version,
-                "loader": args.target.loader,
-            }),
-            extra_mods,
-            execution_recipe: Some(execution_recipe),
-        };
-
-        let output_path = self.output_dir.join(safe_output_filename(&args.output_filename));
-        if let Some(parent) = output_path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| {
-                ChatToolError::new(format!("failed to create output directory: {e}"))
-            })?;
-        }
-
-        let manifest =
-            execute_mrpack_build_to_path_with_registry(&approved, &output_path, &self.registry)
-                .await?;
-
-        let status = manifest
-            .get("status")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown")
-            .to_string();
-        let output_path_out = manifest
-            .get("output_path")
-            .and_then(|v| v.as_str())
-            .map(str::to_string);
-        let output_size = manifest.get("output_size").and_then(|v| v.as_u64());
-        Ok(BuildModpackOutput {
-            status,
-            output_path: output_path_out,
-            output_size,
-            manifest,
-        })
+        tool_build_modpack(
+            &ChatToolsCtx::new(self.registry.clone(), self.output_dir.clone()),
+            args,
+        )
+        .await
     }
+}
+
+/// Deterministically assemble and verify a `.mrpack` — the only tool that writes to
+/// disk. Re-resolves every file through the provider so the model cannot fabricate
+/// urls or hashes. Single source of truth shared by the [`BuildModpackTool`] rig
+/// tool and the Tauri command layer.
+pub async fn tool_build_modpack(
+    ctx: &ChatToolsCtx,
+    args: BuildModpackArgs,
+) -> Result<BuildModpackOutput, ChatToolError> {
+    // Base pack: re-resolve the archive file from the provider so its url and
+    // hashes are trusted, not model-supplied.
+    let (base_pack_json, base_pack_ref, recipe_kind) = match &args.base_pack {
+        Some(bp) => {
+            let archive = resolve_build_file(
+                &ctx.registry,
+                ProviderId::Modrinth,
+                &bp.project_id,
+                &bp.version_id,
+            )
+            .await?;
+            let slug = bp.slug.clone().unwrap_or_else(|| bp.project_id.clone());
+            let title = bp.title.clone().unwrap_or_else(|| "base pack".to_string());
+            let base_pack = serde_json::json!({
+                "provider": "modrinth",
+                "project_id": bp.project_id,
+                "slug": slug,
+                "title": title,
+            });
+            let base_ref = serde_json::json!({
+                "provider": "modrinth",
+                "project_id": bp.project_id,
+                "source_ref": { "archive_file": version_file_json(&archive) },
+            });
+            (base_pack, Some(base_ref), "mrpack_from_base_modpack")
+        }
+        None => (
+            serde_json::json!({
+                "provider": "scratch",
+                "project_id": "scratch",
+                "slug": "scratch",
+                "title": "Start from scratch",
+            }),
+            None,
+            "mrpack_from_scratch",
+        ),
+    };
+
+    // Extra mods: re-resolve each file through its provider.
+    let mut extra_mods = Vec::new();
+    for m in &args.extra_mods {
+        let provider = provider_from_slug(m.provider.as_deref().unwrap_or("modrinth"));
+        let file =
+            resolve_build_file(&ctx.registry, provider, &m.project_id, &m.version_id).await?;
+        let title = m.title.clone().unwrap_or_else(|| m.project_id.clone());
+        extra_mods.push(serde_json::json!({
+            "title": title,
+            "project_id": m.project_id,
+            "source_ref": {
+                "kind": "mod_file",
+                "provider": provider_slug(provider),
+                "project_id": m.project_id,
+                "version_id": m.version_id,
+                "file": version_file_json(&file),
+            },
+        }));
+    }
+
+    let execution_recipe = serde_json::json!({
+        "schema_version": 1,
+        "kind": recipe_kind,
+        "format": "mrpack",
+        "base_pack_ref": base_pack_ref,
+        "extra_mod_refs": extra_mods.clone(),
+    });
+    let approved = ApprovedModpackBuild {
+        base_pack: base_pack_json,
+        target: serde_json::json!({
+            "minecraft_version": args.target.mc_version,
+            "loader": args.target.loader,
+        }),
+        extra_mods,
+        execution_recipe: Some(execution_recipe),
+    };
+
+    let output_path = ctx.output_dir.join(safe_output_filename(&args.output_filename));
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| ChatToolError::new(format!("failed to create output directory: {e}")))?;
+    }
+
+    let manifest =
+        execute_mrpack_build_to_path_with_registry(&approved, &output_path, &ctx.registry).await?;
+
+    let status = manifest
+        .get("status")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+    let output_path_out = manifest
+        .get("output_path")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let output_size = manifest.get("output_size").and_then(|v| v.as_u64());
+    Ok(BuildModpackOutput {
+        status,
+        output_path: output_path_out,
+        output_size,
+        manifest,
+    })
 }
 
 /// Sanitize a model-supplied filename to a single safe basename ending in

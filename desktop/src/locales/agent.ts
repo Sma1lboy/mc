@@ -15,6 +15,9 @@ const dict = {
     copyFailed: "复制失败",
     emptyTitle: "开始和整合包助手对话",
     emptyHint: "例如:「帮我找一个适合多人生存的科技整合包」。",
+    brainLabel: "大脑",
+    brainRust: "Rust",
+    brainTs: "TS",
 
     // —— 上下文入口(发现页 / 新建实例)——
     discoverCta: "AI 帮我组整合包",
@@ -44,6 +47,9 @@ const dict = {
     copyFailed: "Copy failed",
     emptyTitle: "Start chatting with the Modpack Assistant",
     emptyHint: "e.g. \"Find me a tech modpack that's good for multiplayer survival.\"",
+    brainLabel: "Brain",
+    brainRust: "Rust",
+    brainTs: "TS",
 
     // —— Contextual entry points (Discover / New instance) ——
     discoverCta: "Ask AI to build a pack",

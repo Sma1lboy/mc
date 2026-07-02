@@ -1,0 +1,25 @@
+{
+  "name": "@kobemc/agent-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./executors": "./src/executors/index.ts"
+  },
+  "bin": {
+    "mc-agent": "./bin/mc-agent.mjs"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@openrouter/ai-sdk-provider": "^2.10.0",
+    "ai": "^6.0.218",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.4",
+    "vitest": "^2.1.9"
+  }
+}

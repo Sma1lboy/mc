@@ -22,6 +22,9 @@
 import { create } from "zustand";
 import { Channel } from "@tauri-apps/api/core";
 import { commands, type AgentStreamEvent, type JsonValue } from "../ipc/bindings";
+// Type-only imports: erased at build, so the host-agnostic brain (and its `ai`
+// dependency) stays out of the main bundle — the TS path is dynamic-imported below.
+import type { ChatMessage as BrainMessage, ModpackAgent } from "@kobemc/agent-core";
 import { setCurrentPage } from "../store";
 import { t } from "../i18n";
 
@@ -64,10 +67,15 @@ export interface ChatMessage {
   parts: ChatPart[];
 }
 
+/** 大脑实现:rust = 后端 rig loop(Channel);ts = 前端 AI SDK loop(本模块)。 */
+export type Brain = "rust" | "ts";
+
 interface ChatState {
   messages: ChatMessage[];
   /** 是否正在流式(禁用输入 / 显示指示器)。同一会话同一时刻只允许一轮。 */
   streaming: boolean;
+  /** 当前大脑(dev 开关);持久化到 localStorage。 */
+  brain: Brain;
   /**
    * 一次性输入草稿:外部入口(发现页 / 新建实例)经 openAgentChat 预填一句上下文提示,
    * ChatPage 变为活动页后取用一次(填进输入框、聚焦,不自动发送),随即清回 null。
@@ -75,7 +83,42 @@ interface ChatState {
   draft: string | null;
 }
 
-export const useChatStore = create<ChatState>(() => ({ messages: [], streaming: false, draft: null }));
+const BRAIN_KEY = "mc-launcher.agentBrain";
+// Default is now the TS brain; a user who explicitly picked "rust" (persisted)
+// keeps it. Only an explicit stored "rust" opts out — anything else → "ts".
+function readInitialBrain(): Brain {
+  if (typeof window === "undefined") return "ts";
+  try {
+    return window.localStorage.getItem(BRAIN_KEY) === "rust" ? "rust" : "ts";
+  } catch {
+    return "ts";
+  }
+}
+
+export const useChatStore = create<ChatState>(() => ({
+  messages: [],
+  streaming: false,
+  brain: readInitialBrain(),
+  draft: null,
+}));
+
+/** 切换大脑(流式中忽略,避免半途换实现);持久化。 */
+export function setBrain(next: Brain): void {
+  if (useChatStore.getState().streaming) return;
+  useChatStore.setState({ brain: next });
+  try {
+    window.localStorage.setItem(BRAIN_KEY, next);
+  } catch {
+    /* 加固 WebView 里 localStorage 可能不可用 */
+  }
+}
+
+// TS 大脑的「客户端」transcript(ModelMessage[])。与 rust 路径分属两套会话:
+// rust 的 transcript 存在后端(按 sessionId 续接),ts 的存在这里——中途切换大脑会
+// 在另一侧从空上下文重新开始,这在本实验里可以接受。newChat 清空它。
+let tsHistory: BrainMessage[] = [];
+// 首次 ts 发送时惰性创建(动态 import,使 `ai` 及 provider 不进主包)。
+let tsAgent: Promise<ModpackAgent> | null = null;
 
 // 稳定的自增 id(Date.now + 计数;仅前端展示 key,无需强随机)。
 let seq = 0;
@@ -168,6 +211,12 @@ export async function sendMessage(raw: string): Promise<void> {
     }
   };
 
+  // TS 大脑:同一个 reduce 归约器,但事件由前端 loop 直接回调(不走 Channel)。
+  if (useChatStore.getState().brain === "ts") {
+    await runTsTurn(text, reduce, finalize);
+    return;
+  }
+
   const ch = new Channel<AgentStreamEvent>();
   ch.onmessage = reduce;
 
@@ -182,10 +231,36 @@ export async function sendMessage(raw: string): Promise<void> {
   }
 }
 
+/**
+ * 跑一轮 TS 大脑。惰性拉起 desktopAdapter(动态 import → 独立 chunk),把每个
+ * AgentStreamEvent 直接喂给 reduce;core 的事件与 bindings 线格式一致,仅 args 由
+ * `unknown` 转 `JsonValue`(同一份字节),故此处按需断言。runTurn 自身不 reject
+ * 模型/工具错误(以 error 事件呈现);外层 catch 只兜住拉起阶段(config / import)的失败。
+ */
+async function runTsTurn(
+  text: string,
+  reduce: (ev: AgentStreamEvent) => void,
+  finalize: (errMessage?: string) => void,
+): Promise<void> {
+  try {
+    if (!tsAgent) {
+      tsAgent = import("./desktopAdapter").then((m) => m.createDesktopAgent());
+    }
+    const agent = await tsAgent;
+    const { history } = await agent.runTurn(tsHistory, text, (e) => reduce(e as AgentStreamEvent));
+    tsHistory = history;
+    finalize();
+  } catch (e) {
+    tsAgent = null; // 拉起失败(如缺 key)→ 下次重试重新初始化
+    finalize(String(e));
+  }
+}
+
 /** 新对话:清空后端 transcript 与前端消息(流式中忽略,避免半途重置)。 */
 export async function newChat(): Promise<void> {
   if (useChatStore.getState().streaming) return;
   useChatStore.setState({ messages: [] });
+  tsHistory = []; // 同时清 TS 大脑的客户端 transcript
   try {
     // 清后端会话;失败不阻断(UI 已清空,下一轮仍会复用同一 sessionId)。
     await commands.agentChatReset(sessionId);
