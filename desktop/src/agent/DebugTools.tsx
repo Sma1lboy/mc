@@ -84,13 +84,14 @@ function ConversationPicker(): React.ReactElement {
     .sort((a, b) => b.updatedAt - a.updatedAt);
 
   return (
-    <select
-      value={current}
-      disabled={streaming}
-      onChange={(e) => loadConversation(e.currentTarget.value)}
-      title={t("agent.debugConversations")}
-      className="h-[22px] max-w-[200px] px-[6px] rounded-none bg-panel-2 shadow-sunken text-[11px] text-sub cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-    >
+    <div className="relative inline-flex items-center">
+      <select
+        value={current}
+        disabled={streaming}
+        onChange={(e) => loadConversation(e.currentTarget.value)}
+        title={t("agent.debugConversations")}
+        className="appearance-none h-[22px] max-w-[200px] pl-[8px] pr-[22px] rounded-none border border-titlebar bg-panel-2 text-[11px] text-sub cursor-pointer disabled:opacity-60 hover:enabled:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent transition-colors duration-[var(--dur)] ease-app"
+      >
       {/* 当前对话恒在最上,始终可见(即便还没发过消息 / 还没存档)。 */}
       <option value={current}>
         {t("agent.debugCurrentConversation")}
@@ -101,7 +102,15 @@ function ConversationPicker(): React.ReactElement {
           {`${time(c.updatedAt)} · ${c.title || t("agent.debugUntitledConversation")}`}
         </option>
       ))}
-    </select>
+      </select>
+      {/* 自定义 caret(原生箭头已被 appearance-none 去掉)。 */}
+      <svg
+        className="pointer-events-none absolute right-[7px] w-[10px] h-[10px] text-muted"
+        viewBox="0 0 12 12" fill="none" aria-hidden="true"
+      >
+        <path d="M3 4.5 6 7.5 9 4.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </div>
   );
 }
 

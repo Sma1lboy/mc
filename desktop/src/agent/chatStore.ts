@@ -295,24 +295,33 @@ async function streamAssistant(
         closeStreams();
         patchParts((parts) => [...parts, { kind: "tool_result", name: ev.name, summary: ev.summary }]);
         break;
-      case "ask_user":
+      case "ask_user": {
         closeStreams();
-        patchParts((parts) => [
-          ...parts,
-          {
-            kind: "ask_user",
-            toolCallId: ev.tool_call_id,
-            question: ev.question,
-            // 归一化 null→undefined(bindings 的 Option 字段带 null)。
-            options: ev.options.map((o) => ({
-              label: o.label,
-              id: o.id ?? undefined,
-              description: o.description ?? undefined,
-            })),
-            multiSelect: ev.multi_select,
-          },
-        ]);
+        // 渐进渲染:同一 tool_call_id 会从「空骨架」多次 upsert 到最终态,按 id 就地替换
+        // (不存在才追加),避免每次 delta 堆一个新芯片。
+        const next: AskUserPart = {
+          kind: "ask_user",
+          toolCallId: ev.tool_call_id,
+          question: ev.question,
+          // 归一化 null→undefined(bindings 的 Option 字段带 null)。
+          options: ev.options.map((o) => ({
+            label: o.label,
+            id: o.id ?? undefined,
+            description: o.description ?? undefined,
+          })),
+          multiSelect: ev.multi_select,
+        };
+        patchParts((parts) => {
+          const i = parts.findIndex(
+            (p) => p.kind === "ask_user" && p.toolCallId === ev.tool_call_id,
+          );
+          if (i < 0) return [...parts, next];
+          const copy = parts.slice();
+          copy[i] = next;
+          return copy;
+        });
         break;
+      }
       case "done":
         finalize();
         break;

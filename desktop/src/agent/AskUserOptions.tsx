@@ -50,9 +50,24 @@ export function AskUserOptions(props: {
   // 已答后:高亮用户选过的选项(交互态在答后失效,统一看 part.answer)。
   const answered = new Set(part.answer ?? []);
 
+  // 流式中还没解析出选项时,先把框架/骨架渲染出来(占位行),避免空白等待。
+  const skeleton = part.options.length === 0 && !part.answered;
+
   return (
     <div className="my-[6px] flex flex-col gap-[8px]">
-      {part.question && <div className="text-[13px] text-fg leading-[1.6]">{part.question}</div>}
+      {part.question ? (
+        <div className="text-[13px] text-fg leading-[1.6]">{part.question}</div>
+      ) : (
+        skeleton && <div className="h-[18px] w-[60%] rounded-none bg-panel-2 animate-pulse" aria-hidden="true" />
+      )}
+
+      {skeleton && (
+        <div className="flex flex-col gap-[6px]" aria-hidden="true">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-[38px] rounded-none border border-titlebar bg-panel-2 shadow-input animate-pulse" />
+          ))}
+        </div>
+      )}
 
       <div className="flex flex-col gap-[6px]">
         {part.options.map((opt, i) => {

@@ -10,6 +10,7 @@ import {
   type ToolCallPart,
 } from "./chatStore";
 import { DebugTools } from "./DebugTools";
+import { AskUserOptions } from "./AskUserOptions";
 import "./chat.css";
 
 /**
@@ -144,6 +145,16 @@ function MessageRow({ msg, last, streaming }: { msg: ChatMessage; last: boolean;
               return <ToolCallChip key={idx} part={part} />;
             case "tool_result":
               return <ToolResultChip key={idx} name={part.name} summary={part.summary} />;
+            case "ask_user":
+              return (
+                <AskUserOptions
+                  key={idx}
+                  msgId={msg.id}
+                  partIdx={idx}
+                  part={part}
+                  live={last && !streaming && !part.answered}
+                />
+              );
             case "error":
               return (
                 <div
