@@ -10,8 +10,10 @@
 //! 2. **Client methods** on [`ServerClient`](crate::server::ServerClient) for the
 //!    `/v1/realms/*` endpoints.
 //! 3. The **syncer**: [`plan_sync`] computes what a sync would change without
-//!    touching disk; [`apply_sync`] downloads the missing/changed files and
-//!    (optionally) removes mods the manifest dropped; [`build_manifest_from_instance`]
+//!    touching disk (removals come only from the [`SyncState`] ledger — files
+//!    the member added themselves are never deleted); [`apply_sync`] downloads
+//!    the missing/changed files, (optionally) removes mods the manifest dropped,
+//!    and records the ledger; [`build_manifest_from_instance`]
 //!    turns a host's instance into a manifest by resolving each local mod jar to
 //!    a platform download url by hash (unresolvable jars are surfaced as `manual`).
 //!
@@ -291,14 +293,48 @@ impl ServerClient {
 
 /* ---------- syncer ---------- */
 
+/// Per-instance sync ledger (`realm-sync.json` in the instance dir): the paths
+/// this syncer itself reconciled to the manifest. Only ledger-tracked paths are
+/// ever removal candidates when a later manifest drops them — files the member
+/// added by hand were never in the ledger, so the syncer never deletes them.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SyncState {
+    /// Manifest version last applied.
+    pub version: i32,
+    /// Instance-relative paths the syncer installed/verified as manifest content.
+    #[serde(default)]
+    pub installed: Vec<String>,
+}
+
+const SYNC_STATE_FILE: &str = "realm-sync.json";
+
+/// Load the instance's sync ledger; missing/corrupt file ⇒ empty (first sync).
+pub fn load_sync_state(inst: &Instance) -> SyncState {
+    std::fs::read(inst.dir().join(SYNC_STATE_FILE))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+fn save_sync_state(inst: &Instance, state: &SyncState) -> Result<()> {
+    let path = inst.dir().join(SYNC_STATE_FILE);
+    let data = serde_json::to_vec_pretty(state)
+        .map_err(|e| CoreError::Parse { what: "realm-sync.json".into(), source: e })?;
+    std::fs::write(&path, data).map_err(|e| CoreError::Io { path, source: e })
+}
+
 /// What a sync to a manifest *would* change, computed without touching disk.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]
 pub struct SyncPlan {
     /// Files in the manifest that are missing locally or fail their hash.
     pub download: Vec<RealmFile>,
-    /// Paths (relative to the instance dir) under the managed dirs that are
-    /// present locally but absent from the manifest.
+    /// Previously syncer-installed paths (per the [`SyncState`] ledger) that the
+    /// current manifest dropped and that still exist locally. Never includes
+    /// files the member added themselves.
     pub remove: Vec<String>,
+    /// Every safe, url-carrying manifest path — what the ledger will record as
+    /// syncer-managed once the plan is applied.
+    pub managed: Vec<String>,
     /// Manifest files with no download url — the member must add them by hand.
     pub manual: Vec<RealmFile>,
     /// Manifest version this plan targets.
@@ -341,13 +377,6 @@ fn safe_target(inst: &Instance, path: &str) -> Option<std::path::PathBuf> {
     None
 }
 
-/// List every file under one of the instance's managed dirs, as paths relative to
-/// that dir (`/`-separated). Missing dir → empty; hard-ignored junk skipped.
-fn managed_dir_files(inst: &Instance, dir: &str) -> Vec<String> {
-    let base = inst.dir().join(dir);
-    walk_game_root(&base, &[]).map(|fs| fs.into_iter().map(|f| f.rel).collect()).unwrap_or_default()
-}
-
 /// Does `path` exist and satisfy the manifest file's strongest available hash?
 fn file_matches(path: &Path, f: &RealmFile) -> bool {
     if !path.exists() {
@@ -367,6 +396,7 @@ fn file_matches(path: &Path, f: &RealmFile) -> bool {
 pub fn plan_sync(inst: &Instance, manifest: &RealmManifest) -> SyncPlan {
     let mut download = Vec::new();
     let mut manual = Vec::new();
+    let mut managed = Vec::new();
     // Full relative paths the manifest expects (for stale detection).
     let mut manifest_paths: HashSet<String> = HashSet::new();
 
@@ -381,6 +411,7 @@ pub fn plan_sync(inst: &Instance, manifest: &RealmManifest) -> SyncPlan {
         manifest_paths.insert(f.path.clone());
         match f.url.as_deref() {
             Some(url) if !url.is_empty() => {
+                managed.push(f.path.clone());
                 if file_matches(&target, f) {
                     continue; // already present + correct
                 }
@@ -391,21 +422,30 @@ pub fn plan_sync(inst: &Instance, manifest: &RealmManifest) -> SyncPlan {
         }
     }
 
-    // Stale: files under the managed dirs the manifest no longer references
-    // (compare both the raw path and the `.disabled`-stripped active path).
+    // Stale: paths the syncer itself installed (per the ledger) that the current
+    // manifest dropped and that are still on disk. Files the member added by hand
+    // were never in the ledger, so they are never removal candidates. A member who
+    // merely disabled a synced mod (`x.jar` → `x.jar.disabled`) still gets the
+    // `.disabled` twin cleaned up when the manifest drops the mod.
     let mut remove = Vec::new();
-    for d in MANAGED_DIRS {
-        for rel in managed_dir_files(inst, d) {
-            let full = format!("{d}/{rel}");
-            let active = full.strip_suffix(".disabled").unwrap_or(&full);
-            if !manifest_paths.contains(&full) && !manifest_paths.contains(active) {
-                remove.push(full);
+    for path in &load_sync_state(inst).installed {
+        if manifest_paths.contains(path) {
+            continue;
+        }
+        let Some(abs) = safe_target(inst, path) else { continue };
+        if abs.exists() {
+            remove.push(path.clone());
+        } else {
+            let disabled = format!("{path}.disabled");
+            if safe_target(inst, &disabled).is_some_and(|p| p.exists()) {
+                remove.push(disabled);
             }
         }
     }
     remove.sort();
+    remove.dedup();
 
-    SyncPlan { download, remove, manual, version: manifest.version }
+    SyncPlan { download, remove, manual, managed, version: manifest.version }
 }
 
 /// Execute a plan: download the missing/changed files and, when `remove_extras`,
@@ -442,6 +482,9 @@ pub async fn apply_sync(
 
     let mut report = SyncReport { version: plan.version, manual: plan.manual.clone(), ..Default::default() };
 
+    // Absolute targets that failed to download — kept out of the ledger so the
+    // next plan retries them instead of treating them as installed.
+    let mut failed_abs: HashSet<std::path::PathBuf> = HashSet::new();
     if !items.is_empty() {
         let outcome = dl.download_batch(items, progress).await?;
         report.downloaded = outcome.succeeded as u32;
@@ -452,6 +495,7 @@ pub async fn apply_sync(
                 it.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
             })
             .collect();
+        failed_abs = outcome.failed.into_iter().map(|(it, _)| it.path).collect();
     }
 
     if remove_extras {
@@ -461,6 +505,22 @@ pub async fn apply_sync(
                 report.removed += 1;
             }
         }
+    }
+
+    // Ledger: everything the manifest manages and we now hold (pre-existing match
+    // or fresh download), plus dropped-but-still-present paths (removal declined
+    // or failed) so future plans keep offering to clean them up.
+    let mut installed: Vec<String> = plan
+        .managed
+        .iter()
+        .filter(|p| safe_target(inst, p).is_some_and(|abs| !failed_abs.contains(&abs)))
+        .cloned()
+        .collect();
+    installed.extend(
+        plan.remove.iter().filter(|p| safe_target(inst, p).is_some_and(|abs| abs.exists())).cloned(),
+    );
+    if let Err(e) = save_sync_state(inst, &SyncState { version: plan.version, installed }) {
+        tracing::warn!(target: "mc_core::realm", err = %e, "写入领域同步账本失败");
     }
 
     Ok(report)
@@ -535,7 +595,12 @@ pub async fn build_snapshot(
         .iter()
         .map(|s| (*s).to_string())
         .chain(["saves", "screenshots", "natives"].into_iter().map(str::to_string))
-        .chain(["instance.json".to_string(), format!("{id}.jar"), format!("{id}.json")])
+        .chain([
+            "instance.json".to_string(),
+            SYNC_STATE_FILE.to_string(),
+            format!("{id}.jar"),
+            format!("{id}.json"),
+        ])
         .collect();
     for wf in walk_game_root(&inst.dir(), &ignores).unwrap_or_default() {
         override_paths.push(wf.rel);
@@ -679,13 +744,23 @@ mod tests {
         }
     }
 
+    /// Write a sync ledger claiming the given paths were installed by the syncer.
+    fn put_ledger(t: &TempInst, version: i32, installed: &[&str]) {
+        let state = SyncState {
+            version,
+            installed: installed.iter().map(|s| s.to_string()).collect(),
+        };
+        fs::write(t.inst.dir().join(SYNC_STATE_FILE), serde_json::to_vec(&state).unwrap()).unwrap();
+    }
+
     #[test]
     fn plan_skips_present_matching_downloads_missing_and_flags_stale_and_manual() {
         let t = TempInst::new("plan");
         // present + correct hash → must be skipped
         let have_sha1 = t.put_mod("present.jar", b"already-here");
-        // a local mod the manifest won't mention → stale (remove)
-        t.put_mod("extra.jar", b"local-only-util");
+        // installed by a previous sync, dropped by this manifest → stale (remove)
+        t.put_mod("extra.jar", b"previously-synced");
+        put_ledger(&t, 6, &["mods/present.jar", "mods/extra.jar"]);
 
         let manifest = RealmManifest {
             mc_version: Some("1.20.1".into()),
@@ -716,16 +791,53 @@ mod tests {
         assert_eq!(plan.manual[0].path, "mods/custom.jar");
         // `extra.jar` is stale; `present.jar` and the manual `custom.jar` are not.
         assert_eq!(plan.remove, vec!["mods/extra.jar".to_string()]);
+        // Everything url-carrying is ledger-managed after apply.
+        assert_eq!(plan.managed, vec!["mods/present.jar".to_string(), "mods/missing.jar".to_string()]);
         assert!(!plan.is_up_to_date());
+    }
+
+    #[test]
+    fn plan_never_removes_files_the_member_added_themselves() {
+        let t = TempInst::new("useradd");
+        // A local-only mod with NO ledger entry — user-added; must never be removed.
+        t.put_mod("my-minimap.jar", b"user-added");
+        let manifest = RealmManifest {
+            files: vec![url_file("mods/shared.jar", Some("deadbeef".into()))],
+            version: 3,
+            ..Default::default()
+        };
+        let plan = plan_sync(&t.inst, &manifest);
+        assert!(plan.remove.is_empty(), "user-added files are not the syncer's to delete");
+        assert_eq!(plan.download.len(), 1);
+    }
+
+    #[test]
+    fn plan_removes_the_disabled_twin_of_a_dropped_synced_mod() {
+        let t = TempInst::new("disabled");
+        // Ledger says the syncer installed dropped.jar; the member disabled it.
+        t.put_mod("dropped.jar.disabled", b"was-synced");
+        put_ledger(&t, 1, &["mods/dropped.jar"]);
+        let plan = plan_sync(&t.inst, &RealmManifest { version: 2, ..Default::default() });
+        assert_eq!(plan.remove, vec!["mods/dropped.jar.disabled".to_string()]);
+    }
+
+    #[test]
+    fn plan_ignores_ledger_entries_already_gone_from_disk() {
+        let t = TempInst::new("gone");
+        put_ledger(&t, 1, &["mods/vanished.jar"]);
+        let plan = plan_sync(&t.inst, &RealmManifest { version: 2, ..Default::default() });
+        assert!(plan.remove.is_empty());
+        assert!(plan.is_up_to_date());
     }
 
     #[test]
     fn plan_covers_resourcepacks_and_shaders_not_just_mods() {
         let t = TempInst::new("multidir");
         // a present, matching resourcepack → skipped; a missing shader → download;
-        // a stale local resourcepack → remove.
+        // a ledger-tracked, manifest-dropped resourcepack → remove.
         let rp = t.put_file("resourcepacks/faithful.zip", b"rp-bytes");
         t.put_file("resourcepacks/stale-rp.zip", b"old-rp");
+        put_ledger(&t, 1, &["resourcepacks/faithful.zip", "resourcepacks/stale-rp.zip"]);
         let manifest = RealmManifest {
             files: vec![
                 url_file("resourcepacks/faithful.zip", Some(rp)),
@@ -758,6 +870,8 @@ mod tests {
     #[test]
     fn plan_rejects_path_traversal_and_absolute_paths() {
         let t = TempInst::new("traversal");
+        // A tampered ledger can't steer removals outside the managed dirs either.
+        put_ledger(&t, 1, &["../../outside.txt", "/etc/hosts", "config/user.toml"]);
         let manifest = RealmManifest {
             files: vec![
                 url_file("../../evil.sh", Some("x".into())),        // parent escape
