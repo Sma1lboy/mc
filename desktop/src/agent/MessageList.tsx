@@ -44,8 +44,11 @@ export function MessageRow({
   }
   const nodes: React.ReactNode[] = [];
   if (lastActivity >= 0) {
-    // head:含中间进度文字,一并折进活动块。
-    nodes.push(<ActivityGroup key="act" parts={msg.parts.slice(0, lastActivity + 1)} />);
+    // head:含中间进度文字,一并折进活动块。本条消息还在流式时强制展开,让工具/思考
+    // 实时「流式出来」可见;turn 结束才收起(避免单个工具一完成就瞬间收起、看不到过程)。
+    nodes.push(
+      <ActivityGroup key="act" parts={msg.parts.slice(0, lastActivity + 1)} forceOpen={last && streaming} />,
+    );
   }
   for (let i = lastActivity + 1; i < msg.parts.length; i++) {
     const part = msg.parts[i];

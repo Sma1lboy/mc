@@ -96,14 +96,14 @@ export function ToolChip({ part }: { part: ToolPart }) {
  * 一段「活动」:连续的思考(reasoning)+ 工具调用,收拢成一个可展开的整体(Claude Code 风格)。
  * 进行中自动展开并显示 spinner;完成后默认收起——用户只需看最终答案,不必看中间思考/调用细节。
  */
-export function ActivityGroup({ parts }: { parts: Part[] }) {
+export function ActivityGroup({ parts, forceOpen }: { parts: Part[]; forceOpen?: boolean }) {
   const tools = parts.filter(isTool);
   const running = tools.some((p) => p.state === "input-streaming" || p.state === "input-available");
   const errored = tools.some((p) => p.state === "output-error");
   // 「步数」= 工具调用数(用户眼里的检索/解析步骤);纯思考无工具时回退到 part 数。
   const steps = tools.length || parts.length;
   return (
-    <details className="my-[3px]" open={running}>
+    <details className="my-[3px]" open={running || forceOpen}>
       <summary className="inline-flex items-center gap-[6px] cursor-pointer select-none text-[12px] text-faint hover:text-sub">
         {running ? (
           <Spinner size={12} />
