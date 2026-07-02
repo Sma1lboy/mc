@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>kobeMC — 从零打造的跨平台 Minecraft 启动器</title>
+<meta name="description" content="kobeMC:Rust 核心 + Tauri v2 的跨平台 Minecraft 启动器。原版 / Fabric / Quilt / Forge / NeoForge 一键启动,Modrinth 集成,微软登录。">
+<!--
+  DESIGN SYSTEM — Blocky Craft(方块工坊),取自 desktop/src/theme/tokens.css 精确值
+  底色   : --bg-window #16170f(暖黑) · panel #1d1f15 · titlebar #0c0d0a · 石质纹理 repeating-gradient
+  强调   : 熔岩橙 #e8590c / hover #f06a1f · 沙金 tag #c9a06a · 草绿 #6cae3e / 泥土棕 #7a5a37
+  形状   : radius 0–2px,立体感 = inset 双向阴影倒角(--bevel-raised / sunken / pressed),无圆角
+  字体   : Pixelify Sans(标题)· Press Start 2P(仅短拉丁词/数字)· Noto Sans SC(正文)
+  内容   : 全部来自 README「What works today (verified)」,不虚构任何功能
+-->
+<link rel="icon" href="icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400..700&family=Press+Start+2P&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-window:#16170f; --bg-titlebar:#0c0d0a; --bg-sidebar:#22241b;
+    --panel:#1d1f15; --panel-2:#2a2c20; --panel-3:#3a3d2c;
+    --text-strong:#f3ecda; --text:#f1ead8; --text-sub:#a39f8e; --text-muted:#8f8f7e; --text-faint:#7c7c66;
+    --tag-text:#c9a06a; --grass-top:#6cae3e; --grass-side:#7a5a37;
+    --accent:#e8590c; --accent-hover:#f06a1f; --accent-press:#c64a08; --accent-text:#16170f;
+    --bevel-sunken:inset 2px 2px 0 rgba(255,255,255,.05), inset -2px -2px 0 rgba(0,0,0,.45);
+    --bevel-raised:inset 2px 2px 0 rgba(255,255,255,.3), inset -2px -2px 0 rgba(0,0,0,.35);
+    --bevel-pressed:inset -2px -2px 0 rgba(255,255,255,.2), inset 2px 2px 0 rgba(0,0,0,.4);
+    --bevel-input:inset 2px 2px 0 rgba(0,0,0,.45);
+    --stone-tex:repeating-linear-gradient(0deg, rgba(0,0,0,.22) 0 2px, transparent 2px 5px),
+                repeating-linear-gradient(90deg, rgba(0,0,0,.14) 0 2px, transparent 2px 6px);
+    --font:"Noto Sans SC","PingFang SC","Microsoft YaHei UI",system-ui,sans-serif;
+    --font-display:"Pixelify Sans","Noto Sans SC",system-ui,sans-serif;
+    --font-pixel:"Press Start 2P","Noto Sans SC",ui-monospace,monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--bg-window); color:var(--text);
+    font-family:var(--font); font-size:15px; line-height:1.65;
+    -webkit-font-smoothing:antialiased; text-wrap:pretty;
+  }
+  a{color:inherit}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 32px}
+  @media(max-width:680px){.wrap{padding:0 18px}}
+  .px{font-family:var(--font-pixel);font-size:.72em;letter-spacing:.02em}
+
+  /* ---------- 顶栏(石质 + 倒角,像启动器标题栏)---------- */
+  header{
+    background-color:var(--bg-sidebar); background-image:var(--stone-tex);
+    border-bottom:3px solid var(--bg-titlebar); box-shadow:var(--bevel-raised);
+    position:sticky;top:0;z-index:10;
+  }
+  .bar{display:flex;align-items:center;gap:14px;padding:12px 0}
+  .bar img{width:34px;height:34px;image-rendering:auto}
+  .bar .name{font-family:var(--font-display);font-weight:700;font-size:22px;color:var(--text-strong)}
+  .bar .name b{color:var(--accent);font-weight:700}
+  .bar nav{margin-left:auto;display:flex;gap:22px;font-size:13px;color:var(--text-sub)}
+  .bar nav a{text-decoration:none}
+  .bar nav a:hover{color:var(--accent-hover)}
+  @media(max-width:680px){.bar nav{display:none}}
+
+  /* ---------- hero ---------- */
+  .hero{padding:88px 0 64px;position:relative;overflow:hidden}
+  .hero .tag{
+    display:inline-block;font-family:var(--font-pixel);font-size:10px;color:var(--tag-text);
+    background:var(--panel-2);box-shadow:var(--bevel-sunken);padding:8px 12px;margin-bottom:28px;
+  }
+  h1{
+    font-family:var(--font-display);font-weight:700;color:var(--text-strong);
+    font-size:clamp(44px,7vw,76px);line-height:1.05;letter-spacing:.01em;
+  }
+  h1 .mc{color:var(--accent)}
+  .hero .sub{font-size:18px;color:var(--text-sub);max-width:34em;margin-top:22px}
+  .hero .sub b{color:var(--text-strong);font-weight:500}
+
+  .cta-row{display:flex;gap:16px;margin-top:40px;flex-wrap:wrap;align-items:stretch}
+  .btn-play{
+    display:inline-flex;align-items:center;gap:12px;text-decoration:none;
+    background:var(--accent);color:var(--accent-text);box-shadow:var(--bevel-raised);
+    font-family:var(--font-pixel);font-size:13px;padding:18px 30px;border:0;cursor:pointer;
+  }
+  .btn-play:hover{background:var(--accent-hover)}
+  .btn-play:active{background:var(--accent-press);box-shadow:var(--bevel-pressed)}
+  .btn-ghost{
+    display:inline-flex;align-items:center;text-decoration:none;
+    background:var(--panel-3);color:var(--text-strong);box-shadow:var(--bevel-raised);
+    font-size:14px;font-weight:500;padding:18px 26px;
+  }
+  .btn-ghost:hover{filter:brightness(1.12)}
+  .btn-ghost:active{box-shadow:var(--bevel-pressed)}
+
+  .brew{margin-top:26px;max-width:640px;display:flex;align-items:stretch;background:var(--bg-titlebar);box-shadow:var(--bevel-input)}
+  .brew code{
+    font-family:ui-monospace,Menlo,monospace;font-size:13.5px;color:var(--text);
+    padding:14px 18px;flex:1;white-space:nowrap;overflow-x:auto;display:flex;align-items:center;gap:10px;
+  }
+  .brew code::before{content:"$";color:var(--grass-top)}
+  .brew button{
+    font-family:var(--font-pixel);font-size:9px;background:var(--panel-3);color:var(--text-strong);
+    border:0;padding:0 18px;cursor:pointer;box-shadow:var(--bevel-raised);
+  }
+  .brew button:hover{filter:brightness(1.12)}
+  .brew button:active{box-shadow:var(--bevel-pressed)}
+  .hero .note{font-size:12.5px;color:var(--text-faint);margin-top:12px}
+  .hero .note a{color:var(--text-muted)}
+
+  /* hero 右侧草方块(纯装饰,取 logo 图) */
+  .hero-block{
+    position:absolute;right:-40px;top:50%;transform:translateY(-50%);
+    width:min(340px,32vw);opacity:.92;pointer-events:none;
+    filter:drop-shadow(0 24px 40px rgba(0,0,0,.5));
+  }
+  @media(max-width:900px){.hero-block{display:none}}
+  .hero-inner{position:relative;z-index:1;max-width:620px}
+
+  /* ---------- 数据条 ---------- */
+  .stats{
+    background-color:var(--bg-sidebar);background-image:var(--stone-tex);
+    box-shadow:var(--bevel-raised);border-top:3px solid var(--bg-titlebar);border-bottom:3px solid var(--bg-titlebar);
+  }
+  .stats .row{display:grid;grid-template-columns:repeat(4,1fr);gap:0}
+  @media(max-width:680px){.stats .row{grid-template-columns:repeat(2,1fr)}}
+  .stat{padding:26px 18px;text-align:center}
+  .stat + .stat{border-left:2px solid rgba(0,0,0,.35)}
+  @media(max-width:680px){.stat:nth-child(3){border-left:0}}
+  .stat .n{font-family:var(--font-pixel);font-size:20px;color:var(--accent);display:block}
+  .stat .l{font-size:12.5px;color:var(--text-sub);margin-top:10px;display:block}
+
+  /* ---------- 章节 ---------- */
+  section{padding:72px 0}
+  h2{
+    font-family:var(--font-display);font-weight:700;font-size:clamp(28px,4vw,40px);
+    color:var(--text-strong);line-height:1.15;
+  }
+  .sec-sub{color:var(--text-sub);margin-top:10px;max-width:44em}
+  .sec-kick{font-family:var(--font-pixel);font-size:10px;color:var(--tag-text);display:block;margin-bottom:14px}
+
+  /* ---------- 功能格(倒角面板)---------- */
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:44px}
+  @media(max-width:900px){.grid{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:600px){.grid{grid-template-columns:1fr}}
+  .cell{background:var(--panel);box-shadow:var(--bevel-sunken);padding:26px 24px}
+  .cell .ic{
+    width:34px;height:34px;margin-bottom:16px;box-shadow:var(--bevel-raised);
+    background:linear-gradient(to bottom, var(--grass-top) 0 38%, var(--grass-side) 38% 100%);
+  }
+  .cell.orange .ic{background:linear-gradient(to bottom, var(--accent-hover) 0 38%, var(--accent-press) 38% 100%)}
+  .cell.stone-ic .ic{background:linear-gradient(to bottom, #9a9a8a 0 38%, #6f6f60 38% 100%)}
+  .cell h3{font-family:var(--font-display);font-weight:600;font-size:19px;color:var(--text-strong)}
+  .cell p{font-size:13.5px;color:var(--text-sub);margin-top:8px}
+  .cell .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
+  .chip{
+    font-family:var(--font-pixel);font-size:8px;color:var(--tag-text);
+    background:var(--panel-2);box-shadow:var(--bevel-input);padding:6px 8px;white-space:nowrap;
+  }
+
+  /* ---------- 下载 ---------- */
+  .dl{background-color:var(--bg-sidebar);background-image:var(--stone-tex);
+      border-top:3px solid var(--bg-titlebar);border-bottom:3px solid var(--bg-titlebar);box-shadow:var(--bevel-raised)}
+  .dl-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:40px}
+  @media(max-width:800px){.dl-grid{grid-template-columns:1fr}}
+  .dl-card{background:var(--panel);box-shadow:var(--bevel-sunken);padding:26px 24px;display:flex;flex-direction:column;gap:8px}
+  .dl-card .os{font-family:var(--font-display);font-weight:600;font-size:20px;color:var(--text-strong)}
+  .dl-card .fmt{font-family:var(--font-pixel);font-size:9px;color:var(--tag-text)}
+  .dl-card p{font-size:13px;color:var(--text-sub);flex:1}
+  .dl-card a{
+    align-self:flex-start;text-decoration:none;font-family:var(--font-pixel);font-size:10px;
+    background:var(--panel-3);color:var(--text-strong);box-shadow:var(--bevel-raised);padding:12px 16px;margin-top:10px;
+  }
+  .dl-card a:hover{filter:brightness(1.12)}
+  .dl-card a:active{box-shadow:var(--bevel-pressed)}
+  .dl-card.mac a{background:var(--accent);color:var(--accent-text)}
+  .dl-card.mac a:hover{background:var(--accent-hover)}
+  .dl .fine{font-size:12.5px;color:var(--text-faint);margin-top:18px}
+  .dl .fine code{font-family:ui-monospace,monospace;background:var(--bg-titlebar);padding:2px 6px}
+
+  /* ---------- footer ---------- */
+  footer{padding:44px 0 60px;border-top:3px solid var(--bg-titlebar)}
+  .foot{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;align-items:center;color:var(--text-muted);font-size:13px}
+  .foot .name{font-family:var(--font-display);font-weight:700;font-size:18px;color:var(--text-strong)}
+  .foot .name b{color:var(--accent)}
+  .foot nav{display:flex;gap:20px}
+  .foot a{text-decoration:none}
+  .foot a:hover{color:var(--accent-hover)}
+
+  @media (prefers-reduced-motion: reduce){*{scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap bar">
+    <img src="icon.png" alt="kobeMC 草方块 logo">
+    <span class="name">kobe<b>MC</b></span>
+    <nav>
+      <a href="#features">功能</a>
+      <a href="#download">下载</a>
+      <a href="https://github.com/Sma1lboy/mc">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap hero">
+  <img class="hero-block" src="icon.png" alt="" aria-hidden="true">
+  <div class="hero-inner">
+    <span class="tag">FREE &amp; OPEN SOURCE</span>
+    <h1>下载、装 Mod、<br>进游戏,<br><span class="mc">一步到位</span></h1>
+    <p class="sub">选好版本点一下,剩下的交给 kobeMC —— 游戏文件、Mod 加载器、Java 环境全部<b>自动就绪</b>,你只管开玩。</p>
+    <div class="cta-row">
+      <a class="btn-play" href="#download">▶ PLAY</a>
+      <a class="btn-ghost" href="https://github.com/Sma1lboy/mc">查看源码</a>
+    </div>
+    <div class="brew">
+      <code id="brew-cmd">brew install --cask sma1lboy/tap/kobemc</code>
+      <button onclick="navigator.clipboard.writeText(document.getElementById('brew-cmd').textContent);this.textContent='OK!';setTimeout(()=>this.textContent='COPY',1400)">COPY</button>
+    </div>
+    <p class="note">macOS(Apple Silicon + Intel)· 其他平台见 <a href="https://github.com/Sma1lboy/mc/releases">Releases</a></p>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="wrap row">
+    <div class="stat"><span class="n">1-CLICK</span><span class="l">安装到启动,全自动</span></div>
+    <div class="stat"><span class="n">MODS</span><span class="l">原版 · Fabric · Quilt · Forge · NeoForge 全支持</span></div>
+    <div class="stat"><span class="n">FREE</span><span class="l">免费开源,三平台通用</span></div>
+    <div class="stat"><span class="n">CN</span><span class="l">国内下载加速内置</span></div>
+  </div>
+</div>
+
+<section id="features">
+  <div class="wrap">
+    <span class="sec-kick">FEATURES</span>
+    <h2>你要的,它都会</h2>
+    <p class="sec-sub">从装游戏到玩上 Mod,中间的麻烦事全部替你做完。</p>
+    <div class="grid">
+      <div class="cell orange">
+        <div class="ic"></div>
+        <h3>一键开玩</h3>
+        <p>挑好版本点 PLAY,游戏文件自动下载校验,下完直接进游戏 —— 全程不用你动手。</p>
+      </div>
+      <div class="cell">
+        <div class="ic"></div>
+        <h3>想玩什么 Mod 都行</h3>
+        <p>Fabric、Quilt、Forge、NeoForge 全都支持,选一个自动装好,不用看教程折腾。</p>
+      </div>
+      <div class="cell stone-ic">
+        <div class="ic"></div>
+        <h3>Java?不用管</h3>
+        <p>缺什么版本的 Java 它自己发现、自己下载,你甚至不需要知道 Java 是什么。</p>
+      </div>
+      <div class="cell">
+        <div class="ic"></div>
+        <h3>怎么登录都可以</h3>
+        <p>微软正版、离线模式、第三方外置登录,想怎么进就怎么进,多账号随时切换。</p>
+      </div>
+      <div class="cell orange">
+        <div class="ic"></div>
+        <h3>Mod 商店内置</h3>
+        <p>直接在启动器里搜 Mod、一键安装,连它依赖的其他 Mod 也一起装好,再也不会缺前置。</p>
+      </div>
+      <div class="cell stone-ic">
+        <div class="ic"></div>
+        <h3>存档与整合包</h3>
+        <p>世界备份、重命名、回收站防误删;整合包一键导入导出,和朋友共享一套配置。</p>
+      </div>
+      <div class="cell">
+        <div class="ic"></div>
+        <h3>崩了?告诉你为什么</h3>
+        <p>游戏崩溃时自动分析日志,用人话告诉你可能的原因和怎么修,不用对着报错发呆。</p>
+      </div>
+      <div class="cell stone-ic">
+        <div class="ic"></div>
+        <h3>国内也快</h3>
+        <p>内置国内下载加速,不挂工具也能满速下游戏和资源。</p>
+      </div>
+      <div class="cell orange">
+        <div class="ic"></div>
+        <h3>多开不占地方</h3>
+        <p>建多少个游戏实例都行,共用的文件只存一份,硬盘不为重复文件买单。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="download" class="dl">
+  <div class="wrap">
+    <span class="sec-kick">DOWNLOAD</span>
+    <h2>三个平台,同一个启动器</h2>
+    <div class="dl-grid">
+      <div class="dl-card mac">
+        <span class="os">macOS</span><span class="fmt">.DMG / HOMEBREW</span>
+        <p>Apple Silicon 与 Intel 双架构。推荐 Homebrew 安装,更新只要 brew upgrade。</p>
+        <a href="https://github.com/Sma1lboy/mc/releases">GET .DMG</a>
+      </div>
+      <div class="dl-card">
+        <span class="os">Windows</span><span class="fmt">.MSI</span>
+        <p>标准 MSI 安装包,从 GitHub Releases 获取最新版本。</p>
+        <a href="https://github.com/Sma1lboy/mc/releases">GET .MSI</a>
+      </div>
+      <div class="dl-card">
+        <span class="os">Linux</span><span class="fmt">.APPIMAGE</span>
+        <p>AppImage 免安装直接运行,chmod +x 即用。</p>
+        <a href="https://github.com/Sma1lboy/mc/releases">GET .APPIMAGE</a>
+      </div>
+    </div>
+    <p class="fine">应用暂未签名:macOS 首次启动若被拦,右键 → 打开,或 <code>xattr -dr com.apple.quarantine "/Applications/kobeMC.app"</code></p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot">
+    <span class="name">kobe<b>MC</b></span>
+    <nav>
+      <a href="https://github.com/Sma1lboy/mc">GitHub</a>
+      <a href="https://github.com/Sma1lboy/mc/releases">Releases</a>
+    </nav>
+  </div>
+</footer>
+
+</body>
+</html>
