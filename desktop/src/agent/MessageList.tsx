@@ -2,7 +2,7 @@ import type { UIMessage } from "ai";
 import { Panel, Spinner } from "../components";
 import { t } from "../i18n";
 import { AskUserOptions, ASK_USER_TOOL_TYPE } from "./AskUserOptions";
-import { AssistantText, ActivityGroup, isActivity, isTool, type Part } from "./ChatParts";
+import { AssistantText, ActivityGroup, isActivity, isTool } from "./ChatParts";
 
 /**
  * MessageList / MessageRow —— 组装聊天消息流(store-coupled:一条 ask_user 会经
@@ -35,19 +35,20 @@ export function MessageRow({
   const lastPart = msg.parts[msg.parts.length - 1];
   const caretVisible = last && streaming && lastPart?.type === "text";
 
-  // 把「连续的思考 + 工具调用」聚成一段活动(收拢);文本 / ask_user 独立渲染。
+  // 一条消息里所有中间「思考 + 工具调用 + 进度文字」合并成 ONE 折叠块(到最后一个
+  // activity 为止),只把它之后的最终回答文字 / ask_user 卡片展开显示——避免多个折叠块被
+  // 进度文字打断、散成一堆。
+  let lastActivity = -1;
+  for (let i = 0; i < msg.parts.length; i++) {
+    if (isActivity(msg.parts[i])) lastActivity = i;
+  }
   const nodes: React.ReactNode[] = [];
-  for (let i = 0; i < msg.parts.length; ) {
+  if (lastActivity >= 0) {
+    // head:含中间进度文字,一并折进活动块。
+    nodes.push(<ActivityGroup key="act" parts={msg.parts.slice(0, lastActivity + 1)} />);
+  }
+  for (let i = lastActivity + 1; i < msg.parts.length; i++) {
     const part = msg.parts[i];
-    if (isActivity(part)) {
-      const run: Part[] = [];
-      while (i < msg.parts.length && isActivity(msg.parts[i])) {
-        run.push(msg.parts[i]);
-        i++;
-      }
-      nodes.push(<ActivityGroup key={`act-${i}`} parts={run} />);
-      continue;
-    }
     if (part.type === "text") {
       nodes.push(
         <AssistantText key={i} text={part.text} live={last && streaming && i === msg.parts.length - 1} />,
@@ -55,7 +56,6 @@ export function MessageRow({
     } else if (isTool(part) && part.type === ASK_USER_TOOL_TYPE) {
       nodes.push(<AskUserOptions key={i} msgId={msg.id} part={part} globalStreaming={streaming} />);
     }
-    i++;
   }
 
   return (

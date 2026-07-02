@@ -100,6 +100,8 @@ export function ActivityGroup({ parts }: { parts: Part[] }) {
   const tools = parts.filter(isTool);
   const running = tools.some((p) => p.state === "input-streaming" || p.state === "input-available");
   const errored = tools.some((p) => p.state === "output-error");
+  // 「步数」= 工具调用数(用户眼里的检索/解析步骤);纯思考无工具时回退到 part 数。
+  const steps = tools.length || parts.length;
   return (
     <details className="my-[3px]" open={running}>
       <summary className="inline-flex items-center gap-[6px] cursor-pointer select-none text-[12px] text-faint hover:text-sub">
@@ -112,17 +114,18 @@ export function ActivityGroup({ parts }: { parts: Part[] }) {
             <path d="M14.7 6.3a4 4 0 0 0-5.2 5.2L3 18v3h3l6.5-6.5a4 4 0 0 0 5.2-5.2l-2.6 2.6-2.4-.6-.6-2.4 2.6-2.6Z" />
           </svg>
         )}
-        <span>{running ? t("agent.streaming") : t("agent.activityDone", { n: String(parts.length) })}</span>
+        <span>{running ? t("agent.streaming") : t("agent.activityDone", { n: String(steps) })}</span>
       </summary>
       <div className="mt-[6px] flex flex-col gap-[4px] border-l-2 border-titlebar pl-[10px]">
         {parts.map((p, i) =>
           isTool(p) ? (
             <ToolChip key={p.toolCallId} part={p} />
-          ) : (
+          ) : p.type === "reasoning" || p.type === "text" ? (
+            // 折进来的中间进度文字 / 思考,以低调样式显示。
             <div key={i} className="whitespace-pre-wrap break-words text-muted text-[12px] leading-[1.6]">
-              {p.type === "reasoning" ? p.text : ""}
+              {p.text}
             </div>
-          ),
+          ) : null,
         )}
       </div>
     </details>
