@@ -277,11 +277,12 @@ function isToolPart(p: UIMessage["parts"][number]): p is Extract<
 }
 
 /** 新对话:归档当前对话,轮换会话 id,清空消息(流式中忽略)。 */
-export function newChat(): void {
+export function newChat(opts?: { preserveToolContext?: boolean }): void {
   if (useChatStore.getState().streaming) return;
   saveCurrentConversation(); // 开新对话前把当前的存档,别丢
+  const toolContext = opts?.preserveToolContext ? useChatStore.getState().toolContext : null;
   currentConvId = mintConvId();
-  useChatStore.setState({ messages: [], error: null, queued: [], toolContext: null });
+  useChatStore.setState({ messages: [], error: null, queued: [], toolContext });
 }
 
 /**

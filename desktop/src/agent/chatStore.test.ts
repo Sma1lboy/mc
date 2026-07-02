@@ -63,6 +63,16 @@ describe("chatStore agent context", () => {
     expect(useChatStore.getState().toolContext).toBeNull();
   });
 
+  it("can keep host tool context when starting a scoped new chat", () => {
+    useChatStore.setState({ toolContext: { ...WIKI_CONTEXT, profile: "wiki" } } as Partial<
+      ReturnType<typeof useChatStore.getState>
+    >);
+
+    newChat({ preserveToolContext: true });
+
+    expect(useChatStore.getState().toolContext).toEqual({ ...WIKI_CONTEXT, profile: "wiki" });
+  });
+
   it("restores host tool context when loading a saved conversation", () => {
     useChatStore.setState({
       conversations: [

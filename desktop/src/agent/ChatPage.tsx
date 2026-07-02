@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button, EmptyState, Heading, Panel } from "../components";
 import { t, useLang } from "../i18n";
 import { useChatStore, sendMessage, newChat, clearDraft, dequeueQueued, stopTurn } from "./chatStore";
+import { agentUiKeys } from "./chatUi";
 import { DebugTools } from "./DebugTools";
 import { MessageList } from "./MessageList";
 import { ShareButton } from "./ShareButton";
@@ -27,6 +28,8 @@ export default function ChatPage() {
   const queued = useChatStore((s) => s.queued);
   const error = useChatStore((s) => s.error);
   const pendingDraft = useChatStore((s) => s.draft);
+  const profile = useChatStore((s) => s.toolContext?.profile ?? "build");
+  const ui = agentUiKeys(profile);
   const [draft, setDraft] = useState("");
   const listEl = useRef<HTMLDivElement>(null);
   const inputEl = useRef<HTMLTextAreaElement>(null);
@@ -94,15 +97,20 @@ export default function ChatPage() {
     <div className="flex flex-col h-full min-h-0">
       <header className="shrink-0 flex items-center justify-between gap-[16px] px-[28px] py-[16px] border-b-2 border-titlebar">
         <div className="min-w-0">
-          <Heading size="section" as="h1">{t("agent.title")}</Heading>
-          <div className="mt-[4px] text-[12px] text-muted truncate">{t("agent.subtitle")}</div>
+          <Heading size="section" as="h1">{t(ui.title)}</Heading>
+          <div className="mt-[4px] text-[12px] text-muted truncate">{t(ui.subtitle)}</div>
         </div>
         <div className="flex items-center gap-[12px] min-w-0">
           <div className="min-w-0 overflow-x-auto">
             <DebugTools />
           </div>
           <ShareButton />
-          <Button variant="ghost" disabled={streaming} onClick={() => newChat()} className="shrink-0">
+          <Button
+            variant="ghost"
+            disabled={streaming}
+            onClick={() => newChat({ preserveToolContext: profile === "wiki" })}
+            className="shrink-0"
+          >
             {t("agent.newChat")}
           </Button>
         </div>
@@ -114,7 +122,7 @@ export default function ChatPage() {
         className="flex-1 min-h-0 overflow-y-auto px-[28px] py-[24px]"
         role="log"
         aria-live="polite"
-        aria-label={t("agent.title")}
+        aria-label={t(ui.title)}
       >
         {messages.length > 0 ? (
           <div className="flex flex-col gap-[18px]">
@@ -127,7 +135,7 @@ export default function ChatPage() {
           </div>
         ) : (
           <div className="h-full flex items-center justify-center">
-            <EmptyState title={t("agent.emptyTitle")} hint={t("agent.emptyHint")} />
+            <EmptyState title={t(ui.emptyTitle)} hint={t(ui.emptyHint)} />
           </div>
         )}
       </div>
@@ -160,7 +168,7 @@ export default function ChatPage() {
               ref={inputEl}
               value={draft}
               rows={1}
-              placeholder={t("agent.placeholder")}
+              placeholder={t(ui.placeholder)}
               onChange={(e) => {
                 setDraft(e.currentTarget.value);
                 autoGrow(e.currentTarget);
