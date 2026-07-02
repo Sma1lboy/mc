@@ -3,6 +3,7 @@ import type { UIMessage } from "ai";
 import { Panel } from "../components";
 import { AskUserOptions } from "./AskUserOptions";
 import { AssistantText, ActivityGroup, ToolChip, type Part, type ToolPart } from "./ChatParts";
+import { MessageList } from "./MessageList";
 
 /* ============================================================================
  * agentChat.stories —— 整合包助手对话 UI 的隔离预览(Ladle)。
@@ -211,3 +212,42 @@ export const FullAssistantMessage: Story = () => {
   );
 };
 FullAssistantMessage.storyName = "完整助手消息 · 活动块 + 文本";
+
+// —— 完整对话流(整段 UIMessage[] 请求 flow)——————————————————————————————
+
+/** 造一条 UIMessage(parts 是按 state 判别的联合,mock 用 unknown 桥接)。 */
+function flowMsg(id: string, role: "user" | "assistant", parts: unknown[]): UIMessage {
+  return { id, role, parts } as unknown as UIMessage;
+}
+
+/** 一次完整请求 flow:用户提问 → 助手思考/工具/追问 → 用户作答 → 助手搜底包 → 再追问选一个。 */
+const FLOW: UIMessage[] = [
+  flowMsg("u1", "user", [{ type: "text", text: "帮我组个耐玩的整合包" }]),
+  flowMsg("a1", "assistant", [
+    { type: "reasoning", text: "用户没说方向,先问一下偏好再动手。" },
+    { type: "text", text: "先定个方向吧?" },
+    askPart({
+      toolCallId: "call_ask_dir",
+      state: "output-available",
+      input: { question: "你想要什么类型的整合包?(可多选)", options: MULTI_OPTIONS, multi_select: true },
+      output: { selected: ["性能优化", "光影支持"] },
+    }),
+  ]),
+  flowMsg("u2", "user", [{ type: "text", text: "性能优化、光影支持" }]),
+  flowMsg("a2", "assistant", [
+    { type: "reasoning", text: "搜几个匹配「性能 + 光影」的底包。" },
+    toolPart({ toolCallId: "c1", type: "tool-search_base_modpacks", state: "output-available", input: { query: "performance shaders" }, output: { candidates: [] } }),
+    toolPart({ toolCallId: "c2", type: "tool-search_base_modpacks", state: "output-available", input: { query: "optimized modpack" }, output: { candidates: [] } }),
+    toolPart({ toolCallId: "c3", type: "tool-search_base_modpacks", state: "output-available", input: { query: "fabulously optimized" }, output: { candidates: [] } }),
+    { type: "text", text: "找到几个不错的底包,选一个开工:" },
+    askPart({
+      toolCallId: "call_ask_pack",
+      state: "input-available",
+      input: { question: "用哪个底包?", options: SINGLE_OPTIONS, multi_select: false },
+    }),
+  ]),
+];
+
+/** 整段对话流通过真正的 MessageList 渲染(含活动块收拢、已答/可答两种 ask_user)。 */
+export const FullConversationFlow: Story = () => <MessageList messages={FLOW} streaming={false} />;
+FullConversationFlow.storyName = "完整对话流 · messages list(请求 flow)";
