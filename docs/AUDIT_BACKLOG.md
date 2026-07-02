@@ -72,17 +72,21 @@ Generated 2026-06-22 from a multi-agent end-to-end audit (10 chains, adversarial
 - **Hardening:** `write_atomic` temp-name collision (per-call counter), curseforge `.`/`..` filename →
   safe placeholder, auth `dashify_uuid` panic on 32-byte non-ASCII UUID, block deleting a running instance.
 
-### Still open
+### Shipped later
 
-- **#30 (full keyring migration)** — move access_token / refresh_token / client_token out of plaintext
-  `accounts.json` into the OS keyring (keyring crate), keyed by uuid. Deferred deliberately: it needs a
-  *verified* cross-platform pass (the keychain path can't be exercised headlessly without polluting the real
-  macOS Keychain / hitting prompts; a subtle bug risks logging users out; the dep affects Linux/CI builds).
-  Recommended approach: keyring-with-plaintext-fallback, gated behind a default-on Cargo feature so CI can
-  disable it, with the `keyring` mock store used in tests. The 0600 hardening above mitigates the
-  same-machine-other-user read in the interim.
+- **#30 (full keyring migration)** — landed as `feat(auth): store account tokens in the OS keyring
+  with plaintext fallback` (`crates/mc-core/src/auth/secret.rs`, default-on `keyring` Cargo feature,
+  per-platform native backends). Tokens live in a single keyring entry per uuid; `accounts.json`
+  keeps only non-sensitive metadata; keyring unavailable → graceful plaintext fallback (never locks
+  users out).
 
-Every other ranked item (#1–#29, #31) is shipped.
+**Every ranked item (#1–#36) is now shipped.** Verified against code 2026-07-02: process
+registry + `game://exit`, token `expires_at` + refresh, launch-time `install_jre`, global
+memory/java defaults, custom_roots discovery, rename re-entrancy guard, screenshot retry
+placeholder, uncapped version lists, search offset pagination, IPv6 `parse_server`,
+configured-concurrency `download_batch`, `write_atomic` per-call counter, curseforge `..`
+placeholder — all present. (File references below predate the React migration; the manage
+dialog now lives at `desktop/src/components/InstanceManageDialog.tsx`.)
 
 ## Cross-cutting themes
 
