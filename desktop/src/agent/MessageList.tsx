@@ -24,7 +24,7 @@ export function MessageRow({
     const userText = msg.parts.map((p) => (p.type === "text" ? p.text : "")).join("");
     return (
       <div className="flex justify-end">
-        <div className="max-w-[80%] px-[13px] py-[9px] rounded-none bg-accent text-accent-text shadow-raised text-[14px] leading-[1.6] whitespace-pre-wrap break-words">
+        <div className="max-w-[min(80%,600px)] px-[13px] py-[9px] rounded-none bg-accent text-accent-text shadow-raised text-[14px] leading-[1.6] whitespace-pre-wrap break-words">
           {userText}
         </div>
       </div>
@@ -60,7 +60,7 @@ export function MessageRow({
 
   return (
     <div className="flex justify-start">
-      <Panel variant="sunken" className="max-w-[85%] min-w-0 px-[14px] py-[11px]">
+      <Panel variant="sunken" className="max-w-[min(85%,760px)] min-w-0 px-[14px] py-[11px]">
         {nodes}
         {last && streaming && !caretVisible && (
           <div className="flex items-center gap-[7px] mt-[6px] text-[12px] text-muted">
@@ -82,7 +82,7 @@ export function MessageList({
   streaming: boolean;
 }) {
   return (
-    <div className="flex flex-col gap-[18px] max-w-[820px] mx-auto">
+    <div className="flex flex-col gap-[18px]">
       {messages.map((msg, i) => (
         <MessageRow key={msg.id} msg={msg} last={i === messages.length - 1} streaming={streaming} />
       ))}

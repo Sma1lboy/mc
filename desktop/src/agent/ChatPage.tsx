@@ -102,7 +102,7 @@ export default function ChatPage() {
         aria-label={t("agent.title")}
       >
         {messages.length > 0 ? (
-          <div className="flex flex-col gap-[18px] max-w-[820px] mx-auto">
+          <div className="flex flex-col gap-[18px]">
             <MessageList messages={messages} streaming={streaming} />
             {error && (
               <div className="max-w-[85%] px-[10px] py-[7px] rounded-none bg-danger-soft text-danger-text text-[12.5px] leading-[1.5] break-words">
@@ -118,7 +118,7 @@ export default function ChatPage() {
       </div>
 
       <div className="shrink-0 border-t-2 border-titlebar px-[28px] py-[16px]">
-        <div className="max-w-[820px] mx-auto flex items-end gap-[10px]">
+        <div className="flex items-end gap-[10px]">
           <Panel variant="input" className="flex-1 min-w-0 px-[12px] py-[9px]">
             <textarea
               ref={inputEl}
