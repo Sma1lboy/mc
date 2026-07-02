@@ -45,7 +45,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: desktop/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install Linux build deps
         if: matrix.platform == 'ubuntu-22.04'
@@ -54,9 +54,31 @@ jobs:
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev
 
+      # npm workspaces:唯一 lockfile 在仓库根,必须在根安装(desktop/package-lock.json 已废弃)。
       - name: Install frontend deps
-        working-directory: desktop
         run: npm ci
+
+      # Release notes = CHANGELOG.md 里当前版本的完整段落(本版 → 上一版的全部内容,
+      # changesets 风格,而非一句 "See CHANGELOG")。release.sh 打版时已把 Unreleased
+      # 提升为该段落;段落缺失时回退到 CHANGELOG 链接,保证发布不为空。
+      - name: Extract release notes from CHANGELOG.md
+        id: notes
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          NOTES=$(awk -v ver="$VERSION" '
+            $0 ~ "^## \\[" ver "\\]" { on=1; next }
+            on && /^## \[/ { exit }
+            on { print }
+          ' CHANGELOG.md)
+          if [ -z "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ]; then
+            NOTES="See [CHANGELOG.md](https://github.com/Sma1lboy/mc/blob/main/CHANGELOG.md)."
+          fi
+          {
+            echo "body<<NOTES_EOF"
+            printf '%s\n' "$NOTES"
+            echo "NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
 
       # Download EasyTier into desktop/src-tauri/resources/easytier/ so it's bundled
       # into the .app (联机大厅). Per-host binaries; gitignored, fetched at build time.
@@ -75,7 +97,7 @@ jobs:
           projectPath: desktop
           tagName: ${{ github.ref_name }}
           releaseName: 'kobeMC ${{ github.ref_name }}'
-          releaseBody: 'See [CHANGELOG.md](https://github.com/Sma1lboy/mc/blob/main/CHANGELOG.md).'
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
