@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, EmptyState, Heading, Panel } from "../components";
 import { t, useLang } from "../i18n";
-import { useChatStore, sendMessage, newChat, clearDraft, dequeueQueued } from "./chatStore";
+import { useChatStore, sendMessage, newChat, clearDraft, dequeueQueued, stopTurn } from "./chatStore";
 import { DebugTools } from "./DebugTools";
 import { MessageList } from "./MessageList";
 import { ShareButton } from "./ShareButton";
@@ -71,6 +71,12 @@ export default function ChatPage() {
   };
 
   const onKeyDown = (e: React.KeyboardEvent): void => {
+    // 流式中按 Esc 打断当前轮(保留已流式出的部分)。
+    if (e.key === "Escape" && streaming) {
+      e.preventDefault();
+      stopTurn();
+      return;
+    }
     if (e.key !== "Enter" || e.shiftKey) return;
     // 组字中 / 刚确认候选(229 或 compositionEnd 后极短窗口)一律不提交,只 Shift+Enter 换行。
     if (composing.current || e.nativeEvent.isComposing || e.keyCode === 229) return;
@@ -169,9 +175,15 @@ export default function ChatPage() {
               style={{ maxHeight: "168px" }}
             />
           </Panel>
-          <Button onClick={submit} disabled={!draft.trim()}>
-            {t("agent.send")}
-          </Button>
+          {streaming ? (
+            <Button variant="ghost" onClick={() => stopTurn()} className="shrink-0">
+              {t("agent.stop")}
+            </Button>
+          ) : (
+            <Button onClick={submit} disabled={!draft.trim()}>
+              {t("agent.send")}
+            </Button>
+          )}
         </div>
       </div>
     </div>

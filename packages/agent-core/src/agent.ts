@@ -52,7 +52,11 @@ export interface ModpackAgent {
    * Either way, just pass the full history — a completed tool result is fed back to
    * the model via `convertToModelMessages`; a pending one pauses the turn.
    */
-  run(history: UIMessage[], onUpdate: (assistant: UIMessage) => void): Promise<TurnResult>;
+  run(
+    history: UIMessage[],
+    onUpdate: (assistant: UIMessage) => void,
+    signal?: AbortSignal,
+  ): Promise<TurnResult>;
 }
 
 /**
@@ -69,6 +73,7 @@ export function createModpackAgent(settings: AgentLlmSettings, tools: ToolExecut
   async function stream(
     uiHistory: UIMessage[],
     onUpdate: (assistant: UIMessage) => void,
+    signal?: AbortSignal,
   ): Promise<TurnResult> {
     let error: string | undefined;
     let assistant: UIMessage | undefined;
@@ -85,6 +90,7 @@ export function createModpackAgent(settings: AgentLlmSettings, tools: ToolExecut
         temperature: TEMPERATURE,
         maxOutputTokens: MAX_OUTPUT_TOKENS,
         stopWhen: stepCountIs(MAX_STEPS),
+        abortSignal: signal,
       });
       const uiStream = result.toUIMessageStream({ sendReasoning: true });
       for await (const msg of readUIMessageStream({
@@ -97,7 +103,9 @@ export function createModpackAgent(settings: AgentLlmSettings, tools: ToolExecut
         onUpdate(msg);
       }
     } catch (e) {
-      error = errText(e);
+      // A user interrupt (AbortSignal) is a clean stop, not a failure: keep the
+      // partial assistant that streamed so far and surface no error.
+      if (!isAbort(e, signal)) error = errText(e);
     }
     return { messages: assistant ? [...uiHistory, assistant] : uiHistory, error };
   }
@@ -113,4 +121,9 @@ function errText(e: unknown): string {
   } catch {
     return String(e);
   }
+}
+
+/** True when the thrown error is the caller's own abort (interrupt), not a real failure. */
+function isAbort(e: unknown, signal?: AbortSignal): boolean {
+  return signal?.aborted === true || (e instanceof Error && e.name === "AbortError");
 }

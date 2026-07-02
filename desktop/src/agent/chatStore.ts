@@ -152,26 +152,41 @@ export function loadConversation(id: string): void {
  * 跑一轮:把给定的 UIMessage[] 历史交给大脑,流式期间把「生长中的助手消息」替换到列表尾。
  * 结束落最终 messages;失败落 error。空文本 / 拉起失败均安全兜底。
  */
+// 当前在飞的一轮的中断句柄(stopTurn 用);仅活动轮期间非空。
+let currentAbort: AbortController | null = null;
+
 async function drive(history: UIMessage[]): Promise<void> {
+  const abort = new AbortController();
+  currentAbort = abort;
   useChatStore.setState({ streaming: true, error: null });
   try {
     const agent = await getAgent();
-    const { messages, error } = await agent.run(history, (assistant) => {
-      useChatStore.setState({ messages: [...history, assistant] });
-    });
+    const { messages, error } = await agent.run(
+      history,
+      (assistant) => {
+        useChatStore.setState({ messages: [...history, assistant] });
+      },
+      abort.signal,
+    );
     useChatStore.setState({ messages, streaming: false, error: error ?? null });
   } catch (e) {
     useChatStore.setState({ streaming: false, error: String(e) });
   }
+  if (currentAbort === abort) currentAbort = null;
   saveCurrentConversation(); // 每轮结束存档,供 dev 会话选择器按时间列出
-  // 本轮结束,若有排队消息则取队首各自成一轮(递归排空,FIFO)。drive 均串行 await,
-  // 且入口 setState streaming:true 同步先行,故无重入。
+  // 本轮结束(正常完成或被中断),若有排队消息则取队首各自成一轮(递归排空,FIFO)。
+  // 于是「打断当前 + 发下一条」= 打字入队 → stopTurn 中断 → 队列在此自动放行下一条。
   const queued = useChatStore.getState().queued;
   if (queued.length > 0) {
     const [next, ...rest] = queued;
     useChatStore.setState({ queued: rest });
     await sendOne(next);
   }
+}
+
+/** 中断当前流式轮(用户按停止 / Esc)。已保留到目前为止流式出的部分助手消息。 */
+export function stopTurn(): void {
+  currentAbort?.abort();
 }
 
 /** 追加一条用户消息到会话尾并跑一轮。 */
