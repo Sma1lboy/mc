@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, EmptyState, Heading, Panel, Spinner } from "../components";
+import { Button, EmptyState, Heading, Panel } from "../components";
 import { t, useLang } from "../i18n";
-import { useChatStore, sendMessage, newChat, clearDraft } from "./chatStore";
+import { useChatStore, sendMessage, newChat, clearDraft, dequeueQueued } from "./chatStore";
 import { DebugTools } from "./DebugTools";
 import { MessageList } from "./MessageList";
 import "./chat.css";
@@ -23,12 +23,16 @@ export default function ChatPage() {
   useLang();
   const messages = useChatStore((s) => s.messages);
   const streaming = useChatStore((s) => s.streaming);
+  const queued = useChatStore((s) => s.queued);
   const error = useChatStore((s) => s.error);
   const pendingDraft = useChatStore((s) => s.draft);
   const [draft, setDraft] = useState("");
   const listEl = useRef<HTMLDivElement>(null);
   const inputEl = useRef<HTMLTextAreaElement>(null);
   const pinned = useRef(true);
+  // IME 组字守卫:WKWebView 里确认候选的那次 Enter 常带 isComposing=false,单靠它会误提交。
+  const composing = useRef(false);
+  const lastCompositionEnd = useRef(0);
 
   const onListScroll = (): void => {
     const el = listEl.current;
@@ -55,9 +59,10 @@ export default function ChatPage() {
     });
   }, [pendingDraft]);
 
+  // 流式期间不再阻塞:store 决定立即发送还是入队(见 sendMessage)。
   const submit = (): void => {
     const text = draft.trim();
-    if (!text || streaming) return;
+    if (!text) return;
     setDraft("");
     pinned.current = true;
     void sendMessage(text);
@@ -65,10 +70,12 @@ export default function ChatPage() {
   };
 
   const onKeyDown = (e: React.KeyboardEvent): void => {
-    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-      e.preventDefault();
-      submit();
-    }
+    if (e.key !== "Enter" || e.shiftKey) return;
+    // 组字中 / 刚确认候选(229 或 compositionEnd 后极短窗口)一律不提交,只 Shift+Enter 换行。
+    if (composing.current || e.nativeEvent.isComposing || e.keyCode === 229) return;
+    if (performance.now() - lastCompositionEnd.current < 200) return;
+    e.preventDefault();
+    submit();
   };
 
   const autoGrow = (el: HTMLTextAreaElement): void => {
@@ -118,6 +125,27 @@ export default function ChatPage() {
       </div>
 
       <div className="shrink-0 border-t-2 border-titlebar px-[28px] py-[16px]">
+        {queued.length > 0 && (
+          <div className="flex flex-col items-end gap-[6px] mb-[10px]">
+            {queued.map((text, i) => (
+              <div
+                key={i}
+                className="flex items-center gap-[8px] max-w-[min(80%,600px)] px-[10px] py-[5px] border border-dashed border-titlebar text-muted text-[12.5px] leading-[1.5]"
+              >
+                <span className="shrink-0 text-[11px] text-faint">{t("agent.queued")}</span>
+                <span className="truncate min-w-0">{text}</span>
+                <button
+                  type="button"
+                  onClick={() => dequeueQueued(i)}
+                  aria-label={t("agent.cancelQueued")}
+                  className="shrink-0 text-faint hover:text-fg leading-none text-[15px]"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="flex items-end gap-[10px]">
           <Panel variant="input" className="flex-1 min-w-0 px-[12px] py-[9px]">
             <textarea
@@ -125,18 +153,22 @@ export default function ChatPage() {
               value={draft}
               rows={1}
               placeholder={t("agent.placeholder")}
-              disabled={streaming}
               onChange={(e) => {
                 setDraft(e.currentTarget.value);
                 autoGrow(e.currentTarget);
               }}
               onKeyDown={onKeyDown}
-              className="block w-full resize-none bg-transparent border-none outline-none text-fg text-[14px] leading-[1.6] placeholder:text-faint disabled:opacity-60"
+              onCompositionStart={() => (composing.current = true)}
+              onCompositionEnd={() => {
+                composing.current = false;
+                lastCompositionEnd.current = performance.now();
+              }}
+              className="block w-full resize-none bg-transparent border-none outline-none text-fg text-[14px] leading-[1.6] placeholder:text-faint"
               style={{ maxHeight: "168px" }}
             />
           </Panel>
-          <Button onClick={submit} disabled={streaming || !draft.trim()}>
-            {streaming ? <Spinner size={16} /> : t("agent.send")}
+          <Button onClick={submit} disabled={!draft.trim()}>
+            {t("agent.send")}
           </Button>
         </div>
       </div>

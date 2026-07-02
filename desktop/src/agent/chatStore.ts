@@ -21,8 +21,12 @@ import { t } from "../i18n";
 interface ChatState {
   /** 会话消息(AI SDK 原生 UIMessage:含 text / reasoning / tool parts)。 */
   messages: UIMessage[];
-  /** 是否正在流式(禁用输入 / 显示指示器)。同一会话同一时刻只允许一轮。 */
+  /** 是否正在流式(显示指示器)。同一会话同一时刻只允许一轮。 */
   streaming: boolean;
+  /**
+   * 排队待发的用户消息(Claude Code 式):流式期间发送即入队,本轮结束后按 FIFO 依次各自成一轮。
+   */
+  queued: string[];
   /** 本轮失败原因(流式外呈现;UIMessage 本身无 error part)。 */
   error: string | null;
   /**
@@ -37,6 +41,7 @@ interface ChatState {
 export const useChatStore = create<ChatState>(() => ({
   messages: [],
   streaming: false,
+  queued: [],
   error: null,
   draft: null,
   conversations: loadConversations(),
@@ -159,16 +164,47 @@ async function drive(history: UIMessage[]): Promise<void> {
     useChatStore.setState({ streaming: false, error: String(e) });
   }
   saveCurrentConversation(); // 每轮结束存档,供 dev 会话选择器按时间列出
+  // 本轮结束,若有排队消息则取队首各自成一轮(递归排空,FIFO)。drive 均串行 await,
+  // 且入口 setState streaming:true 同步先行,故无重入。
+  const queued = useChatStore.getState().queued;
+  if (queued.length > 0) {
+    const [next, ...rest] = queued;
+    useChatStore.setState({ queued: rest });
+    await sendOne(next);
+  }
 }
 
-/** 发送一条用户消息并跑一轮流式。空文本 / 正在流式时忽略(一轮一次)。 */
-export async function sendMessage(raw: string): Promise<void> {
-  const text = raw.trim();
-  if (!text || useChatStore.getState().streaming) return;
+/** 追加一条用户消息到会话尾并跑一轮。 */
+async function sendOne(text: string): Promise<void> {
   const userMsg: UIMessage = { id: nextId(), role: "user", parts: [{ type: "text", text }] };
   const history = [...useChatStore.getState().messages, userMsg];
   useChatStore.setState({ messages: history });
   await drive(history);
+}
+
+/**
+ * 发送一条用户消息。空文本忽略;正在流式则入队(本轮结束后按序自动发出),否则立即跑一轮。
+ */
+export async function sendMessage(raw: string): Promise<void> {
+  const text = raw.trim();
+  if (!text) return;
+  if (useChatStore.getState().streaming) {
+    enqueueMessage(text);
+    return;
+  }
+  await sendOne(text);
+}
+
+/** 把一条消息压入待发队列(流式期间的发送落点)。空白忽略。 */
+export function enqueueMessage(raw: string): void {
+  const text = raw.trim();
+  if (!text) return;
+  useChatStore.setState((s) => ({ queued: [...s.queued, text] }));
+}
+
+/** 取消一条排队中的消息(用户点 × 撤回)。 */
+export function dequeueQueued(index: number): void {
+  useChatStore.setState((s) => ({ queued: s.queued.filter((_, i) => i !== index) }));
 }
 
 /**
@@ -214,7 +250,7 @@ export function newChat(): void {
   if (useChatStore.getState().streaming) return;
   saveCurrentConversation(); // 开新对话前把当前的存档,别丢
   currentConvId = mintConvId();
-  useChatStore.setState({ messages: [], error: null });
+  useChatStore.setState({ messages: [], error: null, queued: [] });
 }
 
 /**
