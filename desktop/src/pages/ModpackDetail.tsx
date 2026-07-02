@@ -83,7 +83,7 @@ export default function ModpackDetail(props: ModpackDetailProps) {
 
   const { data: projectData, loading: projectLoading } = useAsync(
     () =>
-      cached(`project|${provider()}|${props.hit.id}`, () => api.modrinthProject(props.hit.id)).catch((e) => {
+      cached(`project|${provider()}|${props.hit.id}`, () => api.modrinthProject(props.hit.id, provider())).catch((e) => {
         toast({ type: "error", message: t("discover.aboutLoadFailed", { error: String(e) }) });
         return null as ModrinthProject | null;
       }),

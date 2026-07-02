@@ -257,10 +257,11 @@ export const commands = {
 	 */
 	modrinthVersions: (projectId: string, provider: string | null) => typedError<VersionDetail[], string>(__TAURI_INVOKE("modrinth_versions", { projectId, provider })),
 	/**
-	 *  取一个 Modrinth 项目的完整详情(简介标签页用:长描述正文 markdown + 画廊 +
-	 *  关注数 + 源码/issue/wiki/discord 等外部链接)。
+	 *  取一个项目的完整详情(简介标签页用:长描述正文 + 画廊 + 关注数 + 源码/issue/wiki 等
+	 *  外部链接)。provider 感知(缺省 `modrinth`):CurseForge 走 Flame 元信息 + description
+	 *  端点,映射成同一份 `ProjectDetail`,前端渲染不感知平台。
 	 */
-	modrinthProject: (projectId: string) => typedError<ProjectDetail, string>(__TAURI_INVOKE("modrinth_project", { projectId })),
+	modrinthProject: (projectId: string, provider: string | null) => typedError<ProjectDetail, string>(__TAURI_INVOKE("modrinth_project", { projectId, provider })),
 	/**  读取全局设置(下载源/并发/默认内存/Java 路径/语言…)。缺失/损坏回退默认。 */
 	getSettings: () => typedError<GlobalSettings, string>(__TAURI_INVOKE("get_settings")),
 	/**  持久化全局设置(原子写 settings.json)。下载相关项下次构造下载器即生效。 */
@@ -289,10 +290,10 @@ export const commands = {
 	fetchNews: () => typedError<NewsItem[], string>(__TAURI_INVOKE("fetch_news")),
 	/**
 	 *  Publish the current agent chat transcript to the deployed mc-server for public
-	 *  sharing (always cloud — no local fallback). Anyone can share for now; a future
-	 *  change will gate this behind a signed-in account. `payload_json` is the
-	 *  JSON.stringify'd transcript (String, to avoid exporting a recursive
-	 *  `serde_json::Value` through specta).
+	 *  sharing (always cloud — no local fallback). Requires a signed-in kobeMC
+	 *  account: uses the shared managed client so the better-auth session cookie is
+	 *  sent. `payload_json` is the JSON.stringify'd transcript (String, to avoid
+	 *  exporting a recursive `serde_json::Value` through specta).
 	 */
 	agentShareConversation: (payloadJson: string) => typedError<SharedConversation, string>(__TAURI_INVOKE("agent_share_conversation", { payloadJson })),
 	/**  Register a kobeMC account (email/password); establishes the session. */

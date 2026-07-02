@@ -43,7 +43,7 @@ export function ProjectDetailPanel(props: {
   useLang();
   const provider = props.provider ?? "modrinth";
   const { data: project, loading: projectLoading } = useAsync(
-    () => cached(`project|${provider}|${props.projectId}`, () => api.modrinthProject(props.projectId)),
+    () => cached(`project|${provider}|${props.projectId}`, () => api.modrinthProject(props.projectId, provider)),
     [props.projectId, provider],
   );
   const { data: versions, loading: versionsLoading } = useAsync(

@@ -108,7 +108,7 @@ export default function ProjectInstallDetail(props: ProjectInstallDetailProps) {
   // 实例列表来自全局 store(单一真相);锁定模式直接用 props.lockedInstance,不读它。
   const { data: projectData, loading: projectLoading } = useAsync(
     () =>
-      cached(`project|${provider()}|${props.hit.id}`, () => api.modrinthProject(props.hit.id)).catch((e) => {
+      cached(`project|${provider()}|${props.hit.id}`, () => api.modrinthProject(props.hit.id, provider())).catch((e) => {
         toast({ type: "error", message: t("discover.aboutLoadFailed", { error: String(e) }) });
         return null as ModrinthProject | null;
       }),

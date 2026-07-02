@@ -897,10 +897,10 @@ export function InstanceManageDialog(props: {
     setInternalTab(next);
     props.onTabChange?.(next);
   };
-  // 整合包来源(modrinth)→ 多一个「概览」标签并置于首位。
+  // 整合包来源(modrinth / curseforge)→ 多一个「概览」标签并置于首位。
   const modpackSource = (() => {
     const s = cfg?.source;
-    return s && s.provider === "modrinth" ? s : null;
+    return s && (s.provider === "modrinth" || s.provider === "curseforge") ? s : null;
   })();
   // 领域实例:多一个「领域」标签置于首位。仅在「社交开启 + 已登录 kobeMC」时把领域当作领域。
   const isRealm = !!props.instance?.realm && socialOn && kobeSignedIn;
@@ -972,7 +972,11 @@ export function InstanceManageDialog(props: {
           setCfg(c);
           // 默认标签(仅非受控时):领域实例落「领域」,整合包来源落「概览」,其余落「设置」。
           if (props.tab === undefined)
-            setInternalTab(isRealm ? "realm" : c.source?.provider === "modrinth" ? "overview" : "settings");
+            setInternalTab(
+              isRealm ? "realm"
+              : c.source?.provider === "modrinth" || c.source?.provider === "curseforge" ? "overview"
+              : "settings",
+            );
         })
         .catch((e) => toast({ type: "error", message: t("instance.readConfigFailed", { err: String(e) }) }));
       if (sysTotalRef.current === null)
@@ -1304,7 +1308,7 @@ export function InstanceManageDialog(props: {
         {/* ---- 概览(整合包来源)---- */}
         {visited.has("overview") && modpackSource && (
           <div className={clsx({ hidden: tab !== "overview" })}>
-            <ModpackOverview projectId={modpackSource.project_id} />
+            <ModpackOverview projectId={modpackSource.project_id} provider={modpackSource.provider} />
           </div>
         )}
 

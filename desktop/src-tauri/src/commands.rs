@@ -2645,20 +2645,38 @@ pub async fn apply_modpack_update(
     })
 }
 
-/// 取一个 Modrinth 项目的完整详情(简介标签页用:长描述正文 markdown + 画廊 +
-/// 关注数 + 源码/issue/wiki/discord 等外部链接)。
+/// 取一个项目的完整详情(简介标签页用:长描述正文 + 画廊 + 关注数 + 源码/issue/wiki 等
+/// 外部链接)。provider 感知(缺省 `modrinth`):CurseForge 走 Flame 元信息 + description
+/// 端点,映射成同一份 `ProjectDetail`,前端渲染不感知平台。
 #[tauri::command]
 #[specta::specta]
 pub async fn modrinth_project(
     project_id: String,
+    provider: Option<String>,
 ) -> CmdResult<mc_core::modplatform::modrinth::ProjectDetail> {
-    // 走本地持久缓存:实例详情头部 + 概览每次打开都要这份数据,缓存 24h 避免每次都打 Modrinth
+    use mc_core::modplatform::ProviderId;
+    // 走本地持久缓存:实例详情头部 + 概览每次打开都要这份数据,缓存 24h 避免每次都打平台
     // (抓取失败时回退旧缓存,离线也能显示)。
     let cache = data_dir().join("cache");
-    ModrinthApi::new()
-        .project_details_cached(&project_id, &cache, std::time::Duration::from_secs(24 * 3600))
-        .await
-        .map_err(err)
+    let ttl = std::time::Duration::from_secs(24 * 3600);
+    match parse_provider(provider.as_deref())? {
+        ProviderId::Modrinth => ModrinthApi::new()
+            .project_details_cached(&project_id, &cache, ttl)
+            .await
+            .map_err(err),
+        ProviderId::CurseForge => {
+            let key = settings_global()
+                .resolved_cf_api_key()
+                .ok_or_else(|| "CurseForge 未配置 API Key".to_string())?;
+            let id: i64 = project_id
+                .parse()
+                .map_err(|_| format!("非法的 CurseForge 项目 id: {project_id}"))?;
+            mc_core::modplatform::curseforge::FlameApi::new(key)
+                .project_details_cached(id, &cache, ttl)
+                .await
+                .map_err(err)
+        }
+    }
 }
 
 /// 从一个 `.mrpack` 直链安装整合包(详情页「安装此版本」用)。

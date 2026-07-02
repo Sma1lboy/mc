@@ -43,13 +43,20 @@ export default function InstanceDetail() {
     [currentId],
   );
   const cfg = () => cfgData;
-  // 整合包来源(Modrinth)→ 拉项目详情,用真实 logo + 下载量/收藏数 + 分类点亮实例头部
-  // (避免和「概览」标签重复展示同一套品牌信息)。
+  // 整合包来源(Modrinth / CurseForge)→ 拉项目详情,用真实 logo + 下载量/收藏数 + 分类
+  // 点亮实例头部(避免和「概览」标签重复展示同一套品牌信息)。
   const cfgSource = cfgData?.source;
-  const projectId = cfgSource && cfgSource.provider === "modrinth" ? cfgSource.project_id : null;
+  const srcProvider =
+    cfgSource && (cfgSource.provider === "modrinth" || cfgSource.provider === "curseforge")
+      ? cfgSource.provider
+      : null;
+  const projectId = srcProvider ? cfgSource!.project_id : null;
   const { data: projectData } = useAsync(
-    () => (projectId ? cached(`project|modrinth|${projectId}`, () => api.modrinthProject(projectId)).catch(() => null) : Promise.resolve(null)),
-    [projectId],
+    () =>
+      projectId && srcProvider
+        ? cached(`project|${srcProvider}|${projectId}`, () => api.modrinthProject(projectId, srcProvider)).catch(() => null)
+        : Promise.resolve(null),
+    [projectId, srcProvider],
   );
   const project = () => projectData;
   // 早于「安装即存图标」的整合包实例本地没 icon.png:发现缺失且项目有 logo 时补齐一次,

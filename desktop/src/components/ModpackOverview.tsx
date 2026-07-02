@@ -13,18 +13,20 @@ import type { LightboxImage } from "./Lightbox";
 import "../pages/ModpackDetail.css"; // .md markdown 标记样式
 
 /**
- * ModpackOverview —— 整合包来源实例「概览」标签:只读展示该整合包的 Modrinth 详情
- * (图标/简介/分类/链接/画廊/正文)。不含安装流程(实例已装),区别于 ModpackDetail。
+ * ModpackOverview —— 整合包来源实例「概览」标签:只读展示该整合包的平台详情
+ * (图标/简介/分类/链接/画廊/正文;Modrinth / CurseForge 同一份渲染模型)。
+ * 不含安装流程(实例已装),区别于 ModpackDetail。
  */
-export function ModpackOverview(props: { projectId: string }): React.ReactElement {
+export function ModpackOverview(props: { projectId: string; provider?: string }): React.ReactElement {
   useLang();
+  const provider = props.provider ?? "modrinth";
   const { data: project, loading, refetch } = useAsync(
     () =>
-      cached(`project|modrinth|${props.projectId}`, () => api.modrinthProject(props.projectId)).catch((e) => {
+      cached(`project|${provider}|${props.projectId}`, () => api.modrinthProject(props.projectId, provider)).catch((e) => {
         toast({ type: "error", message: t("discover.modpackDetailLoadFailed", { error: String(e) }) });
         return null;
       }),
-    [props.projectId],
+    [props.projectId, provider],
   );
   const [lb, setLb] = useState<number | null>(null);
   const gallery: LightboxImage[] = project?.gallery ?? [];
