@@ -8,6 +8,9 @@ node_modules
 desktop/dist
 desktop/node_modules
 
+# Ladle (component story explorer) production build output
+desktop/build
+
 # Tauri build artifacts
 desktop/src-tauri/target
 desktop/src-tauri/gen
