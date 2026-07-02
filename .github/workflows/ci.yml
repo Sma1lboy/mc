@@ -70,28 +70,33 @@ jobs:
   desktop:
     name: Desktop Frontend
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: desktop
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # npm workspaces: install once at the repo root (single root lockfile), then
+      # run each gate in its own package. Job name kept identical for branch protection.
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: desktop/package-lock.json
+          cache-dependency-path: package-lock.json
 
-      - name: Install dependencies
+      - name: Install dependencies (workspaces)
         run: npm ci
 
+      - name: Test agent-core
+        run: npm test -w @kobemc/agent-core
+
       - name: Type-check (vite build does NOT type-check)
+        working-directory: desktop
         run: npx tsc --noEmit
 
       - name: i18n key coverage
+        working-directory: desktop
         run: node scripts/check-i18n.mjs
 
       - name: Build frontend
+        working-directory: desktop
         run: npm run build
