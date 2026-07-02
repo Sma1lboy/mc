@@ -53,8 +53,27 @@ export interface ErrorPart {
   kind: "error";
   message: string;
 }
+/** 提问 part:模型让用户在若干选项里点选(单/多选);答完置 answered 变为只读回显。 */
+export interface AskUserPart {
+  kind: "ask_user";
+  /** 该 client-side tool 调用的 id;提交时按它把结果喂回、续跑同一 turn。 */
+  toolCallId: string;
+  question: string;
+  options: { label: string; id?: string; description?: string }[];
+  multiSelect: boolean;
+  /** 已提交:UI 据此禁用交互并高亮已选。 */
+  answered?: boolean;
+  /** 用户选中的选项 label(答完回显用)。 */
+  answer?: string[];
+}
 
-export type ChatPart = TextPart | ReasoningPart | ToolCallPart | ToolResultPart | ErrorPart;
+export type ChatPart =
+  | TextPart
+  | ReasoningPart
+  | ToolCallPart
+  | ToolResultPart
+  | ErrorPart
+  | AskUserPart;
 
 /** 一条消息:角色 + 有序 parts。 */
 export interface ChatMessage {
@@ -192,12 +211,28 @@ export function loadConversation(id: string): void {
 export async function sendMessage(raw: string): Promise<void> {
   const text = raw.trim();
   if (!text || useChatStore.getState().streaming) return;
-
   const user: ChatMessage = { id: nextId(), role: "user", parts: [{ kind: "text", text }] };
+  useChatStore.setState((s) => ({ messages: [...s.messages, user] }));
+  await streamAssistant(async (reduce) => {
+    const agent = await getAgent();
+    // core 事件与 bindings 线格式一致(仅 tool_call.args 由 unknown 收窄为 JsonValue,同一份字节)。
+    return agent.runTurn(tsHistory, text, (e) => reduce(e as AgentStreamEvent));
+  });
+}
+
+/**
+ * Append an empty assistant message and stream one brain pass into it, reducing
+ * every event into its ordered parts. `pass` runs the brain (runTurn / resumeTurn)
+ * with the reducer and returns the updated model history to keep. One-at-a-time is
+ * guarded by the callers (they check `streaming` before appending).
+ */
+async function streamAssistant(
+  pass: (reduce: (ev: AgentStreamEvent) => void) => Promise<{ history: BrainMessage[] }>,
+): Promise<void> {
   const asst: ChatMessage = { id: nextId(), role: "assistant", parts: [] };
+  useChatStore.setState((s) => ({ messages: [...s.messages, asst], streaming: true }));
   // 助手消息永远是数组末尾(一次只有一轮),归约器据此定位。
-  const asstIdx = useChatStore.getState().messages.length + 1;
-  useChatStore.setState((s) => ({ messages: [...s.messages, user, asst], streaming: true }));
+  const asstIdx = useChatStore.getState().messages.length - 1;
 
   // 归约器的可变游标(仅本轮闭包内):当前打开的文本 / 思考 part 在 asst.parts 里的下标。
   let openTextIdx: number | null = null;
@@ -260,6 +295,24 @@ export async function sendMessage(raw: string): Promise<void> {
         closeStreams();
         patchParts((parts) => [...parts, { kind: "tool_result", name: ev.name, summary: ev.summary }]);
         break;
+      case "ask_user":
+        closeStreams();
+        patchParts((parts) => [
+          ...parts,
+          {
+            kind: "ask_user",
+            toolCallId: ev.tool_call_id,
+            question: ev.question,
+            // 归一化 null→undefined(bindings 的 Option 字段带 null)。
+            options: ev.options.map((o) => ({
+              label: o.label,
+              id: o.id ?? undefined,
+              description: o.description ?? undefined,
+            })),
+            multiSelect: ev.multi_select,
+          },
+        ]);
+        break;
       case "done":
         finalize();
         break;
@@ -269,33 +322,63 @@ export async function sendMessage(raw: string): Promise<void> {
     }
   };
 
-  // 唯一大脑:TS(webview 内 AI SDK loop)。事件由前端 loop 直接回调进同一个 reduce 归约器。
-  await runTsTurn(text, reduce, finalize);
-}
-
-/**
- * 跑一轮 TS 大脑。惰性拉起 desktopAdapter(动态 import → 独立 chunk),把每个
- * AgentStreamEvent 直接喂给 reduce;core 的事件与 bindings 线格式一致,仅 args 由
- * `unknown` 转 `JsonValue`(同一份字节),故此处按需断言。runTurn 自身不 reject
- * 模型/工具错误(以 error 事件呈现);外层 catch 只兜住拉起阶段(config / import)的失败。
- */
-async function runTsTurn(
-  text: string,
-  reduce: (ev: AgentStreamEvent) => void,
-  finalize: (errMessage?: string) => void,
-): Promise<void> {
   try {
-    if (!tsAgent) {
-      tsAgent = import("./desktopAdapter").then((m) => m.createDesktopAgent());
-    }
-    const agent = await tsAgent;
-    const { history } = await agent.runTurn(tsHistory, text, (e) => reduce(e as AgentStreamEvent));
+    const { history } = await pass(reduce);
     tsHistory = history;
     finalize();
   } catch (e) {
-    tsAgent = null; // 拉起失败(如缺 key)→ 下次重试重新初始化
+    // 拉起阶段(缺 key / import)失败 → 记一条错误并终止(brain 自身的错误走 error 事件)。
     finalize(String(e));
   }
+}
+
+/**
+ * 惰性拉起 TS 大脑(动态 import desktopAdapter → 独立 chunk,`ai` 及 provider 不进主包)。
+ * 拉起失败(缺 key / import)会抛,由 streamAssistant 兜成一条 error;并清缓存以便重试。
+ */
+async function getAgent(): Promise<ModpackAgent> {
+  if (!tsAgent) tsAgent = import("./desktopAdapter").then((m) => m.createDesktopAgent());
+  try {
+    return await tsAgent;
+  } catch (e) {
+    tsAgent = null;
+    throw e;
+  }
+}
+
+/**
+ * 提交一次 ask_user 选择(client-side tool 的原生做法):把选中项按 toolCallId 作为该工具
+ * 调用的「结果」喂回,续跑同一个 turn。同时标记该 part 已答 + 回显选中项,并把回答作为
+ * 一条用户消息插入(用户视角:我的回答出现在对话流里)。流式中忽略。
+ */
+export function submitAskUserAnswer(
+  msgId: string,
+  partIdx: number,
+  toolCallId: string,
+  selected: string[],
+): void {
+  if (selected.length === 0 || useChatStore.getState().streaming) return;
+  const echo: ChatMessage = {
+    id: nextId(),
+    role: "user",
+    parts: [{ kind: "text", text: selected.join(", ") }],
+  };
+  useChatStore.setState((s) => ({
+    messages: [
+      ...s.messages.map((m) => {
+        if (m.id !== msgId) return m;
+        const parts = m.parts.slice();
+        const p = parts[partIdx];
+        if (p && p.kind === "ask_user") parts[partIdx] = { ...p, answered: true, answer: selected };
+        return { ...m, parts };
+      }),
+      echo,
+    ],
+  }));
+  void streamAssistant(async (reduce) => {
+    const agent = await getAgent();
+    return agent.resumeTurn(tsHistory, toolCallId, { selected }, (e) => reduce(e as AgentStreamEvent));
+  });
 }
 
 /** 新对话:归档当前对话,轮换到新会话 id,清空前端消息与后端 transcript(流式中忽略)。 */
