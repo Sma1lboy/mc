@@ -1598,9 +1598,11 @@ pub struct SharedConversation {
     pub url: String,
 }
 
-/// Publish the current agent chat transcript to mc-server for public sharing.
-/// `payload_json` is the JSON.stringify'd transcript (opaque; taken as a String
-/// to avoid exporting a recursive `serde_json::Value` through specta).
+/// Publish the current agent chat transcript to the deployed mc-server for public
+/// sharing (always cloud — no local fallback). Anyone can share for now; a future
+/// change will gate this behind a signed-in account. `payload_json` is the
+/// JSON.stringify'd transcript (String, to avoid exporting a recursive
+/// `serde_json::Value` through specta).
 #[tauri::command]
 #[specta::specta]
 pub async fn agent_share_conversation(payload_json: String) -> CmdResult<SharedConversation> {
