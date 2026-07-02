@@ -71,6 +71,15 @@ mirror to stderr.
   tool wrapper, a fake client-tool ack, and a whole streaming-event union + reducer —
   all of which the AI SDK already ships (`tool()`, client-side tools, `UIMessageChunk` /
   `readUIMessageStream` with `ToolUIPart.state`). Look it up, then reuse.
+- **Dev loop: Ladle for UI, CLI for the core — one dataflow.** Iterate on UI in **Ladle**
+  (`npm run ladle -w desktop` → :61000): render/tweak components as `*.stories.tsx`, don't
+  launch the whole Tauri app to eyeball a component (see the `ladle-ui` skill; edit → HMR →
+  screenshot loop). Debug the backend/agent **headless via the CLIs**: `mc-agent`
+  (`packages/agent-core/bin` — runs the TS brain + tools/executors against mock/modrinth,
+  `--json`) and `mc` (`crates/mc-cli` — launcher core). Both ends drive the **same dataflow**:
+  agent-core (brain + tools) ↔ the AI SDK `UIMessage` contract ↔ the UI. Ladle renders that
+  contract with mock messages; the CLI drives the logic behind it — so a shared-core change is
+  verifiable from either side without the full app.
 - **Tauri commands are thin.** No launcher logic in `desktop/src-tauri/src/commands.rs` —
   it maps a UI call to an `mc-core` call and serialises the result. Logic lives in `mc-core`.
 - **UI state** is module-level SolidJS signals in `desktop/src/store.ts` (no Context/Router).
@@ -112,6 +121,27 @@ mirror to stderr.
 - **Releases default to a PATCH bump** (`scripts/release.sh`): next version = `patch+1` of the
   latest `v*` tag (e.g. `0.1.0` → `0.1.1`), regardless of how many features landed. Only do a
   minor/major bump when the user **explicitly** says so. State the version before tagging.
+
+## Working style (for AI agents in this repo)
+
+Distilled from Anthropic's Claude Fable 5 prompting guide — the through-line is a goal
+plus boundaries, not step lists:
+
+- **Act when you have enough information.** Don't re-derive established facts or survey
+  options you won't pursue; when weighing a choice, give one recommendation.
+- **No unrequested scope.** A bug fix doesn't need surrounding cleanup. No abstractions,
+  error handling, or flags beyond what the task requires; validate at system boundaries
+  (user input, external APIs) only — trust internal code.
+- **Ground progress claims in tool results from this session.** If tests fail, say so with
+  the output; if a step was skipped, say that. Never report unverified work as done.
+- **A problem description is not a change request.** When the user describes a problem or
+  asks a question, the deliverable is your assessment — don't apply a fix until asked.
+- **Lead with the outcome.** The first sentence of a summary says what happened or what you
+  found; detail after, in complete sentences (no arrow-chain shorthand or invented labels).
+- **Delegate independent subtasks to subagents** and keep working while they run; for long
+  work, prefer fresh-context verifier subagents over self-review.
+- **Pause only where genuinely needed:** a destructive or irreversible action, a real scope
+  change, or input only the user can provide. Otherwise finish the work, then offer follow-ups.
 
 ## Secrets / env (never commit real values)
 
