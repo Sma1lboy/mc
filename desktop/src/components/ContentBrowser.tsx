@@ -110,6 +110,12 @@ export interface ContentBrowserProps {
   onProviderChange?: (provider: ContentProvider) => void;
   /** 首屏搜索 loading 变化回调(Discover 据此判断「整体就绪」,统一渲染。 */
   onLoadingChange?: (loading: boolean) => void;
+  /**
+   * 提供时在工具条与空结果态渲染「让 AI 组整合包」入口,点击回传当前搜索词
+   * (调用方据此 + 自己的版本 / 加载器 facet 拼提示词并打开助手)。缺省则不渲染入口
+   * (实例弹窗等复用本组件的场景不需要)。
+   */
+  onAskAgent?: (query: string) => void;
 }
 
 const ADD_BTN = ACCENT_BTN_COMPACT;
@@ -249,6 +255,9 @@ export function ContentBrowser(props: ContentBrowserProps): React.ReactElement {
     setLoadingMore(false);
   }
 
+  // 本地捕获,便于在闭包里窄化(可选 prop 直接在 JSX 里读不会窄化)。
+  const onAskAgent = props.onAskAgent;
+
   // 取值时求值 t(),避免 module-const 冻结语言。
   const SORTS: { key: SortKey; label: string }[] = [
     { key: "relevance", label: t("discover.sortRelevance") },
@@ -301,6 +310,11 @@ export function ContentBrowser(props: ContentBrowserProps): React.ReactElement {
             options={SORTS.map((o) => ({ value: o.key, label: o.label }))}
           />
         </div>
+        {onAskAgent && (
+          <Button variant="ghost" onClick={() => onAskAgent(query)}>
+            {t("agent.discoverCta")}
+          </Button>
+        )}
       </div>
 
       {cfUnavailable && (
@@ -367,12 +381,19 @@ export function ContentBrowser(props: ContentBrowserProps): React.ReactElement {
           )}
         </>
       ) : !searchError ? (
-        <div className="p-[24px] text-muted text-center text-[13px]">
-          {backendUnavailable
-            ? t("discover.backendUnavailable")
-            : debounced.trim()
-              ? t("discover.noResults")
-              : t("discover.enterKeyword")}
+        <div className="flex flex-col items-center gap-[12px] p-[24px] text-center text-[13px]">
+          <div className="text-muted">
+            {backendUnavailable
+              ? t("discover.backendUnavailable")
+              : debounced.trim()
+                ? t("discover.noResults")
+                : t("discover.enterKeyword")}
+          </div>
+          {onAskAgent && !backendUnavailable && (
+            <Button variant="ghost" onClick={() => onAskAgent(query)}>
+              {t("agent.discoverEmptyCta")}
+            </Button>
+          )}
         </div>
       ) : (
         <div className="flex flex-col items-center justify-center gap-[12px] py-[36px] text-center">

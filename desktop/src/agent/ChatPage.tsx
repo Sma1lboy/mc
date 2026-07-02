@@ -7,6 +7,7 @@ import {
   newChat,
   setBrain,
   type Brain,
+  clearDraft,
   type ChatMessage,
   type ToolCallPart,
 } from "./chatStore";
@@ -193,6 +194,7 @@ export default function ChatPage() {
   useLang();
   const messages = useChatStore((s) => s.messages);
   const streaming = useChatStore((s) => s.streaming);
+  const pendingDraft = useChatStore((s) => s.draft);
   const [draft, setDraft] = useState("");
   const listEl = useRef<HTMLDivElement>(null);
   const inputEl = useRef<HTMLTextAreaElement>(null);
@@ -211,6 +213,21 @@ export default function ChatPage() {
   }, [messages, streaming]);
 
   useEffect(() => inputEl.current?.focus(), []);
+
+  // 外部入口(发现 / 新建实例)经 openAgentChat 预填的一次性草稿:填进输入框、聚焦(撑开高度),
+  // 不自动发送——用户可再编辑;消费后立即清 store 草稿,避免重渲染 / 重挂载再次注入。
+  useEffect(() => {
+    if (pendingDraft == null) return;
+    setDraft(pendingDraft);
+    clearDraft();
+    requestAnimationFrame(() => {
+      const el = inputEl.current;
+      if (!el) return;
+      el.focus();
+      el.style.height = "auto";
+      el.style.height = `${Math.min(el.scrollHeight, 168)}px`;
+    });
+  }, [pendingDraft]);
 
   const submit = (): void => {
     const text = draft.trim();

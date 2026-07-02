@@ -18,6 +18,19 @@ const dict = {
     brainLabel: "大脑",
     brainRust: "Rust",
     brainTs: "TS",
+
+    // —— 上下文入口(发现页 / 新建实例)——
+    discoverCta: "AI 帮我组整合包",
+    discoverEmptyCta: "找不到?让 AI 帮你组一个",
+    newInstanceCta: "或者:让 AI 生成整合包",
+    // 提示词片段(拼成一句自然语言诉求,空字段优雅省略)。
+    promptVersion: "Minecraft {{ version }}",
+    promptLoader: "{{ loader }} 加载器",
+    promptJoin: "、",
+    promptConstraints: "(目标:{{ specs }})",
+    discoverPrompt: "帮我做一个整合包:{{ query }}{{ constraints }}",
+    discoverPromptOpen: "帮我推荐一个耐玩的整合包{{ constraints }}",
+    instancePrompt: "帮我为新建的实例生成一个整合包{{ constraints }}",
   } as Record<string, string>,
   en: {
     title: "Modpack Assistant",
@@ -37,6 +50,19 @@ const dict = {
     brainLabel: "Brain",
     brainRust: "Rust",
     brainTs: "TS",
+
+    // —— Contextual entry points (Discover / New instance) ——
+    discoverCta: "Ask AI to build a pack",
+    discoverEmptyCta: "Can't find it? Let AI build one",
+    newInstanceCta: "Or: let AI build a modpack",
+    // Prompt fragments (assembled into one natural-language ask; empty fields drop out).
+    promptVersion: "Minecraft {{ version }}",
+    promptLoader: "{{ loader }} loader",
+    promptJoin: ", ",
+    promptConstraints: " (target: {{ specs }})",
+    discoverPrompt: "Help me build a modpack: {{ query }}{{ constraints }}",
+    discoverPromptOpen: "Recommend and build a modpack worth playing{{ constraints }}",
+    instancePrompt: "Build a modpack for my new instance{{ constraints }}",
   } as Record<string, string>,
 };
 

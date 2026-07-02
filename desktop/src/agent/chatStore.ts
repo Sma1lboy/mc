@@ -25,6 +25,8 @@ import { commands, type AgentStreamEvent, type JsonValue } from "../ipc/bindings
 // Type-only imports: erased at build, so the host-agnostic brain (and its `ai`
 // dependency) stays out of the main bundle — the TS path is dynamic-imported below.
 import type { ChatMessage as BrainMessage, ModpackAgent } from "@kobemc/agent-core";
+import { setCurrentPage } from "../store";
+import { t } from "../i18n";
 
 export type ChatRole = "user" | "assistant";
 
@@ -74,6 +76,11 @@ interface ChatState {
   streaming: boolean;
   /** 当前大脑(dev 开关);持久化到 localStorage。 */
   brain: Brain;
+  /**
+   * 一次性输入草稿:外部入口(发现页 / 新建实例)经 openAgentChat 预填一句上下文提示,
+   * ChatPage 变为活动页后取用一次(填进输入框、聚焦,不自动发送),随即清回 null。
+   */
+  draft: string | null;
 }
 
 const BRAIN_KEY = "mc-launcher.agentBrain";
@@ -92,6 +99,7 @@ export const useChatStore = create<ChatState>(() => ({
   messages: [],
   streaming: false,
   brain: readInitialBrain(),
+  draft: null,
 }));
 
 /** 切换大脑(流式中忽略,避免半途换实现);持久化。 */
@@ -259,4 +267,46 @@ export async function newChat(): Promise<void> {
   } catch {
     /* best-effort */
   }
+}
+
+/**
+ * 从其它页面(发现 / 新建实例)带一句上下文提示打开助手:预填输入框草稿并切到助手页。
+ * 不自动发送——ChatPage 取草稿后填进输入框、聚焦,由用户审阅 / 编辑再发。流式中亦照常
+ * 切页 + 填框(输入框在本轮结束前保持禁用,发送键同样,沿用既有行为)。
+ */
+export function openAgentChat(prompt: string): void {
+  useChatStore.setState({ draft: prompt });
+  setCurrentPage("agent");
+}
+
+/** ChatPage 取用一次性草稿后清空(避免重渲染 / 重挂载再次注入)。 */
+export function clearDraft(): void {
+  useChatStore.setState({ draft: null });
+}
+
+// ——— 上下文提示词 ———
+// 由页面上下文(搜索词 + 选中的 MC 版本 / 加载器)拼一句自然语言诉求。走 t() 故跟随界面语言;
+// 版本 / 加载器 / 搜索词任一为空都优雅省略,读起来仍通顺。
+
+/** 版本 / 加载器约束子句(都为空 → 空串)。 */
+function constraintClause(version: string | null, loader: string | null): string {
+  const specs = [
+    version ? t("agent.promptVersion", { version }) : "",
+    loader ? t("agent.promptLoader", { loader }) : "",
+  ].filter(Boolean);
+  return specs.length ? t("agent.promptConstraints", { specs: specs.join(t("agent.promptJoin")) }) : "";
+}
+
+/** 发现页入口:搜索词(可空)+ 选中的版本 / 加载器 facet(可空)。 */
+export function discoverPrompt(query: string, version: string | null, loader: string | null): string {
+  const constraints = constraintClause(version, loader);
+  const q = query.trim();
+  return q
+    ? t("agent.discoverPrompt", { query: q, constraints })
+    : t("agent.discoverPromptOpen", { constraints });
+}
+
+/** 新建实例入口:当前选中的 MC 版本 / 加载器(未选则省略)。 */
+export function instancePrompt(version: string | null, loader: string | null): string {
+  return t("agent.instancePrompt", { constraints: constraintClause(version, loader) });
 }
