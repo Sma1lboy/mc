@@ -8,7 +8,9 @@ use std::path::{Path, PathBuf};
 use crate::error::{CoreError, Result};
 
 const DEFAULT_OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
-const DEFAULT_OPENROUTER_MODEL: &str = "deepseek/deepseek-v4-flash";
+// pro(非 flash):逐 token 流式下发工具调用参数,ask_user 选项能一行行流式渲染;
+// flash 把工具参数整块下发,选项会一次性蹦出,故默认用 pro。
+const DEFAULT_OPENROUTER_MODEL: &str = "deepseek/deepseek-v4-pro";
 const OPENROUTER_KEY_ENV: &str = "OPENROUTER_API_KEY";
 const OPENROUTER_BASE_URL_ENV: &str = "OPENROUTER_BASE_URL";
 const OPENROUTER_MODEL_ENV: &str = "OPENROUTER_MODEL";

@@ -75,7 +75,7 @@ const settings = {
     flags.model ||
     process.env.OPENROUTER_MODEL ||
     process.env.MC_AGENT_OPENROUTER_MODEL ||
-    "deepseek/deepseek-v4-flash", // align with mc-core's DEFAULT_OPENROUTER_MODEL
+    "deepseek/deepseek-v4-pro", // align with mc-core's DEFAULT_OPENROUTER_MODEL
   baseUrl: process.env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1",
 };
 
