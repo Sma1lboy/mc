@@ -56,6 +56,12 @@ if (!w.__TAURI_INTERNALS__) {
       cbId += 1;
       return cbId; // events never fire in Ladle; a stable id is enough
     },
+    // getCurrentWindow()/getCurrentWebview() read these — needed by window/webview
+    // APIs (e.g. useModpackDrop's drag-drop listener) so they don't crash on mount.
+    metadata: {
+      currentWindow: { label: "main" },
+      currentWebview: { windowLabel: "main", label: "main" },
+    },
   };
 }
 
