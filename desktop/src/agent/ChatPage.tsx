@@ -114,6 +114,11 @@ function MessageRow({ msg, last, streaming }: { msg: ChatMessage; last: boolean;
     );
   }
 
+  // 流式指示器二选一,避免重叠:最后一段是文本时,AssistantText 尾部已有闪烁光标(▍),
+  // 此时不再显示底部「思考中…」;只有当尾段是 reasoning / 工具 / 尚无内容时才用底部 spinner。
+  const lastPart = msg.parts[msg.parts.length - 1];
+  const caretVisible = last && streaming && lastPart?.kind === "text";
+
   return (
     <div className="flex justify-start">
       <Panel variant="sunken" className="max-w-[85%] min-w-0 px-[14px] py-[11px]">
@@ -151,8 +156,8 @@ function MessageRow({ msg, last, streaming }: { msg: ChatMessage; last: boolean;
               );
           }
         })}
-        {/* 流式指示器:仅本轮最后一条助手消息在流式期间显示。 */}
-        {last && streaming && (
+        {/* 流式指示器:仅本轮最后一条助手消息、且尾部没有文本光标时显示(否则与光标重叠)。 */}
+        {last && streaming && !caretVisible && (
           <div className="flex items-center gap-[7px] mt-[6px] text-[12px] text-muted">
             <Spinner size={14} />
             <span>{t("agent.streaming")}</span>
