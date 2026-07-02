@@ -155,4 +155,13 @@ describe("runTurn", () => {
       "wiki_open",
     ]);
   });
+
+  it("(f) keeps provider search English-only but lets wiki search follow corpus language", () => {
+    expect(BUILD_AGENT_SYSTEM_PROMPT).toContain("ALWAYS pass ENGLISH search keywords");
+
+    expect(WIKI_AGENT_SYSTEM_PROMPT).not.toContain("Use concise ENGLISH keywords");
+    expect(WIKI_AGENT_SYSTEM_PROMPT).toContain("Search keywords should follow the corpus language");
+    expect(WIKI_AGENT_SYSTEM_PROMPT).toContain("If one `wiki_search` returns zero hits");
+    expect(WIKI_AGENT_SYSTEM_PROMPT).toContain("retry once with the other language");
+  });
 });

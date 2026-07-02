@@ -11,7 +11,7 @@ use crate::download::Downloader;
 use crate::modplatform::provider::ProviderRegistry;
 
 use super::archive::StagingDir;
-use super::engine::ImportEngine;
+use super::engine::{prebuild_imported_wiki_corpus, ImportEngine};
 use super::modrinth::{plan_from_index, ModrinthImporter, CLIENT_OVERRIDES, OVERRIDES};
 use super::{ArchiveIndex, DetectMatch, ImportPlan, ModpackImporter};
 
@@ -361,6 +361,18 @@ fn with_defaults_registers_modrinth() {
     let archive = FakeArchive::new(&["modrinth.index.json"]);
     let (_idx, m) = engine.dispatch(&archive).unwrap();
     assert_eq!(m.format, "modrinth");
+}
+
+#[tokio::test]
+async fn imported_wiki_prebuild_failure_is_warn_only() {
+    let missing = std::env::temp_dir().join(format!(
+        "mc-core-missing-wiki-prebuild-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&missing);
+    let opts = super::ImportOptions::new(std::env::temp_dir());
+
+    prebuild_imported_wiki_corpus(&opts, "missing-instance", &missing).await;
 }
 
 // 让 with_content 在某测试里被用到,避免 dead_code 警告(内容判别的 fake 路径)。

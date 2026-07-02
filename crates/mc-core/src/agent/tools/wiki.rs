@@ -7,9 +7,11 @@
 use std::collections::HashSet;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::time::UNIX_EPOCH;
 
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use super::ChatToolError;
 use crate::error::{CoreError, IoResultExt, Result as CoreResult};
@@ -20,6 +22,8 @@ const WIKI_FILE_MAX_BYTES: u64 = 256 * 1024;
 const WIKI_SEARCH_DEFAULT_TOP_K: usize = 5;
 const WIKI_SEARCH_MAX_TOP_K: usize = 8;
 const WIKI_CHUNK_MAX_LINES: usize = 80;
+const WIKI_CORPUS_CACHE_VERSION: u32 = 1;
+const WIKI_CORPUS_CACHE_FILE: &str = "wiki-corpus.json";
 const INSTANCE_DATA_MAX_ENTRIES: usize = 200;
 const INSTANCE_DATA_DIRS: &[&str] = &[
     "mods",
@@ -203,6 +207,15 @@ impl WikiCorpus {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct WikiCorpusCache {
+    version: u32,
+    corpus_id: String,
+    fingerprint: String,
+    source_count: usize,
+    chunks: Vec<WikiChunk>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct WikiSearchArgs {
     pub modpack_id: String,
@@ -272,15 +285,183 @@ async fn corpus_from_tool_args(
     source_paths: Vec<String>,
 ) -> CoreResult<WikiCorpus> {
     let scope = WikiScope::from_modpack_entry(modpack_id, instance_id)?;
-    let sources = source_paths
+    let source_paths = source_paths
         .into_iter()
         .map(|path| path.trim().to_string())
         .filter(|path| !path.is_empty())
-        .map(|path| {
-            Box::new(LocalPathWikiSource::new(vec![PathBuf::from(path)])) as Box<dyn WikiSource>
-        })
+        .map(PathBuf::from)
+        .collect::<Vec<_>>();
+    if let Some(path) = cacheable_wiki_source_path(&source_paths) {
+        return corpus_from_cache_or_rebuild(scope, path).await;
+    }
+    build_wiki_corpus_from_paths(scope, source_paths).await
+}
+
+async fn build_wiki_corpus_from_paths(
+    scope: WikiScope,
+    source_paths: Vec<PathBuf>,
+) -> CoreResult<WikiCorpus> {
+    let sources = source_paths
+        .into_iter()
+        .map(|path| Box::new(LocalPathWikiSource::new(vec![path])) as Box<dyn WikiSource>)
         .collect::<Vec<_>>();
     WikiCorpus::from_sources(scope, sources).await
+}
+
+fn cacheable_wiki_source_path(source_paths: &[PathBuf]) -> Option<&Path> {
+    let [path] = source_paths else {
+        return None;
+    };
+    path.is_dir().then_some(path.as_path())
+}
+
+pub fn wiki_corpus_cache_path(instance_dir: &Path) -> PathBuf {
+    instance_dir.join(WIKI_CORPUS_CACHE_FILE)
+}
+
+pub async fn prebuild_wiki_corpus_cache(
+    modpack_id: String,
+    instance_id: Option<String>,
+    instance_dir: &Path,
+) -> CoreResult<()> {
+    let scope = WikiScope::from_modpack_entry(modpack_id, instance_id)?;
+    let fingerprint = wiki_source_fingerprint(instance_dir)?;
+    let corpus = build_wiki_corpus_from_paths(scope, vec![instance_dir.to_path_buf()]).await?;
+    write_wiki_corpus_cache(instance_dir, &fingerprint, &corpus)?;
+    Ok(())
+}
+
+async fn corpus_from_cache_or_rebuild(
+    scope: WikiScope,
+    instance_dir: &Path,
+) -> CoreResult<WikiCorpus> {
+    let fingerprint = wiki_source_fingerprint(instance_dir)?;
+    if let Some(corpus) = read_wiki_corpus_cache(instance_dir, &scope, &fingerprint)? {
+        tracing::debug!(
+            corpus_id = %scope.corpus_id,
+            path = %wiki_corpus_cache_path(instance_dir).display(),
+            "loaded wiki corpus cache"
+        );
+        return Ok(corpus);
+    }
+
+    tracing::debug!(
+        corpus_id = %scope.corpus_id,
+        path = %wiki_corpus_cache_path(instance_dir).display(),
+        "rebuilding wiki corpus cache"
+    );
+    let corpus = build_wiki_corpus_from_paths(scope, vec![instance_dir.to_path_buf()]).await?;
+    write_wiki_corpus_cache(instance_dir, &fingerprint, &corpus)?;
+    Ok(corpus)
+}
+
+fn read_wiki_corpus_cache(
+    instance_dir: &Path,
+    scope: &WikiScope,
+    fingerprint: &str,
+) -> CoreResult<Option<WikiCorpus>> {
+    let cache_path = wiki_corpus_cache_path(instance_dir);
+    if !cache_path.is_file() {
+        return Ok(None);
+    }
+    let bytes = match std::fs::read(&cache_path) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            tracing::warn!(error = %err, path = %cache_path.display(), "failed to read wiki corpus cache");
+            return Ok(None);
+        }
+    };
+    let cache: WikiCorpusCache = match serde_json::from_slice(&bytes) {
+        Ok(cache) => cache,
+        Err(err) => {
+            tracing::warn!(error = %err, path = %cache_path.display(), "failed to parse wiki corpus cache");
+            return Ok(None);
+        }
+    };
+    if cache.version != WIKI_CORPUS_CACHE_VERSION
+        || cache.corpus_id != scope.corpus_id
+        || cache.fingerprint != fingerprint
+    {
+        return Ok(None);
+    }
+    Ok(Some(WikiCorpus {
+        scope: scope.clone(),
+        source_count: cache.source_count,
+        chunks: cache.chunks,
+    }))
+}
+
+fn write_wiki_corpus_cache(
+    instance_dir: &Path,
+    fingerprint: &str,
+    corpus: &WikiCorpus,
+) -> CoreResult<()> {
+    let cache_path = wiki_corpus_cache_path(instance_dir);
+    let cache = WikiCorpusCache {
+        version: WIKI_CORPUS_CACHE_VERSION,
+        corpus_id: corpus.scope.corpus_id.clone(),
+        fingerprint: fingerprint.to_string(),
+        source_count: corpus.source_count,
+        chunks: corpus.chunks.clone(),
+    };
+    let bytes = serde_json::to_vec_pretty(&cache).map_err(|err| CoreError::Parse {
+        what: "wiki corpus cache".into(),
+        source: err,
+    })?;
+    std::fs::write(&cache_path, bytes).with_path(&cache_path)
+}
+
+fn wiki_source_fingerprint(instance_dir: &Path) -> CoreResult<String> {
+    let mut entries = Vec::new();
+    collect_wiki_fingerprint_entries(instance_dir, instance_dir, &mut entries)?;
+    entries.sort();
+
+    let mut hasher = Sha256::new();
+    for entry in entries {
+        hasher.update(entry.as_bytes());
+        hasher.update(b"\n");
+    }
+    Ok(hex::encode(hasher.finalize()))
+}
+
+fn collect_wiki_fingerprint_entries(
+    root: &Path,
+    path: &Path,
+    entries: &mut Vec<String>,
+) -> CoreResult<()> {
+    if !path.exists() {
+        return Err(CoreError::other(format!(
+            "wiki source path does not exist: {}",
+            path.display()
+        )));
+    }
+    if path.is_file() {
+        if is_wiki_corpus_cache_file(path) {
+            return Ok(());
+        }
+        let meta = std::fs::metadata(path).with_path(path)?;
+        let modified = meta
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        entries.push(format!(
+            "{}\0{}\0{}",
+            relative_slash_path(root, path),
+            meta.len(),
+            modified
+        ));
+        return Ok(());
+    }
+    if should_skip_fingerprint_dir(root, path) {
+        return Ok(());
+    }
+    for entry in std::fs::read_dir(path).with_path(path)? {
+        let entry = entry.with_path(path)?;
+        collect_wiki_fingerprint_entries(root, &entry.path(), entries)?;
+    }
+    Ok(())
 }
 
 fn read_local_wiki_documents(paths: &[PathBuf]) -> CoreResult<Vec<WikiSourceDocument>> {
@@ -494,6 +675,10 @@ fn relative_slash_path(root: &Path, path: &Path) -> String {
 }
 
 fn collect_wiki_files(path: &Path, files: &mut Vec<PathBuf>) -> CoreResult<()> {
+    collect_wiki_files_inner(path, path, files)
+}
+
+fn collect_wiki_files_inner(root: &Path, path: &Path, files: &mut Vec<PathBuf>) -> CoreResult<()> {
     if !path.exists() {
         return Err(CoreError::other(format!(
             "wiki source path does not exist: {}",
@@ -501,17 +686,20 @@ fn collect_wiki_files(path: &Path, files: &mut Vec<PathBuf>) -> CoreResult<()> {
         )));
     }
     if path.is_file() {
+        if is_wiki_corpus_cache_file(path) {
+            return Ok(());
+        }
         if is_allowed_wiki_file(path)? {
             files.push(path.to_path_buf());
         }
         return Ok(());
     }
-    if should_skip_dir(path) {
+    if should_skip_dir(root, path) {
         return Ok(());
     }
     for entry in std::fs::read_dir(path).with_path(path)? {
         let entry = entry.with_path(path)?;
-        collect_wiki_files(&entry.path(), files)?;
+        collect_wiki_files_inner(root, &entry.path(), files)?;
     }
     Ok(())
 }
@@ -621,11 +809,24 @@ fn is_archive_path(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn should_skip_dir(path: &Path) -> bool {
-    path.components().any(|component| {
-        let name = component.as_os_str().to_string_lossy().to_ascii_lowercase();
-        should_skip_path_segment(&name)
-    })
+fn should_skip_dir(root: &Path, path: &Path) -> bool {
+    if path == root {
+        return false;
+    }
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| should_skip_path_segment(&name.to_ascii_lowercase()))
+        .unwrap_or(false)
+}
+
+fn should_skip_fingerprint_dir(root: &Path, path: &Path) -> bool {
+    if path == root {
+        return false;
+    }
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| matches!(name.to_ascii_lowercase().as_str(), ".git" | "versions"))
+        .unwrap_or(false)
 }
 
 fn should_skip_virtual_path(path: &str) -> bool {
@@ -658,6 +859,13 @@ fn allowed_wiki_extension(ext: &str) -> bool {
             | "yaml"
             | "yml"
     )
+}
+
+fn is_wiki_corpus_cache_file(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.eq_ignore_ascii_case(WIKI_CORPUS_CACHE_FILE))
+        .unwrap_or(false)
 }
 
 fn search_terms(query: &str) -> Vec<String> {

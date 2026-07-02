@@ -12,11 +12,11 @@ use super::fake_provider::{
     FakeChatProvider,
 };
 use super::{
-    tool_build_modpack, tool_inspect_base_modpack, tool_mod_get_detail, tool_resolve_mods,
-    tool_search_base_modpacks, tool_search_mods, tool_wiki_open, tool_wiki_search, BuildModRef,
-    BuildModpackArgs, BuildTarget, ChatToolsCtx, InspectBaseModpackArgs, LocalPathWikiSource,
-    ModGetDetailArgs, ResolveModsArgs, SearchBaseModpacksArgs, SearchModsArgs, WikiCorpus,
-    WikiOpenArgs, WikiScope, WikiSearchArgs,
+    prebuild_wiki_corpus_cache, tool_build_modpack, tool_inspect_base_modpack, tool_mod_get_detail,
+    tool_resolve_mods, tool_search_base_modpacks, tool_search_mods, tool_wiki_open,
+    tool_wiki_search, wiki_corpus_cache_path, BuildModRef, BuildModpackArgs, BuildTarget,
+    ChatToolsCtx, InspectBaseModpackArgs, LocalPathWikiSource, ModGetDetailArgs, ResolveModsArgs,
+    SearchBaseModpacksArgs, SearchModsArgs, WikiCorpus, WikiOpenArgs, WikiScope, WikiSearchArgs,
 };
 
 // ---------------------------------------------------------------------------
@@ -37,6 +37,15 @@ fn zip_bytes(files: &[(&str, &[u8])]) -> Vec<u8> {
         zip.finish().unwrap();
     }
     cursor.into_inner()
+}
+
+fn rewrite_first_cached_wiki_chunk(dir: &std::path::Path, content: &str) {
+    let cache_path = wiki_corpus_cache_path(dir);
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&cache_path).unwrap()).unwrap();
+    value["chunks"][0]["title"] = serde_json::Value::String("Cached wiki chunk".to_string());
+    value["chunks"][0]["content"] = serde_json::Value::String(content.to_string());
+    std::fs::write(&cache_path, serde_json::to_vec_pretty(&value).unwrap()).unwrap();
 }
 
 #[tokio::test]
@@ -523,6 +532,161 @@ async fn wiki_search_reads_complete_ftb_quest_sources() {
         .contains(r#"dependencies: ["long_unique_gate"]"#));
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn wiki_search_and_open_use_valid_corpus_cache() {
+    let dir = temp_dir("wiki-cache-hit");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("guide.md"),
+        "The real source mentions only starlight.",
+    )
+    .unwrap();
+
+    prebuild_wiki_corpus_cache(
+        "better-mc".to_string(),
+        Some("local-instance".to_string()),
+        &dir,
+    )
+    .await
+    .unwrap();
+    rewrite_first_cached_wiki_chunk(&dir, "cached sentinel answer from persisted corpus");
+
+    let out = tool_wiki_search(WikiSearchArgs {
+        modpack_id: "better-mc".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        query: "sentinel".to_string(),
+        top_k: Some(5),
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(out.hits.len(), 1);
+    assert_eq!(out.hits[0].title, "Cached wiki chunk");
+
+    let opened = tool_wiki_open(WikiOpenArgs {
+        modpack_id: "better-mc".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        chunk_id: out.hits[0].chunk_id.clone(),
+    })
+    .await
+    .unwrap();
+
+    assert!(opened
+        .chunk
+        .content
+        .contains("cached sentinel answer from persisted corpus"));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn wiki_search_rebuilds_cache_when_source_fingerprint_changes() {
+    let dir = temp_dir("wiki-cache-stale");
+    std::fs::create_dir_all(&dir).unwrap();
+    let guide = dir.join("guide.md");
+    std::fs::write(&guide, "The old source mentions only starlight.").unwrap();
+
+    prebuild_wiki_corpus_cache(
+        "better-mc".to_string(),
+        Some("local-instance".to_string()),
+        &dir,
+    )
+    .await
+    .unwrap();
+    rewrite_first_cached_wiki_chunk(&dir, "stale sentinel content that must be discarded");
+    std::fs::write(
+        &guide,
+        "The fresh source mentions dragon steel progression and nothing else.",
+    )
+    .unwrap();
+
+    let stale = tool_wiki_search(WikiSearchArgs {
+        modpack_id: "better-mc".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        query: "sentinel".to_string(),
+        top_k: Some(5),
+    })
+    .await
+    .unwrap();
+    assert!(
+        stale.hits.is_empty(),
+        "stale cache content must not be searched"
+    );
+
+    let fresh = tool_wiki_search(WikiSearchArgs {
+        modpack_id: "better-mc".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        query: "dragon steel".to_string(),
+        top_k: Some(5),
+    })
+    .await
+    .unwrap();
+    assert_eq!(fresh.hits.len(), 1);
+    assert!(std::fs::read_to_string(wiki_corpus_cache_path(&dir))
+        .unwrap()
+        .contains("dragon steel progression"));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn wiki_search_writes_cache_when_rebuilding_missing_cache() {
+    let dir = temp_dir("wiki-cache-missing");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("guide.md"),
+        "The star altar consumes starlight and aquamarine.",
+    )
+    .unwrap();
+    assert!(!wiki_corpus_cache_path(&dir).exists());
+
+    let out = tool_wiki_search(WikiSearchArgs {
+        modpack_id: "astral-pack".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        query: "star altar".to_string(),
+        top_k: Some(5),
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(out.hits.len(), 1);
+    assert!(wiki_corpus_cache_path(&dir).is_file());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn wiki_search_indexes_instance_dirs_under_versions_root() {
+    let root = temp_dir("wiki-cache-versions-root");
+    let dir = root.join("versions").join("local-instance");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("guide.md"),
+        "The moon altar requires silver dust and clear night sky.",
+    )
+    .unwrap();
+
+    let out = tool_wiki_search(WikiSearchArgs {
+        modpack_id: "astral-pack".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        query: "moon altar".to_string(),
+        top_k: Some(5),
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(out.hits.len(), 1);
+    assert!(wiki_corpus_cache_path(&dir).is_file());
+
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[tokio::test]

@@ -242,6 +242,8 @@ impl ImportEngine {
             overlay_dir_safe(&src_root, game_dir)?;
         }
 
+        prebuild_imported_wiki_corpus(opts, instance_id, game_dir).await;
+
         Ok(ImportOutcome {
             instance_id: instance_id.to_string(),
             blocked,
@@ -415,6 +417,41 @@ impl ImportEngine {
         }
         Ok(skipped)
     }
+}
+
+pub(crate) async fn prebuild_imported_wiki_corpus(
+    opts: &ImportOptions,
+    instance_id: &str,
+    game_dir: &std::path::Path,
+) {
+    let modpack_id = wiki_modpack_id_for_import(opts, instance_id);
+    if let Err(err) = crate::agent::tools::prebuild_wiki_corpus_cache(
+        modpack_id.clone(),
+        Some(instance_id.to_string()),
+        game_dir,
+    )
+    .await
+    {
+        tracing::warn!(
+            error = %err,
+            instance_id,
+            modpack_id,
+            path = %game_dir.display(),
+            "预构建 wiki corpus 缓存失败"
+        );
+    }
+}
+
+fn wiki_modpack_id_for_import(opts: &ImportOptions, instance_id: &str) -> String {
+    opts.managed
+        .as_ref()
+        .and_then(|managed| {
+            let platform = managed.platform.trim();
+            let project_id = managed.project_id.trim();
+            (!platform.is_empty() && !project_id.is_empty())
+                .then(|| format!("{platform}:{project_id}"))
+        })
+        .unwrap_or_else(|| instance_id.to_string())
 }
 
 /// 把一个子阶段的进度映射进总进度的 `[start, end]` 段,统一以千分比(current/1000)发到 `out`,
