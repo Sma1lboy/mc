@@ -16,8 +16,7 @@ mod session;
 mod share;
 
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
-use axum::response::{Html, IntoResponse, Response};
+use axum::http::StatusCode;
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use better_auth::handlers::AxumIntegration;
@@ -125,6 +124,10 @@ async fn main() {
 
     let app = Router::new()
         .nest("/v1/auth", auth_router)
+        // Custom domain (kobemc.sma1lboy.me) friendly aliases: the whole API is also
+        // reachable under `/api` (→ `/api/v1/...`); root `/v1/...` stays for the
+        // already-deployed desktop's `DEFAULT_BASE`.
+        .nest("/api", api.clone())
         .merge(api)
         // Overrides blobs can be large (config + non-CDN content); raise the body cap.
         .layer(axum::extract::DefaultBodyLimit::max(256 * 1024 * 1024))
@@ -190,24 +193,12 @@ async fn share_conversation(
     Ok(Json(serde_json::json!({ "id": id })))
 }
 
-/// Fetch a shared conversation by id (public, no auth). Content-negotiated:
-/// a browser (`Accept: text/html`) gets a rendered conversation page that mirrors
-/// the desktop chat UI; anything else gets the raw JSON payload.
+/// Fetch a shared conversation by id (public, no auth). JSON only — the
+/// human-facing rendering lives in the landing frontend (`kobemc.sma1lboy.me/share/{id}`),
+/// which fetches this endpoint; the API stays pure data.
 async fn get_conversation(
     State(s): State<AppState>,
-    headers: HeaderMap,
     Path(id): Path<String>,
-) -> Response {
-    let Some(value) = s.shares.get_raw(&id).await else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-    let wants_html = headers
-        .get(axum::http::header::ACCEPT)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|a| a.contains("text/html"));
-    if wants_html {
-        Html(share::render_conversation_html(&value)).into_response()
-    } else {
-        Json(value).into_response()
-    }
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    s.shares.get_raw(&id).await.map(Json).ok_or(StatusCode::NOT_FOUND)
 }

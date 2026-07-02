@@ -13,6 +13,11 @@ use crate::error::{CoreError, Result};
 // production host before GA. Marked temporary on purpose.
 const DEFAULT_BASE: &str = "https://mc-server-production-9152.up.railway.app";
 
+/// Public marketing domain that hosts the read-only share page (a static page
+/// that fetches the shared conversation JSON from the API and renders it). The
+/// share button hands out `{SHARE_PAGE_BASE}/share/{id}`.
+const SHARE_PAGE_BASE: &str = "https://kobemc.sma1lboy.me";
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct LoaderMeta {
     pub mc_version: String,
@@ -267,7 +272,10 @@ impl ServerClient {
             .and_then(|i| i.as_str())
             .map(|s| s.to_string())
             .ok_or_else(|| CoreError::other("share response missing id"))?;
-        let url = self.url(&format!("/v1/agent/conversations/{id}"));
+        // Hand out the human-facing share page (the landing frontend renders the
+        // conversation by fetching this API), not the raw JSON endpoint. The page
+        // lives on the marketing domain, independent of the API base.
+        let url = format!("{SHARE_PAGE_BASE}/share/{id}");
         Ok((id, url))
     }
 
