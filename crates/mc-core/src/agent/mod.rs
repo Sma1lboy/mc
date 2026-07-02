@@ -1,31 +1,13 @@
-//! Main-agent primitives and callable subworkflows.
+//! Server-side tool executor for the modpack agent.
 //!
-//! This module is intentionally Rust-native and small. It owns the stable
-//! domain schema: run state and approval gates. The MVP has one routed
-//! subworkflow, `ModpackBuildWorkflow`; new capabilities should be added as
-//! tools/subworkflows under the main agent facade, not folded into a single
-//! monolithic loop.
+//! The agent *brain* is TypeScript (`@kobemc/agent-core`, runs in the webview /
+//! any TS host); this module is only its deterministic tool layer plus the LLM
+//! config loader. `tools` exposes the `tool_*` fns wired to the `agent_tool_*`
+//! Tauri commands; `build` is the trusted `.mrpack` executor behind them.
 
-pub mod chat;
+mod build;
 pub mod llm;
-pub mod session;
-pub mod state;
-pub mod workflow;
+pub mod tools;
 
-pub use chat::{ChatToolError, ChatToolsCtx};
-pub use llm::{AgentLlmClient, AgentLlmConfig};
-pub use session::{AgentSessionStore, AgentSessionSummary};
-pub use state::{
-    AgentEntry, AgentExecutionMetadata, AgentExecutionStatus, AgentIntent, AgentIntentKind,
-    AgentLaunchContext, AgentMessage, AgentMessageKind, AgentPhase, AgentRunSnapshot, AgentStatus,
-    AgentToolSpec, AgentToolTrace, AgentWorkflowId, AgentWorkflowKind, ApprovalDecisionSpec,
-    ApprovalKind, ApprovalOption, ApprovalRequest, ApprovedModpackBuild, BuildRestrictionChange,
-    BuildRestrictionChangeSource, BuildRestrictionPatch, BuildRestrictions, ExecutionBlocked,
-    ModpackAgentPlan, PlanArtifact, PlanReplanRequest, PlannedAction, UpdateBuildRestrictionsInput,
-    UpdateBuildRestrictionsOutput, UserDecision, UserDecisionKind,
-};
-pub use workflow::{
-    compile_mrpack_execution_metadata, continue_after_execution_manifest_result,
-    continue_modpack_build_without_model, execute_mrpack_build_to_path, MainAgentRuntime,
-    ModpackAgentRuntime, ModpackBuildWorkflow,
-};
+pub use llm::AgentLlmConfig;
+pub use tools::{ChatToolError, ChatToolsCtx};

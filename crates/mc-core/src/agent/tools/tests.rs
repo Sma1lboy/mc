@@ -4,209 +4,19 @@
 //! no network (the archive/build tests spin up throwaway localhost servers).
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
-use futures::future::BoxFuture;
-use rig_core::tool::Tool;
+use crate::modplatform::Dependency;
 
-use crate::modplatform::provider::{ProviderRegistry, ResourceProvider};
-use crate::modplatform::{
-    Dependency, HashAlgo, ProjectSideSupport, ProjectVersion, ProviderCaps, ProviderId,
-    ResolvedFile, SearchHit, SearchQuery, VersionFile,
+use super::fake_provider::{
+    bytes_server, cdn_file, ctx_of, hit, registry_of, temp_dir, version, zip_index,
+    FakeChatProvider,
 };
-
-use super::tools::{
-    BuildModRef, BuildModpackArgs, BuildModpackTool, BuildTarget, InspectBaseModpackArgs,
-    InspectBaseModpackTool, ModGetDetailArgs, ModGetDetailTool, ResolveModsArgs, ResolveModsTool,
-    SearchBaseModpacksArgs, SearchBaseModpacksTool, SearchModsArgs, SearchModsTool,
+use super::{
+    tool_build_modpack, tool_inspect_base_modpack, tool_mod_get_detail, tool_resolve_mods,
+    tool_search_base_modpacks, tool_search_mods, BuildModRef, BuildModpackArgs, BuildTarget,
+    ChatToolsCtx, InspectBaseModpackArgs, ModGetDetailArgs, ResolveModsArgs,
+    SearchBaseModpacksArgs, SearchModsArgs,
 };
-
-// ---------------------------------------------------------------------------
-// Fake provider
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, Default)]
-struct FakeChatProvider {
-    search_hits: Vec<SearchHit>,
-    versions: HashMap<String, Vec<ProjectVersion>>,
-    projects: HashMap<String, SearchHit>,
-}
-
-impl FakeChatProvider {
-    fn find_version(&self, version_id: &str) -> Option<ProjectVersion> {
-        self.versions
-            .values()
-            .flatten()
-            .find(|v| v.id == version_id)
-            .cloned()
-    }
-}
-
-impl ResourceProvider for FakeChatProvider {
-    fn caps(&self) -> &ProviderCaps {
-        static CAPS: ProviderCaps = ProviderCaps {
-            id: ProviderId::Modrinth,
-            readable_name: "Fake",
-            hash_algos: &[],
-            needs_api_key: false,
-        };
-        &CAPS
-    }
-
-    fn search<'a>(&'a self, _q: &'a SearchQuery) -> BoxFuture<'a, crate::error::Result<Vec<SearchHit>>> {
-        let hits = self.search_hits.clone();
-        Box::pin(async move { Ok(hits) })
-    }
-
-    fn get_project<'a>(&'a self, project_id: &'a str) -> BoxFuture<'a, crate::error::Result<SearchHit>> {
-        let hit = self
-            .projects
-            .get(project_id)
-            .cloned()
-            .unwrap_or_else(|| hit(project_id, project_id, project_id));
-        Box::pin(async move { Ok(hit) })
-    }
-
-    fn get_projects<'a>(
-        &'a self,
-        project_ids: &'a [String],
-    ) -> BoxFuture<'a, crate::error::Result<Vec<SearchHit>>> {
-        let hits = project_ids
-            .iter()
-            .map(|id| {
-                self.projects
-                    .get(id)
-                    .cloned()
-                    .unwrap_or_else(|| hit(id, id, id))
-            })
-            .collect();
-        Box::pin(async move { Ok(hits) })
-    }
-
-    fn list_versions<'a>(
-        &'a self,
-        project_id: &'a str,
-        _game_version: Option<&'a str>,
-        _loader: Option<&'a str>,
-    ) -> BoxFuture<'a, crate::error::Result<Vec<ProjectVersion>>> {
-        let versions = self.versions.get(project_id).cloned().unwrap_or_default();
-        Box::pin(async move { Ok(versions) })
-    }
-
-    fn resolve_by_hashes<'a>(
-        &'a self,
-        _algo: HashAlgo,
-        hashes: &'a [String],
-    ) -> BoxFuture<'a, crate::error::Result<Vec<Option<ResolvedFile>>>> {
-        let n = hashes.len();
-        Box::pin(async move { Ok(vec![None; n]) })
-    }
-
-    fn get_files_bulk<'a>(
-        &'a self,
-        refs: &'a [(String, String)],
-    ) -> BoxFuture<'a, crate::error::Result<Vec<ResolvedFile>>> {
-        let mut out = Vec::new();
-        for (project_id, version_id) in refs {
-            let Some(version) = self.find_version(version_id) else {
-                return Box::pin(async move {
-                    Err(crate::error::CoreError::other("unknown version"))
-                });
-            };
-            let file = version.primary_file().cloned().unwrap();
-            out.push(ResolvedFile {
-                provider: ProviderId::Modrinth,
-                project_id: project_id.clone(),
-                version_id: version.id.clone(),
-                file,
-                project_name: None,
-                project_slug: None,
-                authors: Vec::new(),
-            });
-        }
-        Box::pin(async move { Ok(out) })
-    }
-}
-
-fn hit(id: &str, slug: &str, title: &str) -> SearchHit {
-    SearchHit {
-        id: id.to_string(),
-        slug: slug.to_string(),
-        title: title.to_string(),
-        description: format!("{title} desc"),
-        author: "author".to_string(),
-        downloads: 4242,
-        icon_url: None,
-        gallery_url: None,
-        categories: Vec::new(),
-        client_side: ProjectSideSupport::Required,
-        server_side: ProjectSideSupport::Required,
-    }
-}
-
-fn cdn_file(project_id: &str) -> VersionFile {
-    VersionFile {
-        url: format!("https://cdn.modrinth.com/data/{project_id}/versions/v/{project_id}.jar"),
-        filename: format!("{project_id}.jar"),
-        sha1: Some(format!("{project_id}-sha1")),
-        sha512: Some(format!("{project_id}-sha512")),
-        size: Some(100),
-        primary: true,
-        client_side: ProjectSideSupport::Required,
-        server_side: ProjectSideSupport::Required,
-    }
-}
-
-fn version(id: &str, file: VersionFile, dependencies: Vec<Dependency>) -> ProjectVersion {
-    ProjectVersion {
-        id: id.to_string(),
-        name: format!("{id} name"),
-        version_number: "1.0.0".to_string(),
-        game_versions: vec!["1.20.1".to_string()],
-        loaders: vec!["fabric".to_string()],
-        files: vec![file],
-        dependencies,
-        client_side: ProjectSideSupport::Required,
-        server_side: ProjectSideSupport::Required,
-    }
-}
-
-fn registry_of(provider: FakeChatProvider) -> Arc<ProviderRegistry> {
-    Arc::new(ProviderRegistry::new().with(Arc::new(provider)))
-}
-
-fn temp_dir(tag: &str) -> std::path::PathBuf {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    std::env::temp_dir().join(format!("mc-chat-{tag}-{}-{nanos}", std::process::id()))
-}
-
-// ---------------------------------------------------------------------------
-// Throwaway localhost servers
-// ---------------------------------------------------------------------------
-
-/// Serve `body` once with a Content-Length (used for archive downloads).
-fn bytes_server(body: Vec<u8>) -> String {
-    use std::io::{Read, Write};
-    use std::net::TcpListener;
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let addr = listener.local_addr().unwrap();
-    std::thread::spawn(move || {
-        if let Ok((mut stream, _)) = listener.accept() {
-            let mut buf = [0u8; 16384];
-            let _ = stream.read(&mut buf);
-            let headers = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                body.len()
-            );
-            let _ = stream.write_all(headers.as_bytes());
-            let _ = stream.write_all(&body);
-        }
-    });
-    format!("http://{addr}")
-}
 
 // ---------------------------------------------------------------------------
 // Tool tests
@@ -218,11 +28,9 @@ async fn search_base_modpacks_maps_provider_hits() {
         search_hits: vec![hit("packid", "cool-pack", "Cool Pack")],
         ..Default::default()
     };
-    let tool = SearchBaseModpacksTool {
-        registry: registry_of(provider),
-    };
-    let out = tool
-        .call(SearchBaseModpacksArgs {
+    let out = tool_search_base_modpacks(
+        &ctx_of(provider),
+        SearchBaseModpacksArgs {
             query: "tech exploration".to_string(),
             mc_version: Some("1.20.1".to_string()),
             loader: Some("fabric".to_string()),
@@ -244,11 +52,9 @@ async fn search_mods_maps_provider_hits() {
         search_hits: vec![hit("sodium", "sodium", "Sodium")],
         ..Default::default()
     };
-    let tool = SearchModsTool {
-        registry: registry_of(provider),
-    };
-    let out = tool
-        .call(SearchModsArgs {
+    let out = tool_search_mods(
+        &ctx_of(provider),
+        SearchModsArgs {
             query: "performance".to_string(),
             mc_version: "1.20.1".to_string(),
             loader: "fabric".to_string(),
@@ -283,11 +89,9 @@ async fn resolve_mods_walks_required_dependencies() {
         versions,
         ..Default::default()
     };
-    let tool = ResolveModsTool {
-        registry: registry_of(provider),
-    };
-    let out = tool
-        .call(ResolveModsArgs {
+    let out = tool_resolve_mods(
+        &ctx_of(provider),
+        ResolveModsArgs {
             project_ids: vec!["root".to_string()],
             mc_version: "1.20.1".to_string(),
             loader: "fabric".to_string(),
@@ -317,11 +121,9 @@ async fn resolve_mods_honors_already_installed() {
         versions,
         ..Default::default()
     };
-    let tool = ResolveModsTool {
-        registry: registry_of(provider),
-    };
-    let out = tool
-        .call(ResolveModsArgs {
+    let out = tool_resolve_mods(
+        &ctx_of(provider),
+        ResolveModsArgs {
             project_ids: vec!["root".to_string()],
             mc_version: "1.20.1".to_string(),
             loader: "fabric".to_string(),
@@ -366,11 +168,9 @@ async fn mod_get_detail_returns_project_and_capped_versions() {
         projects,
         ..Default::default()
     };
-    let tool = ModGetDetailTool {
-        registry: registry_of(provider),
-    };
-    let out = tool
-        .call(ModGetDetailArgs {
+    let out = tool_mod_get_detail(
+        &ctx_of(provider),
+        ModGetDetailArgs {
             provider: None,
             project_id: "sodium".to_string(),
             minecraft_version: Some("1.20.1".to_string()),
@@ -428,11 +228,9 @@ async fn inspect_base_modpack_parses_modlist_and_enriches() {
         projects,
         ..Default::default()
     };
-    let tool = InspectBaseModpackTool {
-        registry: registry_of(provider),
-    };
-    let out = tool
-        .call(InspectBaseModpackArgs {
+    let out = tool_inspect_base_modpack(
+        &ctx_of(provider),
+        InspectBaseModpackArgs {
             project_id: "basepack".to_string(),
             mc_version: Some("1.20.1".to_string()),
             loader: Some("fabric".to_string()),
@@ -459,12 +257,10 @@ async fn build_modpack_from_scratch_writes_verified_mrpack() {
         ..Default::default()
     };
     let out_dir = temp_dir("build");
-    let tool = BuildModpackTool {
-        registry: registry_of(provider),
-        output_dir: out_dir.clone(),
-    };
-    let out = tool
-        .call(BuildModpackArgs {
+    let ctx = ChatToolsCtx::new(registry_of(provider), out_dir.clone());
+    let out = tool_build_modpack(
+        &ctx,
+        BuildModpackArgs {
             target: BuildTarget {
                 mc_version: "1.20.1".to_string(),
                 loader: "fabric".to_string(),
@@ -483,8 +279,8 @@ async fn build_modpack_from_scratch_writes_verified_mrpack() {
         .await
         .unwrap();
 
-    // "verifying" is the post-write status returned by the deterministic executor.
-    assert_eq!(out.status, "verifying", "manifest: {}", out.manifest);
+    // The executor writes, then re-verifies the archive before reporting done.
+    assert_eq!(out.status, "completed", "manifest: {}", out.manifest);
     let raw = out.output_path.expect("output path");
     let path = std::path::Path::new(&raw);
     assert_eq!(
@@ -501,16 +297,3 @@ async fn build_modpack_from_scratch_writes_verified_mrpack() {
     let _ = std::fs::remove_dir_all(&out_dir);
 }
 
-
-fn zip_index(index_json: Vec<u8>) -> Vec<u8> {
-    use std::io::{Cursor, Write};
-    let mut cursor = Cursor::new(Vec::new());
-    {
-        let mut zip = zip::ZipWriter::new(&mut cursor);
-        let options = zip::write::SimpleFileOptions::default();
-        zip.start_file("modrinth.index.json", options).unwrap();
-        zip.write_all(&index_json).unwrap();
-        zip.finish().unwrap();
-    }
-    cursor.into_inner()
-}

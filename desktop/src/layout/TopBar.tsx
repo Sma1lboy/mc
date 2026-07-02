@@ -10,7 +10,7 @@ import { t } from "../i18n";
  * TopBar —— 48px 顶栏(无边框窗口的自绘标题栏,Blocky Craft 石质标题栏)。
  *
  * 左: 空拖拽区(页面标题由各页 H1 承担;Discover 的内容类型 tab 落在发现页内)。
- * 右: 下载队列 + 运行状态(凹陷方块药丸,状态点 + 文案)+ 品牌名 kobeMC(点阵沙金)。
+ * 右: 下载队列 + 运行状态(凹陷方块药丸,状态点 + 文案)+ 社交入口。
  *
  * 拖拽:整条顶栏 data-tauri-drag-region 实现窗口拖动;可点区域用 -webkit-app-region:no-drag
  * 排除,否则点击会被拖拽吞掉。
@@ -53,17 +53,8 @@ export default function TopBar(): React.ReactElement {
       className="[grid-area:topbar] h-[48px] flex items-center justify-between bg-titlebar border-b border-titlebar pl-[12px] pr-[8px] box-border select-none"
       data-tauri-drag-region
     >
-      {/* 左侧:品牌(挪到左上,清开 macOS 交通灯)+ 余下空拖拽区。 */}
-      <div className="flex-1 h-full flex items-center pl-[64px]" data-tauri-drag-region>
-        <span className="flex items-center gap-[8px]" data-tauri-drag-region>
-          {/* 品牌方块标:草方块(上草绿、下泥土)。 */}
-          <span className="w-[18px] h-[18px] shrink-0 grid grid-rows-[6px_1fr] shadow-input overflow-hidden" aria-hidden="true">
-            <span className="bg-accent" />
-            <span className="bg-[#7a5b3a]" />
-          </span>
-          <span className="text-[13px] text-fg font-display tracking-[0.5px] whitespace-nowrap">kobeMC</span>
-        </span>
-      </div>
+      {/* 左侧:空拖拽区(品牌 logo 在 Rail 顶部的草方块,这里不再重复)。 */}
+      <div className="flex-1 h-full" data-tauri-drag-region />
 
       {/* 右侧(按推荐顺序):运行状态 → 下载 → 通知 → 好友 → 账号。 */}
       <div className="flex items-center gap-[6px]">

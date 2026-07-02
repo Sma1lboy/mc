@@ -51,7 +51,7 @@ settings + `modrinthExecutor()`, then forward each `AgentStreamEvent` as one SSE
 **Building on a server is still TBD.** `build_modpack` is the only trust-critical,
 disk-writing tool (it re-resolves every file through the provider and assembles a
 `.mrpack`); it is deliberately NOT reimplemented in TS. A server that needs to
-build should delegate to the Rust executor (`mc_core::agent::chat::tools::
+build should delegate to the Rust executor (`mc_core::agent::tools::
 tool_build_modpack`) or carefully port it — not extend `modrinthExecutor`.
 
 ## CLI (`mc-agent`)

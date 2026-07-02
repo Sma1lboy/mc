@@ -1,104 +1,28 @@
+//! Base-modlist parsing: pull mod project refs out of a base modpack archive
+//! (Modrinth `.mrpack` or CurseForge zip). Used by `inspect_base_modpack`.
+
 use std::collections::HashSet;
 use std::io::{Cursor, Read};
-use std::time::Instant;
 
-use crate::download::Downloader;
 use crate::error::{CoreError, Result};
 use crate::modpack::formats::curseforge::FlameManifest;
 use crate::modpack::formats::mrpack::MrpackIndex;
 use crate::modplatform::dependency::ModRef;
 use crate::modplatform::ProviderId;
 
-use super::*;
 
-pub(super) async fn fetch_base_modlist_cache(
-    run: &mut AgentRunSnapshot,
-    base_pack_payload: &serde_json::Value,
-) -> Result<BaseModlistCache> {
-    let archive_file = base_pack_payload
-        .get("source_ref")
-        .and_then(|v| v.get("archive_file"))
-        .ok_or_else(|| CoreError::other("base pack missing source_ref.archive_file"))?;
-    let url = archive_file
-        .get("url")
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| CoreError::other("base archive missing download url"))?;
+pub(super) const MAX_BASE_MANIFEST_BYTES: u64 = 4 * 1024 * 1024;
 
-    let started = Instant::now();
-    let downloader = Downloader::new(2)?;
-    let bytes = tokio::time::timeout(BASE_ARCHIVE_FETCH_TIMEOUT, downloader.get_bytes(url))
-        .await
-        .map_err(|_| CoreError::Download {
-            url: url.to_string(),
-            reason: "base archive fetch timed out".to_string(),
-        })??;
-    ensure_base_archive_size(url, bytes.len())?;
-    run.push_tool_trace(AgentToolTrace {
-        event: "customization planning fetched base archive once".into(),
-        stage: AgentPhase::CustomizationPlanning,
-        iteration: 0,
-        tool: "fetch_base_archive".into(),
-        input: serde_json::json!({ "url": url }),
-        output: serde_json::json!({ "bytes": bytes.len() }),
-        duration_ms: started.elapsed().as_millis(),
-        status: "ok".into(),
-    });
-
-    let started = Instant::now();
-    let cache = base_modlist_cache_from_archive_bytes(&bytes)?;
-    run.push_tool_trace(AgentToolTrace {
-        event: "customization planning parsed base modlist".into(),
-        stage: AgentPhase::CustomizationPlanning,
-        iteration: 0,
-        tool: "parse_base_modlist".into(),
-        input: serde_json::json!({ "archive_bytes": bytes.len() }),
-        output: serde_json::json!({
-            "source_format": cache.source_format.clone(),
-            "mod_refs": mod_ref_payloads(&cache.refs),
-        }),
-        duration_ms: started.elapsed().as_millis(),
-        status: "ok".into(),
-    });
-
-    Ok(cache)
-}
-
-pub(super) fn ensure_base_archive_size(url: &str, bytes_len: usize) -> Result<()> {
-    if bytes_len > MAX_BASE_ARCHIVE_BYTES {
-        return Err(CoreError::Download {
-            url: url.to_string(),
-            reason: format!("base archive exceeds maximum size of {MAX_BASE_ARCHIVE_BYTES} bytes"),
-        });
-    }
-    Ok(())
-}
-
-#[cfg(test)]
-pub(super) fn parse_base_modlist(archive_bytes: &[u8]) -> Result<Vec<ModRef>> {
-    parse_base_modlist_with_format(archive_bytes).map(|(_, refs)| refs)
-}
-
-pub(crate) fn base_modlist_cache_from_archive_bytes(
-    archive_bytes: &[u8],
-) -> Result<BaseModlistCache> {
-    let (source_format, refs) = parse_base_modlist_with_format(archive_bytes)?;
-    Ok(BaseModlistCache {
-        refs,
-        source_format,
-        fetch_count: 1,
-    })
-}
-
-fn parse_base_modlist_with_format(archive_bytes: &[u8]) -> Result<(String, Vec<ModRef>)> {
+/// Parse the client-side mod project refs out of a base modpack archive
+/// (Modrinth `.mrpack` or CurseForge zip).
+pub(crate) fn parse_base_modlist(archive_bytes: &[u8]) -> Result<Vec<ModRef>> {
     if let Some(index_bytes) = read_shallow_zip_entry(archive_bytes, "modrinth.index.json")? {
         let index: MrpackIndex =
             serde_json::from_slice(&index_bytes).map_err(|source| CoreError::Parse {
                 what: "modrinth.index.json".to_string(),
                 source,
             })?;
-        return Ok(("modrinth".to_string(), mod_refs_from_mrpack_index(&index)));
+        return Ok(mod_refs_from_mrpack_index(&index));
     }
     if let Some(manifest_bytes) = read_shallow_zip_entry(archive_bytes, "manifest.json")? {
         let manifest: FlameManifest =
@@ -111,10 +35,7 @@ fn parse_base_modlist_with_format(archive_bytes: &[u8]) -> Result<(String, Vec<M
                 "base archive manifest.json is not a CurseForge modpack manifest",
             ));
         }
-        return Ok((
-            "curseforge".to_string(),
-            mod_refs_from_curseforge_manifest(&manifest),
-        ));
+        return Ok(mod_refs_from_curseforge_manifest(&manifest));
     }
     Err(CoreError::other(
         "base archive missing modrinth.index.json or CurseForge manifest.json",
@@ -212,13 +133,3 @@ fn modrinth_project_id_from_url(url: &str) -> Option<String> {
     }
 }
 
-pub(super) fn mod_ref_payloads(refs: &[ModRef]) -> Vec<serde_json::Value> {
-    refs.iter()
-        .map(|r| {
-            serde_json::json!({
-                "provider": provider_slug(r.provider),
-                "project_id": r.project_id.clone(),
-            })
-        })
-        .collect()
-}
