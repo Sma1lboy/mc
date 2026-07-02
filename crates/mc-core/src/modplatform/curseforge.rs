@@ -253,6 +253,46 @@ impl FlameApi {
         Ok(resp.data)
     }
 
+    /// 取一个项目的完整详情(长描述 + 画廊 + 外部链接),映射成与 Modrinth 同一份
+    /// [`ProjectDetail`] 渲染模型(详情页「简介」标签用)。两次请求:`POST /mods`(元信息)
+    /// 加 `GET /mods/{id}/description`(HTML 正文;CF 的 body 是 HTML 而非 markdown,
+    /// 前端渲染器转义 + 白名单重建,两种输入都安全)。
+    pub async fn project_details(&self, id: i64) -> Result<super::modrinth::ProjectDetail> {
+        let mods = self.get_mods(&[id]).await?;
+        let m = mods
+            .into_iter()
+            .next()
+            .ok_or_else(|| CoreError::other(format!("CurseForge project {id} not found")))?;
+        let body = self.get_description(id).await.unwrap_or_default();
+        Ok(map_project_detail(m, body))
+    }
+
+    /// `GET /mods/{id}/description` → HTML 字符串(`{"data":"<p>…</p>"}`)。
+    async fn get_description(&self, id: i64) -> Result<String> {
+        let url = format!("{}/mods/{}/description", self.base, id);
+        let resp: FlameEnvelope<String> =
+            self.client.get(&url).send().await?.error_for_status()?.json().await?;
+        Ok(resp.data)
+    }
+
+    /// [`project_details`] 的本地持久缓存版,与 Modrinth 共享同一套「新鲜命中 → 抓取回写 →
+    /// stale 回退」逻辑;缓存落在 `<cache_dir>/curseforge/project/<id>.json`。
+    pub async fn project_details_cached(
+        &self,
+        id: i64,
+        cache_dir: &std::path::Path,
+        ttl: std::time::Duration,
+    ) -> Result<super::modrinth::ProjectDetail> {
+        super::modrinth::project_details_via_cache(
+            cache_dir,
+            "curseforge",
+            &id.to_string(),
+            ttl,
+            || self.project_details(id),
+        )
+        .await
+    }
+
     /// 批量按 fileId 取文件。`POST /mods/files` body `{"fileIds":[...]}`,response `{"data":[...]}`。
     ///
     /// **单 id 偶发返回对象而非数组**:`data` 用 [`OneOrMany`] 容忍两种形态。
@@ -425,12 +465,23 @@ pub struct FlameApiProject {
 pub struct FlameApiProjectLinks {
     #[serde(default)]
     pub website_url: Option<String>,
+    #[serde(default)]
+    pub wiki_url: Option<String>,
+    #[serde(default)]
+    pub issues_url: Option<String>,
+    #[serde(default)]
+    pub source_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct FlameApiLogo {
     #[serde(default)]
     pub url: Option<String>,
+    /// 截图标题/描述(logo 上通常为空;详情页画廊用)。
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -548,6 +599,46 @@ fn map_project(p: FlameApiProject) -> SearchHit {
         categories: p.categories.into_iter().map(|c| c.name).collect(),
         client_side: ProjectSideSupport::Unknown,
         server_side: ProjectSideSupport::Unknown,
+    }
+}
+
+/// CF 项目 + description HTML → 统一的 [`ProjectDetail`] 渲染模型(与 Modrinth 同一份,
+/// 前端不感知平台)。CF 没有 followers 概念 → 0;discord 链接 CF API 不提供 → None。
+fn map_project_detail(
+    p: FlameApiProject,
+    body: String,
+) -> super::modrinth::ProjectDetail {
+    let downloads = if p.download_count.is_finite() && p.download_count > 0.0 {
+        p.download_count as u64
+    } else {
+        0
+    };
+    super::modrinth::ProjectDetail {
+        id: p.id.to_string(),
+        slug: p.slug,
+        title: p.name,
+        description: p.summary,
+        body,
+        downloads,
+        followers: 0,
+        icon_url: p.logo.and_then(|l| l.url),
+        categories: p.categories.into_iter().map(|c| c.name).collect(),
+        gallery: p
+            .screenshots
+            .into_iter()
+            .filter_map(|s| {
+                s.url.map(|url| super::modrinth::GalleryImage {
+                    url,
+                    title: s.title,
+                    description: s.description,
+                    featured: false,
+                })
+            })
+            .collect(),
+        source_url: p.links.source_url.filter(|s| !s.is_empty()),
+        issues_url: p.links.issues_url.filter(|s| !s.is_empty()),
+        wiki_url: p.links.wiki_url.filter(|s| !s.is_empty()),
+        discord_url: None,
     }
 }
 
@@ -832,6 +923,51 @@ mod tests {
             "gameVersions": ["1.20.1", "Fabric", "Client", "Server"]
         }"#;
         serde_json::from_str(json).expect("sample file parses")
+    }
+
+    #[test]
+    fn maps_project_detail_from_mod_and_description() {
+        // 纯映射:`POST /mods` 的项目 + description HTML → 与 Modrinth 同一份 ProjectDetail。
+        // 覆盖:数字 id 字符串化、links 空串过滤、截图 → 画廊(带标题)、浮点下载量夹取。
+        let json = r#"{
+            "id": 520914,
+            "name": "All the Mods 9",
+            "slug": "all-the-mods-9",
+            "summary": "ATM9 modpack",
+            "downloadCount": 1234567.0,
+            "links": {
+                "websiteUrl": "https://www.curseforge.com/minecraft/modpacks/all-the-mods-9",
+                "wikiUrl": "",
+                "issuesUrl": "https://github.com/AllTheMods/ATM-9/issues",
+                "sourceUrl": "https://github.com/AllTheMods/ATM-9"
+            },
+            "logo": { "url": "https://media.forgecdn.net/logo.png" },
+            "categories": [{ "name": "Tech" }, { "name": "Magic" }],
+            "screenshots": [
+                { "url": "https://media.forgecdn.net/s1.png", "title": "Base", "description": "d" },
+                { "url": null, "title": "no-url dropped" }
+            ]
+        }"#;
+        let p: FlameApiProject = serde_json::from_str(json).expect("sample project parses");
+        let d = map_project_detail(p, "<p>Hello</p>".to_string());
+
+        assert_eq!(d.id, "520914");
+        assert_eq!(d.title, "All the Mods 9");
+        assert_eq!(d.description, "ATM9 modpack");
+        assert_eq!(d.body, "<p>Hello</p>");
+        assert_eq!(d.downloads, 1234567);
+        assert_eq!(d.followers, 0);
+        assert_eq!(d.icon_url.as_deref(), Some("https://media.forgecdn.net/logo.png"));
+        assert_eq!(d.categories, vec!["Tech".to_string(), "Magic".to_string()]);
+        // url 为 null 的截图被丢弃;标题/描述带过去
+        assert_eq!(d.gallery.len(), 1);
+        assert_eq!(d.gallery[0].url, "https://media.forgecdn.net/s1.png");
+        assert_eq!(d.gallery[0].title.as_deref(), Some("Base"));
+        // 空串 wikiUrl 过滤成 None;非空链接保留
+        assert_eq!(d.wiki_url, None);
+        assert_eq!(d.source_url.as_deref(), Some("https://github.com/AllTheMods/ATM-9"));
+        assert_eq!(d.issues_url.as_deref(), Some("https://github.com/AllTheMods/ATM-9/issues"));
+        assert_eq!(d.discord_url, None);
     }
 
     #[test]

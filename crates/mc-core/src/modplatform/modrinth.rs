@@ -879,26 +879,42 @@ impl ModrinthApi {
         cache_dir: &std::path::Path,
         ttl: std::time::Duration,
     ) -> Result<ProjectDetail> {
-        let path = project_cache_path(cache_dir, id);
-        if let Some(hit) = read_project_cache(&path, Some(ttl)) {
-            return Ok(hit);
-        }
-        match self.project_details(id).await {
-            Ok(fresh) => {
-                write_project_cache(&path, &fresh);
-                Ok(fresh)
-            }
-            // 网络/解析失败:有旧缓存就用旧的(忽略 ttl),否则把错误抛出去。
-            Err(e) => read_project_cache(&path, None).ok_or(e),
-        }
+        project_details_via_cache(cache_dir, "modrinth", id, ttl, || self.project_details(id)).await
     }
 }
 
-/// 缓存文件路径:`<cache_dir>/modrinth/project/<sanitized-id>.json`。
-/// id 来自 Modrinth(slug/id 均为 `[a-zA-Z0-9!@$()`.+]`),仍过滤一遍只留文件名安全字符。
-fn project_cache_path(cache_dir: &std::path::Path, id: &str) -> std::path::PathBuf {
+/// 「新鲜缓存 → 抓取回写 → stale 回退」的共享取舍逻辑,Modrinth 与 CurseForge 的项目详情
+/// 缓存都走这里(`<cache_dir>/<provider>/project/<id>.json`)。
+pub(crate) async fn project_details_via_cache<F, Fut>(
+    cache_dir: &std::path::Path,
+    provider: &str,
+    id: &str,
+    ttl: std::time::Duration,
+    fetch: F,
+) -> Result<ProjectDetail>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<ProjectDetail>>,
+{
+    let path = project_cache_path(cache_dir, provider, id);
+    if let Some(hit) = read_project_cache(&path, Some(ttl)) {
+        return Ok(hit);
+    }
+    match fetch().await {
+        Ok(fresh) => {
+            write_project_cache(&path, &fresh);
+            Ok(fresh)
+        }
+        // 网络/解析失败:有旧缓存就用旧的(忽略 ttl),否则把错误抛出去。
+        Err(e) => read_project_cache(&path, None).ok_or(e),
+    }
+}
+
+/// 缓存文件路径:`<cache_dir>/<provider>/project/<sanitized-id>.json`。
+/// id 来自平台(Modrinth slug/id 或 CurseForge 数字 id),仍过滤一遍只留文件名安全字符。
+fn project_cache_path(cache_dir: &std::path::Path, provider: &str, id: &str) -> std::path::PathBuf {
     let safe: String = id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
-    cache_dir.join("modrinth").join("project").join(format!("{safe}.json"))
+    cache_dir.join(provider).join("project").join(format!("{safe}.json"))
 }
 
 /// 带抓取时间戳的缓存包裹体。
@@ -1602,7 +1618,7 @@ mod tests {
         let detail = ModrinthApi::parse_project_detail(sample.as_bytes()).unwrap();
 
         let dir = std::env::temp_dir().join(format!("mc-cache-test-{}", std::process::id()));
-        let path = project_cache_path(&dir, "P");
+        let path = project_cache_path(&dir, "modrinth", "P");
         write_project_cache(&path, &detail);
         assert!(path.exists(), "缓存文件应写入 modrinth/project/<id>.json");
 
