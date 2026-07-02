@@ -736,6 +736,8 @@ function RealmManage({ instance, onChanged }: { instance: InstanceSummary; onCha
 
   const code = summary?.code ?? instance.realm!.code ?? "";
   const realmName = summary?.name ?? instance.realm!.name ?? t("realm.title");
+  // 我自己的同步进度(members 已含每人 synced_version;undefined = 成员列表未就绪)。
+  const mySynced = (members ?? []).find((m) => m.user_id === myId)?.synced_version;
 
   return (
     <div className="flex flex-col gap-[12px]">
@@ -753,6 +755,9 @@ function RealmManage({ instance, onChanged }: { instance: InstanceSummary; onCha
             {summary && (
               <span className="text-[11px] text-muted tabular-nums">
                 {t("realm.manifestVersion", { version: summary.manifest_version })}
+                {mySynced != null && (
+                  <> · {mySynced > 0 ? t("realm.syncedTo", { version: mySynced }) : t("realm.notSynced")}</>
+                )}
                 {" · "}
                 {t("realm.memberCount", { n: (members ?? []).length })}
               </span>
