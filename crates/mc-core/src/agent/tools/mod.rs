@@ -17,6 +17,7 @@ mod mod_get_detail;
 mod resolve_mods;
 mod search_base_modpacks;
 mod search_mods;
+mod wiki;
 
 #[cfg(test)]
 mod fake_provider;
@@ -29,6 +30,7 @@ pub use mod_get_detail::*;
 pub use resolve_mods::*;
 pub use search_base_modpacks::*;
 pub use search_mods::*;
+pub use wiki::*;
 
 use std::path::PathBuf;
 use std::sync::Arc;

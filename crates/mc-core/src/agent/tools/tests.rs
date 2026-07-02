@@ -13,14 +13,31 @@ use super::fake_provider::{
 };
 use super::{
     tool_build_modpack, tool_inspect_base_modpack, tool_mod_get_detail, tool_resolve_mods,
-    tool_search_base_modpacks, tool_search_mods, BuildModRef, BuildModpackArgs, BuildTarget,
-    ChatToolsCtx, InspectBaseModpackArgs, ModGetDetailArgs, ResolveModsArgs,
-    SearchBaseModpacksArgs, SearchModsArgs,
+    tool_search_base_modpacks, tool_search_mods, tool_wiki_open, tool_wiki_search, BuildModRef,
+    BuildModpackArgs, BuildTarget, ChatToolsCtx, InspectBaseModpackArgs, LocalPathWikiSource,
+    ModGetDetailArgs, ResolveModsArgs, SearchBaseModpacksArgs, SearchModsArgs, WikiCorpus,
+    WikiOpenArgs, WikiScope, WikiSearchArgs,
 };
 
 // ---------------------------------------------------------------------------
 // Tool tests
 // ---------------------------------------------------------------------------
+
+fn zip_bytes(files: &[(&str, &[u8])]) -> Vec<u8> {
+    use std::io::{Cursor, Write};
+
+    let mut cursor = Cursor::new(Vec::new());
+    {
+        let mut zip = zip::ZipWriter::new(&mut cursor);
+        let options = zip::write::SimpleFileOptions::default();
+        for (name, bytes) in files {
+            zip.start_file(*name, options).unwrap();
+            zip.write_all(bytes).unwrap();
+        }
+        zip.finish().unwrap();
+    }
+    cursor.into_inner()
+}
 
 #[tokio::test]
 async fn search_base_modpacks_maps_provider_hits() {
@@ -297,3 +314,121 @@ async fn build_modpack_from_scratch_writes_verified_mrpack() {
     let _ = std::fs::remove_dir_all(&out_dir);
 }
 
+#[tokio::test]
+async fn wiki_search_reads_local_text_sources_and_opens_chunks() {
+    let dir = temp_dir("wiki-text");
+    let wiki_dir = dir.join("config").join("ftbquests").join("quests");
+    std::fs::create_dir_all(&wiki_dir).unwrap();
+    let source = wiki_dir.join("the_aether.snbt");
+    std::fs::write(
+        &source,
+        "The Aether portal is built with Glowstone.\nIt is lit with a water bucket.\n",
+    )
+    .unwrap();
+
+    let out = tool_wiki_search(WikiSearchArgs {
+        modpack_id: "better-mc".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        query: "aether portal".to_string(),
+        top_k: Some(5),
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(
+        out.scope.corpus_id,
+        "modpack:better-mc:instance:local-instance"
+    );
+    assert_eq!(out.source_count, 1);
+    assert_eq!(out.hits.len(), 1);
+    assert!(out.hits[0].snippet.contains("Aether portal"));
+    assert!(out.hits[0].source_label.ends_with("the_aether.snbt"));
+
+    let opened = tool_wiki_open(WikiOpenArgs {
+        modpack_id: "better-mc".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        chunk_id: out.hits[0].chunk_id.clone(),
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(opened.chunk.chunk_id, out.hits[0].chunk_id);
+    assert!(opened.chunk.content.contains("Glowstone"));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn wiki_corpus_searches_through_unified_source_interface() {
+    let dir = temp_dir("wiki-source-interface");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("guide.md"),
+        "The star altar consumes starlight and aquamarine.",
+    )
+    .unwrap();
+    let scope = WikiScope::from_modpack_entry("astral-pack".to_string(), None).unwrap();
+    let local = LocalPathWikiSource::new(vec![dir.clone()]);
+
+    let corpus = WikiCorpus::from_sources(scope.clone(), vec![Box::new(local)])
+        .await
+        .unwrap();
+    let hits = corpus.search("star altar", 5).await.unwrap();
+    let opened = corpus.open(&hits[0].chunk_id).await.unwrap();
+
+    assert_eq!(corpus.scope(), &scope);
+    assert_eq!(corpus.source_count(), 1);
+    assert!(hits[0].snippet.contains("star altar"));
+    assert!(opened.content.contains("aquamarine"));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn wiki_search_reads_mrpack_text_entries_and_skips_mod_jars() {
+    let dir = temp_dir("wiki-mrpack");
+    std::fs::create_dir_all(&dir).unwrap();
+    let archive = dir.join("wiki-source.mrpack");
+    std::fs::write(
+        &archive,
+        zip_bytes(&[
+            (
+                "overrides/config/ftbquests/quests/aether.snbt",
+                b"The Aether portal uses Glowstone and a water bucket.",
+            ),
+            (
+                "overrides/mods/ignored.txt",
+                b"This skipped text must not be indexed.",
+            ),
+        ]),
+    )
+    .unwrap();
+
+    let out = tool_wiki_search(WikiSearchArgs {
+        modpack_id: "better-mc".to_string(),
+        instance_id: None,
+        source_paths: vec![archive.to_string_lossy().to_string()],
+        query: "glowstone portal".to_string(),
+        top_k: Some(5),
+    })
+    .await
+    .unwrap();
+    let ignored = tool_wiki_search(WikiSearchArgs {
+        modpack_id: "better-mc".to_string(),
+        instance_id: None,
+        source_paths: vec![archive.to_string_lossy().to_string()],
+        query: "skipped indexed".to_string(),
+        top_k: Some(5),
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(out.source_count, 1);
+    assert_eq!(out.hits.len(), 1);
+    assert!(out.hits[0].source_label.contains("aether.snbt"));
+    assert!(ignored.hits.is_empty());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
