@@ -178,7 +178,8 @@ export async function sendMessage(raw: string): Promise<void> {
  */
 export function submitAskUserAnswer(msgId: string, toolCallId: string, selected: string[]): void {
   if (selected.length === 0 || useChatStore.getState().streaming) return;
-  const history = useChatStore.getState().messages.map((m) => {
+  // 1) 把该 tool part 置为 output-available(模型据此拿到结构化结果、UI 标记已答)。
+  const answered = useChatStore.getState().messages.map((m) => {
     if (m.id !== msgId) return m;
     return {
       ...m,
@@ -189,6 +190,13 @@ export function submitAskUserAnswer(msgId: string, toolCallId: string, selected:
       ),
     } as UIMessage;
   });
+  // 2) 追加一条用户气泡回显所选(用户视角:我的回答出现在对话流里),再续跑。
+  const echo: UIMessage = {
+    id: nextId(),
+    role: "user",
+    parts: [{ type: "text", text: selected.join("、") }],
+  };
+  const history = [...answered, echo];
   useChatStore.setState({ messages: history });
   void drive(history);
 }

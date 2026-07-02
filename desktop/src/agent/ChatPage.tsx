@@ -91,6 +91,34 @@ function ToolChip({ part }: { part: ToolPart }) {
   );
 }
 
+/** 一组连续的工具调用:完成后默认收起(用户不需要看细节),进行中自动展开。 */
+function ToolGroup({ parts }: { parts: ToolPart[] }) {
+  const running = parts.some((p) => p.state === "input-streaming" || p.state === "input-available");
+  const errored = parts.some((p) => p.state === "output-error");
+  // 同一组通常是同一个工具的多次调用;摘要显示名字 + 次数。
+  const name = toolName(parts[0]);
+  const label = parts.length > 1 ? `${name} ×${parts.length}` : name;
+  return (
+    <details className="my-[3px]" open={running}>
+      <summary className="inline-flex items-center gap-[6px] cursor-pointer select-none text-[12px] text-faint hover:text-sub">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+             strokeLinecap="round" strokeLinejoin="round"
+             className={`shrink-0 ${errored ? "text-danger-text" : "text-accent"} ${running ? "animate-pulse" : ""}`} aria-hidden="true">
+          <path d="M14.7 6.3a4 4 0 0 0-5.2 5.2L3 18v3h3l6.5-6.5a4 4 0 0 0 5.2-5.2l-2.6 2.6-2.4-.6-.6-2.4 2.6-2.6Z" />
+        </svg>
+        <span>{t("agent.toolCall")}</span>
+        <span className="font-medium text-sub">{label}</span>
+        {!running && !errored && <span className="text-accent">✓</span>}
+      </summary>
+      <div className="mt-[4px] flex flex-col gap-[3px]">
+        {parts.map((p) => (
+          <ToolChip key={p.toolCallId} part={p} />
+        ))}
+      </div>
+    </details>
+  );
+}
+
 /** 一条消息渲染(用户 / 助手)。 */
 function MessageRow({ msg, last, streaming }: { msg: UIMessage; last: boolean; streaming: boolean }) {
   if (msg.role === "user") {
@@ -108,33 +136,45 @@ function MessageRow({ msg, last, streaming }: { msg: UIMessage; last: boolean; s
   const lastPart = msg.parts[msg.parts.length - 1];
   const caretVisible = last && streaming && lastPart?.type === "text";
 
+  // 渲染前先把「连续的非 ask_user 工具调用」聚成一组(完成后收起);其余 part 逐个渲染。
+  const nodes: React.ReactNode[] = [];
+  for (let i = 0; i < msg.parts.length; ) {
+    const part = msg.parts[i];
+    if (isTool(part) && part.type !== ASK_USER_TOOL_TYPE) {
+      const run: ToolPart[] = [];
+      while (i < msg.parts.length) {
+        const p = msg.parts[i];
+        if (isTool(p) && p.type !== ASK_USER_TOOL_TYPE) {
+          run.push(p);
+          i++;
+        } else break;
+      }
+      nodes.push(<ToolGroup key={`tg-${run[0].toolCallId}`} parts={run} />);
+      continue;
+    }
+    if (part.type === "reasoning") {
+      nodes.push(
+        <details key={i} className="my-[4px] text-[12px]">
+          <summary className="cursor-pointer text-faint select-none">{t("agent.reasoning")}</summary>
+          <div className="mt-[4px] whitespace-pre-wrap break-words text-muted leading-[1.6] border-l-2 border-titlebar pl-[10px]">
+            {part.text}
+          </div>
+        </details>,
+      );
+    } else if (part.type === "text") {
+      nodes.push(
+        <AssistantText key={i} text={part.text} live={last && streaming && i === msg.parts.length - 1} />,
+      );
+    } else if (isTool(part) && part.type === ASK_USER_TOOL_TYPE) {
+      nodes.push(<AskUserOptions key={i} msgId={msg.id} part={part} globalStreaming={streaming} />);
+    }
+    i++;
+  }
+
   return (
     <div className="flex justify-start">
       <Panel variant="sunken" className="max-w-[85%] min-w-0 px-[14px] py-[11px]">
-        {msg.parts.map((part, idx) => {
-          if (part.type === "reasoning") {
-            return (
-              <details key={idx} className="my-[4px] text-[12px]">
-                <summary className="cursor-pointer text-faint select-none">{t("agent.reasoning")}</summary>
-                <div className="mt-[4px] whitespace-pre-wrap break-words text-muted leading-[1.6] border-l-2 border-titlebar pl-[10px]">
-                  {part.text}
-                </div>
-              </details>
-            );
-          }
-          if (part.type === "text") {
-            return (
-              <AssistantText key={idx} text={part.text} live={last && streaming && idx === msg.parts.length - 1} />
-            );
-          }
-          if (isTool(part)) {
-            if (part.type === ASK_USER_TOOL_TYPE) {
-              return <AskUserOptions key={idx} msgId={msg.id} part={part} globalStreaming={streaming} />;
-            }
-            return <ToolChip key={idx} part={part} />;
-          }
-          return null; // step-start / 其它内部 part 不渲染
-        })}
+        {nodes}
         {last && streaming && !caretVisible && (
           <div className="flex items-center gap-[7px] mt-[6px] text-[12px] text-muted">
             <Spinner size={14} />
