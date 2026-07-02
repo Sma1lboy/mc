@@ -3,6 +3,7 @@
 // 只跑一个活跃任务),并把这条流路由给当前活跃任务;副产物正好是一个真实的「下载队列」。
 // 任意页面用 enqueueDownload(...) 投递任务;顶栏队列面板与列表行直接读 tasks() 渲染进度。
 import { create } from "zustand";
+import { subscribeWithSelector } from "zustand/middleware";
 import { onInstallProgress } from "../ipc/api";
 import type { ProjectKind } from "../ipc/types";
 
@@ -48,13 +49,25 @@ interface Job {
 interface DownloadState {
   tasks: DownloadTask[];
 }
-export const useDownloadStore = create<DownloadState>(() => ({ tasks: [] }));
+export const useDownloadStore = create<DownloadState>()(subscribeWithSelector<DownloadState>(() => ({ tasks: [] })));
 
 /** 当前队列快照(非组件代码用;组件请用 useTasks / useDownloadStore 订阅)。 */
 export const tasks = (): DownloadTask[] => useDownloadStore.getState().tasks;
 
 /** 组件里订阅整条队列(切换/进度变化即重渲染)。 */
 export const useTasks = (): DownloadTask[] => useDownloadStore((s) => s.tasks);
+
+/** 从队列中取某资源 id 的展示任务:优先进行中,否则取最近一条历史任务。 */
+export function selectDownloadForRef(ts: DownloadTask[], refId: string): DownloadTask | undefined {
+  return (
+    ts.find((task) => task.refId === refId && (task.status === "active" || task.status === "queued")) ??
+    [...ts].reverse().find((task) => task.refId === refId)
+  );
+}
+
+/** 组件里只订阅某个资源 id,避免下载进度把整页/整列表唤醒。 */
+export const useDownloadForRef = (refId: string): DownloadTask | undefined =>
+  useDownloadStore((s) => selectDownloadForRef(s.tasks, refId));
 
 function setTasks(updater: (ts: DownloadTask[]) => DownloadTask[]): void {
   useDownloadStore.setState((s) => ({ tasks: updater(s.tasks) }));
@@ -134,11 +147,7 @@ export function enqueueDownload(args: EnqueueArgs): string {
 
 /** 某资源 id 当前的下载任务(优先进行中,否则取最近一条),供列表行显示进度 / 已添加。 */
 export function downloadForRef(refId: string): DownloadTask | undefined {
-  const ts = tasks();
-  return (
-    ts.find((task) => task.refId === refId && (task.status === "active" || task.status === "queued")) ??
-    [...ts].reverse().find((task) => task.refId === refId)
-  );
+  return selectDownloadForRef(tasks(), refId);
 }
 
 /** 进行中(排队 + 活跃)的任务数,顶栏角标用。 */

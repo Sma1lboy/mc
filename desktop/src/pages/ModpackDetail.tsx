@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { BlockedFilesDialog, Spinner, toast, Lightbox, Panel, Chip, Tag, Heading, PixelLabel, type ModpackHit, type LightboxImage } from "../components";
 import { ACCENT_BTN } from "../components/styles";
@@ -7,7 +7,7 @@ import { cached } from "../ipc/cache";
 import { useAsync } from "../util/useAsync";
 import { activeRoot, refreshInstances } from "../store";
 import { t, useLang } from "../i18n";
-import type { ImportOutcome, ModrinthVersion, ModrinthProject } from "../ipc/types";
+import type { ImportOutcome, InstallProgress, ModrinthVersion, ModrinthProject } from "../ipc/types";
 import { renderMarkdown } from "../util/markdown";
 import "./ModpackDetail.css"; // 残留:.md ... (innerHTML markdown 标记)
 
@@ -37,6 +37,33 @@ const fmtDate = (s: string) => {
 };
 
 type Tab = "about" | "gallery" | "versions";
+
+function formatInstallProgress(p: InstallProgress): string {
+  return p.total > 0 ? `${p.stage} ${p.current}/${p.total}` : p.stage;
+}
+
+function InstallProgressLabel(props: {
+  active: boolean;
+  initial: string;
+  fallback: string;
+}): React.ReactElement {
+  const [progress, setProgress] = useState(props.active ? props.initial : "");
+
+  useEffect(() => {
+    if (!props.active) {
+      setProgress("");
+      return;
+    }
+    setProgress(props.initial);
+    return onInstallProgress((p) => setProgress(formatInstallProgress(p)));
+  }, [props.active, props.initial]);
+
+  return (
+    <span className="block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+      {props.active ? progress || props.fallback : props.fallback}
+    </span>
+  );
+}
 
 interface ModpackDetailProps {
   hit: ModpackHit;
@@ -76,17 +103,6 @@ export default function ModpackDetail(props: ModpackDetailProps) {
 
   const [openLog, setOpenLog] = useState<Record<string, boolean>>({});
   const [installing, setInstalling] = useState<string | null>(null);
-  // 安装进度阶段(来自 install://progress);整包动辄数 GB,没有进度像卡死。
-  const [progress, setProgress] = useState("");
-  const installingRef = useRef<string | null>(null);
-  installingRef.current = installing;
-  useEffect(() => {
-    const off = onInstallProgress((p) => {
-      if (!installingRef.current) return;
-      setProgress(p.total > 0 ? `${p.stage} ${p.current}/${p.total}` : p.stage);
-    });
-    return off;
-  }, []);
   // 装完后若有需手动下载 / 被跳过的文件,弹窗摊开给用户(而不是只在 toast 里报个数字)。
   const [outcome, setOutcome] = useState<ImportOutcome | null>(null);
   // 头部「安装最新版 ▾」的版本下拉是否展开。
@@ -129,7 +145,6 @@ export default function ModpackDetail(props: ModpackDetailProps) {
       return;
     }
     setInstalling(v.id);
-    setProgress(t("discover.preparing"));
     toast({
       type: "info",
       message: t("discover.installStart", { title: props.hit.title, version: v.version_number }),
@@ -147,7 +162,6 @@ export default function ModpackDetail(props: ModpackDetailProps) {
       toast({ type: "error", message: t("discover.installFailed", { error: String(e) }) });
     } finally {
       setInstalling(null);
-      setProgress("");
     }
   }
 
@@ -206,14 +220,18 @@ export default function ModpackDetail(props: ModpackDetailProps) {
           {/* 头部主操作:安装最新版 + 下拉选具体版本(整合包安装即新建实例)。 */}
           <div className="relative ml-auto shrink-0 self-start flex items-stretch gap-[2px]">
             <button
-              className="h-[36px] rounded-none bg-accent px-[16px] text-accent-text text-[13px] font-semibold cursor-pointer shadow-raised active:shadow-pressed hover:bg-accent-hover transition-[box-shadow,background-color] duration-[var(--dur)] ease-app disabled:opacity-50 disabled:cursor-default"
+              className="h-[36px] w-[220px] rounded-none bg-accent px-[16px] text-accent-text text-[13px] font-semibold cursor-pointer shadow-raised active:shadow-pressed hover:bg-accent-hover transition-[box-shadow,background-color] duration-[var(--dur)] ease-app disabled:opacity-50 disabled:cursor-default overflow-hidden"
               disabled={installing !== null || vList().length === 0}
               onClick={() => {
                 const v = vList()[0];
                 if (v) install(v);
               }}
             >
-              {installing ? progress || t("discover.installing") : t("discover.installLatestVersion")}
+              {installing ? (
+                <InstallProgressLabel active initial={t("discover.preparing")} fallback={t("discover.installing")} />
+              ) : (
+                <span className="block overflow-hidden text-ellipsis whitespace-nowrap">{t("discover.installLatestVersion")}</span>
+              )}
             </button>
             <button
               className="h-[36px] w-[32px] grid place-items-center rounded-none bg-accent text-accent-text text-[14px] cursor-pointer shadow-raised active:shadow-pressed hover:bg-accent-hover transition-[box-shadow,background-color] duration-[var(--dur)] ease-app disabled:opacity-50 disabled:cursor-default"
@@ -386,11 +404,15 @@ export default function ModpackDetail(props: ModpackDetailProps) {
                     )}
                   </div>
                   <button
-                    className={`flex-[0_0_auto] ${ACCENT_BTN}`}
+                    className={`flex-[0_0_auto] w-[168px] overflow-hidden ${ACCENT_BTN}`}
                     disabled={(provider() === "modrinth" && !v.mrpack_url) || installing !== null}
                     onClick={() => install(v)}
                   >
-                    {installing === v.id ? (progress || t("discover.installing")) : t("discover.installThisVersion")}
+                    {installing === v.id ? (
+                      <InstallProgressLabel active initial={t("discover.preparing")} fallback={t("discover.installing")} />
+                    ) : (
+                      <span className="block overflow-hidden text-ellipsis whitespace-nowrap">{t("discover.installThisVersion")}</span>
+                    )}
                   </button>
                 </Panel>
               ))}

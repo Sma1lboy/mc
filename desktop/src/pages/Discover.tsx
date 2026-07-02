@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import { ContentBrowser, BlockedFilesDialog, Spinner, Heading, Chip, toast, type ModpackHit } from "../components";
 import { FacetSidebar, type FacetSelection } from "../components/FacetSidebar";
@@ -8,7 +8,7 @@ import { api } from "../ipc/api";
 import { cached } from "../ipc/cache";
 import { prefetchKinds } from "../util/contentSearch";
 import { useAsync } from "../util/useAsync";
-import { enqueueDownload, downloadForRef, fractionOf, useTasks, type DownloadTask } from "../util/downloads";
+import { enqueueDownload, downloadForRef } from "../util/downloads";
 import {
   useAppStore,
   activeRoot,
@@ -87,31 +87,6 @@ export default function Discover() {
   // 其它类型没有目标实例,进详情选实例装。安装中 / 已添加 / 进度都由队列派生(以 hit.id 为 refId),
   // 与顶栏面板同一份状态。
   const [outcome, setOutcome] = useState<ImportOutcome | null>(null);
-
-  const tasks: DownloadTask[] = useTasks();
-  const installing = useMemo(
-    () =>
-      new Set(
-        tasks
-          .filter((dl) => (dl.status === "active" || dl.status === "queued") && dl.refId)
-          .map((dl) => dl.refId!),
-      ),
-    [tasks],
-  );
-  const added = useMemo(
-    () =>
-      new Set(
-        tasks
-          .filter((dl) => dl.status === "done" && dl.refId)
-          .map((dl) => dl.refId!),
-      ),
-    [tasks],
-  );
-  const progressOf = (id: string): number | null | undefined => {
-    const task = downloadForRef(id);
-    if (!task || task.status === "done" || task.status === "error") return undefined;
-    return fractionOf(task);
-  };
 
   function quickAdd(hit: ModpackHit, prov: ContentProvider) {
     if (kind !== "modpack") {
@@ -229,9 +204,7 @@ export default function Discover() {
                   loader={null}
                   onAdd={quickAdd}
                   onOpenDetail={openHit}
-                  addingIds={installing}
-                  addedIds={added}
-                  progressOf={progressOf}
+                  trackDownloadRefs={kind === "modpack"}
                   placeholder={t("discover.searchPlaceholder")}
                   onLoadingChange={(l) => {
                     if (!l) setSeeded(true);

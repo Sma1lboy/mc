@@ -10,6 +10,7 @@ import { toast } from "./Toast";
 import { Segmented } from "./Segmented";
 import { Button } from "./Button";
 import { searchContent, SEARCH_PAGE } from "../util/contentSearch";
+import { fractionOf, useDownloadForRef, type DownloadTask } from "../util/downloads";
 import { t, useLang } from "../i18n";
 import type { ProjectKind, SearchHit } from "../ipc/types";
 
@@ -96,6 +97,8 @@ export interface ContentBrowserProps {
   addedIds?: Set<string>;
   /** 行内下载进度查询:返回 undefined=无进度条;null=不确定;0..1=定量。供安装中的行显示进度条。 */
   progressOf?: (id: string) => number | null | undefined;
+  /** 用全局下载队列按 hit.id 驱动该行状态;只让对应行订阅,避免进度事件重渲染整页。 */
+  trackDownloadRefs?: boolean;
   /** Discover 的多选内容分类(每个各成一 AND 组);仅 Modrinth 消费。缺省=无过滤。 */
   categories?: string[];
   /** Discover 的多选 loader(合成一 OR 组);仅 Modrinth 消费。缺省=无过滤。 */
@@ -122,6 +125,82 @@ const ADD_BTN = ACCENT_BTN_COMPACT;
 // 已添加:幽灵态(panel-3 凸起 + accent 文字),明确「装过了」且不可再点。
 const ADDED_BTN =
   "shrink-0 h-[28px] px-[12px] rounded-none bg-panel-3 text-accent text-[12px] font-semibold cursor-default shadow-raised";
+
+interface RowDownloadState {
+  added: boolean;
+  busy: boolean;
+  progress?: number | null;
+}
+
+const EMPTY_DOWNLOAD_STATE: RowDownloadState = { added: false, busy: false };
+
+function stateFromDownloadTask(task: DownloadTask | undefined): RowDownloadState {
+  if (!task || task.status === "error") return EMPTY_DOWNLOAD_STATE;
+  if (task.status === "done") return { added: true, busy: false };
+  return { added: false, busy: true, progress: fractionOf(task) };
+}
+
+interface ResultRowProps {
+  raw: SearchHit;
+  provider: ContentProvider;
+  onAdd?: (hit: ModpackHit, provider: ContentProvider) => void;
+  onOpenDetail?: (hit: ModpackHit, provider: ContentProvider) => void;
+  addingIds?: Set<string>;
+  addedIds?: Set<string>;
+  disabledReason?: (hit: ModpackHit) => string | null;
+  progressOf?: (id: string) => number | null | undefined;
+}
+
+function StaticResultRow(props: ResultRowProps): React.ReactElement {
+  return <ResultRow {...props} downloadState={EMPTY_DOWNLOAD_STATE} />;
+}
+
+function DownloadTrackedResultRow(props: ResultRowProps): React.ReactElement {
+  const task = useDownloadForRef(props.raw.id);
+  return <ResultRow {...props} downloadState={stateFromDownloadTask(task)} />;
+}
+
+function ResultRow(props: ResultRowProps & { downloadState: RowDownloadState }): React.ReactElement {
+  const hit = toHit(props.raw);
+  const reason = props.disabledReason?.(hit) ?? null;
+  const added = props.downloadState.added || (props.addedIds?.has(hit.id) ?? false);
+  const busy = props.downloadState.busy || (props.addingIds?.has(hit.id) ?? false);
+  const progress = "progress" in props.downloadState ? props.downloadState.progress : props.progressOf?.(hit.id);
+  // 只禁用「这一行」(已添加 / 该行安装中 / 该行有禁用原因);其它行后台并行不受影响。
+  const disabled = reason != null || added || busy;
+  const onAdd = props.onAdd;
+  const onOpenDetail = props.onOpenDetail;
+  const open = onOpenDetail
+    ? (h: ModpackHit) => onOpenDetail(h, props.provider)
+    : onAdd
+      ? (h: ModpackHit) => onAdd(h, props.provider)
+      : () => {};
+
+  return (
+    <ModpackListItem
+      hit={hit}
+      onClick={open}
+      progress={progress}
+      action={
+        onAdd ? (
+          <button
+            className={clsx(
+              added ? ADDED_BTN : ADD_BTN,
+              // 默认「添加」态仅悬停整行(或键盘聚焦)时显示,避免一列橙按钮太抢眼;
+              // 「已添加」「安装中」常显以保留反馈。
+              !added && !busy && "opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100",
+            )}
+            disabled={disabled}
+            title={reason ?? ""}
+            onClick={() => onAdd(hit, props.provider)}
+          >
+            {added ? t("discover.added") : busy ? t("discover.installing") : t("discover.add")}
+          </button>
+        ) : undefined
+      }
+    />
+  );
+}
 
 export function ContentBrowser(props: ContentBrowserProps): React.ReactElement {
   useLang();
@@ -331,42 +410,18 @@ export function ContentBrowser(props: ContentBrowserProps): React.ReactElement {
         <>
           <div className={clsx("flex flex-col gap-[8px]", props.compact && "max-h-[340px] overflow-y-auto pr-[2px]")}>
             {results.map((raw) => {
-              const hit = toHit(raw);
-              const reason = props.disabledReason?.(hit) ?? null;
-              const added = props.addedIds?.has(hit.id) ?? false;
-              const busy = props.addingIds?.has(hit.id) ?? false;
-              // 只禁用「这一行」(已添加 / 该行安装中 / 该行有禁用原因);其它行后台并行不受影响。
-              const disabled = reason != null || added || busy;
-              const onAdd = props.onAdd;
-              const onOpenDetail = props.onOpenDetail;
-              const open = onOpenDetail
-                ? (h: ModpackHit) => onOpenDetail(h, provider)
-                : onAdd
-                  ? (h: ModpackHit) => onAdd(h, provider)
-                  : () => {};
+              const Row = props.trackDownloadRefs ? DownloadTrackedResultRow : StaticResultRow;
               return (
-                <ModpackListItem
+                <Row
                   key={raw.id}
-                  hit={hit}
-                  onClick={open}
-                  progress={props.progressOf?.(hit.id)}
-                  action={
-                    onAdd ? (
-                      <button
-                        className={clsx(
-                          added ? ADDED_BTN : ADD_BTN,
-                          // 默认「添加」态仅悬停整行(或键盘聚焦)时显示,避免一列橙按钮太抢眼;
-                          // 「已添加」「安装中」常显以保留反馈。
-                          !added && !busy && "opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100",
-                        )}
-                        disabled={disabled}
-                        title={reason ?? ""}
-                        onClick={() => onAdd(hit, provider)}
-                      >
-                        {added ? t("discover.added") : busy ? t("discover.installing") : t("discover.add")}
-                      </button>
-                    ) : undefined
-                  }
+                  raw={raw}
+                  provider={provider}
+                  onAdd={props.onAdd}
+                  onOpenDetail={props.onOpenDetail}
+                  addingIds={props.addingIds}
+                  addedIds={props.addedIds}
+                  disabledReason={props.disabledReason}
+                  progressOf={props.progressOf}
                 />
               );
             })}
