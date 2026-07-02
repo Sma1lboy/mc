@@ -1,9 +1,32 @@
-import { useEffect } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { Story, StoryDefault } from "@ladle/react";
 import { BlockedFilesDialog, CrashDialog, NewInstanceDialog, ImportModpackDialog } from ".";
 import { ProjectDetailPanel } from "./ProjectDetailPanel";
 import { setCrashReport, type CrashReport } from "../store";
 import { ToastContainer } from "./Toast";
+
+/**
+ * 模态对话框在 Ladle 里若强制 open 且 onClose 无操作,会因焦点陷阱 / 遮罩而卡住整页
+ * (无法关闭 → 无法继续点)。这个 harness 用本地 open 态让故事里的对话框可关可重开:
+ * 初始打开可看,点取消 / 遮罩即关,关后出现「打开对话框」按钮再开。
+ */
+function DialogHarness({ children }: { children: (open: boolean, close: () => void) => ReactNode }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <>
+      {!open && (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="px-[14px] py-[8px] rounded-none bg-accent text-accent-text shadow-raised text-[13px] font-medium cursor-pointer"
+        >
+          打开对话框
+        </button>
+      )}
+      {children(open, () => setOpen(false))}
+    </>
+  );
+}
 
 /* ============================================================================
  * dialogs.stories —— 对话框 / 详情面板的隔离预览(Ladle)。
@@ -26,25 +49,31 @@ export default {
 // —— BlockedFilesDialog(纯 props)—————————————————————————————————————
 
 export const Blocked: Story = () => (
-  <BlockedFilesDialog
-    instanceId="tech-survival"
-    blocked={[
-      {
-        name: "Optifine_1.20.1_HD_U_I6.jar",
-        website_url: "https://optifine.net",
-        target_dir: "mods",
-        required: true,
-      },
-      {
-        name: "SomeCurseForgeMod-3.2.1.jar",
-        website_url: "https://www.curseforge.com/minecraft/mc-mods/some-mod",
-        target_dir: "mods",
-        required: false,
-      },
-    ]}
-    skipped={["client-only-config.zip", "readme.txt"]}
-    onClose={() => {}}
-  />
+  <DialogHarness>
+    {(open, close) =>
+      open && (
+        <BlockedFilesDialog
+          instanceId="tech-survival"
+          blocked={[
+            {
+              name: "Optifine_1.20.1_HD_U_I6.jar",
+              website_url: "https://optifine.net",
+              target_dir: "mods",
+              required: true,
+            },
+            {
+              name: "SomeCurseForgeMod-3.2.1.jar",
+              website_url: "https://www.curseforge.com/minecraft/mc-mods/some-mod",
+              target_dir: "mods",
+              required: false,
+            },
+          ]}
+          skipped={["client-only-config.zip", "readme.txt"]}
+          onClose={close}
+        />
+      )
+    }
+  </DialogHarness>
 );
 Blocked.storyName = "BlockedFilesDialog · 需手动下载的文件";
 
@@ -82,13 +111,19 @@ Crash.storyName = "CrashDialog · 崩溃诊断(内存不足)";
 
 // —— NewInstanceDialog(打开态表单外壳)————————————————————————————————
 
-export const NewInstance: Story = () => <NewInstanceDialog open onClose={() => {}} />;
+export const NewInstance: Story = () => (
+  <DialogHarness>{(open, close) => <NewInstanceDialog open={open} onClose={close} />}</DialogHarness>
+);
 NewInstance.storyName = "NewInstanceDialog · 新建实例表单(打开态)";
 
 // —— ImportModpackDialog(打开态外壳)—————————————————————————————————
 
 export const ImportModpack: Story = () => (
-  <ImportModpackDialog open root="/mock/root" onClose={() => {}} onImported={() => {}} />
+  <DialogHarness>
+    {(open, close) => (
+      <ImportModpackDialog open={open} root="/mock/root" onClose={close} onImported={() => {}} />
+    )}
+  </DialogHarness>
 );
 ImportModpack.storyName = "ImportModpackDialog · 导入整合包(打开态)";
 
