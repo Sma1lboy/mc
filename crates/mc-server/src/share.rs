@@ -63,6 +63,43 @@ impl ShareStore {
             .flatten();
         row.and_then(|(json,)| serde_json::from_str(&json).ok())
     }
+
+    /// Store an opaque JSON blob (e.g. an agent chat transcript) under a
+    /// content-derived id, reusing the same `shares` table. Idempotent: the same
+    /// payload yields the same id. Used for public conversation sharing.
+    pub async fn put_raw(&self, value: &serde_json::Value) -> anyhow::Result<String> {
+        let json = serde_json::to_string(value)?;
+        let id = derive_raw_id(&json);
+        sqlx::query("INSERT INTO shares (id, json) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET json = EXCLUDED.json")
+            .bind(&id)
+            .bind(&json)
+            .execute(&self.pool)
+            .await?;
+        Ok(id)
+    }
+
+    /// Fetch a raw JSON blob previously stored with [`put_raw`].
+    pub async fn get_raw(&self, id: &str) -> Option<serde_json::Value> {
+        let row: Option<(String,)> = sqlx::query_as("SELECT json FROM shares WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .ok()
+            .flatten();
+        row.and_then(|(json,)| serde_json::from_str(&json).ok())
+    }
+}
+
+/// Content-derived id for a raw blob (same FNV-1a scheme as `derive_id`, over
+/// the serialized JSON). Prefixed `c` so conversation ids don't collide with
+/// instance ids in the shared table.
+fn derive_raw_id(json: &str) -> String {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in json.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    format!("c{h:016x}")
 }
 
 /// Short stable id from the instance's defining fields (name+version+files).

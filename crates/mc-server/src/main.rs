@@ -82,6 +82,9 @@ async fn main() {
         .route("/v1/news", get(get_news))
         .route("/v1/instances/share", post(share_instance))
         .route("/v1/instances/{id}", get(get_instance))
+        // Public agent chat-transcript sharing (no auth; reuses the shares table).
+        .route("/v1/agent/conversations", post(share_conversation))
+        .route("/v1/agent/conversations/{id}", get(get_conversation))
         // Account linking (bind Microsoft to a kobeMC user; authed).
         .route("/v1/account/link/microsoft", post(account::link_microsoft))
         .route("/v1/account/identities", get(account::list_identities))
@@ -167,4 +170,29 @@ async fn get_instance(
     Path(id): Path<String>,
 ) -> Result<Json<SharedInstance>, StatusCode> {
     s.shares.get(&id).await.map(Json).ok_or(StatusCode::NOT_FOUND)
+}
+
+/// Publish an agent chat transcript (opaque JSON: the UIMessage[] + optional
+/// title/model) and get a public id. Body is stored as-is; capped at ~1 MiB.
+async fn share_conversation(
+    State(s): State<AppState>,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if serde_json::to_string(&payload).map(|j| j.len()).unwrap_or(usize::MAX) > 1_048_576 {
+        return Err(StatusCode::PAYLOAD_TOO_LARGE);
+    }
+    let id = s
+        .shares
+        .put_raw(&payload)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(serde_json::json!({ "id": id })))
+}
+
+/// Fetch a shared conversation by id (public, no auth).
+async fn get_conversation(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    s.shares.get_raw(&id).await.map(Json).ok_or(StatusCode::NOT_FOUND)
 }

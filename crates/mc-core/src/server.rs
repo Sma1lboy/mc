@@ -256,6 +256,21 @@ impl ServerClient {
         self.get_json(&format!("/v1/instances/{id}")).await
     }
 
+    /// Publish an agent chat transcript (opaque JSON) for public sharing; returns
+    /// `(id, public_url)`.
+    pub async fn share_conversation(&self, payload: &serde_json::Value) -> Result<(String, String)> {
+        let path = "/v1/agent/conversations";
+        let resp = self.send_checked(self.http.post(self.url(path)).json(payload), path).await?;
+        let v: serde_json::Value = self.parse_json(resp, path).await?;
+        let id = v
+            .get("id")
+            .and_then(|i| i.as_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| CoreError::other("share response missing id"))?;
+        let url = self.url(&format!("/v1/agent/conversations/{id}"));
+        Ok((id, url))
+    }
+
     /// Register a launcher account (better-auth email sign-up). The session
     /// cookie is stored on this client, so subsequent calls (e.g. [`me`]) are
     /// authenticated.

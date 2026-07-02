@@ -1591,6 +1591,25 @@ pub async fn fetch_news() -> CmdResult<Vec<mc_core::server::NewsItem>> {
     client.news().await.map_err(err)
 }
 
+/// A published agent chat transcript: its short id + the public fetch URL.
+#[derive(serde::Serialize, specta::Type)]
+pub struct SharedConversation {
+    pub id: String,
+    pub url: String,
+}
+
+/// Publish the current agent chat transcript to mc-server for public sharing.
+/// `payload_json` is the JSON.stringify'd transcript (opaque; taken as a String
+/// to avoid exporting a recursive `serde_json::Value` through specta).
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_share_conversation(payload_json: String) -> CmdResult<SharedConversation> {
+    let payload: serde_json::Value = serde_json::from_str(&payload_json).map_err(err)?;
+    let client = mc_core::server::ServerClient::new().map_err(err)?;
+    let (id, url) = client.share_conversation(&payload).await.map_err(err)?;
+    Ok(SharedConversation { id, url })
+}
+
 // --- kobeMC account (our backend: better-auth email/password) ----------------
 // These reuse one shared ServerClient held in Tauri state (lib.rs `.manage`) so
 // the better-auth session cookie persists across calls within an app session.

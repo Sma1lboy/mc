@@ -287,6 +287,12 @@ export const commands = {
 	readLogTail: (lines: number) => typedError<string, string>(__TAURI_INVOKE("read_log_tail", { lines })),
 	/**  拉取轻量后端(mc-server)的新闻/公告。后端未运行/不可达时返回错误,UI 降级到空/错误态。 */
 	fetchNews: () => typedError<NewsItem[], string>(__TAURI_INVOKE("fetch_news")),
+	/**
+	 *  Publish the current agent chat transcript to mc-server for public sharing.
+	 *  `payload_json` is the JSON.stringify'd transcript (opaque; taken as a String
+	 *  to avoid exporting a recursive `serde_json::Value` through specta).
+	 */
+	agentShareConversation: (payloadJson: string) => typedError<SharedConversation, string>(__TAURI_INVOKE("agent_share_conversation", { payloadJson })),
 	/**  Register a kobeMC account (email/password); establishes the session. */
 	kobemcSignup: (email: string, password: string, name: string) => typedError<AuthUser, string>(__TAURI_INVOKE("kobemc_signup", { email, password, name })),
 	/**  Log in to a kobeMC account; establishes the session cookie. */
@@ -1436,6 +1442,12 @@ export type ServerStatus = {
 	motd: string | null,
 	version: string | null,
 	latency_ms: number | null,
+};
+
+/**  A published agent chat transcript: its short id + the public fetch URL. */
+export type SharedConversation = {
+	id: string,
+	url: string,
 };
 
 /**  profile 里的一条皮肤。`url` 是可直接 `<img>` 的 PNG;`variant` 为 `classic` / `slim`。 */

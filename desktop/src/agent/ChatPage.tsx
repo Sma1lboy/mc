@@ -4,6 +4,7 @@ import { t, useLang } from "../i18n";
 import { useChatStore, sendMessage, newChat, clearDraft, dequeueQueued } from "./chatStore";
 import { DebugTools } from "./DebugTools";
 import { MessageList } from "./MessageList";
+import { ShareButton } from "./ShareButton";
 import "./chat.css";
 
 /**
@@ -94,6 +95,7 @@ export default function ChatPage() {
           <div className="min-w-0 overflow-x-auto">
             <DebugTools />
           </div>
+          <ShareButton />
           <Button variant="ghost" disabled={streaming} onClick={() => newChat()} className="shrink-0">
             {t("agent.newChat")}
           </Button>

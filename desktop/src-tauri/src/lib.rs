@@ -105,6 +105,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::open_logs_dir,
             commands::read_log_tail,
             commands::fetch_news,
+            commands::agent_share_conversation,
             commands::kobemc_signup,
             commands::kobemc_login,
             commands::kobemc_session,
