@@ -1,278 +1,225 @@
 // 整合包助手聊天 store —— zustand(单一真相,任何组件 useChatStore 即读,任何模块 action 即写)。
 // ------------------------------------------------------------------
-// 一条会话(sessionId)在后端保有完整 transcript:多轮对话复用同一个 sessionId,
-// 每次 sendMessage 只跑「一轮」流式;newChat 调 agentChatReset 清空后端 transcript。
+// 大脑是 TS(@kobemc/agent-core,在 webview 内跑 AI SDK 的 tool-use loop);Rust 聊天大脑已删除。
 //
-// 事件归约(reduce):把 AgentStreamEvent 折进「当前打开的助手消息」的有序 parts 里——
-//   text_delta   → 追加到当前打开的文本 part(纯字符串);
-//   reasoning    → 同理,追加到「思考」part(纯信息,永不是答案);
-//   tool_call    → 先关闭当前文本 part,再压入工具调用芯片 part
-//                  (下一段文本会新开一个 part,使文本与芯片按到达顺序交错);
-//   tool_result  → 同 tool_call,压入工具结果芯片 part;
-//   done / error → 终止本轮:清 streaming;error 追加错误 part。
+// 会话就是一个 `UIMessage[]`(AI SDK 原生消息 —— 单一真相:既渲染又喂模型)。发送 / 续跑都走
+// `agent.run(history, onUpdate)`:onUpdate 每次给出「正在生长的助手 UIMessage」,直接替换到列表尾;
+// 文本 / 思考 / 工具调用(input-streaming → available → output 状态机)全由 AI SDK 累积,不再手写归约器。
 //
-// 与 Solid 版的区别:part 内容改成普通 `string`(不再是逐帧 rAF 刷新的信号)。text_delta
-// 每次直接 setState 追加——Streamdown 内部按块记忆、未变的块不重解析,逐 delta 更新成本已足够低,
-// 故省掉了旧的 requestAnimationFrame 批量层与 chatTick 滴答(页面直接订阅 messages 自动滚底)。
-//
-// 幂等终止:失败可能同时以 error 事件与 agentChat Promise resolve {status:"error"} 到达,
-// finalize 用 terminated 标志守卫,二者视作同一次终止,不重复追加错误 part / 不卡死。
+// ask_user_question 是原生 client-side tool(无 executor):模型调用后 turn 暂停,该工具 part 停在
+// input-available(无 output)。用户点选后把它置为 output-available,再 run 一次续跑同一会话。
 // ------------------------------------------------------------------
 
 import { create } from "zustand";
-import { Channel } from "@tauri-apps/api/core";
-import { commands, type AgentStreamEvent, type JsonValue } from "../ipc/bindings";
-// Type-only imports: erased at build, so the host-agnostic brain (and its `ai`
+import type { UIMessage } from "ai";
+// Type-only import: erased at build, so the host-agnostic brain (and its `ai`
 // dependency) stays out of the main bundle — the TS path is dynamic-imported below.
-import type { ChatMessage as BrainMessage, ModpackAgent } from "@kobemc/agent-core";
+import type { ModpackAgent } from "@kobemc/agent-core";
 import { setCurrentPage } from "../store";
 import { t } from "../i18n";
 
-export type ChatRole = "user" | "assistant";
-
-/** 流式文本 part:助手可见 markdown,流式期间原地追加。 */
-export interface TextPart {
-  kind: "text";
-  text: string;
-}
-/** 模型「思考」流(OpenRouter reasoning deltas):纯信息,永不是答案。 */
-export interface ReasoningPart {
-  kind: "reasoning";
-  text: string;
-}
-/** 工具调用芯片:模型以 JSON 参数调用了某个确定性工具。 */
-export interface ToolCallPart {
-  kind: "tool_call";
-  name: string;
-  args: JsonValue;
-}
-/** 工具结果芯片:某次工具执行完成,summary 为一行人类可读结果。 */
-export interface ToolResultPart {
-  kind: "tool_result";
-  name: string;
-  summary: string;
-}
-/** 错误 part:本轮失败原因(终止态追加)。 */
-export interface ErrorPart {
-  kind: "error";
-  message: string;
-}
-
-export type ChatPart = TextPart | ReasoningPart | ToolCallPart | ToolResultPart | ErrorPart;
-
-/** 一条消息:角色 + 有序 parts。 */
-export interface ChatMessage {
-  id: string;
-  role: ChatRole;
-  parts: ChatPart[];
-}
-
-/** 大脑实现:rust = 后端 rig loop(Channel);ts = 前端 AI SDK loop(本模块)。 */
-export type Brain = "rust" | "ts";
-
 interface ChatState {
-  messages: ChatMessage[];
+  /** 会话消息(AI SDK 原生 UIMessage:含 text / reasoning / tool parts)。 */
+  messages: UIMessage[];
   /** 是否正在流式(禁用输入 / 显示指示器)。同一会话同一时刻只允许一轮。 */
   streaming: boolean;
-  /** 当前大脑(dev 开关);持久化到 localStorage。 */
-  brain: Brain;
+  /** 本轮失败原因(流式外呈现;UIMessage 本身无 error part)。 */
+  error: string | null;
   /**
    * 一次性输入草稿:外部入口(发现页 / 新建实例)经 openAgentChat 预填一句上下文提示,
    * ChatPage 变为活动页后取用一次(填进输入框、聚焦,不自动发送),随即清回 null。
    */
   draft: string | null;
-}
-
-const BRAIN_KEY = "mc-launcher.agentBrain";
-// Default is now the TS brain; a user who explicitly picked "rust" (persisted)
-// keeps it. Only an explicit stored "rust" opts out — anything else → "ts".
-function readInitialBrain(): Brain {
-  if (typeof window === "undefined") return "ts";
-  try {
-    return window.localStorage.getItem(BRAIN_KEY) === "rust" ? "rust" : "ts";
-  } catch {
-    return "ts";
-  }
+  /** 历史对话记录(dev 调试选择器用;localStorage 持久)。 */
+  conversations: ConversationRecord[];
 }
 
 export const useChatStore = create<ChatState>(() => ({
   messages: [],
   streaming: false,
-  brain: readInitialBrain(),
+  error: null,
   draft: null,
+  conversations: loadConversations(),
 }));
 
-/** 切换大脑(流式中忽略,避免半途换实现);持久化。 */
-export function setBrain(next: Brain): void {
-  if (useChatStore.getState().streaming) return;
-  useChatStore.setState({ brain: next });
+// 惰性拉起 TS 大脑(动态 import desktopAdapter → 独立 chunk,`ai` 及 provider 不进主包)。
+let tsAgent: Promise<ModpackAgent> | null = null;
+
+async function getAgent(): Promise<ModpackAgent> {
+  if (!tsAgent) tsAgent = import("./desktopAdapter").then((m) => m.createDesktopAgent());
   try {
-    window.localStorage.setItem(BRAIN_KEY, next);
-  } catch {
-    /* 加固 WebView 里 localStorage 可能不可用 */
+    return await tsAgent;
+  } catch (e) {
+    tsAgent = null; // 拉起失败(缺 key / import)→ 下次重试重新初始化
+    throw e;
   }
 }
 
-// TS 大脑的「客户端」transcript(ModelMessage[])。与 rust 路径分属两套会话:
-// rust 的 transcript 存在后端(按 sessionId 续接),ts 的存在这里——中途切换大脑会
-// 在另一侧从空上下文重新开始,这在本实验里可以接受。newChat 清空它。
-let tsHistory: BrainMessage[] = [];
-// 首次 ts 发送时惰性创建(动态 import,使 `ai` 及 provider 不进主包)。
-let tsAgent: Promise<ModpackAgent> | null = null;
-
-// 稳定的自增 id(Date.now + 计数;仅前端展示 key,无需强随机)。
+// 稳定的自增 id(仅前端展示 key;convertToModelMessages 会丢弃 UIMessage.id)。
 let seq = 0;
 const nextId = (): string => `${Date.now().toString(36)}-${(seq++).toString(36)}`;
 
-// 本次 app 运行内稳定的会话 id;多轮复用它,后端据此续接 transcript。
-const sessionId = `chat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+// 会话 id:一次「对话」一个,newChat 时轮换。
+const mintConvId = (): string =>
+  `chat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+let currentConvId = mintConvId();
+
+/** 当前会话 id。dev 调试面板复制它,或按 id 回溯整轮 flow。 */
+export function currentChatSessionId(): string {
+  return currentConvId;
+}
+
+/* ——— 会话记录(dev 调试:按时间选不同对话)———
+ * 每轮结束把当前对话存到 localStorage;DebugTools 据此列出、切换。dev-only,不向普通用户暴露。
+ * 记录就是 UIMessage[](既渲染又能喂模型),切换会话即无缝续聊。 */
+export interface ConversationRecord {
+  id: string;
+  createdAt: number;
+  updatedAt: number;
+  /** 首条用户消息(截断),用作列表标题。 */
+  title: string;
+  messages: UIMessage[];
+}
+
+const CONV_KEY = "mc-launcher.agentConversations";
+const CONV_LIMIT = 50;
+
+function loadConversations(): ConversationRecord[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(CONV_KEY);
+    const list = raw ? (JSON.parse(raw) as ConversationRecord[]) : [];
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistConversations(list: ConversationRecord[]): void {
+  try {
+    window.localStorage.setItem(CONV_KEY, JSON.stringify(list.slice(0, CONV_LIMIT)));
+  } catch {
+    /* WebView 里 localStorage 可能不可用 */
+  }
+}
+
+/** 首条用户消息的纯文本(会话标题用)。 */
+function firstUserText(messages: UIMessage[]): string {
+  const first = messages.find((m) => m.role === "user");
+  if (!first) return "";
+  return first.parts
+    .map((p) => (p.type === "text" ? p.text : ""))
+    .join("")
+    .trim();
+}
+
+// 把当前对话 upsert 进记录列表(每轮结束调用)。空对话不存。
+function saveCurrentConversation(): void {
+  const messages = useChatStore.getState().messages;
+  if (messages.length === 0) return;
+  const now = Date.now();
+  const list = useChatStore.getState().conversations.slice();
+  const i = list.findIndex((c) => c.id === currentConvId);
+  const createdAt = i >= 0 ? list[i].createdAt : now;
+  const rec: ConversationRecord = {
+    id: currentConvId,
+    createdAt,
+    updatedAt: now,
+    title: firstUserText(messages).slice(0, 60),
+    messages,
+  };
+  if (i >= 0) list[i] = rec;
+  else list.unshift(rec);
+  persistConversations(list);
+  useChatStore.setState({ conversations: list });
+}
+
+/** 载入一条历史对话(dev):恢复 messages(即上下文),可无缝续聊。流式中忽略。 */
+export function loadConversation(id: string): void {
+  if (useChatStore.getState().streaming) return;
+  const rec = useChatStore.getState().conversations.find((c) => c.id === id);
+  if (!rec) return;
+  currentConvId = id;
+  useChatStore.setState({ messages: rec.messages, error: null });
+}
 
 /**
- * 发送一条用户消息并跑一轮流式。追加「用户消息 + 一条打开的助手消息」,
- * 建一个 Channel 把每个 AgentStreamEvent 归约进助手消息的有序 parts。
- * 空文本 / 正在流式时直接忽略(一轮一次)。
+ * 跑一轮:把给定的 UIMessage[] 历史交给大脑,流式期间把「生长中的助手消息」替换到列表尾。
+ * 结束落最终 messages;失败落 error。空文本 / 拉起失败均安全兜底。
  */
+async function drive(history: UIMessage[]): Promise<void> {
+  useChatStore.setState({ streaming: true, error: null });
+  try {
+    const agent = await getAgent();
+    const { messages, error } = await agent.run(history, (assistant) => {
+      useChatStore.setState({ messages: [...history, assistant] });
+    });
+    useChatStore.setState({ messages, streaming: false, error: error ?? null });
+  } catch (e) {
+    useChatStore.setState({ streaming: false, error: String(e) });
+  }
+  saveCurrentConversation(); // 每轮结束存档,供 dev 会话选择器按时间列出
+}
+
+/** 发送一条用户消息并跑一轮流式。空文本 / 正在流式时忽略(一轮一次)。 */
 export async function sendMessage(raw: string): Promise<void> {
   const text = raw.trim();
   if (!text || useChatStore.getState().streaming) return;
-
-  const user: ChatMessage = { id: nextId(), role: "user", parts: [{ kind: "text", text }] };
-  const asst: ChatMessage = { id: nextId(), role: "assistant", parts: [] };
-  // 助手消息永远是数组末尾(一次只有一轮),归约器据此定位。
-  const asstIdx = useChatStore.getState().messages.length + 1;
-  useChatStore.setState((s) => ({ messages: [...s.messages, user, asst], streaming: true }));
-
-  // 归约器的可变游标(仅本轮闭包内):当前打开的文本 / 思考 part 在 asst.parts 里的下标。
-  let openTextIdx: number | null = null;
-  let openReasoningIdx: number | null = null;
-  let terminated = false;
-
-  // 就地改写助手消息的 parts(不可变:新数组 / 新对象,触发订阅)。
-  const patchParts = (fn: (parts: ChatPart[]) => ChatPart[]): void => {
-    useChatStore.setState((s) => {
-      const messages = s.messages.slice();
-      const asstMsg = messages[asstIdx];
-      messages[asstIdx] = { ...asstMsg, parts: fn(asstMsg.parts) };
-      return { messages };
-    });
-  };
-
-  // 往「当前打开的」某类文本缓冲追加;不存在则新开一个 part。
-  const appendStream = (kind: "text" | "reasoning", delta: string): void => {
-    patchParts((parts) => {
-      const idx = kind === "text" ? openTextIdx : openReasoningIdx;
-      if (idx === null) {
-        if (kind === "text") openTextIdx = parts.length;
-        else openReasoningIdx = parts.length;
-        return [...parts, { kind, text: delta }];
-      }
-      const next = parts.slice();
-      const p = next[idx] as TextPart | ReasoningPart;
-      next[idx] = { ...p, text: p.text + delta };
-      return next;
-    });
-  };
-
-  // 关闭当前打开的文本/思考 part:下一段增量会新开一个,从而与芯片按顺序交错。
-  const closeStreams = (): void => {
-    openTextIdx = null;
-    openReasoningIdx = null;
-  };
-
-  const finalize = (errMessage?: string): void => {
-    if (terminated) return;
-    terminated = true;
-    if (errMessage) patchParts((parts) => [...parts, { kind: "error", message: errMessage }]);
-    useChatStore.setState({ streaming: false });
-  };
-
-  const reduce = (ev: AgentStreamEvent): void => {
-    switch (ev.type) {
-      case "text_delta":
-        appendStream("text", ev.delta);
-        break;
-      case "reasoning":
-        appendStream("reasoning", ev.delta);
-        break;
-      case "tool_call":
-        closeStreams();
-        patchParts((parts) => [...parts, { kind: "tool_call", name: ev.name, args: ev.args }]);
-        break;
-      case "tool_result":
-        closeStreams();
-        patchParts((parts) => [...parts, { kind: "tool_result", name: ev.name, summary: ev.summary }]);
-        break;
-      case "done":
-        finalize();
-        break;
-      case "error":
-        finalize(ev.message);
-        break;
-    }
-  };
-
-  // TS 大脑:同一个 reduce 归约器,但事件由前端 loop 直接回调(不走 Channel)。
-  if (useChatStore.getState().brain === "ts") {
-    await runTsTurn(text, reduce, finalize);
-    return;
-  }
-
-  const ch = new Channel<AgentStreamEvent>();
-  ch.onmessage = reduce;
-
-  try {
-    const res = await commands.agentChat(sessionId, text, ch);
-    // 失败也会作为 error 事件到达;这里的 {status:"error"} 是同一次终止的安全网(幂等)。
-    // 成功时 done 事件已在此前把本轮终止,finalize() 为无操作。
-    if (res.status === "error") finalize(res.error);
-    else finalize();
-  } catch (e) {
-    finalize(String(e));
-  }
+  const userMsg: UIMessage = { id: nextId(), role: "user", parts: [{ type: "text", text }] };
+  const history = [...useChatStore.getState().messages, userMsg];
+  useChatStore.setState({ messages: history });
+  await drive(history);
 }
 
 /**
- * 跑一轮 TS 大脑。惰性拉起 desktopAdapter(动态 import → 独立 chunk),把每个
- * AgentStreamEvent 直接喂给 reduce;core 的事件与 bindings 线格式一致,仅 args 由
- * `unknown` 转 `JsonValue`(同一份字节),故此处按需断言。runTurn 自身不 reject
- * 模型/工具错误(以 error 事件呈现);外层 catch 只兜住拉起阶段(config / import)的失败。
+ * 提交一次 ask_user 选择(原生 client-side tool 做法):把该工具调用 part 置为 output-available
+ * (带用户选择),再 run 一次 —— convertToModelMessages 会据此把选择作为 tool 结果喂回模型,
+ * 续跑同一会话。流式中 / 空选择忽略。
  */
-async function runTsTurn(
-  text: string,
-  reduce: (ev: AgentStreamEvent) => void,
-  finalize: (errMessage?: string) => void,
-): Promise<void> {
-  try {
-    if (!tsAgent) {
-      tsAgent = import("./desktopAdapter").then((m) => m.createDesktopAgent());
-    }
-    const agent = await tsAgent;
-    const { history } = await agent.runTurn(tsHistory, text, (e) => reduce(e as AgentStreamEvent));
-    tsHistory = history;
-    finalize();
-  } catch (e) {
-    tsAgent = null; // 拉起失败(如缺 key)→ 下次重试重新初始化
-    finalize(String(e));
-  }
+export function submitAskUserAnswer(msgId: string, toolCallId: string, selected: string[]): void {
+  if (selected.length === 0 || useChatStore.getState().streaming) return;
+  // 1) 把该 tool part 置为 output-available(模型据此拿到结构化结果、UI 标记已答)。
+  const answered = useChatStore.getState().messages.map((m) => {
+    if (m.id !== msgId) return m;
+    return {
+      ...m,
+      parts: m.parts.map((p) =>
+        isToolPart(p) && p.toolCallId === toolCallId
+          ? { ...p, state: "output-available", output: { selected } }
+          : p,
+      ),
+    } as UIMessage;
+  });
+  // 2) 追加一条用户气泡回显所选(用户视角:我的回答出现在对话流里),再续跑。
+  const echo: UIMessage = {
+    id: nextId(),
+    role: "user",
+    parts: [{ type: "text", text: selected.join("、") }],
+  };
+  const history = [...answered, echo];
+  useChatStore.setState({ messages: history });
+  void drive(history);
 }
 
-/** 新对话:清空后端 transcript 与前端消息(流式中忽略,避免半途重置)。 */
-export async function newChat(): Promise<void> {
+/** 是否为工具 part(UIMessage 里工具 part 的 type 形如 "tool-<name>",带 toolCallId)。 */
+function isToolPart(p: UIMessage["parts"][number]): p is Extract<
+  UIMessage["parts"][number],
+  { toolCallId: string }
+> {
+  return typeof (p as { toolCallId?: unknown }).toolCallId === "string";
+}
+
+/** 新对话:归档当前对话,轮换会话 id,清空消息(流式中忽略)。 */
+export function newChat(): void {
   if (useChatStore.getState().streaming) return;
-  useChatStore.setState({ messages: [] });
-  tsHistory = []; // 同时清 TS 大脑的客户端 transcript
-  try {
-    // 清后端会话;失败不阻断(UI 已清空,下一轮仍会复用同一 sessionId)。
-    await commands.agentChatReset(sessionId);
-  } catch {
-    /* best-effort */
-  }
+  saveCurrentConversation(); // 开新对话前把当前的存档,别丢
+  currentConvId = mintConvId();
+  useChatStore.setState({ messages: [], error: null });
 }
 
 /**
  * 从其它页面(发现 / 新建实例)带一句上下文提示打开助手:预填输入框草稿并切到助手页。
- * 不自动发送——ChatPage 取草稿后填进输入框、聚焦,由用户审阅 / 编辑再发。流式中亦照常
- * 切页 + 填框(输入框在本轮结束前保持禁用,发送键同样,沿用既有行为)。
+ * 不自动发送——ChatPage 取草稿后填进输入框、聚焦,由用户审阅 / 编辑再发。
  */
 export function openAgentChat(prompt: string): void {
   useChatStore.setState({ draft: prompt });

@@ -4,31 +4,19 @@
 // UI code — only `ai`, `zod`, and std TS. Everything host-specific (Tauri invoke,
 // an HTTP route, the daemon) lives in an adapter that injects a `ToolExecutor`.
 
-import type { ModelMessage } from "ai";
+import { z } from "zod";
 
 /**
- * Streamed turn events, wire-identical to Rust `mc_types::AgentStreamEvent`
- * (an internally-tagged snake_case union). Keeping the SAME tags lets ONE
- * reducer in the UI serve both the Rust brain (events arrive over a Tauri
- * Channel) and this TS brain (events call the reducer directly).
- *
- * `tool_call.args` is arbitrary JSON, typed `unknown` here so core stays free of
- * the project's `JsonValue`; the desktop seam casts it when handing off.
+ * Option schema for an `ask_user_question` choice — the single source for the
+ * tool's option schema and the option type. Derive the type with `z.infer`;
+ * don't re-declare it.
  */
-export type AgentStreamEvent =
-  | { type: "text_delta"; delta: string }
-  | { type: "reasoning"; delta: string }
-  | { type: "tool_call"; name: string; args: unknown }
-  | { type: "tool_result"; name: string; summary: string }
-  | { type: "done" }
-  | { type: "error"; message: string };
-
-/**
- * The transcript currency: the AI SDK's `ModelMessage` (a.k.a. CoreMessage).
- * Using it directly means assistant tool-call turns and tool-result turns
- * round-trip losslessly between turns (mirrors the Rust `ChatTranscript`).
- */
-export type ChatMessage = ModelMessage;
+export const askUserOptionSchema = z.object({
+  label: z.string().describe("The visible choice text, in the user's language."),
+  id: z.string().optional().describe("Optional stable id; defaults to the label."),
+  description: z.string().optional().describe("Optional one-line detail shown under the label."),
+});
+export type AskUserOption = z.infer<typeof askUserOptionSchema>;
 
 /**
  * Host-injected tool backend: a map of tool name → async executor. The core

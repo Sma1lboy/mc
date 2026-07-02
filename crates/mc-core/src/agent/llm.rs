@@ -98,13 +98,6 @@ impl AgentLlmClient {
         &self.config.model
     }
 
-    /// The underlying Rig OpenRouter client, so the streaming chat agent
-    /// (`agent::chat`) can build a tool-equipped `Agent` from the exact same
-    /// provider/base-url/key configuration used by `prompt_typed`.
-    pub(crate) fn client(&self) -> &openrouter::Client {
-        &self.client
-    }
-
     pub(crate) async fn prompt_typed<T>(
         &self,
         instructions: &[&str],

@@ -52,12 +52,13 @@ const DiscoverIcon = (): React.ReactElement => (
   </svg>
 );
 
-// 库:书本(book)。
+// 库:叠放的书堆(stacked books)——刻意区别于「助手」的对话气泡,rail 小尺寸下不再混淆。
 const LibraryIcon = (): React.ReactElement => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"
        strokeLinecap="round" strokeLinejoin="round" className="w-[22px] h-[22px]" aria-hidden="true">
-    <path d="M4 5.5A2 2 0 0 1 6 4h13v15H6a2 2 0 0 0-2 2V5.5Z" />
-    <path d="M4 19.5A2 2 0 0 1 6 18h13" />
+    <rect x="4" y="4" width="15" height="4.6" rx="1" />
+    <rect x="5.5" y="9.7" width="15" height="4.6" rx="1" />
+    <rect x="4" y="15.4" width="15" height="4.6" rx="1" />
   </svg>
 );
 
@@ -80,9 +81,13 @@ const SettingsIcon = (): React.ReactElement => (
   </svg>
 );
 
+// stroke=currentColor,自持 transition-colors:随外层 group-hover 从 muted→accent 平滑变色。
+// 不靠继承 button 的 color 动画(那会让 + 比外框慢半拍),外框与 + 各跑自己的 --dur、同触发即同步。
 const PlusIcon = (): React.ReactElement => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"
-       strokeLinecap="round" strokeLinejoin="round" className="w-[18px] h-[18px]" aria-hidden="true">
+       strokeLinecap="round" strokeLinejoin="round"
+       className="w-[18px] h-[18px] text-muted transition-colors duration-[var(--dur)] ease-app group-hover:text-accent"
+       aria-hidden="true">
     <path d="M12 5v14M5 12h14" />
   </svg>
 );
@@ -165,7 +170,7 @@ export default function Rail(): React.ReactElement {
         {/* 新增实例:虚线 + 方块,点开新建对话框。 */}
         <button
           type="button"
-          className="w-[36px] h-[36px] shrink-0 grid place-items-center border-2 border-dashed border-titlebar bg-transparent text-muted cursor-pointer transition-[color,border-color] duration-[var(--dur)] ease-app hover:text-accent hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="group w-[36px] h-[36px] shrink-0 grid place-items-center border-2 border-dashed border-titlebar bg-transparent cursor-pointer transition-[border-color] duration-[var(--dur)] ease-app hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           title={t("layout.newInstance")}
           onClick={() => setNewOpen(true)}
         >

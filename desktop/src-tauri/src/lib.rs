@@ -26,9 +26,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         .typ::<commands::GameLog>()
         .typ::<commands::GameStarted>()
         .typ::<commands::GameExit>()
-        // Streaming chat-agent events cross via `ipc::Channel<AgentStreamEvent>`;
-        // register the type so `Channel<AgentStreamEvent>` lands in bindings.ts.
-        .typ::<mc_types::AgentStreamEvent>()
+        // The agent stream now uses the AI SDK's native UIMessage on the TS side, so
+        // there's no bespoke stream-event type to export here anymore.
         .commands(collect_commands![
             commands::list_roots,
             commands::list_instances,
@@ -155,8 +154,6 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::check_modpack_updates,
             commands::apply_modpack_update,
             commands::check_all_updates,
-            commands::agent_chat,
-            commands::agent_chat_reset,
             commands::agent_tool_search_base_modpacks,
             commands::agent_tool_inspect_base_modpack,
             commands::agent_tool_search_mods,
@@ -223,7 +220,6 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(commands::RunningGames::default())
         // 流式聊天 agent 的每会话 transcript(rig 原始 transcript 不过 Tauri 边界)。
-        .manage(commands::ChatSessions::default())
         // Shared tool context for the `agent_tool_*` commands (a TS-side agent loop).
         .manage(commands::AgentToolsState::default())
         // EasyTier 联机会话状态(同一时刻最多一个会话)。

@@ -1,11 +1,7 @@
-//! Unit tests for the lean chat agent.
+//! Unit tests for the deterministic modpack tools.
 //!
-//! Two layers, neither of which needs a live API key:
-//! - each deterministic tool against an in-memory `FakeChatProvider`
-//!   (no network — the archive/build tests spin up throwaway localhost servers);
-//! - the streaming loop (`run_chat_turn`) against a mocked OpenRouter SSE server,
-//!   verifying that a streamed tool call is dispatched, its result fed back, and
-//!   the events surface through the sink.
+//! Each `tool_*` runs against an in-memory `FakeChatProvider` — no live API key,
+//! no network (the archive/build tests spin up throwaway localhost servers).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -13,21 +9,16 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use rig_core::tool::Tool;
 
-use mc_types::AgentStreamEvent;
-
-use crate::agent::{AgentLlmClient, AgentLlmConfig};
 use crate::modplatform::provider::{ProviderRegistry, ResourceProvider};
 use crate::modplatform::{
     Dependency, HashAlgo, ProjectSideSupport, ProjectVersion, ProviderCaps, ProviderId,
     ResolvedFile, SearchHit, SearchQuery, VersionFile,
 };
 
-use super::run::{run_chat_turn, ChatTranscript, CollectingSink};
 use super::tools::{
-    BuildModRef, BuildModpackArgs, BuildModpackTool, BuildTarget, ChatToolsCtx,
-    InspectBaseModpackArgs, InspectBaseModpackTool, ModGetDetailArgs, ModGetDetailTool,
-    ResolveModsArgs, ResolveModsTool, SearchBaseModpacksArgs, SearchBaseModpacksTool,
-    SearchModsArgs, SearchModsTool,
+    BuildModRef, BuildModpackArgs, BuildModpackTool, BuildTarget, InspectBaseModpackArgs,
+    InspectBaseModpackTool, ModGetDetailArgs, ModGetDetailTool, ResolveModsArgs, ResolveModsTool,
+    SearchBaseModpacksArgs, SearchBaseModpacksTool, SearchModsArgs, SearchModsTool,
 };
 
 // ---------------------------------------------------------------------------
@@ -215,72 +206,6 @@ fn bytes_server(body: Vec<u8>) -> String {
         }
     });
     format!("http://{addr}")
-}
-
-/// Serve a queue of SSE bodies, one per accepted connection (Rig opens a new
-/// connection per turn because we respond with `Connection: close`).
-fn sse_server(bodies: Vec<Vec<u8>>) -> String {
-    use std::io::{Read, Write};
-    use std::net::TcpListener;
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let addr = listener.local_addr().unwrap();
-    std::thread::spawn(move || {
-        for body in bodies {
-            match listener.accept() {
-                Ok((mut stream, _)) => {
-                    let mut buf = [0u8; 65536];
-                    let _ = stream.read(&mut buf);
-                    let headers = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n";
-                    let _ = stream.write_all(headers.as_bytes());
-                    let _ = stream.write_all(&body);
-                    let _ = stream.flush();
-                }
-                Err(_) => break,
-            }
-        }
-    });
-    format!("http://{addr}")
-}
-
-fn sse_tool_call(id: &str, name: &str, args: serde_json::Value) -> Vec<u8> {
-    let args_string = serde_json::to_string(&args).unwrap();
-    let chunk = serde_json::json!({
-        "id": "gen-tool",
-        "model": "mock",
-        "choices": [{
-            "index": 0,
-            "delta": {
-                "tool_calls": [{
-                    "index": 0,
-                    "id": id,
-                    "type": "function",
-                    "function": { "name": name, "arguments": args_string }
-                }]
-            },
-            "finish_reason": "tool_calls"
-        }]
-    });
-    format!("data: {chunk}\n\ndata: [DONE]\n\n").into_bytes()
-}
-
-fn sse_final_text(text: &str) -> Vec<u8> {
-    let chunk = serde_json::json!({
-        "id": "gen-final",
-        "model": "mock",
-        "choices": [{
-            "index": 0,
-            "delta": { "content": text },
-            "finish_reason": "stop"
-        }]
-    });
-    format!("data: {chunk}\n\ndata: [DONE]\n\n").into_bytes()
-}
-
-fn mock_llm(base_url: String) -> AgentLlmClient {
-    let mut cfg = AgentLlmConfig::new("test-key");
-    cfg.base_url = base_url;
-    cfg.model = "mock-model".to_string();
-    AgentLlmClient::new(cfg).unwrap()
 }
 
 // ---------------------------------------------------------------------------
@@ -576,128 +501,6 @@ async fn build_modpack_from_scratch_writes_verified_mrpack() {
     let _ = std::fs::remove_dir_all(&out_dir);
 }
 
-// ---------------------------------------------------------------------------
-// Streaming loop test (mocked model)
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn chat_turn_streams_text_and_dispatches_tool_call() {
-    // Turn 1: the (mocked) model calls search_base_modpacks. Turn 2: after the
-    // tool result is fed back, it answers with text.
-    let base_url = sse_server(vec![
-        sse_tool_call(
-            "call_1",
-            "search_base_modpacks",
-            serde_json::json!({ "query": "tech", "mc_version": "1.20.1", "loader": "fabric" }),
-        ),
-        sse_final_text("Here is a base pack you could use."),
-    ]);
-    let llm = mock_llm(base_url);
-
-    let provider = FakeChatProvider {
-        search_hits: vec![hit("packid", "cool-pack", "Cool Pack")],
-        ..Default::default()
-    };
-    let tools = ChatToolsCtx::new(registry_of(provider), temp_dir("loop"));
-    let sink = CollectingSink::new();
-
-    let outcome = run_chat_turn(
-        &llm,
-        &tools,
-        ChatTranscript::new(),
-        "make me a tech pack for 1.20.1 fabric",
-        &sink,
-    )
-    .await
-    .unwrap();
-
-    let events = sink.events();
-
-    // The tool call was surfaced with its name + parsed args.
-    let tool_call = events
-        .iter()
-        .find_map(|e| match e {
-            AgentStreamEvent::ToolCall { name, args } => Some((name.clone(), args.clone())),
-            _ => None,
-        })
-        .expect("a ToolCall event");
-    assert_eq!(tool_call.0, "search_base_modpacks");
-    assert_eq!(tool_call.1["query"], "tech");
-
-    // Rig dispatched the tool and fed the result back; we surfaced a ToolResult.
-    let tool_result = events.iter().any(|e| {
-        matches!(e, AgentStreamEvent::ToolResult { name, .. } if name == "search_base_modpacks")
-    });
-    assert!(tool_result, "expected a ToolResult for the dispatched tool: {events:?}");
-
-    // Assistant text streamed through, and the turn ended with Done.
-    assert!(events.iter().any(|e| matches!(e, AgentStreamEvent::TextDelta { .. })));
-    assert_eq!(events.last(), Some(&AgentStreamEvent::Done));
-
-    assert!(outcome.reply.contains("base pack"), "reply: {}", outcome.reply);
-    // The transcript grew: user + assistant turns (with the tool round-trip).
-    assert!(outcome.transcript.len() >= 2, "transcript: {:?}", outcome.transcript);
-}
-
-// ---------------------------------------------------------------------------
-// Transcript persistence
-// ---------------------------------------------------------------------------
-
-#[test]
-fn transcript_save_load_round_trips_tool_call_turn() {
-    use rig_core::completion::Message;
-    use rig_core::message::AssistantContent;
-    use rig_core::OneOrMany;
-
-    use super::store::{delete_transcript, load_transcript, save_transcript};
-
-    let messages = vec![
-        Message::user("make me a tech pack"),
-        Message::Assistant {
-            id: None,
-            content: OneOrMany::one(AssistantContent::tool_call(
-                "call_1",
-                "search_base_modpacks",
-                serde_json::json!({ "query": "tech", "mc_version": "1.20.1" }),
-            )),
-        },
-        Message::tool_result("call_1", r#"{"candidates":[]}"#),
-        Message::assistant("No base packs found; want to start from scratch?"),
-    ];
-    let transcript = ChatTranscript::from_messages(messages.clone());
-
-    let dir = temp_dir("transcript");
-    let path = save_transcript(&dir, "session-a_1", &transcript).unwrap();
-    assert!(path.ends_with("agent/chat/sessions/session-a_1.json"));
-
-    let loaded = load_transcript(&dir, "session-a_1").expect("saved transcript loads");
-    // Compare against serde's canonical form of the same messages: rig's Text
-    // deserializer normalizes `additional_params: None` to `Some({})`, so a
-    // byte-identical struct compare would fail while the content is lossless.
-    let canonical: Vec<Message> =
-        serde_json::from_str(&serde_json::to_string(&messages).unwrap()).unwrap();
-    assert_eq!(loaded.messages(), canonical.as_slice());
-    assert_eq!(loaded.len(), 4);
-    // The tool-call turn survived with its id, name, and arguments intact.
-    let Message::Assistant { content, .. } = &loaded.messages()[1] else {
-        panic!("expected assistant tool-call turn");
-    };
-    let AssistantContent::ToolCall(call) = content.first() else {
-        panic!("expected a tool call");
-    };
-    assert_eq!(call.id, "call_1");
-    assert_eq!(call.function.name, "search_base_modpacks");
-    assert_eq!(call.function.arguments["query"], "tech");
-
-    // Path-like ids are rejected, missing sessions are None, delete is idempotent.
-    assert!(save_transcript(&dir, "../evil", &transcript).is_err());
-    assert!(load_transcript(&dir, "../evil").is_none());
-    assert!(load_transcript(&dir, "unknown").is_none());
-    delete_transcript(&dir, "session-a_1").unwrap();
-    assert!(load_transcript(&dir, "session-a_1").is_none());
-    delete_transcript(&dir, "session-a_1").unwrap();
-    let _ = std::fs::remove_dir_all(&dir);
-}
 
 fn zip_index(index_json: Vec<u8>) -> Vec<u8> {
     use std::io::{Cursor, Write};

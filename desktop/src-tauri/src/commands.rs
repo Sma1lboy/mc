@@ -13,7 +13,7 @@ use mc_core::agent::chat::{
     ResolveModsArgs, ResolveModsOutput, SearchBaseModpacksArgs, SearchBaseModpacksOutput,
     SearchModsArgs, SearchModsOutput,
 };
-use mc_core::agent::{run_chat_turn, ChatEventSink, ChatToolsCtx, ChatTranscript};
+use mc_core::agent::ChatToolsCtx;
 use mc_core::auth::{AccountStore, MsaClient, StoredAccount};
 use mc_core::download::Downloader;
 use mc_core::instance::Instance;
@@ -24,7 +24,6 @@ use mc_core::types::{
     AccountKind, AccountSummary, GameRoot, InstanceSummary, ManifestVersion, Progress, ThemeConfig,
 };
 use mc_core::{auth, java, meta, paths, LAUNCHER_NAME, LAUNCHER_VERSION};
-use mc_types::AgentStreamEvent;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::{oneshot, watch};
@@ -3151,150 +3150,12 @@ pub fn lobby_privileged_ready() -> CmdResult<bool> {
     Ok(privileged_core().is_some())
 }
 
-// --- AI chat agent (streaming) -------------------------------------------
-
-/// Per-session transcripts for the streaming chat agent, plus a one-turn-at-a-time
-/// guard. The raw rig transcript ([`ChatTranscript`]) is **not** `specta::Type`, so
-/// it must never cross the Tauri boundary — it lives here, server-side, and only
-/// typed [`AgentStreamEvent`]s are streamed to the UI over an `ipc::Channel`.
-///
-/// A slot holds `Some(transcript)` when idle and `None` while a turn is streaming
-/// (the transcript is taken out and the turn runs with the lock released). A
-/// brand-new session has no entry at all. That three-way distinction is exactly
-/// what lets [`begin_turn`](ChatSessions::begin_turn) reject a second turn that
-/// arrives mid-stream instead of silently interleaving it.
-#[derive(Default)]
-pub struct ChatSessions(Mutex<HashMap<String, Option<ChatTranscript>>>);
-
-impl ChatSessions {
-    /// Reserve a session for a turn: take its transcript out (or start a fresh one
-    /// for an unseen session) and mark the slot in-flight. Errors if a turn is
-    /// already streaming for this session. The lock is dropped on return — it is
-    /// never held across the turn's `await`.
-    /// For a session unseen since app start, `load_persisted` supplies the
-    /// transcript saved on disk by a previous run (or `None` to start fresh).
-    /// It is only invoked for unseen sessions, under the (uncontended) lock.
-    fn begin_turn(
-        &self,
-        session_id: &str,
-        load_persisted: impl FnOnce() -> Option<ChatTranscript>,
-    ) -> CmdResult<ChatTranscript> {
-        let mut map = self.0.lock().unwrap();
-        if let Some(slot) = map.get_mut(session_id) {
-            // `take()` both hands us the transcript and leaves `None` behind as the
-            // in-flight marker; if it was already `None`, the session is busy.
-            return slot
-                .take()
-                .ok_or_else(|| "该会话正在生成回复,请等它结束后再发送".to_string());
-        }
-        map.insert(session_id.to_string(), None);
-        Ok(load_persisted().unwrap_or_default())
-    }
-
-    /// Release a session after a turn, storing the transcript to continue from next
-    /// time (the updated one on success, the prior one on failure).
-    fn end_turn(&self, session_id: &str, transcript: ChatTranscript) {
-        self.0.lock().unwrap().insert(session_id.to_string(), Some(transcript));
-    }
-
-    /// Drop a session's transcript so the next turn starts a fresh conversation.
-    fn reset(&self, session_id: &str) {
-        self.0.lock().unwrap().remove(session_id);
-    }
-}
-
-/// A [`ChatEventSink`] that forwards each streamed event to the UI over a typed
-/// Tauri [`Channel`](tauri::ipc::Channel). Send failures (the client went away)
-/// are logged, not fatal — the turn keeps running to completion server-side.
-struct ChannelSink(tauri::ipc::Channel<AgentStreamEvent>);
-
-impl ChatEventSink for ChannelSink {
-    fn emit(&self, event: AgentStreamEvent) {
-        if let Err(e) = self.0.send(event) {
-            tracing::warn!(target: "daemon", "chat 事件转发失败(客户端可能已断开):{e}");
-        }
-    }
-}
-
-/// Build the LLM client + tool context and run one streaming chat turn, mirroring
-/// the CLI wiring (`AgentLlmConfig::from_local` → `AgentLlmClient` → `ChatToolsCtx`
-/// over `ProviderRegistry::with_defaults`). Kept out of the command so the command
-/// owns only session-slot bookkeeping. Returns the updated transcript.
-async fn run_chat_agent_turn(
-    dir: &Path,
-    transcript: ChatTranscript,
-    message: &str,
-    sink: &dyn ChatEventSink,
-) -> CmdResult<ChatTranscript> {
-    let cfg = mc_core::agent::AgentLlmConfig::from_local(dir).map_err(err)?;
-    let llm = mc_core::agent::AgentLlmClient::new(cfg).map_err(err)?;
-    let registry = Arc::new(mc_core::modplatform::provider::ProviderRegistry::with_defaults());
-    let tools = ChatToolsCtx::new(registry, dir.join("agent").join("chat"));
-    let outcome = run_chat_turn(&llm, &tools, transcript, message, sink).await.map_err(err)?;
-    Ok(outcome.transcript)
-}
-
-/// Run one turn of the streaming chat agent for `session_id`, streaming every event
-/// (text / reasoning / tool-call / tool-result / done / error) to the UI over the
-/// typed `on_event` channel. The session transcript is kept server-side in
-/// [`ChatSessions`] and threaded across turns; a second turn for the same session
-/// while one is still streaming is rejected with a clear error.
-///
-/// On failure the error is both returned as `Err(String)` **and** emitted as a
-/// terminal [`AgentStreamEvent::Error`], so the UI always sees the stream end even
-/// when the failure is pre-stream (e.g. a missing OpenRouter key). Treat
-/// `Error`/`Done` as idempotent terminals: a mid-stream failure is emitted once by
-/// the agent loop and again here as the guaranteed safety-net terminal.
-#[tauri::command]
-#[specta::specta]
-pub async fn agent_chat(
-    state: State<'_, ChatSessions>,
-    session_id: String,
-    message: String,
-    on_event: tauri::ipc::Channel<AgentStreamEvent>,
-) -> CmdResult<()> {
-    let dir = data_dir();
-    let transcript =
-        state.begin_turn(&session_id, || mc_core::agent::load_transcript(&dir, &session_id))?;
-    // `run_chat_turn` consumes the transcript; keep a clone to restore prior
-    // history (and free the in-flight slot) if the turn fails.
-    let prior = transcript.clone();
-    let sink = ChannelSink(on_event);
-
-    match run_chat_agent_turn(&dir, transcript, &message, &sink).await {
-        Ok(updated) => {
-            // Persist so the conversation survives an app restart. A save failure
-            // must not fail the turn — the in-memory transcript is still intact.
-            if let Err(e) = mc_core::agent::save_transcript(&dir, &session_id, &updated) {
-                tracing::warn!(target: "daemon", "chat 会话转录持久化失败:{e}");
-            }
-            state.end_turn(&session_id, updated);
-            Ok(())
-        }
-        Err(e) => {
-            state.end_turn(&session_id, prior);
-            sink.emit(AgentStreamEvent::Error { message: e.clone() });
-            Err(e)
-        }
-    }
-}
-
-/// Reset a chat session: drop its stored transcript (in memory AND on disk) so
-/// the next [`agent_chat`] starts a brand-new conversation.
-#[tauri::command]
-#[specta::specta]
-pub fn agent_chat_reset(state: State<'_, ChatSessions>, session_id: String) -> CmdResult<()> {
-    state.reset(&session_id);
-    mc_core::agent::delete_transcript(&data_dir(), &session_id).map_err(err)?;
-    Ok(())
-}
-
 // --- agent deterministic tools (for a TS-side agent loop) -----------------
 //
-// The same six deterministic tools the Rust chat agent uses, exposed one-per-
-// command so a TS agent brain (Vercel AI SDK in the webview) can run the tool-use
-// loop itself and dispatch each tool via `invoke()`. Every command is a thin
-// wrapper over the single-source `tool_*` fn in `mc_core::agent::chat` — no logic
+// Six deterministic modpack tools, exposed one-per-command so the TS agent brain
+// (Vercel AI SDK in the webview) can run the tool-use loop itself and dispatch each
+// tool via `invoke()`. Every command is a thin wrapper over the single-source
+// `tool_*` fn in `mc_core::agent::chat` — no logic
 // here. Safety is unchanged: the tools only ever return real provider/resolver
 // data, and `agent_tool_build_modpack` re-resolves every file through the provider.
 
