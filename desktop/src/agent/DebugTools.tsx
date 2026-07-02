@@ -59,32 +59,46 @@ const CopyGlyph = (): React.ReactElement => (
   </svg>
 );
 
-// 会话选择器(dev):按更新时间倒序列出历史对话,选中即载入当前视图。流式中禁用。
-function ConversationPicker(): React.ReactElement | null {
+// 会话选择器(dev):始终显示,当前对话恒为首项,其余按更新时间倒序。选中即载入。流式中禁用。
+// 订阅 messages 让「当前对话」项的标题随首条用户消息实时更新;订阅 conversations 让存档变化即刷新。
+function ConversationPicker(): React.ReactElement {
   const conversations = useChatStore((s) => s.conversations);
+  const messages = useChatStore((s) => s.messages);
   const streaming = useChatStore((s) => s.streaming);
-  if (conversations.length === 0) return null;
-  const sorted = [...conversations].sort((a, b) => b.updatedAt - a.updatedAt);
   const current = currentChatSessionId();
-  const label = (updatedAt: number): string =>
-    new Date(updatedAt).toLocaleString(undefined, {
+
+  const time = (ms: number): string =>
+    new Date(ms).toLocaleString(undefined, {
       month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
     });
+
+  // 当前对话:取本地消息的首条用户文本当标题(可能尚未存档)。
+  const firstUser = messages.find((m) => m.role === "user");
+  const currentTitle = firstUser
+    ? firstUser.parts.map((p) => (p.kind === "text" ? p.text : "")).join("").trim().slice(0, 40)
+    : "";
+
+  // 其余存档(排除当前),按更新时间倒序。
+  const others = conversations
+    .filter((c) => c.id !== current)
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+
   return (
     <select
       value={current}
       disabled={streaming}
       onChange={(e) => loadConversation(e.currentTarget.value)}
       title={t("agent.debugConversations")}
-      className="h-[22px] max-w-[180px] px-[6px] rounded-none bg-panel-2 shadow-sunken text-[11px] text-sub cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      className="h-[22px] max-w-[200px] px-[6px] rounded-none bg-panel-2 shadow-sunken text-[11px] text-sub cursor-pointer disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
     >
-      {/* 当前会话若尚未存档(还没发消息),给个占位项,避免受控 select 值失配。 */}
-      {!sorted.some((c) => c.id === current) && (
-        <option value={current}>{t("agent.debugCurrentConversation")}</option>
-      )}
-      {sorted.map((c) => (
+      {/* 当前对话恒在最上,始终可见(即便还没发过消息 / 还没存档)。 */}
+      <option value={current}>
+        {t("agent.debugCurrentConversation")}
+        {currentTitle ? ` · ${currentTitle}` : ""}
+      </option>
+      {others.map((c) => (
         <option key={c.id} value={c.id}>
-          {`${label(c.updatedAt)} · ${c.title || t("agent.debugUntitledConversation")}`}
+          {`${time(c.updatedAt)} · ${c.title || t("agent.debugUntitledConversation")}`}
         </option>
       ))}
     </select>

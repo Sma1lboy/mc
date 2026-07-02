@@ -237,9 +237,12 @@ export default function ChatPage() {
           <Heading size="section" as="h1">{t("agent.title")}</Heading>
           <div className="mt-[4px] text-[12px] text-muted truncate">{t("agent.subtitle")}</div>
         </div>
-        <div className="shrink-0 flex items-center gap-[12px]">
-          <DebugTools />
-          <Button variant="ghost" disabled={streaming} onClick={() => newChat()}>
+        {/* 右侧:调试条可收缩 + 横向滚动(窄窗不再盖住标题),「新对话」始终常驻。 */}
+        <div className="flex items-center gap-[12px] min-w-0">
+          <div className="min-w-0 overflow-x-auto">
+            <DebugTools />
+          </div>
+          <Button variant="ghost" disabled={streaming} onClick={() => newChat()} className="shrink-0">
             {t("agent.newChat")}
           </Button>
         </div>
