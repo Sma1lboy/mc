@@ -26,9 +26,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         .typ::<commands::GameLog>()
         .typ::<commands::GameStarted>()
         .typ::<commands::GameExit>()
-        // The TS agent brain (webview) types its stream events with `AgentStreamEvent`;
-        // register the type so it lands in bindings.ts even though no command uses it.
-        .typ::<mc_types::AgentStreamEvent>()
+        // The agent stream now uses the AI SDK's native UIMessage on the TS side, so
+        // there's no bespoke stream-event type to export here anymore.
         .commands(collect_commands![
             commands::list_roots,
             commands::list_instances,

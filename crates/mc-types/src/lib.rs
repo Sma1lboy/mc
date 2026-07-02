@@ -35,68 +35,8 @@ impl Progress {
     }
 }
 
-/// A single streamed event from the modpack chat agent. This is the wire-level
-/// seam between the agent brain and the UI: the TS brain (`@kobemc/agent-core`,
-/// running in the webview) emits these per turn and the chat store reduces them
-/// into the rendered message — mirroring how long-running tasks stream [`Progress`].
-/// Kept in `mc-types` (and registered with specta) so the shape stays the single
-/// source of truth for the generated TS bindings.
-///
-/// Serialized as an internally-tagged union (`{"type": "text_delta", ...}`) so
-/// the UI can `switch` on `type`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum AgentStreamEvent {
-    /// A chunk of assistant-visible markdown text.
-    TextDelta { delta: String },
-    /// A chunk of model reasoning/thinking, when the provider exposes it
-    /// (OpenRouter reasoning deltas). Purely informational; never the answer.
-    Reasoning { delta: String },
-    /// The model invoked a deterministic tool with these JSON arguments.
-    ToolCall {
-        name: String,
-        /// The runtime field stays `serde_json::Value` (arbitrary JSON); the
-        /// specta override shapes the generated TypeScript as [`JsonValue`].
-        /// specta represents `serde_json::Value` as an *inline* recursive type,
-        /// which specta-typescript cannot emit — so exporting the event as-is
-        /// fails. The override changes only the emitted TS, never the wire bytes.
-        #[specta(type = JsonValue)]
-        args: serde_json::Value,
-    },
-    /// A tool finished; `summary` is a short human-readable result line.
-    ToolResult { name: String, summary: String },
-    /// The agent asks the user to choose among options (a native AI SDK
-    /// client-side tool: `ask_user_question` has no executor). The TS brain emits
-    /// this when the model calls the tool and pauses the turn; the UI renders the
-    /// chips and feeds the pick back as the tool result (keyed by `tool_call_id`),
-    /// resuming the same turn. `multi_select` lets the model request one-of vs any-of.
-    AskUser {
-        tool_call_id: String,
-        question: String,
-        options: Vec<AskUserOption>,
-        multi_select: bool,
-    },
-    /// The turn finished normally (no more events will follow).
-    Done,
-    /// The turn failed; `message` describes why.
-    Error { message: String },
-}
-
-/// One selectable option in an [`AgentStreamEvent::AskUser`] prompt.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
-pub struct AskUserOption {
-    /// The visible choice text (also what is sent back when picked).
-    pub label: String,
-    /// Optional stable id; falls back to `label` when omitted.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// Optional one-line detail shown under the label.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-}
-
-/// A specta-exportable stand-in for arbitrary JSON (`serde_json::Value`), used
-/// only as the export type of [`AgentStreamEvent::ToolCall`]'s `args` field.
+/// A specta-exportable stand-in for arbitrary JSON (`serde_json::Value`), used as
+/// the export type of the `agent_tool_build_modpack` command's `manifest` field.
 ///
 /// specta registers `serde_json::Value` as an *inline* type, and since it is
 /// recursive (`Value` → `Vec<Value>` → `Value`) specta-typescript refuses to

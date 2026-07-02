@@ -5,30 +5,11 @@
 // an HTTP route, the daemon) lives in an adapter that injects a `ToolExecutor`.
 
 import { z } from "zod";
-import type { ModelMessage } from "ai";
 
 /**
- * Streamed turn events, wire-identical to Rust `mc_types::AgentStreamEvent`
- * (an internally-tagged snake_case union). Keeping the SAME tags lets ONE
- * reducer in the UI serve both the Rust brain (events arrive over a Tauri
- * Channel) and this TS brain (events call the reducer directly).
- *
- * `tool_call.args` is arbitrary JSON, typed `unknown` here so core stays free of
- * the project's `JsonValue`; the desktop seam casts it when handing off.
- */
-export type AgentStreamEvent =
-  | { type: "text_delta"; delta: string }
-  | { type: "reasoning"; delta: string }
-  | { type: "tool_call"; name: string; args: unknown }
-  | { type: "tool_result"; name: string; summary: string }
-  | { type: "ask_user"; tool_call_id: string; question: string; options: AskUserOption[]; multi_select: boolean }
-  | { type: "done" }
-  | { type: "error"; message: string };
-
-/**
- * Option schema for an `ask_user` choice — the single source for both the
- * `ask_user_question` tool's option schema and the event's option type (mirrors
- * Rust `AskUserOption`). Derive the type with `z.infer`; don't re-declare it.
+ * Option schema for an `ask_user_question` choice — the single source for the
+ * tool's option schema and the option type. Derive the type with `z.infer`;
+ * don't re-declare it.
  */
 export const askUserOptionSchema = z.object({
   label: z.string().describe("The visible choice text, in the user's language."),
@@ -36,13 +17,6 @@ export const askUserOptionSchema = z.object({
   description: z.string().optional().describe("Optional one-line detail shown under the label."),
 });
 export type AskUserOption = z.infer<typeof askUserOptionSchema>;
-
-/**
- * The transcript currency: the AI SDK's `ModelMessage` (a.k.a. CoreMessage).
- * Using it directly means assistant tool-call turns and tool-result turns
- * round-trip losslessly between turns (mirrors the Rust `ChatTranscript`).
- */
-export type ChatMessage = ModelMessage;
 
 /**
  * Host-injected tool backend: a map of tool name → async executor. The core

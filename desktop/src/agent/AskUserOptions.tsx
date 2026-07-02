@@ -1,32 +1,60 @@
 import { useState } from "react";
+import type { UIMessage } from "ai";
 import clsx from "clsx";
 import { t } from "../i18n";
-import { submitAskUserAnswer, type AskUserPart } from "./chatStore";
+import { submitAskUserAnswer } from "./chatStore";
 
 /* ============================================================================
- * AskUserOptions —— 渲染模型 `ask_user_question`(原生 client-side tool)的可点选项。
+ * AskUserOptions —— 渲染 `ask_user_question`(原生 client-side tool)的可点选项。
  *
- * 单选/多选都是先选中(单选点选替换、多选勾选切换),另有一个常驻的自定义输入框,
- * 最后点「提交」把选中项 + 自定义文本按 toolCallId 作为该工具调用的结果喂回、续跑
- * 同一 turn(见 submitAskUserAnswer,它同时把回答作为一条用户消息插入)。
- * live=false(非末条 / 流式中 / 已答)时只读:已答的高亮 part.answer 里的选项。
+ * 直接读 UIMessage 里那个 ToolUIPart 的状态机:
+ *   input-streaming  → args 还在流,先渲染骨架 + 已解析出的部分(AI SDK 给 partial input)。
+ *   input-available  → args 完整、turn 已暂停等用户 → 可作答(单选点选即提交;多选勾选后提交)。
+ *   output-available → 已答,回显用户选过的项(高亮、只读)。
+ * 提交把选择写回该 tool part 的 output,再续跑同一会话(见 submitAskUserAnswer)。
  * ========================================================================== */
+
+/** UIMessage 里 ask_user 工具 part 的 type。 */
+export const ASK_USER_TOOL_TYPE = "tool-ask_user_question";
+
+type ToolPart = Extract<UIMessage["parts"][number], { toolCallId: string }>;
+
+interface AskInput {
+  question?: string;
+  options?: { label?: string; id?: string; description?: string }[];
+  multi_select?: boolean;
+}
 
 export function AskUserOptions(props: {
   msgId: string;
-  partIdx: number;
-  part: AskUserPart;
-  /** 是否为当前可作答的那一条(末条助手消息、非流式、未作答)。 */
-  live: boolean;
+  part: ToolPart;
+  /** 全局是否在流式(input-available 且非流式时才可作答)。 */
+  globalStreaming: boolean;
 }): React.ReactElement {
-  const { part, live } = props;
+  const { part, globalStreaming } = props;
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [custom, setCustom] = useState("");
+
+  const input = (part.input ?? {}) as AskInput;
+  const question = typeof input.question === "string" ? input.question : "";
+  const multiSelect = input.multi_select === true;
+  const options = (Array.isArray(input.options) ? input.options : []).filter(
+    (o): o is { label: string; id?: string; description?: string } => !!o && typeof o.label === "string",
+  );
+
+  const answered = part.state === "output-available";
+  const chosen = new Set<string>(
+    answered && Array.isArray((part.output as { selected?: string[] } | undefined)?.selected)
+      ? (part.output as { selected: string[] }).selected
+      : [],
+  );
+  const live = part.state === "input-available" && !globalStreaming;
+  const skeleton = options.length === 0 && !answered;
 
   const toggle = (i: number): void => {
     if (!live) return;
     setPicked((prev) => {
-      if (!part.multiSelect) return prev.has(i) ? new Set<number>() : new Set([i]);
+      if (!multiSelect) return prev.has(i) ? new Set<number>() : new Set([i]);
       const next = new Set(prev);
       if (next.has(i)) next.delete(i);
       else next.add(i);
@@ -41,22 +69,16 @@ export function AskUserOptions(props: {
     if (!canSubmit) return;
     const labels = [...picked]
       .sort((a, b) => a - b)
-      .map((i) => part.options[i]?.label)
+      .map((i) => options[i]?.label)
       .filter((l): l is string => !!l);
     if (customText) labels.push(customText);
-    submitAskUserAnswer(props.msgId, props.partIdx, part.toolCallId, labels);
+    submitAskUserAnswer(props.msgId, part.toolCallId, labels);
   };
-
-  // 已答后:高亮用户选过的选项(交互态在答后失效,统一看 part.answer)。
-  const answered = new Set(part.answer ?? []);
-
-  // 流式中还没解析出选项时,先把框架/骨架渲染出来(占位行),避免空白等待。
-  const skeleton = part.options.length === 0 && !part.answered;
 
   return (
     <div className="my-[6px] flex flex-col gap-[8px]">
-      {part.question ? (
-        <div className="text-[13px] text-fg leading-[1.6]">{part.question}</div>
+      {question ? (
+        <div className="text-[13px] text-fg leading-[1.6]">{question}</div>
       ) : (
         skeleton && <div className="h-[18px] w-[60%] rounded-none bg-panel-2 animate-pulse" aria-hidden="true" />
       )}
@@ -70,8 +92,8 @@ export function AskUserOptions(props: {
       )}
 
       <div className="flex flex-col gap-[6px]">
-        {part.options.map((opt, i) => {
-          const selected = live ? picked.has(i) : answered.has(opt.label);
+        {options.map((opt, i) => {
+          const selected = answered ? chosen.has(opt.label) : picked.has(i);
           return (
             <button
               key={opt.id ?? `${i}-${opt.label}`}

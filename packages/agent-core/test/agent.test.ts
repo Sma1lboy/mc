@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import type { UIMessage } from "ai";
 
 import { createModpackAgent, toolSchemas } from "../src/index";
 import { mockExecutor } from "../src/executors/index";
@@ -6,21 +7,27 @@ import { startMockServer } from "./fixtures/mockOpenRouter.mjs";
 
 const settings = (baseUrl: string) => ({ apiKey: "test", model: "mock", baseUrl });
 
+const textOf = (m: UIMessage): string =>
+  m.parts.map((p) => (p.type === "text" ? p.text : "")).join("");
+
+const userMsg = (text: string): UIMessage => ({ id: "u1", role: "user", parts: [{ type: "text", text }] });
+
 describe("runTurn", () => {
-  it("(a) streams text_delta then done, and returns grown history", async () => {
+  it("(a) streams a growing assistant UIMessage and returns grown history", async () => {
     const mock = await startMockServer({ scenario: "text", chunks: 5 });
     try {
       const agent = createModpackAgent(settings(mock.url), mockExecutor());
-      const events: { type: string }[] = [];
-      const { history, reply } = await agent.runTurn([], "hi", (e) => events.push(e));
+      const updates: UIMessage[] = [];
+      const { messages, error } = await agent.run([userMsg("hi")], (m) => updates.push(m));
 
-      const types = events.map((e) => e.type);
-      expect(types).toContain("text_delta");
-      expect(types.at(-1)).toBe("done");
-      expect(reply.length).toBeGreaterThan(0);
-      // history = input (the user message) + the SDK's response messages.
-      expect(history.length).toBeGreaterThanOrEqual(2);
-      expect(history[0]).toMatchObject({ role: "user" });
+      expect(error).toBeUndefined();
+      expect(updates.length).toBeGreaterThan(0); // streamed incrementally
+      // history = the user message + the streamed assistant message.
+      expect(messages.length).toBeGreaterThanOrEqual(2);
+      expect(messages[0]).toMatchObject({ role: "user" });
+      const assistant = messages.at(-1)!;
+      expect(assistant.role).toBe("assistant");
+      expect(textOf(assistant).length).toBeGreaterThan(0);
     } finally {
       await mock.close();
     }
@@ -41,18 +48,19 @@ describe("runTurn", () => {
         },
       });
       const agent = createModpackAgent(settings(mock.url), exec);
-      const events: { type: string }[] = [];
-      const { reply } = await agent.runTurn([], "make a tech pack", (e) => events.push(e));
+      const { messages, error } = await agent.run([userMsg("make a tech pack")], () => {});
 
+      expect(error).toBeUndefined();
       expect(calls).toHaveLength(1);
       expect(calls[0]).toMatchObject({ query: "tech" });
 
-      const types = events.map((e) => e.type);
-      expect(types).toContain("tool_call");
-      expect(types).toContain("tool_result");
-      expect(types.at(-1)).toBe("done");
-      // After the tool round-trip the model streamed a final text answer.
-      expect(reply.length).toBeGreaterThan(0);
+      const assistant = messages.at(-1)!;
+      // the turn carried a tool part (type "tool-<name>") and a final text answer.
+      const toolParts = assistant.parts.filter(
+        (p) => typeof p.type === "string" && p.type.startsWith("tool-"),
+      );
+      expect(toolParts.length).toBeGreaterThan(0);
+      expect(textOf(assistant).length).toBeGreaterThan(0);
     } finally {
       await mock.close();
     }

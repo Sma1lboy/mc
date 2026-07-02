@@ -75,7 +75,7 @@ function ConversationPicker(): React.ReactElement {
   // 当前对话:取本地消息的首条用户文本当标题(可能尚未存档)。
   const firstUser = messages.find((m) => m.role === "user");
   const currentTitle = firstUser
-    ? firstUser.parts.map((p) => (p.kind === "text" ? p.text : "")).join("").trim().slice(0, 40)
+    ? firstUser.parts.map((p) => (p.type === "text" ? p.text : "")).join("").trim().slice(0, 40)
     : "";
 
   // 其余存档(排除当前),按更新时间倒序。

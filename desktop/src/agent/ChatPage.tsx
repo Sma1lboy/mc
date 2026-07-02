@@ -1,36 +1,26 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import type { UIMessage } from "ai";
 import { Button, EmptyState, Heading, Panel, Spinner } from "../components";
 import { t, useLang } from "../i18n";
-import {
-  useChatStore,
-  sendMessage,
-  newChat,
-  clearDraft,
-  type ChatMessage,
-  type ToolCallPart,
-} from "./chatStore";
+import { useChatStore, sendMessage, newChat, clearDraft } from "./chatStore";
 import { DebugTools } from "./DebugTools";
-import { AskUserOptions } from "./AskUserOptions";
+import { AskUserOptions, ASK_USER_TOOL_TYPE } from "./AskUserOptions";
 import "./chat.css";
 
 /**
  * ChatPage —— 整合包助手的流式对话页(方块工坊皮肤,React)。
  *
- * 布局:标题栏(标题 + 新对话) / 可滚动消息列表 / 底部输入条。
+ * 直接渲染 AI SDK 原生 `UIMessage.parts`(text / reasoning / tool),不再走自定义事件 + 手写归约:
  *   - 用户气泡:右对齐、纯文本(pre-wrap)。
- *   - 助手气泡:左对齐,文本经 Streamdown 渲染(块级稳定的流式解析 + 未闭合 markdown 加固
- *     由 Streamdown 原生处理);工具调用/结果以芯片 part 按到达顺序与文本交错。
- *   - 输入:Enter 发送 / Shift+Enter 换行(输入法组合中不误触);流式期间禁用并显示指示器;
- *     内容增长时(若用户停在底部)自动滚到底。
- * 状态全部来自 chatStore(zustand 单一真相),切走本页不丢 transcript。
+ *   - 助手气泡:左对齐,文本经 Streamdown 渲染;工具 part 按状态机(input-streaming → available →
+ *     output)渲染;ask_user_question 工具渲染为可点选项(AskUserOptions)。
+ *   - 输入:Enter 发送 / Shift+Enter 换行;流式期间禁用并显示指示器;停在底部时自动跟随滚动。
  *
- * Streamdown 携带 mermaid(重),仅本页按需 lazy import,其 chunk 不进主包(见 MIGRATION §0)。
- * 代码块复制/下载按钮用 Streamdown 内置 controls(样式见 chat.css),故不再需要旧的
- * 手写复制按钮 + 事件委托;分块/尾部加固也交给 Streamdown,markdownBlocks.ts 不再被消费。
+ * Streamdown 携带 mermaid(重),仅本页 lazy import,其 chunk 不进主包。
  */
 const Streamdown = lazy(() => import("streamdown").then((m) => ({ default: m.Streamdown })));
 
-// 流式文本 part:整段交给 Streamdown(块级记忆,未变的块不重解析);live 时尾部显示光标。
+/** 助手文本 part:整段交给 Streamdown;live 时尾部显示光标。 */
 function AssistantText({ text, live }: { text: string; live: boolean }) {
   return (
     <div className="text-[14px] leading-[1.7] text-fg break-words">
@@ -46,14 +36,21 @@ function AssistantText({ text, live }: { text: string; live: boolean }) {
   );
 }
 
-// 工具调用芯片:🔧 名称 + 可展开的 JSON 参数(有参数才可展开)。
-function ToolCallChip({ part }: { part: ToolCallPart }) {
+// UIMessage 的部件类型(结构性判断,不依赖具体联合成员)。
+type Part = UIMessage["parts"][number];
+type ToolPart = Extract<Part, { toolCallId: string }>;
+const isTool = (p: Part): p is ToolPart => typeof (p as { toolCallId?: unknown }).toolCallId === "string";
+const toolName = (p: ToolPart): string =>
+  typeof p.type === "string" && p.type.startsWith("tool-") ? p.type.slice(5) : "tool";
+
+/** 工具芯片(非 ask_user):按状态机显示 调用中 / ✓完成 / 出错,附可展开参数。 */
+function ToolChip({ part }: { part: ToolPart }) {
   const [open, setOpen] = useState(false);
-  const a = part.args;
-  const hasArgs =
-    a != null &&
-    a !== "Null" &&
-    (typeof a !== "object" || Array.isArray(a) || Object.keys(a).length > 0);
+  const name = toolName(part);
+  const done = part.state === "output-available";
+  const errored = part.state === "output-error";
+  const streaming = part.state === "input-streaming" || part.state === "input-available";
+  const hasArgs = part.input != null && (typeof part.input !== "object" || Object.keys(part.input).length > 0);
   return (
     <div className="my-[3px]">
       <button
@@ -64,47 +61,40 @@ function ToolCallChip({ part }: { part: ToolCallPart }) {
         }`}
         title={hasArgs ? t("agent.toolArgs") : undefined}
       >
-        <svg
-          width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-          className="text-accent shrink-0" aria-hidden="true"
-        >
-          <path d="M14.7 6.3a4 4 0 0 0-5.2 5.2L3 18v3h3l6.5-6.5a4 4 0 0 0 5.2-5.2l-2.6 2.6-2.4-.6-.6-2.4 2.6-2.6Z" />
-        </svg>
+        {done ? (
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"
+               strokeLinecap="round" strokeLinejoin="round" className="text-accent shrink-0" aria-hidden="true">
+            <path d="m5 12.5 4.5 4.5L19 7" />
+          </svg>
+        ) : (
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+               strokeLinecap="round" strokeLinejoin="round"
+               className={`shrink-0 ${errored ? "text-danger-text" : "text-accent"} ${streaming ? "animate-pulse" : ""}`} aria-hidden="true">
+            <path d="M14.7 6.3a4 4 0 0 0-5.2 5.2L3 18v3h3l6.5-6.5a4 4 0 0 0 5.2-5.2l-2.6 2.6-2.4-.6-.6-2.4 2.6-2.6Z" />
+          </svg>
+        )}
         <span className="text-faint">{t("agent.toolCall")}</span>
-        <span className="font-medium text-fg">{part.name}</span>
+        <span className="font-medium text-fg">{name}</span>
         {hasArgs && <span className="text-muted">{open ? "▾" : "▸"}</span>}
       </button>
       {open && hasArgs && (
         <pre className="mt-[4px] max-w-full overflow-x-auto rounded-none bg-panel-2 shadow-input px-[10px] py-[8px] text-[11.5px] leading-[1.5] text-sub font-mono">
-          {JSON.stringify(part.args, null, 2)}
+          {JSON.stringify(part.input, null, 2)}
         </pre>
+      )}
+      {errored && part.errorText && (
+        <div className="mt-[3px] px-[10px] py-[6px] rounded-none bg-danger-soft text-danger-text text-[12px] leading-[1.5] break-words">
+          {part.errorText}
+        </div>
       )}
     </div>
   );
 }
 
-// 工具结果芯片:✓ 名称 — 一行结果摘要。
-function ToolResultChip({ name, summary }: { name: string; summary: string }) {
-  return (
-    <div className="my-[3px] inline-flex items-start gap-[6px] max-w-full px-[10px] py-[5px] rounded-none bg-panel-2 shadow-sunken text-[12px] leading-[1.5]">
-      <svg
-        width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-        strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"
-        className="text-accent shrink-0 mt-[2px]" aria-hidden="true"
-      >
-        <path d="m5 12.5 4.5 4.5L19 7" />
-      </svg>
-      <span className="font-medium text-sub shrink-0">{name}</span>
-      <span className="text-muted min-w-0 break-words">{summary}</span>
-    </div>
-  );
-}
-
-// 单条消息渲染(用户 / 助手)。
-function MessageRow({ msg, last, streaming }: { msg: ChatMessage; last: boolean; streaming: boolean }) {
+/** 一条消息渲染(用户 / 助手)。 */
+function MessageRow({ msg, last, streaming }: { msg: UIMessage; last: boolean; streaming: boolean }) {
   if (msg.role === "user") {
-    const userText = msg.parts.map((p) => (p.kind === "text" ? p.text : "")).join("");
+    const userText = msg.parts.map((p) => (p.type === "text" ? p.text : "")).join("");
     return (
       <div className="flex justify-end">
         <div className="max-w-[80%] px-[13px] py-[9px] rounded-none bg-accent text-accent-text shadow-raised text-[14px] leading-[1.6] whitespace-pre-wrap break-words">
@@ -114,59 +104,37 @@ function MessageRow({ msg, last, streaming }: { msg: ChatMessage; last: boolean;
     );
   }
 
-  // 流式指示器二选一,避免重叠:最后一段是文本时,AssistantText 尾部已有闪烁光标(▍),
-  // 此时不再显示底部「思考中…」;只有当尾段是 reasoning / 工具 / 尚无内容时才用底部 spinner。
+  // 流式指示器二选一,避免与文本光标重叠:尾段是文本时靠 AssistantText 的光标,否则底部 spinner。
   const lastPart = msg.parts[msg.parts.length - 1];
-  const caretVisible = last && streaming && lastPart?.kind === "text";
+  const caretVisible = last && streaming && lastPart?.type === "text";
 
   return (
     <div className="flex justify-start">
       <Panel variant="sunken" className="max-w-[85%] min-w-0 px-[14px] py-[11px]">
         {msg.parts.map((part, idx) => {
-          switch (part.kind) {
-            case "reasoning":
-              return (
-                <details key={idx} className="my-[4px] text-[12px]">
-                  <summary className="cursor-pointer text-faint select-none">{t("agent.reasoning")}</summary>
-                  <div className="mt-[4px] whitespace-pre-wrap break-words text-muted leading-[1.6] border-l-2 border-titlebar pl-[10px]">
-                    {part.text}
-                  </div>
-                </details>
-              );
-            case "text":
-              return (
-                <AssistantText
-                  key={idx}
-                  text={part.text}
-                  live={last && streaming && idx === msg.parts.length - 1}
-                />
-              );
-            case "tool_call":
-              return <ToolCallChip key={idx} part={part} />;
-            case "tool_result":
-              return <ToolResultChip key={idx} name={part.name} summary={part.summary} />;
-            case "ask_user":
-              return (
-                <AskUserOptions
-                  key={idx}
-                  msgId={msg.id}
-                  partIdx={idx}
-                  part={part}
-                  live={last && !streaming && !part.answered}
-                />
-              );
-            case "error":
-              return (
-                <div
-                  key={idx}
-                  className="my-[3px] px-[10px] py-[7px] rounded-none bg-danger-soft text-danger-text text-[12.5px] leading-[1.5] break-words"
-                >
-                  {part.message}
+          if (part.type === "reasoning") {
+            return (
+              <details key={idx} className="my-[4px] text-[12px]">
+                <summary className="cursor-pointer text-faint select-none">{t("agent.reasoning")}</summary>
+                <div className="mt-[4px] whitespace-pre-wrap break-words text-muted leading-[1.6] border-l-2 border-titlebar pl-[10px]">
+                  {part.text}
                 </div>
-              );
+              </details>
+            );
           }
+          if (part.type === "text") {
+            return (
+              <AssistantText key={idx} text={part.text} live={last && streaming && idx === msg.parts.length - 1} />
+            );
+          }
+          if (isTool(part)) {
+            if (part.type === ASK_USER_TOOL_TYPE) {
+              return <AskUserOptions key={idx} msgId={msg.id} part={part} globalStreaming={streaming} />;
+            }
+            return <ToolChip key={idx} part={part} />;
+          }
+          return null; // step-start / 其它内部 part 不渲染
         })}
-        {/* 流式指示器:仅本轮最后一条助手消息、且尾部没有文本光标时显示(否则与光标重叠)。 */}
         {last && streaming && !caretVisible && (
           <div className="flex items-center gap-[7px] mt-[6px] text-[12px] text-muted">
             <Spinner size={14} />
@@ -182,11 +150,11 @@ export default function ChatPage() {
   useLang();
   const messages = useChatStore((s) => s.messages);
   const streaming = useChatStore((s) => s.streaming);
+  const error = useChatStore((s) => s.error);
   const pendingDraft = useChatStore((s) => s.draft);
   const [draft, setDraft] = useState("");
   const listEl = useRef<HTMLDivElement>(null);
   const inputEl = useRef<HTMLTextAreaElement>(null);
-  // 用户是否停在底部(在底部才自动跟随滚动,滚上去看历史时不打断)。
   const pinned = useRef(true);
 
   const onListScroll = (): void => {
@@ -194,7 +162,6 @@ export default function ChatPage() {
     if (!el) return;
     pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
   };
-  // 内容变化(新消息 / 流式增量)→ 若停在底部则滚到底。
   useEffect(() => {
     const el = listEl.current;
     if (el && pinned.current) requestAnimationFrame(() => (el.scrollTop = el.scrollHeight));
@@ -202,8 +169,6 @@ export default function ChatPage() {
 
   useEffect(() => inputEl.current?.focus(), []);
 
-  // 外部入口(发现 / 新建实例)经 openAgentChat 预填的一次性草稿:填进输入框、聚焦(撑开高度),
-  // 不自动发送——用户可再编辑;消费后立即清 store 草稿,避免重渲染 / 重挂载再次注入。
   useEffect(() => {
     if (pendingDraft == null) return;
     setDraft(pendingDraft);
@@ -223,7 +188,6 @@ export default function ChatPage() {
     setDraft("");
     pinned.current = true;
     void sendMessage(text);
-    // 发送后把输入框高度收回一行。
     if (inputEl.current) inputEl.current.style.height = "auto";
   };
 
@@ -234,7 +198,6 @@ export default function ChatPage() {
     }
   };
 
-  // textarea 随内容自增高(上限 ~6 行),避免多行输入被裁。
   const autoGrow = (el: HTMLTextAreaElement): void => {
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 168)}px`;
@@ -242,13 +205,11 @@ export default function ChatPage() {
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      {/* 标题栏 */}
       <header className="shrink-0 flex items-center justify-between gap-[16px] px-[28px] py-[16px] border-b-2 border-titlebar">
         <div className="min-w-0">
           <Heading size="section" as="h1">{t("agent.title")}</Heading>
           <div className="mt-[4px] text-[12px] text-muted truncate">{t("agent.subtitle")}</div>
         </div>
-        {/* 右侧:调试条可收缩 + 横向滚动(窄窗不再盖住标题),「新对话」始终常驻。 */}
         <div className="flex items-center gap-[12px] min-w-0">
           <div className="min-w-0 overflow-x-auto">
             <DebugTools />
@@ -259,7 +220,6 @@ export default function ChatPage() {
         </div>
       </header>
 
-      {/* 消息列表(滚动) */}
       <div
         ref={listEl}
         onScroll={onListScroll}
@@ -273,6 +233,11 @@ export default function ChatPage() {
             {messages.map((msg, i) => (
               <MessageRow key={msg.id} msg={msg} last={i === messages.length - 1} streaming={streaming} />
             ))}
+            {error && (
+              <div className="max-w-[85%] px-[10px] py-[7px] rounded-none bg-danger-soft text-danger-text text-[12.5px] leading-[1.5] break-words">
+                {error}
+              </div>
+            )}
           </div>
         ) : (
           <div className="h-full flex items-center justify-center">
@@ -281,7 +246,6 @@ export default function ChatPage() {
         )}
       </div>
 
-      {/* 输入条 */}
       <div className="shrink-0 border-t-2 border-titlebar px-[28px] py-[16px]">
         <div className="max-w-[820px] mx-auto flex items-end gap-[10px]">
           <Panel variant="input" className="flex-1 min-w-0 px-[12px] py-[9px]">
