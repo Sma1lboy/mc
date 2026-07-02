@@ -86,8 +86,10 @@ fi
 if [ "$SKIP_BUILD" = 1 ]; then
   echo "↷ skipping cargo build (ui mode — frontend bundle refreshed)"
 else
-  echo "→ cargo build (desktop shell)…"
-  if ! ( cd "$TAURI" && cargo build ); then
+  # dev 关掉 keyring feature:每次重建 debug 二进制签名都变,macOS Keychain 会反复弹密码框
+  # (Always Allow 也留不住)。dev 用明文 token 存储即可;release/bundle 仍默认走 Keychain。
+  echo "→ cargo build (desktop shell, no keyring)…"
+  if ! ( cd "$TAURI" && cargo build --no-default-features ); then
     echo "✗ build failed — leaving the running app untouched"; exit 1
   fi
 fi

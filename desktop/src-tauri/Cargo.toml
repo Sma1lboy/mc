@@ -32,7 +32,10 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "time"] }
 tracing-appender = "0.2"
 # 纯逻辑内核与共享 DTO,经 path 依赖引入(不走父 workspace)。
-mc-core = { path = "../../crates/mc-core" }
+# default-features=false + 下面的 passthrough `keyring` feature:release/bundle 构建默认开启
+# keyring(账号 token 存系统 Keychain);dev 用 `--no-default-features` 关掉,回退明文存储,
+# 免去每次重建 debug 二进制 macOS Keychain 反复弹密码框(签名每次不同,Always Allow 留不住)。
+mc-core = { path = "../../crates/mc-core", default-features = false }
 mc-types = { path = "../../crates/mc-types" }
 tauri-specta = { version = "=2.0.0-rc.25", features = ["typescript"] }
 specta-typescript = "0.0.12"
@@ -41,6 +44,11 @@ specta = { version = "=2.0.0-rc.25", features = ["derive", "function"] }
 # 画廊截图(gallery.rs)按 CGWindowID 抓窗口,需向 NSWindow 取 windowNumber。仅 macOS。
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
+
+[features]
+# 默认开启:release / tauri bundle 走系统 Keychain。dev 用 `--no-default-features`。
+default = ["keyring"]
+keyring = ["mc-core/keyring"]
 
 # 让本包脱离父级 mc-launcher workspace 独立成一个 cargo 包。
 # 空 [workspace] 表声明"这里就是 workspace 根",从而不会被 ../../Cargo.toml 收编。
