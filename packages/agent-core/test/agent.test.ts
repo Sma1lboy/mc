@@ -3,6 +3,7 @@ import type { UIMessage } from "ai";
 
 import { createModpackAgent, toolSchemas } from "../src/index";
 import { mockExecutor } from "../src/executors/index";
+import { CHAT_AGENT_SYSTEM_PROMPT } from "../src/prompt";
 import { startMockServer } from "./fixtures/mockOpenRouter.mjs";
 
 const settings = (baseUrl: string) => ({ apiKey: "test", model: "mock", baseUrl });
@@ -128,5 +129,12 @@ describe("runTurn", () => {
     } finally {
       await mock.close();
     }
+  });
+
+  it("(e) routes current-modpack knowledge questions through wiki tools", () => {
+    expect(CHAT_AGENT_SYSTEM_PROMPT).toContain("wiki_search");
+    expect(CHAT_AGENT_SYSTEM_PROMPT).toContain("wiki_open");
+    expect(CHAT_AGENT_SYSTEM_PROMPT).toContain("current modpack");
+    expect(CHAT_AGENT_SYSTEM_PROMPT).toContain("Do not ask the user for modpack ids or source paths");
   });
 });

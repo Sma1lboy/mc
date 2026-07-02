@@ -14,7 +14,7 @@ import { create } from "zustand";
 import type { UIMessage } from "ai";
 // Type-only import: erased at build, so the host-agnostic brain (and its `ai`
 // dependency) stays out of the main bundle — the TS path is dynamic-imported below.
-import type { ModpackAgent } from "@kobemc/agent-core";
+import type { AgentToolContext, ModpackAgent } from "@kobemc/agent-core";
 import { setCurrentPage } from "../store";
 import { t } from "../i18n";
 
@@ -34,6 +34,8 @@ interface ChatState {
    * ChatPage 变为活动页后取用一次(填进输入框、聚焦,不自动发送),随即清回 null。
    */
   draft: string | null;
+  /** Host 注入给 deterministic tools 的当前上下文(例如当前整合包 wiki scope)。 */
+  toolContext: AgentToolContext | null;
   /** 历史对话记录(dev 调试选择器用;localStorage 持久)。 */
   conversations: ConversationRecord[];
 }
@@ -44,18 +46,29 @@ export const useChatStore = create<ChatState>(() => ({
   queued: [],
   error: null,
   draft: null,
+  toolContext: null,
   conversations: loadConversations(),
 }));
 
 // 惰性拉起 TS 大脑(动态 import desktopAdapter → 独立 chunk,`ai` 及 provider 不进主包)。
 let tsAgent: Promise<ModpackAgent> | null = null;
+let tsAgentContextKey: string | null = null;
 
-async function getAgent(): Promise<ModpackAgent> {
-  if (!tsAgent) tsAgent = import("./desktopAdapter").then((m) => m.createDesktopAgent());
+function agentContextKey(context: AgentToolContext | null | undefined): string {
+  return JSON.stringify(context ?? null);
+}
+
+async function getAgent(context?: AgentToolContext | null): Promise<ModpackAgent> {
+  const key = agentContextKey(context);
+  if (!tsAgent || tsAgentContextKey !== key) {
+    tsAgentContextKey = key;
+    tsAgent = import("./desktopAdapter").then((m) => m.createDesktopAgent(context ?? undefined));
+  }
   try {
     return await tsAgent;
   } catch (e) {
     tsAgent = null; // 拉起失败(缺 key / import)→ 下次重试重新初始化
+    tsAgentContextKey = null;
     throw e;
   }
 }
@@ -84,6 +97,7 @@ export interface ConversationRecord {
   /** 首条用户消息(截断),用作列表标题。 */
   title: string;
   messages: UIMessage[];
+  toolContext?: AgentToolContext | null;
 }
 
 const CONV_KEY = "mc-launcher.agentConversations";
@@ -122,6 +136,7 @@ function firstUserText(messages: UIMessage[]): string {
 function saveCurrentConversation(): void {
   const messages = useChatStore.getState().messages;
   if (messages.length === 0) return;
+  const toolContext = useChatStore.getState().toolContext;
   const now = Date.now();
   const list = useChatStore.getState().conversations.slice();
   const i = list.findIndex((c) => c.id === currentConvId);
@@ -132,6 +147,7 @@ function saveCurrentConversation(): void {
     updatedAt: now,
     title: firstUserText(messages).slice(0, 60),
     messages,
+    toolContext,
   };
   if (i >= 0) list[i] = rec;
   else list.unshift(rec);
@@ -145,7 +161,7 @@ export function loadConversation(id: string): void {
   const rec = useChatStore.getState().conversations.find((c) => c.id === id);
   if (!rec) return;
   currentConvId = id;
-  useChatStore.setState({ messages: rec.messages, error: null });
+  useChatStore.setState({ messages: rec.messages, toolContext: rec.toolContext ?? null, error: null });
 }
 
 /**
@@ -160,7 +176,7 @@ async function drive(history: UIMessage[]): Promise<void> {
   currentAbort = abort;
   useChatStore.setState({ streaming: true, error: null });
   try {
-    const agent = await getAgent();
+    const agent = await getAgent(useChatStore.getState().toolContext);
     const { messages, error } = await agent.run(
       history,
       (assistant) => {
@@ -265,15 +281,15 @@ export function newChat(): void {
   if (useChatStore.getState().streaming) return;
   saveCurrentConversation(); // 开新对话前把当前的存档,别丢
   currentConvId = mintConvId();
-  useChatStore.setState({ messages: [], error: null, queued: [] });
+  useChatStore.setState({ messages: [], error: null, queued: [], toolContext: null });
 }
 
 /**
  * 从其它页面(发现 / 新建实例)带一句上下文提示打开助手:预填输入框草稿并切到助手页。
  * 不自动发送——ChatPage 取草稿后填进输入框、聚焦,由用户审阅 / 编辑再发。
  */
-export function openAgentChat(prompt: string): void {
-  useChatStore.setState({ draft: prompt });
+export function openAgentChat(prompt: string, context?: AgentToolContext): void {
+  useChatStore.setState({ draft: prompt, toolContext: context ?? null });
   setCurrentPage("agent");
 }
 
