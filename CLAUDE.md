@@ -62,6 +62,15 @@ mirror to stderr.
 
 ## Conventions
 
+- **Check the library docs (context7) BEFORE building against any dependency.** This repo
+  has the **context7** MCP server configured (`.mcp.json`). Before you integrate, extend, or
+  hand-write anything that touches a third-party library/framework (the AI SDK `ai`,
+  `@ai-sdk/*`, tauri, zod, solid/react, …), first pull its authoritative, version-matched
+  docs: `resolve-library-id` → `get-library-docs`. Do NOT guess an API from memory or
+  reinvent what the library already provides. Real lesson: the modpack agent hand-rolled a
+  tool wrapper, a fake client-tool ack, and a whole streaming-event union + reducer —
+  all of which the AI SDK already ships (`tool()`, client-side tools, `UIMessageChunk` /
+  `readUIMessageStream` with `ToolUIPart.state`). Look it up, then reuse.
 - **Tauri commands are thin.** No launcher logic in `desktop/src-tauri/src/commands.rs` —
   it maps a UI call to an `mc-core` call and serialises the result. Logic lives in `mc-core`.
 - **UI state** is module-level SolidJS signals in `desktop/src/store.ts` (no Context/Router).
@@ -74,6 +83,28 @@ mirror to stderr.
   but add a real translation), and delete keys you orphan. Use getter-scoped `t()` (never a
   module-level const holding `t()` — it freezes the language). Run `node scripts/check-i18n.mjs`
   (from `desktop/`) before committing; CI gates it. Default language is Chinese.
+- **Don't reinvent type concepts — reuse the single source.** Before hand-writing a
+  type or wrapper, check whether one already exists and derive from it. Use the
+  framework's own primitives directly (e.g. AI SDK's `tool({ description, inputSchema,
+  execute })` — don't wrap it in a bespoke tool abstraction). Derive types from their
+  schema instead of maintaining a parallel `interface` (`type T = z.infer<typeof
+  schema>`; Rust DTOs → generated `bindings.ts`, imported, never re-declared). One
+  shape = one definition; a deliberately *different* shape (e.g. a normalized render
+  model vs the wire type) is fine, a duplicated *identical* one is not.
+- **Agent (modpack assistant) — search the framework before you build.** The brain is
+  `@kobemc/agent-core` (host-agnostic TS: the loop, prompt, and tool *definitions*), built
+  on the Vercel AI SDK (`ai` + `@openrouter/ai-sdk-provider`). The tool *executor* is
+  injected per host — desktop binds each tool to Rust via the thin `agent_tool_*` Tauri
+  commands (trust code — hash / path-sanitize / disk writes — stays in `mc-core`); a pure-TS
+  Modrinth executor exists for non-desktop hosting. BEFORE adding or changing a tool or an
+  interaction pattern, **search the SDK's own API/types first** (`node_modules/ai`,
+  `@ai-sdk/provider-utils`) and reuse its native primitives instead of hand-rolling one:
+  `tool({ inputSchema, execute })` — one self-contained file per tool under
+  `packages/agent-core/src/tools/`, with `execute` co-located (host tools forward to the
+  injected `exec`); a **client-side tool** is a tool with NO `execute` that pauses the turn
+  and resumes via a tool-result (that's how `ask_user_question` works — do NOT fake it with
+  an ack + a synthetic user message); derive arg types with `z.infer`. The stream event
+  contract lives once in `mc-types::AgentStreamEvent` → generated `bindings.ts`.
 - **Auth** funnels all account kinds (offline / Microsoft / Yggdrasil) into one
   `AuthSession` (`mc-core/src/auth/`). Microsoft uses the device-code flow.
 - **Commits** follow Conventional Commits: `type(scope): subject` (lowercase subject),
