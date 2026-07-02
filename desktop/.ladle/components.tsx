@@ -1,5 +1,9 @@
 import type { GlobalProvider } from "@ladle/react";
 
+// 先装 Tauri 后端桩:让故事里直接 import 的真实组件/页面调用 invoke() 时拿到 mock 数据,
+// 而不是崩溃——这样「主 UI 存在,这边只需引入 + 上下文即可模拟」,不维护第二套 UI。
+import "./tauriMock";
+
 // 与 src/main.tsx 相同的顺序加载设计系统:字体 → 令牌(CSS 变量)→ Tailwind 入口 + 桥接。
 // 这样故事里的组件拿到和真实 app 一致的观感(色阶 / 阴影 / 字体)。
 import "../src/theme/fonts.css";
