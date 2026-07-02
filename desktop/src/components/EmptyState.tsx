@@ -1,4 +1,4 @@
-import { Component, JSX, Show } from "solid-js";
+import type { ReactNode } from "react";
 import { Panel } from "./Panel";
 
 /**
@@ -8,29 +8,25 @@ import { Panel } from "./Panel";
  *
  * compact:右栏等窄容器用更小的内距。
  */
-export const EmptyState: Component<{
-  title: JSX.Element;
-  hint?: JSX.Element;
-  action?: JSX.Element;
+export function EmptyState(props: {
+  title: ReactNode;
+  hint?: ReactNode;
+  action?: ReactNode;
   compact?: boolean;
-}> = (props) => {
+}): React.ReactElement {
   return (
     <Panel
       variant="sunken"
-      class={
+      className={
         "flex flex-col items-center justify-center gap-[10px] text-center " +
         (props.compact ? "px-[14px] py-[18px]" : "px-[24px] py-[28px]")
       }
     >
-      <div class="text-[13px] text-sub leading-[1.6]">{props.title}</div>
-      <Show when={props.hint}>
-        <div class="text-[12px] text-muted leading-[1.6]">{props.hint}</div>
-      </Show>
-      <Show when={props.action}>
-        <div class="mt-[2px]">{props.action}</div>
-      </Show>
+      <div className="text-[13px] text-sub leading-[1.6]">{props.title}</div>
+      {props.hint && <div className="text-[12px] text-muted leading-[1.6]">{props.hint}</div>}
+      {props.action && <div className="mt-[2px]">{props.action}</div>}
     </Panel>
   );
-};
+}
 
 export default EmptyState;

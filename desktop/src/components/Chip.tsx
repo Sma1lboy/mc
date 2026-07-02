@@ -1,4 +1,4 @@
-import { JSX, Show, splitProps } from "solid-js";
+import type { ReactNode } from "react";
 import { t } from "../i18n";
 
 /* ============================================================================
@@ -13,7 +13,7 @@ import { t } from "../i18n";
  * ========================================================================== */
 
 export interface ChipProps {
-  children: JSX.Element;
+  children: ReactNode;
   /** 选中态(熔岩橙凸起)。 */
   active?: boolean;
   onClick?: (e: MouseEvent) => void;
@@ -21,7 +21,7 @@ export interface ChipProps {
   onRemove?: () => void;
   /** ✕ 的无障碍标签,默认「移除」。 */
   removeLabel?: string;
-  class?: string;
+  className?: string;
   title?: string;
 }
 
@@ -30,54 +30,46 @@ const BASE =
   "text-[12px] font-medium leading-none cursor-pointer select-none whitespace-nowrap " +
   "transition-[background-color,color,box-shadow] duration-[var(--dur)] ease-app";
 
-export function Chip(props: ChipProps): JSX.Element {
-  const [local, rest] = splitProps(props, [
-    "children",
-    "active",
-    "onClick",
-    "onRemove",
-    "removeLabel",
-    "class",
-  ]);
+export function Chip(props: ChipProps): React.ReactElement {
+  const { children, active, onClick, onRemove, removeLabel, className, title } = props;
 
   // 「已选筛选」沙金芯片(可移除)优先;否则在 选中(accent)/未选(panel-2)间切。
-  const tone = (): string =>
-    local.onRemove
-      ? "bg-tag text-[#16170f]"
-      : local.active
-        ? "bg-accent text-accent-text shadow-raised"
-        : "bg-panel-2 text-sub shadow-sunken hover:text-fg";
+  const tone = onRemove
+    ? "bg-tag text-[#16170f]"
+    : active
+      ? "bg-accent text-accent-text shadow-raised"
+      : "bg-panel-2 text-sub shadow-sunken hover:text-fg";
 
   return (
     <span
-      {...rest}
+      title={title}
       role="button"
-      tabindex="0"
-      class={`${BASE} ${tone()}${local.class ? " " + local.class : ""}`}
-      onClick={(e) => local.onClick?.(e)}
+      tabIndex={0}
+      className={`${BASE} ${tone}${className ? " " + className : ""}`}
+      onClick={(e) => onClick?.(e.nativeEvent)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          local.onClick?.(e as unknown as MouseEvent);
+          onClick?.(e.nativeEvent as unknown as MouseEvent);
         }
       }}
     >
-      {local.children}
-      <Show when={local.onRemove}>
+      {children}
+      {onRemove && (
         <button
           type="button"
-          class="inline-flex items-center justify-center -mr-[2px] h-[16px] w-[16px] border-none bg-transparent text-[#16170f] cursor-pointer opacity-80 hover:opacity-100 focus-visible:outline-none"
-          aria-label={local.removeLabel ?? t("components.chip.remove")}
+          className="inline-flex items-center justify-center -mr-[2px] h-[16px] w-[16px] border-none bg-transparent text-[#16170f] cursor-pointer opacity-80 hover:opacity-100 focus-visible:outline-none"
+          aria-label={removeLabel ?? t("components.chip.remove")}
           onClick={(e) => {
             e.stopPropagation();
-            local.onRemove?.();
+            onRemove?.();
           }}
         >
           <svg width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-            <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+            <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
           </svg>
         </button>
-      </Show>
+      )}
     </span>
   );
 }

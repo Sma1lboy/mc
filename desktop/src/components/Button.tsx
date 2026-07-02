@@ -1,4 +1,4 @@
-import { JSX, splitProps } from "solid-js";
+import type { ReactNode } from "react";
 
 // 基础样式(Blocky Craft):行内 flex 居中、方块直角、倒角立体边、按下翻转倒角。
 const BTN_BASE =
@@ -25,40 +25,33 @@ const BTN_VARIANT: Record<string, string> = {
 //   disabled?: 禁用态
 export interface ButtonProps {
   variant?: "primary" | "ghost" | "danger";
-  children: JSX.Element;
+  children: ReactNode;
   onClick?: (e: MouseEvent) => void;
   disabled?: boolean;
   /** 透传原生属性 (如 title / aria-label / type), 不破坏既有 props 契约。 */
   title?: string;
   type?: "button" | "submit" | "reset";
-  class?: string;
+  className?: string;
 }
 
-export function Button(props: ButtonProps): JSX.Element {
-  // splitProps 保持响应式: 不要解构 props (SolidJS 会丢失响应性)。
-  const [local, rest] = splitProps(props, [
-    "variant",
-    "children",
-    "onClick",
-    "disabled",
-    "class",
-  ]);
+export function Button(props: ButtonProps): React.ReactElement {
+  const { variant, children, onClick, disabled, className, title, type } = props;
 
   return (
     <button
-      {...rest}
-      type={props.type ?? "button"}
-      class={`${BTN_BASE} ${BTN_VARIANT[local.variant ?? "primary"]}${
-        local.class ? " " + local.class : ""
+      title={title}
+      type={type ?? "button"}
+      className={`${BTN_BASE} ${BTN_VARIANT[variant ?? "primary"]}${
+        className ? " " + className : ""
       }`}
-      disabled={local.disabled}
+      disabled={disabled}
       onClick={(e) => {
         // 禁用时不触发 (双保险, 原生 disabled 已拦截大部分)。
-        if (local.disabled) return;
-        local.onClick?.(e);
+        if (disabled) return;
+        onClick?.(e.nativeEvent);
       }}
     >
-      {local.children}
+      {children}
     </button>
   );
 }

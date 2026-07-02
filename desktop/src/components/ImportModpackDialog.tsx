@@ -1,4 +1,5 @@
-import { Component, createEffect, createSignal, For, onCleanup, Show } from "solid-js";
+import { useEffect, useRef, useState } from "react";
+import clsx from "clsx";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { Dialog } from "./Dialog";
@@ -10,7 +11,7 @@ import { Tag } from "./Tag";
 import { Heading } from "./Typography";
 import { toast } from "./Toast";
 import { api, onInstallProgress } from "../ipc/api";
-import { t } from "../i18n";
+import { t, useLang } from "../i18n";
 import type { ImportOutcome } from "../ipc/types";
 
 /**
@@ -24,27 +25,30 @@ import type { ImportOutcome } from "../ipc/types";
 // label/tip 必须在渲染期(getter)调 t(),放模块常量会冻结语言(见 i18n 备忘)。
 const FORMAT_EXT: { mrpack: string; zip: string } = { mrpack: ".mrpack", zip: ".zip" };
 
-export const ImportModpackDialog: Component<{
+export function ImportModpackDialog(props: {
   open: boolean;
   root: string;
   onClose: () => void;
   onImported: (out: ImportOutcome) => void;
   /** 打开时若带一个文件路径(从页面拖入),自动开始导入它(每个 path 仅触发一次)。 */
   initialPath?: string | null;
-}> = (props) => {
-  const [importing, setImporting] = createSignal(false);
-  const [progress, setProgress] = createSignal("");
-  const [dragOver, setDragOver] = createSignal(false);
-  const [handledPath, setHandledPath] = createSignal<string | null>(null);
+}) {
+  useLang();
+  const [importing, setImporting] = useState(false);
+  const [progress, setProgress] = useState("");
+  const [dragOver, setDragOver] = useState(false);
+  const [handledPath, setHandledPath] = useState<string | null>(null);
+  // 导入并发守卫:拖放监听器闭包可能持有旧 importing 快照,用 ref 读实时值。
+  const importingRef = useRef(false);
 
-  const formats = () => [
+  const formats = [
     { ext: FORMAT_EXT.mrpack, label: t("components.import.fmtModrinth") },
     { ext: FORMAT_EXT.zip, label: t("components.import.fmtCurseforge") },
     { ext: FORMAT_EXT.zip, label: t("components.import.fmtMultimc") },
     { ext: FORMAT_EXT.zip, label: t("components.import.fmtMcbbs") },
     { ext: "/", label: t("components.import.fmtDir") },
   ];
-  const tips = () => [
+  const tips = [
     t("components.import.tipFormats"),
     t("components.import.tipCurseforge"),
     t("components.import.tipProgress"),
@@ -52,7 +56,8 @@ export const ImportModpackDialog: Component<{
   ];
 
   async function runImport(path: string) {
-    if (importing()) return;
+    if (importingRef.current) return;
+    importingRef.current = true;
     setImporting(true);
     setProgress("");
     const off = onInstallProgress((p) =>
@@ -66,13 +71,14 @@ export const ImportModpackDialog: Component<{
       toast({ type: "error", message: t("components.import.failed", { err: String(e) }) });
     } finally {
       off();
+      importingRef.current = false;
       setImporting(false);
       setProgress("");
     }
   }
 
   async function pick() {
-    if (importing()) return;
+    if (importingRef.current) return;
     const picked = await openDialog({
       multiple: false,
       filters: [{ name: t("components.import.filter"), extensions: ["mrpack", "zip"] }],
@@ -82,30 +88,30 @@ export const ImportModpackDialog: Component<{
 
   // 选未解压的 MultiMC/Prism 实例目录(磁盘上 Prism 实例本就是目录)。引擎按目录后端导入。
   async function pickFolder() {
-    if (importing()) return;
+    if (importingRef.current) return;
     const picked = await openDialog({ directory: true, multiple: false });
     if (typeof picked === "string") void runImport(picked);
   }
 
   // 从页面拖入打开:对带入的 path 自动开始导入,每个 path 仅触发一次;关闭后复位。
-  createEffect(() => {
+  useEffect(() => {
     const path = props.initialPath;
-    if (props.open && path && handledPath() !== path) {
+    if (props.open && path && handledPath !== path) {
       setHandledPath(path);
       void runImport(path);
-    } else if (!props.open && handledPath() !== null) {
+    } else if (!props.open && handledPath !== null) {
       setHandledPath(null);
     }
-  });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.open, props.initialPath, handledPath]);
 
   // 原生文件拖放:仅在弹窗打开时监听;拖入非 .mrpack/.zip 提示,多个只取第一个。
-  createEffect(() => {
+  useEffect(() => {
     if (!props.open) {
       setDragOver(false);
       return;
     }
     const unlisten = getCurrentWebview().onDragDropEvent((e) => {
-      if (!props.open) return;
       const p = e.payload;
       if (p.type === "enter" || p.type === "over") setDragOver(true);
       else if (p.type === "leave") setDragOver(false);
@@ -120,84 +126,82 @@ export const ImportModpackDialog: Component<{
         void runImport(first);
       }
     });
-    onCleanup(() => void unlisten.then((f) => f()));
-  });
+    return () => void unlisten.then((f) => f());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.open]);
 
   return (
     <Dialog
       open={props.open}
-      onClose={() => !importing() && props.onClose()}
+      onClose={() => !importing && props.onClose()}
       label={t("components.import.title")}
       contentClass="w-[460px] max-w-[calc(100vw-48px)]"
     >
-      <div class="flex flex-col gap-[16px] p-[20px]">
+      <div className="flex flex-col gap-[16px] p-[20px]">
         <Heading size="sub">{t("components.import.title")}</Heading>
 
         {/* 拖入区(点击选择 / 拖入文件)。拖到窗口时高亮。 */}
         <button
           type="button"
-          disabled={importing()}
+          disabled={importing}
           onClick={() => void pick()}
-          class="flex flex-col items-center justify-center gap-[10px] rounded-none border-2 border-dashed px-[20px] py-[28px] text-center cursor-pointer transition-colors duration-150 disabled:cursor-default"
-          classList={{
-            "border-accent bg-panel-2": dragOver(),
-            "border-titlebar bg-sidebar hover:bg-panel-2": !dragOver(),
-          }}
+          className={clsx(
+            "flex flex-col items-center justify-center gap-[10px] rounded-none border-2 border-dashed px-[20px] py-[28px] text-center cursor-pointer transition-colors duration-150 disabled:cursor-default",
+            dragOver ? "border-accent bg-panel-2" : "border-titlebar bg-sidebar hover:bg-panel-2",
+          )}
         >
-          <Show when={!importing()} fallback={<Spinner />}>
-            <Icon name="download" size={26} class="text-accent" />
-          </Show>
-          <div class="text-[13px] font-semibold text-fg">
-            {importing() ? t("components.import.importing") : t("components.import.dropHint")}
+          {importing ? <Spinner /> : <Icon name="download" size={26} className="text-accent" />}
+          <div className="text-[13px] font-semibold text-fg">
+            {importing ? t("components.import.importing") : t("components.import.dropHint")}
           </div>
-          <div class="text-[11px] text-muted truncate max-w-full">
-            {importing()
-              ? progress() || t("components.import.importing")
+          <div className="text-[11px] text-muted truncate max-w-full">
+            {importing
+              ? progress || t("components.import.importing")
               : t("components.import.clickHint")}
           </div>
         </button>
 
         {/* 支持的格式 */}
         <div>
-          <div class="text-[12px] font-semibold text-sub mb-[6px]">
+          <div className="text-[12px] font-semibold text-sub mb-[6px]">
             {t("components.import.formatsTitle")}
           </div>
-          <div class="flex flex-col gap-[5px]">
-            <For each={formats()}>
-              {(f) => (
-                <div class="flex items-center gap-[8px] text-[12px]">
-                  <Tag class="font-pixel">{f.ext}</Tag>
-                  <span class="text-fg">{f.label}</span>
-                </div>
-              )}
-            </For>
+          <div className="flex flex-col gap-[5px]">
+            {formats.map((f) => (
+              <div key={f.label} className="flex items-center gap-[8px] text-[12px]">
+                <Tag className="font-pixel">{f.ext}</Tag>
+                <span className="text-fg">{f.label}</span>
+              </div>
+            ))}
           </div>
         </div>
 
         {/* 导入须知 */}
-        <Panel variant="input" class="px-[12px] py-[10px]">
-          <div class="flex items-center gap-[6px] text-[12px] font-semibold text-sub mb-[5px]">
+        <Panel variant="input" className="px-[12px] py-[10px]">
+          <div className="flex items-center gap-[6px] text-[12px] font-semibold text-sub mb-[5px]">
             <Icon name="info" size={14} /> {t("components.import.tipsTitle")}
           </div>
-          <ul class="m-0 pl-[16px] flex flex-col gap-[3px] text-[11px] leading-[1.6] text-muted">
-            <For each={tips()}>{(tip) => <li>{tip}</li>}</For>
+          <ul className="m-0 pl-[16px] flex flex-col gap-[3px] text-[11px] leading-[1.6] text-muted">
+            {tips.map((tip, i) => (
+              <li key={i}>{tip}</li>
+            ))}
           </ul>
         </Panel>
 
-        <div class="flex justify-end gap-[10px]">
-          <Button variant="ghost" disabled={importing()} onClick={() => props.onClose()}>
+        <div className="flex justify-end gap-[10px]">
+          <Button variant="ghost" disabled={importing} onClick={() => props.onClose()}>
             {t("components.import.close")}
           </Button>
-          <Button variant="ghost" disabled={importing()} onClick={() => void pickFolder()}>
+          <Button variant="ghost" disabled={importing} onClick={() => void pickFolder()}>
             {t("components.import.chooseFolder")}
           </Button>
-          <Button variant="primary" disabled={importing()} onClick={() => void pick()}>
+          <Button variant="primary" disabled={importing} onClick={() => void pick()}>
             {t("components.import.choose")}
           </Button>
         </div>
       </div>
     </Dialog>
   );
-};
+}
 
 export default ImportModpackDialog;

@@ -1,6 +1,5 @@
-import { Component, Show } from "solid-js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { runningIds, socialEnabled, isKobeSignedIn } from "../store";
+import { useAppStore } from "../store";
 import { DownloadQueue } from "../components/DownloadQueue";
 import { KobeAccountChip } from "../components/KobeAccountChip";
 import { NotificationCenter } from "../components/NotificationCenter";
@@ -18,15 +17,15 @@ import { t } from "../i18n";
  */
 
 const MinimizeIcon = () => (
-  <svg class="w-[12px] h-[12px]" viewBox="0 0 12 12" aria-hidden="true">
-    <line x1="2.5" y1="6" x2="9.5" y2="6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
+  <svg className="w-[12px] h-[12px]" viewBox="0 0 12 12" aria-hidden="true">
+    <line x1="2.5" y1="6" x2="9.5" y2="6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
   </svg>
 );
 
 const CloseIcon = () => (
-  <svg class="w-[12px] h-[12px]" viewBox="0 0 12 12" aria-hidden="true">
-    <line x1="3" y1="3" x2="9" y2="9" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
-    <line x1="9" y1="3" x2="3" y2="9" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
+  <svg className="w-[12px] h-[12px]" viewBox="0 0 12 12" aria-hidden="true">
+    <line x1="3" y1="3" x2="9" y2="9" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+    <line x1="9" y1="3" x2="3" y2="9" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
   </svg>
 );
 
@@ -41,66 +40,71 @@ function windowAction(action: (w: ReturnType<typeof getCurrentWindow>) => void) 
   }
 }
 
-const TopBar: Component = () => {
+export default function TopBar(): React.ReactElement {
   // 运行状态用 store 的实时集合(game://started/exit 事件驱动),与实例行同源,避免
   // 顶栏自己再拉一份 list_instances 导致「行显示运行中、顶栏却说无实例运行」的不一致。
-  const runningCount = () => runningIds().size;
+  const runningCount = useAppStore((s) => s.runningIds.size);
+  const socialEnabled = useAppStore((s) => s.socialEnabled);
+  const isKobeSignedIn = useAppStore((s) => s.kobeUser !== null);
 
   return (
     // data-tauri-drag-region:让顶栏空白处可拖动窗口
     <header
-      class="[grid-area:topbar] h-[48px] flex items-center justify-between bg-titlebar border-b border-titlebar pl-[12px] pr-[8px] box-border select-none"
+      className="[grid-area:topbar] h-[48px] flex items-center justify-between bg-titlebar border-b border-titlebar pl-[12px] pr-[8px] box-border select-none"
       data-tauri-drag-region
     >
       {/* 左侧:品牌(挪到左上,清开 macOS 交通灯)+ 余下空拖拽区。 */}
-      <div class="flex-1 h-full flex items-center pl-[64px]" data-tauri-drag-region>
-        <span class="flex items-center gap-[8px]" data-tauri-drag-region>
+      <div className="flex-1 h-full flex items-center pl-[64px]" data-tauri-drag-region>
+        <span className="flex items-center gap-[8px]" data-tauri-drag-region>
           {/* 品牌方块标:草方块(上草绿、下泥土)。 */}
-          <span class="w-[18px] h-[18px] shrink-0 grid grid-rows-[6px_1fr] shadow-input overflow-hidden" aria-hidden="true">
-            <span class="bg-accent" />
-            <span class="bg-[#7a5b3a]" />
+          <span className="w-[18px] h-[18px] shrink-0 grid grid-rows-[6px_1fr] shadow-input overflow-hidden" aria-hidden="true">
+            <span className="bg-accent" />
+            <span className="bg-[#7a5b3a]" />
           </span>
-          <span class="text-[13px] text-fg font-display tracking-[0.5px] whitespace-nowrap">kobeMC</span>
+          <span className="text-[13px] text-fg font-display tracking-[0.5px] whitespace-nowrap">kobeMC</span>
         </span>
       </div>
 
       {/* 右侧(按推荐顺序):运行状态 → 下载 → 通知 → 好友 → 账号。 */}
-      <div class="flex items-center gap-[6px]">
+      <div className="flex items-center gap-[6px]">
         {/* 运行状态:凹陷方块药丸,直角倒角。 */}
         <div
-          class="inline-flex items-center gap-[7px] h-[26px] px-[10px] bg-panel-2 shadow-sunken"
+          className="inline-flex items-center gap-[7px] h-[26px] px-[10px] bg-panel-2 shadow-sunken"
           data-tauri-drag-region
         >
-          <Show
-            when={runningCount() > 0}
-            fallback={
-              <>
-                <span class="w-[7px] h-[7px] shrink-0 bg-muted" aria-hidden="true" />
-                <span class="text-[12px] text-muted whitespace-nowrap">{t("layout.noInstanceRunning")}</span>
-              </>
-            }
-          >
-            <span class="w-[7px] h-[7px] shrink-0 bg-accent" aria-hidden="true" />
-            <span class="text-[12px] text-fg whitespace-nowrap">{t("layout.running", { n: runningCount() })}</span>
-          </Show>
+          {runningCount > 0 ? (
+            <>
+              <span className="w-[7px] h-[7px] shrink-0 bg-accent" aria-hidden="true" />
+              <span className="text-[12px] text-fg whitespace-nowrap">{t("layout.running", { n: runningCount })}</span>
+            </>
+          ) : (
+            <>
+              <span className="w-[7px] h-[7px] shrink-0 bg-muted" aria-hidden="true" />
+              <span className="text-[12px] text-muted whitespace-nowrap">{t("layout.noInstanceRunning")}</span>
+            </>
+          )}
         </div>
 
         <DownloadQueue />
 
         {/* 社交入口(社交开关关闭时整体隐藏)。已登录时:通知中心(铃铛)+ 好友 + 账号 chip;
             未登录时只剩账号 chip(它本身就是登录入口)。 */}
-        <Show when={socialEnabled()}>
-          <Show when={isKobeSignedIn()}>
-            <NotificationCenter />
-            <FriendsButton />
-          </Show>
-          <KobeAccountChip />
-        </Show>
+        {socialEnabled && (
+          <>
+            {isKobeSignedIn && (
+              <>
+                <NotificationCenter />
+                <FriendsButton />
+              </>
+            )}
+            <KobeAccountChip />
+          </>
+        )}
 
         {/* 窗口控制:no-drag,调 Tauri window API。原生交通灯按钮已提供,这里隐藏自绘控制以免重复。 */}
-        <div class="hidden items-center gap-[2px] [-webkit-app-region:no-drag]">
+        <div className="hidden items-center gap-[2px] [-webkit-app-region:no-drag]">
           <button
-            class="w-[30px] h-[30px] border-none bg-panel-3 text-sub cursor-pointer grid place-items-center shadow-raised active:shadow-pressed transition-colors duration-[var(--dur)] ease-app motion-reduce:transition-none hover:text-fg"
+            className="w-[30px] h-[30px] border-none bg-panel-3 text-sub cursor-pointer grid place-items-center shadow-raised active:shadow-pressed transition-colors duration-[var(--dur)] ease-app motion-reduce:transition-none hover:text-fg"
             title={t("layout.minimize")}
             aria-label={t("layout.minimize")}
             onClick={() => windowAction((w) => w.minimize())}
@@ -108,7 +112,7 @@ const TopBar: Component = () => {
             <MinimizeIcon />
           </button>
           <button
-            class="w-[30px] h-[30px] border-none bg-panel-3 text-sub cursor-pointer grid place-items-center shadow-raised active:shadow-pressed transition-colors duration-[var(--dur)] ease-app motion-reduce:transition-none hover:bg-danger hover:text-danger-text"
+            className="w-[30px] h-[30px] border-none bg-panel-3 text-sub cursor-pointer grid place-items-center shadow-raised active:shadow-pressed transition-colors duration-[var(--dur)] ease-app motion-reduce:transition-none hover:bg-danger hover:text-danger-text"
             title={t("layout.close")}
             aria-label={t("layout.close")}
             onClick={() => windowAction((w) => w.close())}
@@ -119,6 +123,4 @@ const TopBar: Component = () => {
       </div>
     </header>
   );
-};
-
-export default TopBar;
+}

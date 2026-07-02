@@ -1,11 +1,4 @@
-import {
-  Component,
-  createSignal,
-  createResource,
-  createMemo,
-  createEffect,
-  Show,
-} from "solid-js";
+import { useEffect, useMemo, useState } from "react";
 import { Dialog } from "./Dialog";
 import { Select } from "./Select";
 import { Segmented } from "./Segmented";
@@ -13,9 +6,11 @@ import { Spinner } from "./Spinner";
 import { Button } from "./Button";
 import { Heading } from "./Typography";
 import { toast } from "./Toast";
+import { useAsync } from "../util/useAsync";
 import { api, onInstallProgress } from "../ipc/api";
 import { activeRoot } from "../store";
-import { t } from "../i18n";
+import { openAgentChat, instancePrompt } from "../agent/chatStore";
+import { t, useLang } from "../i18n";
 
 /**
  * NewInstanceDialog —— 从零新建实例:名称 + MC 版本 + 加载器(forge/neoforge 再要版本)。
@@ -35,63 +30,75 @@ const FIELD =
   "placeholder:text-faint transition-[box-shadow] duration-150 focus-visible:outline-none " +
   "focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50";
 
-export const NewInstanceDialog: Component<{
+export function NewInstanceDialog(props: {
   open: boolean;
   onClose: () => void;
   onCreated?: (id: string) => void;
-}> = (props) => {
-  const [name, setName] = createSignal("");
-  const [mcVersion, setMcVersion] = createSignal("");
-  const [loader, setLoader] = createSignal("vanilla");
-  const [loaderVersion, setLoaderVersion] = createSignal("");
-  const [creating, setCreating] = createSignal(false);
-  const [stage, setStage] = createSignal("");
+}) {
+  const lang = useLang();
+  const [name, setName] = useState("");
+  const [mcVersion, setMcVersion] = useState("");
+  const [loader, setLoader] = useState("vanilla");
+  const [loaderVersion, setLoaderVersion] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [stage, setStage] = useState("");
 
-  const [versions] = createResource(() =>
-    api.listVersions(false).catch(() => [] as { id: string }[]),
+  const { data: versions, loading: versionsLoading } = useAsync(
+    () => api.listVersions(false).catch(() => [] as { id: string }[]),
+    [],
   );
-  const versionOptions = createMemo(() =>
-    (versions() ?? []).map((v) => ({ label: v.id, value: v.id })),
+  const versionOptions = useMemo(
+    () => (versions ?? []).map((v) => ({ label: v.id, value: v.id })),
+    [versions],
   );
 
   // forge/neoforge 必须选具体构建号;fabric/quilt 版本可选(留空=最新);vanilla 无 loader 版本。
-  const needsLoaderVersion = () => loader() === "forge" || loader() === "neoforge";
-  const supportsLoaderVersion = () => loader() !== "vanilla";
+  const needsLoaderVersion = loader === "forge" || loader === "neoforge";
+  const supportsLoaderVersion = loader !== "vanilla";
 
   // 可用 loader 版本由 daemon 拉真实元数据(forge/neoforge maven、fabric/quilt meta),
   // 免去手填。仅在选了 loader + MC 版本时请求;失败/为空时回退,绝不卡住用户。
-  const [loaderVersions] = createResource(
-    () => (supportsLoaderVersion() && mcVersion() ? ([loader(), mcVersion()] as const) : null),
-    async ([ld, mc]) => {
+  const { data: loaderVersions, loading: loaderVersionsLoading } = useAsync<string[]>(
+    async () => {
+      if (!supportsLoaderVersion || !mcVersion) return [];
       try {
-        return await api.listLoaderVersions(ld, mc);
+        return await api.listLoaderVersions(loader, mcVersion);
       } catch {
-        return [] as string[];
+        return [];
       }
     },
+    [loader, mcVersion, supportsLoaderVersion],
   );
   // 可选(fabric/quilt)在列表前加「最新(推荐)」哨兵(value 空 → 后端选最新)。
-  const loaderVersionOptions = createMemo(() => {
-    const list = (loaderVersions() ?? []).map((v) => ({ label: v, value: v }));
-    return needsLoaderVersion() ? list : [{ label: t("components.newInstance.latestRecommended"), value: "" }, ...list];
-  });
+  const loaderVersionOptions = useMemo(() => {
+    const list = (loaderVersions ?? []).map((v) => ({ label: v, value: v }));
+    return needsLoaderVersion
+      ? list
+      : [{ label: t("components.newInstance.latestRecommended"), value: "" }, ...list];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaderVersions, needsLoaderVersion, lang]);
   // 列表到手即预选最新(第一个);仅对必填(forge/neoforge)生效,可选 loader 默认留空=最新。
-  createEffect(() => {
-    const list = loaderVersions();
-    if (!needsLoaderVersion()) return;
-    if (list && list.length > 0 && !list.includes(loaderVersion())) {
-      setLoaderVersion(list[0]);
+  useEffect(() => {
+    if (!needsLoaderVersion) return;
+    if (loaderVersions && loaderVersions.length > 0 && !loaderVersions.includes(loaderVersion)) {
+      setLoaderVersion(loaderVersions[0]);
     }
-  });
+  }, [loaderVersions, needsLoaderVersion, loaderVersion]);
 
-  const canCreate = () =>
-    !creating() &&
-    name().trim() !== "" &&
-    mcVersion() !== "" &&
-    (!needsLoaderVersion() || loaderVersion().trim() !== "");
+  const canCreate =
+    !creating &&
+    name.trim() !== "" &&
+    mcVersion !== "" &&
+    (!needsLoaderVersion || loaderVersion.trim() !== "");
+
+  // 关掉对话框,带当前所选版本 / 加载器打开助手(未选则省略;vanilla 无加载器视作未选)。
+  function askAgent() {
+    props.onClose();
+    openAgentChat(instancePrompt(mcVersion || null, loader !== "vanilla" ? loader : null));
+  }
 
   async function create() {
-    if (!canCreate()) return;
+    if (!canCreate) return;
     setCreating(true);
     setStage(t("components.newInstance.preparing"));
     const unlisten = onInstallProgress((p) =>
@@ -100,13 +107,13 @@ export const NewInstanceDialog: Component<{
     try {
       const id = await api.createInstance(
         activeRoot(),
-        name().trim(),
-        mcVersion(),
-        loader(),
+        name.trim(),
+        mcVersion,
+        loader,
         // 非 vanilla 时传所选版本;空串(fabric/quilt 选「最新」或 vanilla)→ null=最新。
-        loaderVersion().trim() || null,
+        loaderVersion.trim() || null,
       );
-      toast({ type: "success", message: t("components.newInstance.created", { name: name().trim() }) });
+      toast({ type: "success", message: t("components.newInstance.created", { name: name.trim() }) });
       props.onCreated?.(id);
       props.onClose();
     } catch (e) {
@@ -121,45 +128,45 @@ export const NewInstanceDialog: Component<{
   return (
     <Dialog
       open={props.open}
-      onClose={() => !creating() && props.onClose()}
+      onClose={() => !creating && props.onClose()}
       label={t("components.newInstance.title")}
       contentClass="w-[440px] max-w-[calc(100vw-48px)]"
     >
-      <div class="p-[20px] flex flex-col gap-[14px]">
+      <div className="p-[20px] flex flex-col gap-[14px]">
         <Heading size="sub">{t("components.newInstance.title")}</Heading>
 
-        <label class="flex flex-col gap-[5px]">
-          <span class="text-[12px] text-sub">{t("components.newInstance.name")}</span>
+        <label className="flex flex-col gap-[5px]">
+          <span className="text-[12px] text-sub">{t("components.newInstance.name")}</span>
           <input
-            class={FIELD}
+            className={FIELD}
             name="instanceName"
-            autocomplete="off"
-            spellcheck={false}
+            autoComplete="off"
+            spellCheck={false}
             placeholder={t("components.newInstance.namePlaceholder")}
-            value={name()}
-            onInput={(e) => setName(e.currentTarget.value)}
-            disabled={creating()}
+            value={name}
+            onChange={(e) => setName(e.currentTarget.value)}
+            disabled={creating}
           />
         </label>
 
-        <label class="flex flex-col gap-[5px]">
-          <span class="text-[12px] text-sub">{t("components.newInstance.mcVersion")}</span>
+        <label className="flex flex-col gap-[5px]">
+          <span className="text-[12px] text-sub">{t("components.newInstance.mcVersion")}</span>
           <Select
-            class="w-full"
-            value={mcVersion()}
+            className="w-full"
+            value={mcVersion}
             onChange={setMcVersion}
-            options={versionOptions()}
-            placeholder={versions.loading ? t("components.newInstance.loadingVersions") : t("components.newInstance.selectVersion")}
+            options={versionOptions}
+            placeholder={versionsLoading ? t("components.newInstance.loadingVersions") : t("components.newInstance.selectVersion")}
           />
         </label>
 
-        <label class="flex flex-col gap-[5px]">
-          <span class="text-[12px] text-sub">{t("components.newInstance.loader")}</span>
+        <label className="flex flex-col gap-[5px]">
+          <span className="text-[12px] text-sub">{t("components.newInstance.loader")}</span>
           {/* 切换 loader 时清掉上一个 loader 的版本选择,避免把 forge build 号带进 fabric。 */}
           <Segmented
-            class="self-start"
+            className="self-start"
             ariaLabel={t("components.newInstance.loader")}
-            value={loader()}
+            value={loader}
             onChange={(v) => {
               setLoader(v);
               setLoaderVersion("");
@@ -168,72 +175,71 @@ export const NewInstanceDialog: Component<{
           />
         </label>
 
-        <Show when={supportsLoaderVersion()}>
-          <label class="flex flex-col gap-[5px]">
-            <span class="text-[12px] text-sub">
-              {loader() === "forge"
+        {supportsLoaderVersion && (
+          <label className="flex flex-col gap-[5px]">
+            <span className="text-[12px] text-sub">
+              {loader === "forge"
                 ? t("components.newInstance.forgeVersion")
-                : loader() === "neoforge"
+                : loader === "neoforge"
                   ? t("components.newInstance.neoforgeVersion")
-                  : loader() === "fabric"
+                  : loader === "fabric"
                     ? t("components.newInstance.fabricVersionOptional")
                     : t("components.newInstance.quiltVersionOptional")}
             </span>
-            <Show
-              when={!loaderVersions.loading && loaderVersionOptions().length > 0}
-              fallback={
-                <Show
-                  when={!loaderVersions.loading}
-                  fallback={
-                    <div class="flex items-center gap-[8px] h-[36px] px-[12px] text-[12px] text-muted">
-                      <Spinner size={14} />
-                      <span>{t("components.newInstance.loadingAvailable")}</span>
-                    </div>
-                  }
-                >
-                  {/* 拉取失败 / 该版本无可用构建 → 退回手填,绝不卡住用户。 */}
-                  <input
-                    class={FIELD}
-                    name="loaderVersion"
-                    autocomplete="off"
-                    spellcheck={false}
-                    placeholder={loader() === "forge" ? t("components.newInstance.forgePlaceholder") : t("components.newInstance.neoforgePlaceholder")}
-                    value={loaderVersion()}
-                    onInput={(e) => setLoaderVersion(e.currentTarget.value)}
-                    disabled={creating()}
-                  />
-                </Show>
-              }
-            >
+            {!loaderVersionsLoading && loaderVersionOptions.length > 0 ? (
               <Select
-                class="w-full"
-                value={loaderVersion()}
+                className="w-full"
+                value={loaderVersion}
                 onChange={setLoaderVersion}
-                options={loaderVersionOptions()}
+                options={loaderVersionOptions}
                 placeholder={t("components.newInstance.selectVersion")}
               />
-            </Show>
+            ) : !loaderVersionsLoading ? (
+              /* 拉取失败 / 该版本无可用构建 → 退回手填,绝不卡住用户。 */
+              <input
+                className={FIELD}
+                name="loaderVersion"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder={loader === "forge" ? t("components.newInstance.forgePlaceholder") : t("components.newInstance.neoforgePlaceholder")}
+                value={loaderVersion}
+                onChange={(e) => setLoaderVersion(e.currentTarget.value)}
+                disabled={creating}
+              />
+            ) : (
+              <div className="flex items-center gap-[8px] h-[36px] px-[12px] text-[12px] text-muted">
+                <Spinner size={14} />
+                <span>{t("components.newInstance.loadingAvailable")}</span>
+              </div>
+            )}
           </label>
-        </Show>
+        )}
 
-        <Show when={creating()}>
-          <div class="flex items-center gap-[10px] text-[12px] text-muted">
+        {creating && (
+          <div className="flex items-center gap-[10px] text-[12px] text-muted">
             <Spinner size={16} />
-            <span>{stage() || t("components.newInstance.creating")}</span>
+            <span>{stage || t("components.newInstance.creating")}</span>
           </div>
-        </Show>
+        )}
 
-        <div class="flex justify-end gap-[10px] mt-[4px]">
-          <Button variant="ghost" onClick={props.onClose} disabled={creating()}>
+        {/* 让 AI 生成整合包:关掉对话框、带上下文打开助手(不自动发送)。 */}
+        <div className="pt-[12px] border-t border-titlebar flex justify-center">
+          <Button variant="ghost" disabled={creating} onClick={askAgent}>
+            {t("agent.newInstanceCta")}
+          </Button>
+        </div>
+
+        <div className="flex justify-end gap-[10px] mt-[4px]">
+          <Button variant="ghost" onClick={props.onClose} disabled={creating}>
             {t("components.newInstance.cancel")}
           </Button>
-          <Button variant="primary" onClick={create} disabled={!canCreate()}>
-            {creating() ? t("components.newInstance.creating") : t("components.newInstance.create")}
+          <Button variant="primary" onClick={create} disabled={!canCreate}>
+            {creating ? t("components.newInstance.creating") : t("components.newInstance.create")}
           </Button>
         </div>
       </div>
     </Dialog>
   );
-};
+}
 
 export default NewInstanceDialog;

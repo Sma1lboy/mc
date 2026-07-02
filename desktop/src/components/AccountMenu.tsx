@@ -1,11 +1,12 @@
-import { Component, For, Show, createResource, createSignal } from "solid-js";
+import { useState } from "react";
 import { Menu } from "./Menu";
 import { Avatar } from "./Avatar";
 import { AccountDialog } from "./AccountDialog";
 import { toast } from "./Toast";
+import { useAsync } from "../util/useAsync";
 import { api } from "../ipc/api";
 import { accountKindLabel } from "../util/accounts";
-import { t } from "../i18n";
+import { t, useLang } from "../i18n";
 import type { AccountSummary } from "../ipc/types";
 
 /* ============================================================================
@@ -27,17 +28,15 @@ export interface AccountMenuProps {
   variant?: "avatar" | "chip";
 }
 
-export const AccountMenu: Component<AccountMenuProps> = (props) => {
-  const [accounts, { refetch }] = createResource<AccountSummary[]>(() => api.listAccounts());
-  const [loginOpen, setLoginOpen] = createSignal(false);
+export function AccountMenu(props: AccountMenuProps) {
+  useLang();
+  const { data: accounts, refetch } = useAsync<AccountSummary[]>(() => api.listAccounts(), []);
+  const [loginOpen, setLoginOpen] = useState(false);
 
   // 当前账号:优先 selected,否则第一个。
-  const current = (): AccountSummary | undefined => {
-    const list = accounts();
-    if (!list || list.length === 0) return undefined;
-    return list.find((a) => a.selected) ?? list[0];
-  };
-  const online = (): boolean => !!current() && current()!.kind !== "offline";
+  const current: AccountSummary | undefined =
+    accounts && accounts.length > 0 ? (accounts.find((a) => a.selected) ?? accounts[0]) : undefined;
+  const online = !!current && current.kind !== "offline";
 
   // 切到指定账号(已选则忽略);失败 toast 提示,不崩 UI。
   const pick = async (acc: AccountSummary): Promise<void> => {
@@ -55,86 +54,86 @@ export const AccountMenu: Component<AccountMenuProps> = (props) => {
       setLoginOpen(true);
       return;
     }
-    const acc = accounts()?.find((a) => a.uuid === d.value);
+    const acc = accounts?.find((a) => a.uuid === d.value);
     if (acc) void pick(acc);
   };
 
-  const isChip = (): boolean => props.variant === "chip";
+  const isChip = props.variant === "chip";
 
   return (
     <>
       <Menu.Root
-        positioning={{ placement: isChip() ? "bottom-end" : "right-start", gutter: 6 }}
+        positioning={{ placement: isChip ? "bottom-end" : "right-start", gutter: 6 }}
         onSelect={onSelect}
       >
         <Menu.Trigger
           aria-label={t("account.switchAccount")}
-          class={
-            isChip()
+          className={
+            isChip
               ? "flex items-center gap-[10px] shrink-0 py-[7px] pl-[8px] pr-[12px] bg-panel-3 shadow-raised rounded-none cursor-pointer transition-[box-shadow,filter] duration-[var(--dur)] ease-app hover:brightness-110 active:shadow-pressed data-[state=open]:shadow-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent motion-reduce:transition-none"
               : "block w-[36px] h-[36px] p-0 border-none bg-transparent shadow-raised rounded-none overflow-hidden cursor-pointer transition-transform duration-[var(--dur)] ease-app active:scale-[0.94] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent motion-reduce:transition-none"
           }
         >
-          <Show
-            when={isChip()}
-            fallback={<Avatar kind={current()?.kind} uuid={current()?.uuid} />}
-          >
-            <span class="w-[28px] h-[28px] shrink-0 overflow-hidden rounded-[2px]">
-              <Avatar kind={current()?.kind} uuid={current()?.uuid} />
-            </span>
-            <span class={META}>
-              <span class={NAME}>{current()?.username ?? t("account.loginOrAdd")}</span>
-              <Show when={current()}>
-                <span class="flex items-center gap-[5px] text-[11px] text-muted leading-tight">
-                  <span
-                    class={`w-[6px] h-[6px] rounded-none shrink-0 ${online() ? "bg-[#5fb84e]" : "bg-faint"}`}
-                    aria-hidden="true"
-                  />
-                  {accountKindLabel(current()!.kind)}
-                </span>
-              </Show>
-            </span>
-          </Show>
+          {isChip ? (
+            <>
+              <span className="w-[28px] h-[28px] shrink-0 overflow-hidden rounded-[2px]">
+                <Avatar kind={current?.kind} uuid={current?.uuid} />
+              </span>
+              <span className={META}>
+                <span className={NAME}>{current?.username ?? t("account.loginOrAdd")}</span>
+                {current && (
+                  <span className="flex items-center gap-[5px] text-[11px] text-muted leading-tight">
+                    <span
+                      className={`w-[6px] h-[6px] rounded-none shrink-0 ${online ? "bg-[#5fb84e]" : "bg-faint"}`}
+                      aria-hidden="true"
+                    />
+                    {accountKindLabel(current.kind)}
+                  </span>
+                )}
+              </span>
+            </>
+          ) : (
+            <Avatar kind={current?.kind} uuid={current?.uuid} />
+          )}
         </Menu.Trigger>
 
-        <Menu.Content class="min-w-[224px]">
-          <For each={accounts()}>
-            {(acc) => (
-              <Menu.ItemRaw
-                value={acc.uuid}
-                class="flex items-center gap-[10px] p-[8px] rounded-none cursor-pointer select-none transition-[background] duration-[var(--dur)] ease-app data-[highlighted]:bg-panel-3 motion-reduce:transition-none"
-              >
-                <span class="w-[30px] h-[30px] flex-shrink-0 shadow-raised overflow-hidden grid place-items-center bg-accent">
-                  <Avatar kind={acc.kind} uuid={acc.uuid} />
+        <Menu.Content className="min-w-[224px]">
+          {(accounts ?? []).map((acc) => (
+            <Menu.ItemRaw
+              key={acc.uuid}
+              value={acc.uuid}
+              className="flex items-center gap-[10px] p-[8px] rounded-none cursor-pointer select-none transition-[background] duration-[var(--dur)] ease-app data-[highlighted]:bg-panel-3 motion-reduce:transition-none"
+            >
+              <span className="w-[30px] h-[30px] flex-shrink-0 shadow-raised overflow-hidden grid place-items-center bg-accent">
+                <Avatar kind={acc.kind} uuid={acc.uuid} />
+              </span>
+              <span className={META}>
+                <span className={NAME}>{acc.username}</span>
+                <span className="text-[11px] text-muted">{accountKindLabel(acc.kind)}</span>
+              </span>
+              {acc.selected && (
+                <span className="text-accent text-[14px] flex-shrink-0" aria-hidden="true">
+                  ✓
                 </span>
-                <span class={META}>
-                  <span class={NAME}>{acc.username}</span>
-                  <span class="text-[11px] text-muted">{accountKindLabel(acc.kind)}</span>
-                </span>
-                <Show when={acc.selected}>
-                  <span class="text-accent text-[14px] flex-shrink-0" aria-hidden="true">
-                    ✓
-                  </span>
-                </Show>
-              </Menu.ItemRaw>
-            )}
-          </For>
+              )}
+            </Menu.ItemRaw>
+          ))}
           <Menu.ItemRaw
             value="__add__"
-            class="flex items-center gap-[10px] p-[8px] mt-[2px] rounded-none cursor-pointer select-none border-t border-titlebar text-accent transition-[background] duration-[var(--dur)] ease-app data-[highlighted]:bg-panel-3 motion-reduce:transition-none"
+            className="flex items-center gap-[10px] p-[8px] mt-[2px] rounded-none cursor-pointer select-none border-t border-titlebar text-accent transition-[background] duration-[var(--dur)] ease-app data-[highlighted]:bg-panel-3 motion-reduce:transition-none"
           >
             <span
-              class="w-[30px] h-[30px] flex-shrink-0 shadow-raised grid place-items-center text-[18px] font-semibold bg-panel-3"
+              className="w-[30px] h-[30px] flex-shrink-0 shadow-raised grid place-items-center text-[18px] font-semibold bg-panel-3"
               aria-hidden="true"
             >
               +
             </span>
-            <span class="text-[13px] font-medium">{t("account.loginOrAdd")}</span>
+            <span className="text-[13px] font-medium">{t("account.loginOrAdd")}</span>
           </Menu.ItemRaw>
         </Menu.Content>
       </Menu.Root>
 
-      <Show when={loginOpen()}>
+      {loginOpen && (
         <AccountDialog
           onClose={() => setLoginOpen(false)}
           onDone={() => {
@@ -142,9 +141,9 @@ export const AccountMenu: Component<AccountMenuProps> = (props) => {
             void refetch();
           }}
         />
-      </Show>
+      )}
     </>
   );
-};
+}
 
 export default AccountMenu;

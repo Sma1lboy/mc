@@ -1,4 +1,4 @@
-import { Component, createSignal, Show } from "solid-js";
+import { useState } from "react";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { Dialog } from "./Dialog";
 import { Select } from "./Select";
@@ -6,7 +6,7 @@ import { Button } from "./Button";
 import { Heading } from "./Typography";
 import { toast } from "./Toast";
 import { api } from "../ipc/api";
-import { t } from "../i18n";
+import { t, useLang } from "../i18n";
 
 /**
  * ExportModpackDialog —— 导出实例为整合包/清单的统一入口(两套布局共用)。
@@ -27,47 +27,48 @@ export interface ExportInstanceRef {
 
 type Fmt = "modrinth" | "curseforge" | "modlist";
 
-export const ExportModpackDialog: Component<{
+export function ExportModpackDialog(props: {
   open: boolean;
   root: string;
   instance: ExportInstanceRef | null;
   onClose: () => void;
-}> = (props) => {
-  const [fmt, setFmt] = createSignal<Fmt>("modrinth");
-  const [sub, setSub] = createSignal("md");
-  const [busy, setBusy] = createSignal(false);
+}) {
+  useLang();
+  const [fmt, setFmt] = useState<Fmt>("modrinth");
+  const [sub, setSub] = useState("md");
+  const [busy, setBusy] = useState(false);
 
   // 选定格式 → 文件扩展名 + export_modpack 的 target 串。
-  const ext = () => (fmt() === "modrinth" ? "mrpack" : fmt() === "curseforge" ? "zip" : sub());
-  const target = () => (fmt() === "modlist" ? `modlist:${sub()}` : fmt());
+  const ext = fmt === "modrinth" ? "mrpack" : fmt === "curseforge" ? "zip" : sub;
+  const target = fmt === "modlist" ? `modlist:${sub}` : fmt;
 
-  const formatOptions = () => [
+  const formatOptions = [
     { value: "modrinth", label: t("components.export.fmtModrinth") },
     { value: "curseforge", label: t("components.export.fmtCurseforge") },
     { value: "modlist", label: t("components.export.fmtModlist") },
   ];
-  const subOptions = () => [
+  const subOptions = [
     { value: "md", label: t("components.export.subMd") },
     { value: "html", label: t("components.export.subHtml") },
     { value: "json", label: t("components.export.subJson") },
     { value: "csv", label: t("components.export.subCsv") },
     { value: "txt", label: t("components.export.subTxt") },
   ];
-  const hint = () =>
-    fmt() === "modrinth"
+  const hint =
+    fmt === "modrinth"
       ? t("components.export.hintModrinth")
-      : fmt() === "curseforge"
+      : fmt === "curseforge"
         ? t("components.export.hintCurseforge")
         : t("components.export.hintModlist");
 
   async function doExport() {
     const inst = props.instance;
-    if (!inst || busy()) return;
+    if (!inst || busy) return;
     const name = inst.name || inst.id;
     const dest = await saveDialog({
       title: t("components.export.title"),
-      defaultPath: `${name}.${ext()}`,
-      filters: [{ name: t("components.export.filter"), extensions: [ext()] }],
+      defaultPath: `${name}.${ext}`,
+      filters: [{ name: t("components.export.filter"), extensions: [ext] }],
     }).catch(() => null);
     if (!dest) return; // 用户取消
     setBusy(true);
@@ -75,7 +76,7 @@ export const ExportModpackDialog: Component<{
       const out = await api.exportModpack({
         root: props.root,
         instanceId: inst.id,
-        target: target(),
+        target,
         dest,
         packName: name,
         mcVersion: inst.mc_version,
@@ -94,33 +95,33 @@ export const ExportModpackDialog: Component<{
   return (
     <Dialog
       open={props.open}
-      onClose={() => !busy() && props.onClose()}
+      onClose={() => !busy && props.onClose()}
       label={t("components.export.title")}
       contentClass="w-[420px] max-w-[calc(100vw-48px)]"
     >
-      <div class="flex flex-col gap-[16px] p-[20px]">
+      <div className="flex flex-col gap-[16px] p-[20px]">
         <Heading size="sub">{t("components.export.title")}</Heading>
 
-        <div class="flex flex-col gap-[8px]">
-          <label class="text-[12px] font-semibold text-sub">{t("components.export.formatLabel")}</label>
-          <Select class="w-full" value={fmt()} onChange={(v) => setFmt(v as Fmt)} options={formatOptions()} />
-          <Show when={fmt() === "modlist"}>
-            <Select class="w-full" value={sub()} onChange={setSub} options={subOptions()} />
-          </Show>
-          <div class="text-[11px] leading-[1.6] text-muted">{hint()}</div>
+        <div className="flex flex-col gap-[8px]">
+          <label className="text-[12px] font-semibold text-sub">{t("components.export.formatLabel")}</label>
+          <Select className="w-full" value={fmt} onChange={(v) => setFmt(v as Fmt)} options={formatOptions} />
+          {fmt === "modlist" && (
+            <Select className="w-full" value={sub} onChange={setSub} options={subOptions} />
+          )}
+          <div className="text-[11px] leading-[1.6] text-muted">{hint}</div>
         </div>
 
-        <div class="flex justify-end gap-[10px]">
-          <Button variant="ghost" disabled={busy()} onClick={() => props.onClose()}>
+        <div className="flex justify-end gap-[10px]">
+          <Button variant="ghost" disabled={busy} onClick={() => props.onClose()}>
             {t("components.export.close")}
           </Button>
-          <Button variant="primary" disabled={busy()} onClick={() => void doExport()}>
-            {busy() ? t("components.export.exporting") : t("components.export.confirm")}
+          <Button variant="primary" disabled={busy} onClick={() => void doExport()}>
+            {busy ? t("components.export.exporting") : t("components.export.confirm")}
           </Button>
         </div>
       </div>
     </Dialog>
   );
-};
+}
 
 export default ExportModpackDialog;

@@ -1,4 +1,4 @@
-import { For, JSX } from "solid-js";
+import type { ReactNode } from "react";
 
 /* ============================================================================
  * Segmented —— Blocky Craft 分段控件(单选)。
@@ -10,7 +10,7 @@ import { For, JSX } from "solid-js";
 
 export interface SegmentedOption<T extends string> {
   value: T;
-  label: JSX.Element;
+  label: ReactNode;
   title?: string;
 }
 
@@ -22,41 +22,40 @@ export interface SegmentedProps<T extends string> {
   pixel?: boolean;
   /** 整条控件的无障碍标签。 */
   ariaLabel?: string;
-  class?: string;
+  className?: string;
 }
 
-export function Segmented<T extends string>(props: SegmentedProps<T>): JSX.Element {
+export function Segmented<T extends string>(props: SegmentedProps<T>): React.ReactElement {
   return (
     <div
       role="radiogroup"
       aria-label={props.ariaLabel}
-      class={`inline-flex p-[3px] bg-panel-2 shadow-input rounded-none${
-        props.class ? " " + props.class : ""
+      className={`inline-flex p-[3px] bg-panel-2 shadow-input rounded-none${
+        props.className ? " " + props.className : ""
       }`}
     >
-      <For each={props.options}>
-        {(opt) => {
-          const selected = (): boolean => props.value === opt.value;
-          return (
-            <button
-              type="button"
-              role="radio"
-              aria-checked={selected()}
-              title={opt.title}
-              class={`inline-flex items-center justify-center px-[14px] h-[30px] rounded-none border-none cursor-pointer select-none whitespace-nowrap leading-none transition-[background-color,color,box-shadow] duration-[var(--dur)] ease-app ${
-                props.pixel ? "font-pixel text-[10px]" : "font-medium text-[12px]"
-              } ${
-                selected()
-                  ? "bg-accent text-accent-text shadow-raised"
-                  : "bg-transparent text-muted hover:text-sub"
-              }`}
-              onClick={() => !selected() && props.onChange(opt.value)}
-            >
-              {opt.label}
-            </button>
-          );
-        }}
-      </For>
+      {props.options.map((opt) => {
+        const selected = props.value === opt.value;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            title={opt.title}
+            className={`inline-flex items-center justify-center px-[14px] h-[30px] rounded-none border-none cursor-pointer select-none whitespace-nowrap leading-none transition-[background-color,color,box-shadow] duration-[var(--dur)] ease-app ${
+              props.pixel ? "font-pixel text-[10px]" : "font-medium text-[12px]"
+            } ${
+              selected
+                ? "bg-accent text-accent-text shadow-raised"
+                : "bg-transparent text-muted hover:text-sub"
+            }`}
+            onClick={() => !selected && props.onChange(opt.value)}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
     </div>
   );
 }

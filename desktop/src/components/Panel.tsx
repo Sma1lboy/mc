@@ -1,5 +1,5 @@
-import { JSX, splitProps } from "solid-js";
-import { Dynamic } from "solid-js/web";
+import type { CSSProperties, ElementType, ReactNode } from "react";
+import clsx from "clsx";
 
 /* ============================================================================
  * Panel —— Blocky Craft 倒角表面原语(方块工坊的「灵魂」)。
@@ -27,36 +27,26 @@ export interface PanelProps {
   stone?: boolean;
   /** 渲染的标签名,默认 div。 */
   as?: string;
-  children?: JSX.Element;
-  class?: string;
-  /** Solid classList(条件类),与 class 共存。 */
-  classList?: Record<string, boolean | undefined>;
-  style?: JSX.CSSProperties | string;
+  children?: ReactNode;
+  className?: string;
+  style?: CSSProperties;
   onClick?: (e: MouseEvent) => void;
   title?: string;
 }
 
-export function Panel(props: PanelProps): JSX.Element {
-  const [local, rest] = splitProps(props, [
-    "variant",
-    "stone",
-    "as",
-    "children",
-    "class",
-    "onClick",
-  ]);
+export function Panel(props: PanelProps): React.ReactElement {
+  const { variant, stone, as, children, className, style, onClick, title } = props;
+  const Comp = (as ?? "div") as ElementType;
 
   return (
-    <Dynamic
-      component={local.as ?? "div"}
-      {...rest}
-      class={`${local.stone ? "stone" : "bg-panel"} ${BEVEL[local.variant ?? "sunken"]}${
-        local.class ? " " + local.class : ""
-      }`}
-      onClick={(e: MouseEvent) => local.onClick?.(e)}
+    <Comp
+      style={style}
+      title={title}
+      className={clsx(stone ? "stone" : "bg-panel", BEVEL[variant ?? "sunken"], className)}
+      onClick={(e: React.MouseEvent) => onClick?.(e.nativeEvent)}
     >
-      {local.children}
-    </Dynamic>
+      {children}
+    </Comp>
   );
 }
 

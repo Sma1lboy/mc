@@ -1,4 +1,4 @@
-import { Component, createResource, createSignal, For, Show, onCleanup } from "solid-js";
+import { useEffect, useRef, useState } from "react";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { Spinner } from "./Spinner";
 import { ErrorState } from "./ErrorState";
@@ -9,9 +9,10 @@ import { Icon } from "./Icon";
 import { Button } from "./Button";
 import { Heading } from "./Typography";
 import { toast } from "./Toast";
+import { useAsync } from "../util/useAsync";
 import { api } from "../ipc/api";
 import { accountKindLabel } from "../util/accounts";
-import { t } from "../i18n";
+import { t, useLang } from "../i18n";
 import type { AccountSummary, DeviceCode } from "../ipc/types";
 
 
@@ -31,33 +32,46 @@ type Step = "menu" | "msa" | "offline" | "yggdrasil";
  * 都自动对味。微软走设备码流:start 拿 user_code + 验证地址 → 自动打开浏览器并复制代码 →
  * 后台 poll 阻塞直到用户在网页完成 → 落库并选中 → 回调 onDone。
  */
-export const AccountDialog: Component<{
+export function AccountDialog(props: {
   onClose: () => void;
   onDone: (acc: AccountSummary) => void;
-}> = (props) => {
-  const [step, setStep] = createSignal<Step>("menu");
-  const [device, setDevice] = createSignal<DeviceCode | null>(null);
-  const [busy, setBusy] = createSignal(false);
-  const [error, setError] = createSignal<string | null>(null);
-  const [offlineName, setOfflineName] = createSignal("");
-  const [ygBase, setYgBase] = createSignal("");
-  const [ygUser, setYgUser] = createSignal("");
-  const [ygPass, setYgPass] = createSignal("");
+}) {
+  useLang();
+  const [step, setStep] = useState<Step>("menu");
+  const [device, setDevice] = useState<DeviceCode | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [offlineName, setOfflineName] = useState("");
+  const [ygBase, setYgBase] = useState("");
+  const [ygUser, setYgUser] = useState("");
+  const [ygPass, setYgPass] = useState("");
 
   // 已有账号:菜单步顶部列出,可切换/删除(两套布局共用的账号管理入口)。
-  const [accounts, { refetch: refetchAccounts }] = createResource(() => api.listAccounts());
-  const accountList = () => accounts() ?? [];
+  const { data: accounts, error: accountsError, refetch: refetchAccounts } = useAsync(
+    () => api.listAccounts(),
+    [],
+  );
+  const accountList = accounts ?? [];
   // 正在切换/移除的账号 uuid:列表常驻可见,异步期间禁用该行防重复触发。
-  const [pendingAcc, setPendingAcc] = createSignal<string | null>(null);
+  const [pendingAcc, setPendingAcc] = useState<string | null>(null);
   // 打开了皮肤管理弹窗的微软账号(仅微软账号有皮肤 API)。
-  const [skinFor, setSkinFor] = createSignal<AccountSummary | null>(null);
+  const [skinFor, setSkinFor] = useState<AccountSummary | null>(null);
+
+  // 弹窗关闭后别再回调(微软 poll 可能仍在后台轮询)。
+  const closed = useRef(false);
+  useEffect(() => {
+    closed.current = false;
+    return () => {
+      closed.current = true;
+    };
+  }, []);
 
   async function selectExisting(acc: AccountSummary) {
     if (acc.selected) {
       props.onDone(acc);
       return;
     }
-    if (pendingAcc()) return;
+    if (pendingAcc) return;
     setPendingAcc(acc.uuid);
     try {
       await api.selectAccount(acc.uuid);
@@ -65,13 +79,13 @@ export const AccountDialog: Component<{
     } catch (e) {
       setError(String(e));
     } finally {
-      if (!closed) setPendingAcc(null);
+      if (!closed.current) setPendingAcc(null);
     }
   }
 
-  async function removeExisting(acc: AccountSummary, e: MouseEvent) {
+  async function removeExisting(acc: AccountSummary, e: React.MouseEvent) {
     e.stopPropagation();
-    if (pendingAcc()) return;
+    if (pendingAcc) return;
     setPendingAcc(acc.uuid);
     try {
       await api.removeAccount(acc.uuid);
@@ -80,15 +94,9 @@ export const AccountDialog: Component<{
     } catch (err) {
       toast({ type: "error", message: t("account.removeFailed", { err: String(err) }) });
     } finally {
-      if (!closed) setPendingAcc(null);
+      if (!closed.current) setPendingAcc(null);
     }
   }
-
-  // 弹窗关闭后别再回调(微软 poll 可能仍在后台轮询)。
-  let closed = false;
-  onCleanup(() => {
-    closed = true;
-  });
 
   async function startMsa() {
     setStep("msa");
@@ -110,62 +118,62 @@ export const AccountDialog: Component<{
       }
       // 阻塞轮询直到用户完成(后端内部按 interval 轮询)。
       const acc = await api.msaLoginPoll(info.device_code, info.interval);
-      if (closed) return;
+      if (closed.current) return;
       toast({ type: "success", message: t("account.loggedIn", { name: acc.username }) });
       props.onDone(acc);
     } catch (e) {
-      if (closed) return;
+      if (closed.current) return;
       setError(String(e));
     } finally {
       setBusy(false);
     }
   }
 
-  async function submitOffline(e: Event) {
+  async function submitOffline(e: React.FormEvent) {
     e.preventDefault();
-    const name = offlineName().trim();
+    const name = offlineName.trim();
     if (!name) return;
     setBusy(true);
     setError(null);
     try {
       const acc = await api.addOfflineAccount(name);
-      if (closed) return;
+      if (closed.current) return;
       toast({ type: "success", message: t("account.offlineAdded", { name: acc.username }) });
       props.onDone(acc);
     } catch (e) {
-      if (closed) return;
+      if (closed.current) return;
       setError(String(e));
     } finally {
       setBusy(false);
     }
   }
 
-  async function submitYggdrasil(e: Event) {
+  async function submitYggdrasil(e: React.FormEvent) {
     e.preventDefault();
-    const base = ygBase().trim();
-    const user = ygUser().trim();
+    const base = ygBase.trim();
+    const user = ygUser.trim();
     if (!base || !user) return;
     setBusy(true);
     setError(null);
     try {
-      const acc = await api.yggdrasilLogin(base, user, ygPass());
-      if (closed) return;
+      const acc = await api.yggdrasilLogin(base, user, ygPass);
+      if (closed.current) return;
       toast({ type: "success", message: t("account.loggedInYggdrasil", { name: acc.username }) });
       props.onDone(acc);
     } catch (e) {
-      if (closed) return;
+      if (closed.current) return;
       setError(String(e));
     } finally {
       setBusy(false);
     }
   }
 
-  const title = () =>
-    step() === "offline"
+  const title =
+    step === "offline"
       ? t("account.titleOffline")
-      : step() === "msa"
+      : step === "msa"
         ? t("account.titleMsa")
-        : step() === "yggdrasil"
+        : step === "yggdrasil"
           ? t("account.titleYggdrasil")
           : t("account.titleAdd");
 
@@ -173,13 +181,13 @@ export const AccountDialog: Component<{
     <Dialog
       open
       onClose={props.onClose}
-      label={title()}
+      label={title}
       contentClass="w-[380px] max-w-[calc(100vw-48px)] focus-visible:outline-none"
     >
-      <div class="flex items-center justify-between px-[18px] py-[14px] bg-titlebar border-b border-titlebar">
-        <Heading size="sub">{title()}</Heading>
+      <div className="flex items-center justify-between px-[18px] py-[14px] bg-titlebar border-b border-titlebar">
+        <Heading size="sub">{title}</Heading>
         <button
-          class="border-none bg-transparent text-muted cursor-pointer p-[5px] rounded-none flex items-center transition-colors duration-150 hover:bg-panel-2 hover:text-fg"
+          className="border-none bg-transparent text-muted cursor-pointer p-[5px] rounded-none flex items-center transition-colors duration-150 hover:bg-panel-2 hover:text-fg"
           onClick={props.onClose}
           aria-label={t("account.close")}
         >
@@ -188,246 +196,237 @@ export const AccountDialog: Component<{
       </div>
 
       {/* --- 选择登录方式 --- */}
-      <Show when={step() === "menu"}>
-        <div class="p-[18px] flex flex-col gap-[12px]">
+      {step === "menu" && (
+        <div className="p-[18px] flex flex-col gap-[12px]">
           {/* 账号列表加载失败:给错误态 + 重试,别让失败看起来像「没有账号」。 */}
-          <Show when={accounts.error}>
+          {accountsError != null && (
             <ErrorState compact message={t("account.listLoadFailed")} onRetry={() => void refetchAccounts()} />
-          </Show>
+          )}
           {/* 已有账号:切换(点击)或移除(✕)。当前账号打勾。 */}
-          <Show when={accountList().length > 0}>
-            <div class="flex flex-col gap-[6px]">
-              <For each={accountList()}>
-                {(acc) => (
-                  <div
-                    role="button"
-                    tabindex={0}
-                    aria-busy={pendingAcc() === acc.uuid}
-                    class="group flex items-center gap-[10px] px-[10px] py-[8px] rounded-none bg-panel cursor-pointer transition-[box-shadow,background-color] duration-150 hover:bg-panel-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent aria-[busy=true]:opacity-60 aria-[busy=true]:pointer-events-none"
-                    classList={{ "shadow-raised bg-panel-2": acc.selected, "shadow-sunken": !acc.selected }}
-                    onClick={() => selectExisting(acc)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        void selectExisting(acc);
-                      }
-                    }}
-                  >
-                    <span class="w-[30px] h-[30px] flex-[0_0_30px] rounded-none shadow-input overflow-hidden grid place-items-center text-fg text-[13px] font-semibold bg-sidebar">
-                      <Avatar kind={acc.kind} uuid={acc.uuid} />
+          {accountList.length > 0 && (
+            <div className="flex flex-col gap-[6px]">
+              {accountList.map((acc) => (
+                <div
+                  key={acc.uuid}
+                  role="button"
+                  tabIndex={0}
+                  aria-busy={pendingAcc === acc.uuid}
+                  className={
+                    "group flex items-center gap-[10px] px-[10px] py-[8px] rounded-none bg-panel cursor-pointer transition-[box-shadow,background-color] duration-150 hover:bg-panel-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent aria-[busy=true]:opacity-60 aria-[busy=true]:pointer-events-none " +
+                    (acc.selected ? "shadow-raised bg-panel-2" : "shadow-sunken")
+                  }
+                  onClick={() => selectExisting(acc)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      void selectExisting(acc);
+                    }
+                  }}
+                >
+                  <span className="w-[30px] h-[30px] flex-[0_0_30px] rounded-none shadow-input overflow-hidden grid place-items-center text-fg text-[13px] font-semibold bg-sidebar">
+                    <Avatar kind={acc.kind} uuid={acc.uuid} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[13px] font-semibold text-fg whitespace-nowrap overflow-hidden text-ellipsis">
+                      {acc.username}
                     </span>
-                    <span class="min-w-0 flex-1">
-                      <span class="block text-[13px] font-semibold text-fg whitespace-nowrap overflow-hidden text-ellipsis">
-                        {acc.username}
-                      </span>
-                      <span class="block text-[11px] text-muted">{accountKindLabel(acc.kind)}</span>
-                    </span>
-                    <Show when={acc.selected}>
-                      <Icon name="check" size={15} class="text-accent" />
-                    </Show>
-                    <Show when={acc.kind === "microsoft"}>
-                      <button
-                        class="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150 text-[12px] text-accent px-[6px] py-[3px] rounded-none hover:bg-panel-2"
-                        title={t("skin.manage")}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSkinFor(acc);
-                        }}
-                      >
-                        {t("skin.manage")}
-                      </button>
-                    </Show>
+                    <span className="block text-[11px] text-muted">{accountKindLabel(acc.kind)}</span>
+                  </span>
+                  {acc.selected && <Icon name="check" size={15} className="text-accent" />}
+                  {acc.kind === "microsoft" && (
                     <button
-                      class="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150 text-[12px] text-danger-text px-[6px] py-[3px] rounded-none hover:bg-danger-soft"
-                      title={t("account.removeAccount")}
-                      onClick={(e) => removeExisting(acc, e)}
+                      className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150 text-[12px] text-accent px-[6px] py-[3px] rounded-none hover:bg-panel-2"
+                      title={t("skin.manage")}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSkinFor(acc);
+                      }}
                     >
-                      {t("account.remove")}
+                      {t("skin.manage")}
                     </button>
-                  </div>
-                )}
-              </For>
-              <div class="text-[11px] text-muted mt-[2px]">{t("account.orAddNew")}</div>
+                  )}
+                  <button
+                    className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150 text-[12px] text-danger-text px-[6px] py-[3px] rounded-none hover:bg-danger-soft"
+                    title={t("account.removeAccount")}
+                    onClick={(e) => removeExisting(acc, e)}
+                  >
+                    {t("account.remove")}
+                  </button>
+                </div>
+              ))}
+              <div className="text-[11px] text-muted mt-[2px]">{t("account.orAddNew")}</div>
             </div>
-          </Show>
+          )}
 
           <button
-            class="flex items-center gap-[14px] px-[16px] py-[14px] rounded-none bg-panel-3 shadow-raised cursor-pointer text-left transition-[box-shadow,filter] duration-150 ease-app hover:enabled:brightness-110 active:enabled:shadow-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:pointer-events-none"
+            className="flex items-center gap-[14px] px-[16px] py-[14px] rounded-none bg-panel-3 shadow-raised cursor-pointer text-left transition-[box-shadow,filter] duration-150 ease-app hover:enabled:brightness-110 active:enabled:shadow-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:pointer-events-none"
             onClick={startMsa}
-            disabled={busy()}
+            disabled={busy}
           >
-            <Icon name="microsoft" size={24} class="text-accent" />
-            <span class="flex flex-col gap-[2px]">
-              <b class="text-[14px] text-fg">{t("account.msaTitle")}</b>
-              <small class="text-[12px] text-muted">{t("account.msaDesc")}</small>
+            <Icon name="microsoft" size={24} className="text-accent" />
+            <span className="flex flex-col gap-[2px]">
+              <b className="text-[14px] text-fg">{t("account.msaTitle")}</b>
+              <small className="text-[12px] text-muted">{t("account.msaDesc")}</small>
             </span>
           </button>
           <button
-            class="flex items-center gap-[14px] px-[16px] py-[14px] rounded-none bg-panel-3 shadow-raised cursor-pointer text-left transition-[box-shadow,filter] duration-150 ease-app hover:brightness-110 active:shadow-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="flex items-center gap-[14px] px-[16px] py-[14px] rounded-none bg-panel-3 shadow-raised cursor-pointer text-left transition-[box-shadow,filter] duration-150 ease-app hover:brightness-110 active:shadow-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             onClick={() => {
               setStep("offline");
               setError(null);
             }}
           >
-            <Icon name="user" size={24} class="text-muted" />
-            <span class="flex flex-col gap-[2px]">
-              <b class="text-[14px] text-fg">{t("account.offlineTitle")}</b>
-              <small class="text-[12px] text-muted">{t("account.offlineDesc")}</small>
+            <Icon name="user" size={24} className="text-muted" />
+            <span className="flex flex-col gap-[2px]">
+              <b className="text-[14px] text-fg">{t("account.offlineTitle")}</b>
+              <small className="text-[12px] text-muted">{t("account.offlineDesc")}</small>
             </span>
           </button>
           <button
-            class="flex items-center gap-[14px] px-[16px] py-[14px] rounded-none bg-panel-3 shadow-raised cursor-pointer text-left transition-[box-shadow,filter] duration-150 ease-app hover:brightness-110 active:shadow-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="flex items-center gap-[14px] px-[16px] py-[14px] rounded-none bg-panel-3 shadow-raised cursor-pointer text-left transition-[box-shadow,filter] duration-150 ease-app hover:brightness-110 active:shadow-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             onClick={() => {
               setStep("yggdrasil");
               setError(null);
             }}
           >
-            <Icon name="link" size={24} class="text-muted" />
-            <span class="flex flex-col gap-[2px]">
-              <b class="text-[14px] text-fg">{t("account.yggdrasilTitle")}</b>
-              <small class="text-[12px] text-muted">{t("account.yggdrasilDesc")}</small>
+            <Icon name="link" size={24} className="text-muted" />
+            <span className="flex flex-col gap-[2px]">
+              <b className="text-[14px] text-fg">{t("account.yggdrasilTitle")}</b>
+              <small className="text-[12px] text-muted">{t("account.yggdrasilDesc")}</small>
             </span>
           </button>
         </div>
-      </Show>
+      )}
 
       {/* --- 微软设备码 --- */}
-      <Show when={step() === "msa"}>
-        <div class="p-[18px] flex flex-col gap-[12px]">
-          <Show
-            when={device()}
-            fallback={
-              <div class="flex flex-col items-center gap-[10px] p-[16px] text-muted text-[13px]">
-                <Spinner />
-                <span>{t("account.fetchingCode")}</span>
+      {step === "msa" && (
+        <div className="p-[18px] flex flex-col gap-[12px]">
+          {device ? (
+            <>
+              <p className="m-0 text-[13px] text-fg leading-[1.6]">{t("account.msaInstruction")}</p>
+              <div className="self-center px-[28px] py-[12px] rounded-none bg-sidebar shadow-input text-accent font-pixel text-[24px] leading-none tracking-[4px] select-all">
+                {device.user_code}
               </div>
-            }
-          >
-            <p class="m-0 text-[13px] text-fg leading-[1.6]">
-              {t("account.msaInstruction")}
-            </p>
-            <div class="self-center px-[28px] py-[12px] rounded-none bg-sidebar shadow-input text-accent font-pixel text-[24px] leading-none tracking-[4px] select-all">
-              {device()!.user_code}
+              <p className="m-0 text-[12px] text-muted text-center">
+                {t("account.verificationUri")}
+                <a
+                  className="text-accent cursor-pointer"
+                  href={device.verification_uri}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    shellOpen(device.verification_uri);
+                  }}
+                >
+                  {device.verification_uri}
+                </a>
+              </p>
+              {busy && !error && (
+                <div className="flex flex-col items-center gap-[10px] px-[16px] pb-[16px] pt-[6px] text-muted text-[13px]">
+                  <Spinner />
+                  <span>{t("account.waitingAuth")}</span>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="flex flex-col items-center gap-[10px] p-[16px] text-muted text-[13px]">
+              <Spinner />
+              <span>{t("account.fetchingCode")}</span>
             </div>
-            <p class="m-0 text-[12px] text-muted text-center">
-              {t("account.verificationUri")}
-              <a
-                class="text-accent cursor-pointer"
-                href={device()!.verification_uri}
-                onClick={(e) => {
-                  e.preventDefault();
-                  shellOpen(device()!.verification_uri);
-                }}
-              >
-                {device()!.verification_uri}
-              </a>
-            </p>
-            <Show when={busy() && !error()}>
-              <div class="flex flex-col items-center gap-[10px] px-[16px] pb-[16px] pt-[6px] text-muted text-[13px]">
-                <Spinner />
-                <span>{t("account.waitingAuth")}</span>
-              </div>
-            </Show>
-          </Show>
+          )}
         </div>
-      </Show>
+      )}
 
       {/* --- 离线用户名 --- */}
-      <Show when={step() === "offline"}>
-        <form class="p-[18px] flex flex-col gap-[12px]" onSubmit={submitOffline}>
-          <label for="account-dialog-offline-name" class="sr-only">
+      {step === "offline" && (
+        <form className="p-[18px] flex flex-col gap-[12px]" onSubmit={submitOffline}>
+          <label htmlFor="account-dialog-offline-name" className="sr-only">
             {t("account.offlineNameLabel")}
           </label>
           <input
             id="account-dialog-offline-name"
             name="offlineAccountName"
-            class={ACCOUNT_INPUT}
+            className={ACCOUNT_INPUT}
             placeholder={t("account.offlineNamePlaceholder")}
-            autocomplete="off"
-            spellcheck={false}
-            value={offlineName()}
-            onInput={(e) => setOfflineName(e.currentTarget.value)}
+            autoComplete="off"
+            spellCheck={false}
+            value={offlineName}
+            onChange={(e) => setOfflineName(e.currentTarget.value)}
             maxLength={16}
           />
-          <div class="flex justify-end gap-[10px]">
+          <div className="flex justify-end gap-[10px]">
             <Button type="button" variant="ghost" onClick={() => setStep("menu")}>
               {t("account.back")}
             </Button>
-            <Button type="submit" variant="primary" disabled={busy() || !offlineName().trim()}>
-              {busy() ? t("account.adding") : t("account.confirm")}
+            <Button type="submit" variant="primary" disabled={busy || !offlineName.trim()}>
+              {busy ? t("account.adding") : t("account.confirm")}
             </Button>
           </div>
         </form>
-      </Show>
+      )}
 
       {/* --- 外置登录(Yggdrasil) --- */}
-      <Show when={step() === "yggdrasil"}>
-        <form class="p-[18px] flex flex-col gap-[10px]" onSubmit={submitYggdrasil}>
+      {step === "yggdrasil" && (
+        <form className="p-[18px] flex flex-col gap-[10px]" onSubmit={submitYggdrasil}>
           <input
-            class={ACCOUNT_INPUT}
+            className={ACCOUNT_INPUT}
             placeholder={t("account.yggBasePlaceholder")}
-            autocomplete="off"
-            spellcheck={false}
-            value={ygBase()}
-            onInput={(e) => setYgBase(e.currentTarget.value)}
+            autoComplete="off"
+            spellCheck={false}
+            value={ygBase}
+            onChange={(e) => setYgBase(e.currentTarget.value)}
           />
           <input
-            class={ACCOUNT_INPUT}
+            className={ACCOUNT_INPUT}
             placeholder={t("account.yggUserPlaceholder")}
-            autocomplete="username"
-            value={ygUser()}
-            onInput={(e) => setYgUser(e.currentTarget.value)}
+            autoComplete="username"
+            value={ygUser}
+            onChange={(e) => setYgUser(e.currentTarget.value)}
           />
           <input
             type="password"
-            class={ACCOUNT_INPUT}
+            className={ACCOUNT_INPUT}
             placeholder={t("account.yggPassPlaceholder")}
-            autocomplete="current-password"
-            value={ygPass()}
-            onInput={(e) => setYgPass(e.currentTarget.value)}
+            autoComplete="current-password"
+            value={ygPass}
+            onChange={(e) => setYgPass(e.currentTarget.value)}
           />
-          <div class="flex justify-end gap-[10px] pt-[2px]">
+          <div className="flex justify-end gap-[10px] pt-[2px]">
             <Button type="button" variant="ghost" onClick={() => setStep("menu")}>
               {t("account.back")}
             </Button>
-            <Button type="submit" variant="primary" disabled={busy() || !ygBase().trim() || !ygUser().trim()}>
-              {busy() ? t("account.loggingIn") : t("account.login")}
+            <Button type="submit" variant="primary" disabled={busy || !ygBase.trim() || !ygUser.trim()}>
+              {busy ? t("account.loggingIn") : t("account.login")}
             </Button>
           </div>
         </form>
-      </Show>
+      )}
 
-      <Show when={error()}>
-        <div class="mx-[18px] mt-0 mb-[16px] px-[12px] py-[10px] rounded-none bg-danger-soft shadow-input text-danger-text text-[12px] leading-[1.6] break-words">
-          <Show
-            when={/AADSTS700016|client_id|MC_MSA_CLIENT_ID|was not found/i.test(error()!)}
-            fallback={error()}
-          >
-            {t("account.msaClientIdError")}
-            <code class="[font-family:ui-monospace,SFMono-Regular,Menlo,monospace] bg-window/40 px-[4px] rounded-none">
-              desktop/src-tauri/.env
-            </code>
-            {t("account.msaClientIdErrorMid")}
-            <code class="[font-family:ui-monospace,SFMono-Regular,Menlo,monospace] bg-window/40 px-[4px] rounded-none">
-              MC_MSA_CLIENT_ID
-            </code>
-            {t("account.msaClientIdErrorEnd")}
-            <div class="mt-[8px] pt-[8px] border-t border-titlebar text-[11px] opacity-75">
-              {error()}
-            </div>
-          </Show>
+      {error && (
+        <div className="mx-[18px] mt-0 mb-[16px] px-[12px] py-[10px] rounded-none bg-danger-soft shadow-input text-danger-text text-[12px] leading-[1.6] break-words">
+          {/AADSTS700016|client_id|MC_MSA_CLIENT_ID|was not found/i.test(error) ? (
+            <>
+              {t("account.msaClientIdError")}
+              <code className="[font-family:ui-monospace,SFMono-Regular,Menlo,monospace] bg-window/40 px-[4px] rounded-none">
+                desktop/src-tauri/.env
+              </code>
+              {t("account.msaClientIdErrorMid")}
+              <code className="[font-family:ui-monospace,SFMono-Regular,Menlo,monospace] bg-window/40 px-[4px] rounded-none">
+                MC_MSA_CLIENT_ID
+              </code>
+              {t("account.msaClientIdErrorEnd")}
+              <div className="mt-[8px] pt-[8px] border-t border-titlebar text-[11px] opacity-75">{error}</div>
+            </>
+          ) : (
+            error
+          )}
         </div>
-      </Show>
+      )}
 
-      <Show when={skinFor()}>
-        <SkinDialog
-          uuid={skinFor()!.uuid}
-          username={skinFor()!.username}
-          onClose={() => setSkinFor(null)}
-        />
-      </Show>
+      {skinFor && (
+        <SkinDialog uuid={skinFor.uuid} username={skinFor.username} onClose={() => setSkinFor(null)} />
+      )}
     </Dialog>
   );
-};
+}
 
 export default AccountDialog;

@@ -1,4 +1,4 @@
-import { Component, createEffect, createResource, createSignal, onCleanup, onMount, For, Show } from "solid-js";
+import { useEffect, useRef, useState } from "react";
 import { InstanceManageDialog, InstanceIcon, Dialog, ExportModpackDialog, toast, Button, Chip, Heading, PixelLabel, Tag, type InstanceRowData } from "../components";
 import { PlayButton } from "../components/PlayButton";
 import { RealmPanel } from "../components/RealmPanel";
@@ -6,11 +6,12 @@ import { Menu } from "../components/Menu";
 import { formatRelativeTime } from "../components/format";
 import { api, onInstallProgress } from "../ipc/api";
 import { cached } from "../ipc/cache";
+import { useAsync } from "../util/useAsync";
 import { openInstanceDir, deleteInstance } from "../util/instanceActions";
 import { loaderLabel as fmtLoader } from "../util/loaders";
-import { activeRoot, isRunning, isLaunching, playInstance, currentInstanceId, closeInstance, openInstance, instances, refreshInstances, socialEnabled } from "../store";
+import { useAppStore, activeRoot, isRunning, playInstance, closeInstance, openInstance, refreshInstances } from "../store";
 import { renderMarkdown } from "../util/markdown";
-import { t } from "../i18n";
+import { t, useLang } from "../i18n";
 import "./ModpackDetail.css"; // .md 样式(整合包更新日志渲染)
 
 /**
@@ -19,35 +20,44 @@ import "./ModpackDetail.css"; // .md 样式(整合包更新日志渲染)
  *   下方复用 InstanceManageDialog(embedded:tabs 设置/Mods/资源包/光影/数据包/存档/截图)。
  * 由 store.openInstance(id) 进入,closeInstance() 返回来源页。
  */
-const InstanceDetail: Component = () => {
-  // 从全局 store 的 instances() 派生,别再自持一份"整机实例列表"的 resource:开详情时
+export default function InstanceDetail() {
+  useLang();
+  // 从全局 store 的 instances 派生,别再自持一份"整机实例列表"的 resource:开详情时
   // 就不会多打一次 listInstances,也不会在 pending 时闪 t('instance.loading')——数据本就
   // 在内存里(store 声明它是 library/home/rail/安装目标 的唯一来源)。刷新走 refreshInstances()。
-  const inst = () => (instances() ?? []).find((i) => i.id === currentInstanceId()) ?? null;
+  const instanceList = useAppStore((s) => s.instances);
+  const currentId = useAppStore((s) => s.currentInstanceId);
+  const running = useAppStore((s) => s.runningIds);
+  const launching = useAppStore((s) => s.launchingIds);
+  const socialOn = useAppStore((s) => s.socialEnabled);
+  const inst = () => (instanceList ?? []).find((i) => i.id === currentId) ?? null;
+
   // 整合包更新检查(仅对由 Modrinth 整合包安装的实例返回非空);失败/无来源都安静返回空。
-  const [updates, { refetch: refetchUpdates }] = createResource(
-    () => currentInstanceId(),
-    (id) => (id ? api.checkModpackUpdates(activeRoot(), id).catch(() => []) : []),
+  const { data: updatesData, refetch: refetchUpdates } = useAsync(
+    () => (currentId ? api.checkModpackUpdates(activeRoot(), currentId).catch(() => []) : Promise.resolve([])),
+    [currentId],
   );
-  const [cfg] = createResource(
-    () => currentInstanceId(),
-    (id) => (id ? api.getInstanceConfig(activeRoot(), id).catch(() => null) : null),
+  const updates = () => updatesData;
+  const { data: cfgData } = useAsync(
+    () => (currentId ? api.getInstanceConfig(activeRoot(), currentId).catch(() => null) : Promise.resolve(null)),
+    [currentId],
   );
+  const cfg = () => cfgData;
   // 整合包来源(Modrinth)→ 拉项目详情,用真实 logo + 下载量/收藏数 + 分类点亮实例头部
   // (避免和「概览」标签重复展示同一套品牌信息)。
-  const [project] = createResource(
-    () => {
-      const s = cfg()?.source;
-      return s && s.provider === "modrinth" ? s.project_id : null;
-    },
-    (id) => cached(`project|modrinth|${id}`, () => api.modrinthProject(id)).catch(() => null),
+  const cfgSource = cfgData?.source;
+  const projectId = cfgSource && cfgSource.provider === "modrinth" ? cfgSource.project_id : null;
+  const { data: projectData } = useAsync(
+    () => (projectId ? cached(`project|modrinth|${projectId}`, () => api.modrinthProject(projectId)).catch(() => null) : Promise.resolve(null)),
+    [projectId],
   );
+  const project = () => projectData;
   // 早于「安装即存图标」的整合包实例本地没 icon.png:发现缺失且项目有 logo 时补齐一次,
   // 刷新后侧栏/首页/详情都用上真实 logo(而非默认像素占位)。每实例只尝试一次。
-  const backfilledIcon = new Set<string>();
-  createEffect(() => {
+  const backfilledIcon = useRef(new Set<string>());
+  useEffect(() => {
     const i = inst();
-    if (!i || i.icon || backfilledIcon.has(i.id)) return;
+    if (!i || i.icon || backfilledIcon.current.has(i.id)) return;
     // 防 resource 串接竞态:project 由 cfg().source.project_id 异步派生,切换实例时 inst 可能
     // 先于 project 更新——此刻 project() 还是上一个实例的项目,直接拿它的 icon_url 会把别人的
     // logo 写错给当前实例(且 backfilledIcon 锁死再不重试)。只在 project 确实对应当前实例来源
@@ -57,22 +67,24 @@ const InstanceDetail: Component = () => {
     if (!src || src.provider !== "modrinth" || !proj || proj.id !== src.project_id) return;
     const url = proj.icon_url;
     if (!url) return;
-    backfilledIcon.add(i.id);
+    backfilledIcon.current.add(i.id);
     void api.backfillInstanceIcon(activeRoot(), i.id, url).then((done) => {
       if (done) {
         refreshInstances();
       }
     });
-  });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instanceList, currentId, cfgData, projectData]);
+
   const latestUpdate = () => (updates() ?? [])[0];
   const modrinthUrl = () => {
     const pid = cfg()?.source?.project_id;
     return pid ? `https://modrinth.com/project/${pid}` : null;
   };
   // 整合包就地更新:确认弹窗 + 进度。覆盖导入新包到既有实例,存档/配置保留,被移除的模组进回收站。
-  const [updateOpen, setUpdateOpen] = createSignal(false);
-  const [updating, setUpdating] = createSignal(false);
-  const [updateProgress, setUpdateProgress] = createSignal("");
+  const [updateOpen, setUpdateOpen] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState("");
 
   async function applyUpdate() {
     const i = inst();
@@ -100,15 +112,15 @@ const InstanceDetail: Component = () => {
     }
   }
   // 进入「添加」浏览模式时整页让给复用的探索视图,隐藏头部(返回路径用视图内的「← 返回已安装」)。
-  const [browsing, setBrowsing] = createSignal(false);
+  const [browsing, setBrowsing] = useState(false);
   // 删除实例前确认(与实例行的删除确认一致,避免 ⋮ 菜单一点就删)。
-  const [confirmDel, setConfirmDel] = createSignal(false);
+  const [confirmDel, setConfirmDel] = useState(false);
   // 导出整合包:选格式弹窗(非空 = 打开)。
-  const [exportRow, setExportRow] = createSignal<InstanceRowData | null>(null);
+  const [exportRow, setExportRow] = useState<InstanceRowData | null>(null);
 
   // ===== 标签编辑 =====
   // 新标签输入框内容;实例的现有标签直接读 inst().tags(后端单一真相)。
-  const [tagInput, setTagInput] = createSignal("");
+  const [tagInput, setTagInput] = useState("");
   // 提交标签集合到后端(后端会再做去空白/去重),成功后刷新全局列表 + 本页。
   async function saveTags(next: string[]) {
     const i = inst();
@@ -122,7 +134,7 @@ const InstanceDetail: Component = () => {
   }
   function addTag() {
     const i = inst();
-    const raw = tagInput().trim();
+    const raw = tagInput.trim();
     if (!i || !raw) return;
     const current = i.tags ?? [];
     if (current.includes(raw)) {
@@ -139,19 +151,18 @@ const InstanceDetail: Component = () => {
   }
 
   // Esc 返回上一页(与详情页导航一致);浏览模式有自己的 Esc,正在输入文本时不抢。
-  onMount(() => {
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || browsing()) return;
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable))
+      if (e.key !== "Escape" || browsing) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable))
         return;
       e.preventDefault();
       closeInstance();
     };
     document.addEventListener("keydown", onKey);
-    onCleanup(() => document.removeEventListener("keydown", onKey));
-  });
-
+    return () => document.removeEventListener("keydown", onKey);
+  }, [browsing]);
 
   const loaderLabel = () => {
     const i = inst();
@@ -221,188 +232,182 @@ const InstanceDetail: Component = () => {
   }
 
   return (
-    <div class="flex flex-col h-full min-h-0 overflow-hidden">
+    <div className="flex flex-col h-full min-h-0 overflow-hidden">
       {/* 头部:浏览(添加)模式下隐藏,整页让给复用的探索视图。 */}
-      <Show when={!browsing()}>
-      <div class="flex flex-col gap-[12px] px-[28px] pt-[14px] pb-[16px] border-b border-titlebar">
-        {/* 返回:整行最上方的文字返回,与其它详情页一致。 */}
-        <button
-          class="self-start inline-flex items-center gap-[4px] bg-transparent border-none text-muted text-[13px] cursor-pointer py-[2px] px-0 transition-colors duration-150 hover:text-fg"
-          onClick={closeInstance}
-          aria-label={t("instance.back")}
-        >
-          <svg class="w-[16px] h-[16px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="m14 6-6 6 6 6" />
-          </svg>
-          {t("instance.back")}
-        </button>
+      {!browsing && (
+        <div className="flex flex-col gap-[12px] px-[28px] pt-[14px] pb-[16px] border-b border-titlebar">
+          {/* 返回:整行最上方的文字返回,与其它详情页一致。 */}
+          <button
+            className="self-start inline-flex items-center gap-[4px] bg-transparent border-none text-muted text-[13px] cursor-pointer py-[2px] px-0 transition-colors duration-150 hover:text-fg"
+            onClick={closeInstance}
+            aria-label={t("instance.back")}
+          >
+            <svg className="w-[16px] h-[16px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m14 6-6 6 6 6" />
+            </svg>
+            {t("instance.back")}
+          </button>
 
-        <Show
-          when={inst()}
-          fallback={<div class="text-muted text-[14px] py-[8px]">{t("instance.loading")}</div>}
-        >
-          {(i) => (
-            <div class="flex items-center gap-[14px]">
-              <div class="relative shrink-0 w-[56px] h-[56px] rounded-none overflow-hidden select-none shadow-sunken">
-                <InstanceIcon name={i().name || i().id} icon={i().icon || project()?.icon_url || undefined} />
-                <Show when={isRunning(i().id)}>
-                  <span class="absolute right-[3px] bottom-[3px] w-[12px] h-[12px] rounded-none bg-accent shadow-[0_0_0_2px_var(--bg-window)]" title={t("instance.running")} />
-                </Show>
-              </div>
-              <div class="flex-1 min-w-0">
-                <Heading size="section" class="whitespace-nowrap overflow-hidden text-ellipsis" title={i().name || i().id}>
-                  {i().name || i().id}
-                </Heading>
-                <div class="mt-[2px] flex items-center gap-[6px] text-[12px] text-sub whitespace-nowrap overflow-hidden text-ellipsis">
-                  <span>{loaderLabel()}</span>
-                  <span class="text-faint">·</span>
-                  <span>{playedLabel()}</span>
-                  <Show when={project()}>
-                    {(p) => (
+          {(() => {
+            const i = inst();
+            if (!i)
+              return <div className="text-muted text-[14px] py-[8px]">{t("instance.loading")}</div>;
+            return (
+              <div className="flex items-center gap-[14px]">
+                <div className="relative shrink-0 w-[56px] h-[56px] rounded-none overflow-hidden select-none shadow-sunken">
+                  <InstanceIcon name={i.name || i.id} icon={i.icon || project()?.icon_url || undefined} />
+                  {running.has(i.id) && (
+                    <span className="absolute right-[3px] bottom-[3px] w-[12px] h-[12px] rounded-none bg-accent shadow-[0_0_0_2px_var(--bg-window)]" title={t("instance.running")} />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <Heading size="section" className="whitespace-nowrap overflow-hidden text-ellipsis" title={i.name || i.id}>
+                    {i.name || i.id}
+                  </Heading>
+                  <div className="mt-[2px] flex items-center gap-[6px] text-[12px] text-sub whitespace-nowrap overflow-hidden text-ellipsis">
+                    <span>{loaderLabel()}</span>
+                    <span className="text-faint">·</span>
+                    <span>{playedLabel()}</span>
+                    {project() && (
                       <>
-                        <span class="text-faint">·</span>
-                        <span class="inline-flex items-center gap-[4px]">
-                          <svg class="w-[12px] h-[12px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <span className="text-faint">·</span>
+                        <span className="inline-flex items-center gap-[4px]">
+                          <svg className="w-[12px] h-[12px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                             <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14" />
                           </svg>
-                          <PixelLabel>{p().downloads.toLocaleString()}</PixelLabel>
+                          <PixelLabel>{project()!.downloads.toLocaleString()}</PixelLabel>
                         </span>
-                        <Show when={p().followers}>
-                          <span class="text-faint">·</span>
-                          <span class="inline-flex items-center gap-[4px]">
-                            <svg class="w-[12px] h-[12px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                              <path d="M19 14c1.5-1.5 3-3.3 3-5.5A4.5 4.5 0 0 0 12 5 4.5 4.5 0 0 0 2 8.5c0 2.2 1.5 4 3 5.5l7 7Z" />
-                            </svg>
-                            <PixelLabel>{p().followers.toLocaleString()}</PixelLabel>
-                          </span>
-                        </Show>
+                        {!!project()!.followers && (
+                          <>
+                            <span className="text-faint">·</span>
+                            <span className="inline-flex items-center gap-[4px]">
+                              <svg className="w-[12px] h-[12px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <path d="M19 14c1.5-1.5 3-3.3 3-5.5A4.5 4.5 0 0 0 12 5 4.5 4.5 0 0 0 2 8.5c0 2.2 1.5 4 3 5.5l7 7Z" />
+                              </svg>
+                              <PixelLabel>{project()!.followers.toLocaleString()}</PixelLabel>
+                            </span>
+                          </>
+                        )}
                       </>
                     )}
-                  </Show>
-                </div>
-                {/* 整合包分类标签:头部点亮品牌信息,概览不再重复。 */}
-                <Show when={(project()?.categories?.length ?? 0) > 0}>
-                  <div class="mt-[6px] flex flex-wrap gap-[5px]">
-                    <For each={project()!.categories}>
-                      {(c) => <Tag class="capitalize">{c}</Tag>}
-                    </For>
                   </div>
-                </Show>
-                {/* 整合包更新提示:有更新时给个可点击的熔岩橙凸起芯片,点开确认弹窗就地更新。 */}
-                <Show when={latestUpdate()}>
-                  <button
-                    type="button"
-                    class="inline-flex items-center gap-[6px] mt-[7px] h-[24px] pl-[9px] pr-[10px] rounded-none bg-accent text-accent-text text-[11px] font-semibold shadow-raised cursor-pointer transition-[filter] duration-150 hover:brightness-110 active:shadow-pressed"
-                    title={t("instance.updateAvailableHint")}
-                    onClick={() => setUpdateOpen(true)}
-                  >
-                    <svg class="w-[12px] h-[12px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <path d="M12 20v-9m0 0 4 4m-4-4-4 4M4 8a8 8 0 0 1 16 0" />
-                    </svg>
-                    {t("instance.updateAvailable", { version: latestUpdate()!.version_number })}
-                  </button>
-                </Show>
-                {/* 标签编辑:现有标签可点 ✕ 移除,输入框 + 添加(回车也行)。库页据此分组/筛选。 */}
-                <div class="mt-[8px] flex flex-wrap items-center gap-[6px]">
-                  <For each={i().tags ?? []}>
-                    {(tag) => (
-                      <Chip onRemove={() => removeTag(tag)} removeLabel={t("tags.remove", { tag })}>
+                  {/* 整合包分类标签:头部点亮品牌信息,概览不再重复。 */}
+                  {(project()?.categories?.length ?? 0) > 0 && (
+                    <div className="mt-[6px] flex flex-wrap gap-[5px]">
+                      {(project()!.categories ?? []).map((c) => (
+                        <Tag key={c} className="capitalize">{c}</Tag>
+                      ))}
+                    </div>
+                  )}
+                  {/* 整合包更新提示:有更新时给个可点击的熔岩橙凸起芯片,点开确认弹窗就地更新。 */}
+                  {latestUpdate() && (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-[6px] mt-[7px] h-[24px] pl-[9px] pr-[10px] rounded-none bg-accent text-accent-text text-[11px] font-semibold shadow-raised cursor-pointer transition-[filter] duration-150 hover:brightness-110 active:shadow-pressed"
+                      title={t("instance.updateAvailableHint")}
+                      onClick={() => setUpdateOpen(true)}
+                    >
+                      <svg className="w-[12px] h-[12px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M12 20v-9m0 0 4 4m-4-4-4 4M4 8a8 8 0 0 1 16 0" />
+                      </svg>
+                      {t("instance.updateAvailable", { version: latestUpdate()!.version_number })}
+                    </button>
+                  )}
+                  {/* 标签编辑:现有标签可点 ✕ 移除,输入框 + 添加(回车也行)。库页据此分组/筛选。 */}
+                  <div className="mt-[8px] flex flex-wrap items-center gap-[6px]">
+                    {(i.tags ?? []).map((tag) => (
+                      <Chip key={tag} onRemove={() => removeTag(tag)} removeLabel={t("tags.remove", { tag })}>
                         {tag}
                       </Chip>
-                    )}
-                  </For>
-                  <div class="inline-flex items-center gap-[6px]">
-                    <input
-                      type="text"
-                      value={tagInput()}
-                      onInput={(e) => setTagInput(e.currentTarget.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          addTag();
-                        }
-                      }}
-                      placeholder={t("tags.addPlaceholder")}
-                      class="h-[28px] w-[140px] bg-panel-2 text-fg text-[12px] px-[10px] rounded-none shadow-input border-none outline-none placeholder:text-faint focus:shadow-pressed"
-                    />
-                    <Button variant="ghost" disabled={!tagInput().trim()} onClick={addTag}>
-                      {t("tags.add")}
-                    </Button>
+                    ))}
+                    <div className="inline-flex items-center gap-[6px]">
+                      <input
+                        type="text"
+                        value={tagInput}
+                        onChange={(e) => setTagInput(e.currentTarget.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            addTag();
+                          }
+                        }}
+                        placeholder={t("tags.addPlaceholder")}
+                        className="h-[28px] w-[140px] bg-panel-2 text-fg text-[12px] px-[10px] rounded-none shadow-input border-none outline-none placeholder:text-faint focus:shadow-pressed"
+                      />
+                      <Button variant="ghost" disabled={!tagInput.trim()} onClick={addTag}>
+                        {t("tags.add")}
+                      </Button>
+                    </div>
                   </div>
                 </div>
+                <PlayButton
+                  running={running.has(i.id)}
+                  disabled={launching.has(i.id) || !i.installed}
+                  onClick={() => void playInstance(i.id)}
+                />
+                <Menu.Root positioning={{ placement: "bottom-end" }} onSelect={(d: { value: string }) => void onMenuAction(d.value)}>
+                  <Menu.Trigger
+                    className="inline-flex items-center justify-center w-[38px] h-[38px] border-none bg-panel-3 text-sub rounded-none shadow-raised cursor-pointer transition-[filter,color] duration-[var(--dur)] ease-app hover:brightness-110 hover:text-fg active:shadow-pressed data-[state=open]:shadow-pressed data-[state=open]:text-fg"
+                    aria-label={t("instance.moreActions")}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                      <circle cx="8" cy="3" r="1.5" />
+                      <circle cx="8" cy="8" r="1.5" />
+                      <circle cx="8" cy="13" r="1.5" />
+                    </svg>
+                  </Menu.Trigger>
+                  <Menu.Content>
+                    <Menu.Item value="open">{t("instance.openGameDir")}</Menu.Item>
+                    <Menu.Item value="copy">{t("instance.copyInstanceItem")}</Menu.Item>
+                    <Menu.Item value="export">{t("instance.exportModpack")}</Menu.Item>
+                    <Menu.Separator />
+                    <Menu.Item value="delete" danger>
+                      {t("instance.deleteInstance")}
+                    </Menu.Item>
+                  </Menu.Content>
+                </Menu.Root>
               </div>
-              <PlayButton
-                running={isRunning(i().id)}
-                disabled={isLaunching(i().id) || !i().installed}
-                onClick={() => void playInstance(i().id)}
-              />
-              <Menu.Root positioning={{ placement: "bottom-end" }} onSelect={(d: { value: string }) => void onMenuAction(d.value)}>
-                <Menu.Trigger
-                  class="inline-flex items-center justify-center w-[38px] h-[38px] border-none bg-panel-3 text-sub rounded-none shadow-raised cursor-pointer transition-[filter,color] duration-[var(--dur)] ease-app hover:brightness-110 hover:text-fg active:shadow-pressed data-[state=open]:shadow-pressed data-[state=open]:text-fg"
-                  aria-label={t("instance.moreActions")}
-                >
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                    <circle cx="8" cy="3" r="1.5" />
-                    <circle cx="8" cy="8" r="1.5" />
-                    <circle cx="8" cy="13" r="1.5" />
-                  </svg>
-                </Menu.Trigger>
-                <Menu.Content>
-                  <Menu.Item value="open">{t("instance.openGameDir")}</Menu.Item>
-                  <Menu.Item value="copy">{t("instance.copyInstanceItem")}</Menu.Item>
-                  <Menu.Item value="export">{t("instance.exportModpack")}</Menu.Item>
-                  <Menu.Separator />
-                  <Menu.Item value="delete" danger>
-                    {t("instance.deleteInstance")}
-                  </Menu.Item>
-                </Menu.Content>
-              </Menu.Root>
-            </div>
-          )}
-        </Show>
-      </div>
-      </Show>
+            );
+          })()}
+        </div>
+      )}
 
       {/* 非领域实例:「分享为领域」入口(块状,置于 tabs 上方)。
           领域实例的同步 / 成员管理已移进 tabs 里的「领域」标签(InstanceManageDialog)。 */}
-      <Show when={socialEnabled() && !browsing() && !inst()?.realm && inst()}>
-        {(i) => (
-          <div class="shrink-0 border-b border-titlebar overflow-y-auto max-h-[55vh]">
-            <RealmPanel instance={i()} onChanged={() => void refreshInstances()} />
-          </div>
-        )}
-      </Show>
+      {socialOn && !browsing && !inst()?.realm && inst() && (
+        <div className="shrink-0 border-b border-titlebar overflow-y-auto max-h-[55vh]">
+          <RealmPanel instance={inst()!} onChanged={() => void refreshInstances()} />
+        </div>
+      )}
 
       {/* tabs + 内容(复用管理面板的 embedded 模式) */}
-      <div class="flex-1 min-h-0 overflow-hidden">
-        <Show when={inst()}>
-          {(i) => (
-            <InstanceManageDialog
-              embedded
-              open
-              instance={i()}
-              onChanged={() => void refreshInstances()}
-              onCopied={(newId) => openInstance(newId)}
-              onBrowsingChange={setBrowsing}
-            />
-          )}
-        </Show>
+      <div className="flex-1 min-h-0 overflow-hidden">
+        {inst() && (
+          <InstanceManageDialog
+            embedded
+            open
+            instance={inst()!}
+            onChanged={() => void refreshInstances()}
+            onCopied={(newId: string) => openInstance(newId)}
+            onBrowsingChange={setBrowsing}
+          />
+        )}
       </div>
 
       <Dialog
-        open={confirmDel()}
+        open={confirmDel}
         onClose={() => setConfirmDel(false)}
         label={t("instance.deleteInstance")}
         contentClass="w-[360px] max-w-[calc(100vw-48px)] bg-panel shadow-raised rounded-none overflow-hidden"
       >
-        <div class="p-[20px] flex flex-col gap-[14px]">
-          <Heading size="sub" class="text-strong break-words">
+        <div className="p-[20px] flex flex-col gap-[14px]">
+          <Heading size="sub" className="text-strong break-words">
             {t("instance.deleteInstanceConfirm", { name: inst()?.name || inst()?.id || "" })}
           </Heading>
-          <div class="text-[13px] text-sub leading-[1.6]">
+          <div className="text-[13px] text-sub leading-[1.6]">
             {t("instance.deleteInstanceBodyDetail")}
           </div>
-          <div class="flex justify-end gap-[10px]">
+          <div className="flex justify-end gap-[10px]">
             <Button variant="ghost" onClick={() => setConfirmDel(false)}>
               {t("instance.cancel")}
             </Button>
@@ -414,49 +419,49 @@ const InstanceDetail: Component = () => {
       </Dialog>
 
       <ExportModpackDialog
-        open={!!exportRow()}
+        open={!!exportRow}
         root={activeRoot()}
-        instance={exportRow()}
+        instance={exportRow}
         onClose={() => setExportRow(null)}
       />
 
       <Dialog
-        open={updateOpen()}
-        onClose={() => !updating() && setUpdateOpen(false)}
+        open={updateOpen}
+        onClose={() => !updating && setUpdateOpen(false)}
         label={t("instance.updateTitle")}
         contentClass="w-[400px] max-w-[calc(100vw-48px)] bg-panel shadow-raised rounded-none overflow-hidden"
       >
-        <div class="p-[20px] flex flex-col gap-[14px]">
-          <Heading size="sub" class="text-strong break-words">{t("instance.updateTitle")}</Heading>
-          <div class="text-[13px] text-sub leading-[1.6]">
+        <div className="p-[20px] flex flex-col gap-[14px]">
+          <Heading size="sub" className="text-strong break-words">{t("instance.updateTitle")}</Heading>
+          <div className="text-[13px] text-sub leading-[1.6]">
             {t("instance.updateBody", { version: latestUpdate()?.version_number ?? "" })}
           </div>
-          <Show when={latestUpdate()?.changelog?.trim()}>
-            <div class="flex flex-col gap-[6px]">
-              <div class="text-[12px] font-semibold text-muted">{t("instance.updateChangelog")}</div>
+          {latestUpdate()?.changelog?.trim() && (
+            <div className="flex flex-col gap-[6px]">
+              <div className="text-[12px] font-semibold text-muted">{t("instance.updateChangelog")}</div>
               <div
-                class="md max-h-[200px] overflow-y-auto rounded-none bg-panel-2 shadow-input px-[12px] py-[10px] text-[12px] leading-[1.6] text-sub"
-                innerHTML={renderMarkdown(latestUpdate()!.changelog)}
+                className="md max-h-[200px] overflow-y-auto rounded-none bg-panel-2 shadow-input px-[12px] py-[10px] text-[12px] leading-[1.6] text-sub"
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(latestUpdate()!.changelog) }}
               />
             </div>
-          </Show>
-          <Show when={modrinthUrl()}>
+          )}
+          {modrinthUrl() && (
             <a
               href={modrinthUrl()!}
-              class="self-start text-[12px] text-accent no-underline hover:underline"
+              className="self-start text-[12px] text-accent no-underline hover:underline"
             >
               {t("instance.viewOnModrinth")} →
             </a>
-          </Show>
-          <Show when={updating() && updateProgress()}>
-            <div class="text-[12px] text-muted font-mono truncate">{updateProgress()}</div>
-          </Show>
-          <div class="flex justify-end gap-[10px]">
-            <Button variant="ghost" disabled={updating()} onClick={() => setUpdateOpen(false)}>
+          )}
+          {updating && updateProgress && (
+            <div className="text-[12px] text-muted font-mono truncate">{updateProgress}</div>
+          )}
+          <div className="flex justify-end gap-[10px]">
+            <Button variant="ghost" disabled={updating} onClick={() => setUpdateOpen(false)}>
               {t("instance.cancel")}
             </Button>
-            <Button variant="primary" disabled={updating()} onClick={() => void applyUpdate()}>
-              {updating()
+            <Button variant="primary" disabled={updating} onClick={() => void applyUpdate()}>
+              {updating
                 ? t("instance.updating")
                 : t("instance.updateNow", { version: latestUpdate()?.version_number ?? "" })}
             </Button>
@@ -465,6 +470,4 @@ const InstanceDetail: Component = () => {
       </Dialog>
     </div>
   );
-};
-
-export default InstanceDetail;
+}

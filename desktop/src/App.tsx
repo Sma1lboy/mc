@@ -1,28 +1,34 @@
-import { onCleanup, onMount, type Component } from "solid-js";
+import { useEffect } from "react";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { initTheme } from "./theme/theme";
 import AppShell from "./layout/AppShell";
 import { ToastContainer, ShortcutsHelp, CrashDialog } from "./components";
 import { api } from "./ipc/api";
 import { currentRoot, setCurrentRoot } from "./store";
-import { maybeRunGallery } from "./gallery/runner";
 import { registerGlobalShortcuts } from "./util/shortcuts";
+import { maybeRunGallery } from "./gallery/runner";
+import { useLang } from "./i18n";
 
 /**
  * 应用根组件。
  *
- * 职责:
- *   1) 挂载时初始化主题(向后端取 get_theme,失败回落默认深色绿),
- *      在首帧后立即把 accent 色阶与 data-theme 注入到 html 根元素。
- *   2) 渲染三区布局骨架 <AppShell/>。
+ * 职责(挂载时的根级接线):
+ *   1) 初始化主题(theme.ts 仍为旧实现,initTheme 公开签名与框架无关,后续阶段再移植)。
+ *   2) 选定默认游戏根目录(发现的第一个),供各页作为查询参数。
+ *   3) 全局外链拦截:webview 里点 http(s) 链接改用系统浏览器打开。
+ *   4) 全局键盘快捷键(导航 / 快速启动 / 帮助浮层)。
+ *   5) 画廊模式(MC_GALLERY=1):挂载后自动逐页截图并生成 index.html。
+ *   6) useLang() 订阅当前语言,使整棵(未 memo 的)子树在切语言时重渲染。
  *
- * 页面路由不走重型 Router:用 store.ts 暴露的 currentPage 信号即可,
- * AppShell 内部据此分发到具体页面。状态在模块作用域,组件直接 import 读写。
+ * 页面路由不走重型 Router:用 store 的 currentPage 即可,AppShell 内部据此分发到具体页面。
  */
-const App: Component = () => {
-  onMount(() => {
+export default function App(): React.ReactElement {
+  useLang(); // 语言变化 → 重渲染整棵子树(t() 重新取值)
+
+  useEffect(() => {
     // 异步初始化主题,不阻塞渲染;tokens.css 已提供默认值兜底首帧观感。
     void initTheme();
+
     // 选定默认游戏根目录(发现的第一个),供各页面作为查询参数。
     api
       .listRoots()
@@ -37,8 +43,7 @@ const App: Component = () => {
         /* Tauri 后端不可用时忽略,页面会用 "" 落到后端默认根 */
       });
 
-    // 全局外链拦截:webview 里点 http(s) 链接(含 markdown innerHTML 渲染的链接)若直接导航,
-    // 整个 SPA 会被外站替换且无法返回。这里统一拦下,改用系统浏览器打开。一处兜住所有 <a>。
+    // 全局外链拦截:统一拦下 http(s) <a>,改用系统浏览器打开,避免整个 SPA 被外站替换。
     const onDocClick = (e: MouseEvent) => {
       if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)
         return;
@@ -49,15 +54,18 @@ const App: Component = () => {
       void shellOpen(href).catch(() => window.open(href, "_blank"));
     };
     document.addEventListener("click", onDocClick);
-    onCleanup(() => document.removeEventListener("click", onDocClick));
 
     // 全局键盘快捷键(导航 / 快速启动 / 帮助浮层)。一处注册,卸载时解除。
     const unregisterShortcuts = registerGlobalShortcuts();
-    onCleanup(unregisterShortcuts);
 
     // 画廊模式(MC_GALLERY=1):挂载后自动逐页截图并生成 index.html。非画廊模式零开销。
     void maybeRunGallery();
-  });
+
+    return () => {
+      document.removeEventListener("click", onDocClick);
+      unregisterShortcuts();
+    };
+  }, []);
 
   return (
     <>
@@ -70,6 +78,4 @@ const App: Component = () => {
       <CrashDialog />
     </>
   );
-};
-
-export default App;
+}

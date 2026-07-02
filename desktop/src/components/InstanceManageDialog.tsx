@@ -1,16 +1,6 @@
-import {
-  Component,
-  createSignal,
-  createResource,
-  createEffect,
-  on,
-  onMount,
-  onCleanup,
-  untrack,
-  For,
-  Show,
-} from "solid-js";
-import { createStore } from "solid-js/store";
+import { useEffect, useRef, useState } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
+import clsx from "clsx";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Dialog } from "./Dialog";
@@ -32,8 +22,9 @@ import { Select } from "./Select";
 import { toast } from "./Toast";
 import { api, onInstallProgress } from "../ipc/api";
 import { openInstanceDir, openInstanceSubdir } from "../util/instanceActions";
-import { activeRoot, openInstance, isRunning, socialEnabled, isKobeSignedIn } from "../store";
-import { t } from "../i18n";
+import { activeRoot, openInstance, isRunning, useAppStore } from "../store";
+import { useAsync } from "../util/useAsync";
+import { t, useLang } from "../i18n";
 import type {
   InstanceConfig,
   InstanceSummary,
@@ -94,101 +85,101 @@ const SCREENSHOT_CAP = 60;
  * ScreenshotTile —— 单张截图缩略图。用 IntersectionObserver 懒加载:滚动到视口附近才
  * 通过 read_screenshot 取该张的 data URL,避免把目录里所有大图一次性读进内存。
  */
-const ScreenshotTile: Component<{
+function ScreenshotTile(props: {
   info: ScreenshotInfo;
   url?: string;
   failed?: boolean;
   onVisible: () => void;
   onOpen: () => void;
   onRetry: () => void;
-  onDelete: (e: MouseEvent) => void;
-}> = (props) => {
-  let el: HTMLDivElement | undefined;
-  onMount(() => {
+  onDelete: (e: ReactMouseEvent) => void;
+}) {
+  const elRef = useRef<HTMLDivElement>(null);
+  // onVisible 通过 ref 读最新闭包(观察器只装一次,回调却按当前渲染取值)。
+  const onVisibleRef = useRef(props.onVisible);
+  onVisibleRef.current = props.onVisible;
+  useEffect(() => {
+    const el = elRef.current;
+    if (!el) return;
     const io = new IntersectionObserver(
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) {
-          props.onVisible();
+          onVisibleRef.current();
           io.disconnect();
         }
       },
       { rootMargin: "120px" },
     );
-    if (el) io.observe(el);
-    onCleanup(() => io.disconnect());
-  });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
 
   return (
     <div
-      ref={el}
-      class="group relative aspect-video rounded-none overflow-hidden bg-panel-2 cursor-pointer"
+      ref={elRef}
+      className="group relative aspect-video rounded-none overflow-hidden bg-panel-2 cursor-pointer"
       onClick={props.onOpen}
     >
-      <Show
-        when={props.url}
-        fallback={
-          <Show
-            when={props.failed}
-            fallback={
-              <div class="w-full h-full grid place-items-center">
-                <Spinner size={16} />
-              </div>
-            }
-          >
-            {/* 读图失败:给可重试的占位,而不是永远转圈。 */}
-            <button
-              class="w-full h-full grid place-items-center gap-[2px] text-[11px] text-muted bg-panel-2 cursor-pointer hover:text-fg"
-              onClick={(e) => {
-                e.stopPropagation();
-                props.onRetry();
-              }}
-              title={t("instance.reload")}
-            >
-              <span>{t("instance.loadFailed")}</span>
-              <span class="text-[10px] underline">{t("instance.clickRetry")}</span>
-            </button>
-          </Show>
-        }
-      >
-        <img src={props.url} alt={props.info.file_name} width="320" height="180" class="w-full h-full object-cover" />
-      </Show>
+      {props.url ? (
+        <img src={props.url} alt={props.info.file_name} width="320" height="180" className="w-full h-full object-cover" />
+      ) : props.failed ? (
+        // 读图失败:给可重试的占位,而不是永远转圈。
+        <button
+          className="w-full h-full grid place-items-center gap-[2px] text-[11px] text-muted bg-panel-2 cursor-pointer hover:text-fg"
+          onClick={(e) => {
+            e.stopPropagation();
+            props.onRetry();
+          }}
+          title={t("instance.reload")}
+        >
+          <span>{t("instance.loadFailed")}</span>
+          <span className="text-[10px] underline">{t("instance.clickRetry")}</span>
+        </button>
+      ) : (
+        <div className="w-full h-full grid place-items-center">
+          <Spinner size={16} />
+        </div>
+      )}
       <button
-        class="absolute top-[4px] right-[4px] opacity-0 group-hover:opacity-100 transition-opacity duration-150 text-[11px] text-white px-[6px] py-[2px] rounded-none bg-[rgba(0,0,0,0.55)] hover:bg-danger"
+        className="absolute top-[4px] right-[4px] opacity-0 group-hover:opacity-100 transition-opacity duration-150 text-[11px] text-white px-[6px] py-[2px] rounded-none bg-[rgba(0,0,0,0.55)] hover:bg-danger"
         onClick={props.onDelete}
       >
         {t("instance.delete")}
       </button>
     </div>
   );
-};
+}
 
 /**
  * ScreenshotsPanel —— 实例截图栅格:懒加载缩略图、点开进灯箱、悬停删除。
  * 列表只取元数据,图片字节按需 read_screenshot;最多展示 SCREENSHOT_CAP 张(更多时提示)。
  */
-const ScreenshotsPanel: Component<{ instance: InstanceSummary }> = (props) => {
-  const [shots, { refetch }] = createResource(
-    () => props.instance.id,
-    (id) => api.instanceScreenshots(activeRoot(), id),
+function ScreenshotsPanel(props: { instance: InstanceSummary }) {
+  const { data: shots, loading: shotsLoading, error: shotsError, refetch } = useAsync<ScreenshotInfo[]>(
+    () => api.instanceScreenshots(activeRoot(), props.instance.id),
+    [props.instance.id],
   );
-  const capped = () => (shots() ?? []).slice(0, SCREENSHOT_CAP);
-  const [urls, setUrls] = createStore<Record<string, string>>({});
-  const [failed, setFailed] = createStore<Record<string, boolean>>({});
-  const [lightbox, setLightbox] = createSignal<number | null>(null);
+  const capped = (shots ?? []).slice(0, SCREENSHOT_CAP);
+  const [urls, setUrls] = useState<Record<string, string>>({});
+  const [failed, setFailed] = useState<Record<string, boolean>>({});
+  const [lightbox, setLightbox] = useState<number | null>(null);
+  // loadUrl 的去重要读最新已加载 urls(否则拿到旧闭包会重复取同一张)。
+  const urlsRef = useRef(urls);
+  urlsRef.current = urls;
 
   async function loadUrl(fileName: string) {
-    if (urls[fileName]) return;
-    setFailed(fileName, false);
+    if (urlsRef.current[fileName]) return;
+    setFailed((f) => ({ ...f, [fileName]: false }));
     try {
       const u = await api.readScreenshot(activeRoot(), props.instance.id, fileName);
-      setUrls(fileName, u);
+      setUrls((m) => ({ ...m, [fileName]: u }));
     } catch {
       // 单张读失败不致命:标记失败态,渲染可重试占位,不让缩略图永远转圈。
-      setFailed(fileName, true);
+      setFailed((f) => ({ ...f, [fileName]: true }));
     }
   }
 
-  async function remove(s: ScreenshotInfo, e: MouseEvent) {
+  async function remove(s: ScreenshotInfo, e: ReactMouseEvent) {
     e.stopPropagation(); // 别触发打开灯箱。
     try {
       await api.deleteScreenshot(activeRoot(), props.instance.id, s.file_name);
@@ -199,83 +190,72 @@ const ScreenshotsPanel: Component<{ instance: InstanceSummary }> = (props) => {
     }
   }
 
-  const lightboxImages = () =>
-    capped().map((s) => ({ url: urls[s.file_name] ?? "", title: s.file_name }));
+  const lightboxImages = capped.map((s) => ({ url: urls[s.file_name] ?? "", title: s.file_name }));
 
   // 打开/切换灯箱时确保目标图及左右相邻图已加载(缩略图可能还没滚动到、未触发懒加载),
   // 避免主图/缩略图条出现空白或裂图。
   function openLightbox(i: number) {
-    const list = capped();
     for (const j of [i, i - 1, i + 1]) {
-      const f = list[j]?.file_name;
+      const f = capped[j]?.file_name;
       if (f) void loadUrl(f);
     }
     setLightbox(i);
   }
 
   return (
-    <div class="flex flex-col gap-[8px]">
-      <div class="flex items-center justify-between">
-        <div class={LABEL}>{t("instance.screenshots")}</div>
+    <div className="flex flex-col gap-[8px]">
+      <div className="flex items-center justify-between">
+        <div className={LABEL}>{t("instance.screenshots")}</div>
         <button
-          class={OPEN_BTN}
+          className={OPEN_BTN}
           onClick={() => openInstanceSubdir(activeRoot(), props.instance.id, "screenshots")}
         >
           {t("instance.openDir")}
         </button>
       </div>
 
-      <Show when={(shots() ?? []).length > SCREENSHOT_CAP}>
-        <div class="text-[11px] text-muted">
-          {t("instance.screenshotCapNote", { total: shots()!.length, cap: SCREENSHOT_CAP })}
+      {(shots ?? []).length > SCREENSHOT_CAP && (
+        <div className="text-[11px] text-muted">
+          {t("instance.screenshotCapNote", { total: (shots ?? []).length, cap: SCREENSHOT_CAP })}
         </div>
-      </Show>
+      )}
 
-      <Show
-        when={!shots.loading}
-        fallback={
-          <div class="flex items-center gap-[10px] text-muted text-[13px] py-[12px]">
-            <Spinner size={16} /> {t("instance.scanningScreenshots")}
-          </div>
-        }
-      >
-        <Show
-          when={capped().length > 0}
-          fallback={
-            shots.error
-              ? <ErrorState compact message={t("instance.screenshotLoadError")} onRetry={() => void refetch()} />
-              : <div class="text-muted text-[13px] py-[12px]">{t("instance.noScreenshots")}</div>
-          }
-        >
-          <div class="grid grid-cols-3 gap-[8px]">
-            <For each={capped()}>
-              {(s, i) => (
-                <ScreenshotTile
-                  info={s}
-                  url={urls[s.file_name]}
-                  failed={failed[s.file_name]}
-                  onVisible={() => loadUrl(s.file_name)}
-                  onOpen={() => openLightbox(i())}
-                  onRetry={() => loadUrl(s.file_name)}
-                  onDelete={(e) => remove(s, e)}
-                />
-              )}
-            </For>
-          </div>
-        </Show>
-      </Show>
+      {shotsLoading ? (
+        <div className="flex items-center gap-[10px] text-muted text-[13px] py-[12px]">
+          <Spinner size={16} /> {t("instance.scanningScreenshots")}
+        </div>
+      ) : capped.length > 0 ? (
+        <div className="grid grid-cols-3 gap-[8px]">
+          {capped.map((s, i) => (
+            <ScreenshotTile
+              key={s.file_name}
+              info={s}
+              url={urls[s.file_name]}
+              failed={failed[s.file_name]}
+              onVisible={() => loadUrl(s.file_name)}
+              onOpen={() => openLightbox(i)}
+              onRetry={() => loadUrl(s.file_name)}
+              onDelete={(e) => remove(s, e)}
+            />
+          ))}
+        </div>
+      ) : shotsError ? (
+        <ErrorState compact message={t("instance.screenshotLoadError")} onRetry={() => void refetch()} />
+      ) : (
+        <div className="text-muted text-[13px] py-[12px]">{t("instance.noScreenshots")}</div>
+      )}
 
-      <Show when={lightbox() !== null}>
+      {lightbox !== null && (
         <Lightbox
-          images={lightboxImages()}
-          index={lightbox()!}
+          images={lightboxImages}
+          index={lightbox}
           onIndex={openLightbox}
           onClose={() => setLightbox(null)}
         />
-      </Show>
+      )}
     </div>
   );
-};
+}
 
 /** 人类可读的字节大小;0 / 缺省返回空串。 */
 function fmtSize(bytes: number): string {
@@ -301,7 +281,7 @@ const OPEN_BTN =
  * 与 Mods 面板同构,差异仅在 PackKind / 搜索资源类型;按本实例 mc 版本过滤,
  * 资源包/光影在 Modrinth 上不按加载器细分,故 loader 传 null。
  */
-const PacksPanel: Component<{
+function PacksPanel(props: {
   instance: InstanceSummary;
   kind: PackKind;
   searchKind: ProjectKind;
@@ -311,40 +291,40 @@ const PacksPanel: Component<{
   /** 受控的「浏览/添加」模式(由父组件统一持有,用于隐藏详情页头部)。 */
   browse: boolean;
   onBrowse: (v: boolean) => void;
-}> = (props) => {
+}) {
   // 数据包逐存档生效:落到 saves/<world>/datapacks。其它包类型无 world 概念。
-  const isDatapack = () => props.kind === "datapack";
-  const [worlds] = createResource(
-    () => (isDatapack() ? props.instance.id : false),
-    (id) => api.instanceWorlds(activeRoot(), id as string),
+  const isDatapack = props.kind === "datapack";
+  const { data: worlds } = useAsync<WorldInfo[] | undefined>(
+    () => (isDatapack ? api.instanceWorlds(activeRoot(), props.instance.id) : Promise.resolve(undefined)),
+    [isDatapack, props.instance.id],
   );
-  const [world, setWorld] = createSignal<string | null>(null);
+  const [world, setWorld] = useState<string | null>(null);
   // 默认选中第一个存档(按上次游玩排序);存档变化后若当前选中已失效则回退。
-  createEffect(() => {
-    if (!isDatapack()) return;
-    const list = worlds() ?? [];
-    if (list.length === 0) {
-      setWorld(null);
-    } else if (!world() || !list.some((w) => w.folder === world())) {
-      setWorld(list[0].folder);
-    }
-  });
-  const worldArg = () => (isDatapack() ? world() : null);
+  useEffect(() => {
+    if (!isDatapack) return;
+    const list = worlds ?? [];
+    setWorld((prev) => {
+      if (list.length === 0) return null;
+      if (!prev || !list.some((w) => w.folder === prev)) return list[0].folder;
+      return prev;
+    });
+  }, [isDatapack, worlds]);
+  const worldArg = isDatapack ? world : null;
 
-  const [packs, { refetch }] = createResource(
-    () => [props.instance.id, props.kind, props.tick ?? 0, worldArg()] as const,
-    ([id, kind, , w]) => api.instancePacks(activeRoot(), id, kind, w),
+  const { data: packs, loading: packsLoading, error: packsError, refetch } = useAsync<PackInfo[]>(
+    () => api.instancePacks(activeRoot(), props.instance.id, props.kind, worldArg),
+    [props.instance.id, props.kind, props.tick ?? 0, worldArg],
   );
 
-  const [detail, setDetail] = createSignal<ModpackHit | null>(null);
+  const [detail, setDetail] = useState<ModpackHit | null>(null);
   // 详情页对应的来源平台(随 onOpenDetail 一起带过来),决定详情里取版本/安装走哪个 provider。
-  const [detailProvider, setDetailProvider] = createSignal<ContentProvider>("modrinth");
+  const [detailProvider, setDetailProvider] = useState<ContentProvider>("modrinth");
   // 后台并行安装:正在安装的 project_id 集合(不阻塞其它行)。
-  const [installing, setInstalling] = createSignal<Set<string>>(new Set());
+  const [installing, setInstalling] = useState<Set<string>>(new Set());
   // 本次浏览已添加的 project_id:行按钮即时变「已添加」。
-  const [added, setAdded] = createSignal<Set<string>>(new Set());
+  const [added, setAdded] = useState<Set<string>>(new Set());
   // 删除资源包前确认(删除是破坏性的,与存档删除一致)。
-  const [confirmDel, setConfirmDel] = createSignal<PackInfo | null>(null);
+  const [confirmDel, setConfirmDel] = useState<PackInfo | null>(null);
   const startBrowse = () => {
     setAdded(new Set<string>());
     props.onBrowse(true);
@@ -352,7 +332,7 @@ const PacksPanel: Component<{
 
   // 行内「下载」:直接装最新兼容版(资源包/光影/数据包不分加载器),后台并行不阻塞其它行。
   async function install(projectId: string, title: string, provider: ContentProvider = "modrinth") {
-    if (installing().has(projectId)) return;
+    if (installing.has(projectId)) return;
     setInstalling((s) => new Set(s).add(projectId));
     try {
       const report = await api.installPack(
@@ -361,7 +341,7 @@ const PacksPanel: Component<{
         props.kind,
         projectId,
         props.instance.mc_version,
-        worldArg(),
+        worldArg,
         provider,
       );
       if ((report.blocked?.length ?? 0) > 0) {
@@ -384,7 +364,7 @@ const PacksPanel: Component<{
 
   async function toggle(p: PackInfo, enabled: boolean) {
     try {
-      await api.setPackEnabled(activeRoot(), props.instance.id, props.kind, p.file_name, enabled, worldArg());
+      await api.setPackEnabled(activeRoot(), props.instance.id, props.kind, p.file_name, enabled, worldArg);
       refetch();
     } catch (e) {
       toast({ type: "error", message: t("instance.opFailed", { err: String(e) }) });
@@ -393,7 +373,7 @@ const PacksPanel: Component<{
 
   async function remove(p: PackInfo) {
     try {
-      await api.deletePack(activeRoot(), props.instance.id, props.kind, p.file_name, worldArg());
+      await api.deletePack(activeRoot(), props.instance.id, props.kind, p.file_name, worldArg);
       toast({ type: "success", message: t("instance.deletedFile", { file: p.file_name }) });
       refetch();
     } catch (e) {
@@ -402,188 +382,163 @@ const PacksPanel: Component<{
   }
 
   return (
-    <div class="flex flex-col gap-[8px]">
+    <div className="flex flex-col gap-[8px]">
       {/* 数据包目标存档选择器:数据包是逐存档生效的,必须先选一个存档。 */}
-      <Show when={isDatapack()}>
-        <Show
-          when={(worlds() ?? []).length > 0}
-          fallback={
-            <div class="text-[12px] leading-[1.7] text-muted py-[4px]">
-              {t("instance.datapackNoWorlds")}
-            </div>
-          }
-        >
-          <label class="flex items-center gap-[8px] text-[12px] text-muted">
-            <span class="shrink-0">{t("instance.targetWorld")}</span>
+      {isDatapack &&
+        ((worlds ?? []).length > 0 ? (
+          <label className="flex items-center gap-[8px] text-[12px] text-muted">
+            <span className="shrink-0">{t("instance.targetWorld")}</span>
             <Select
-              class="flex-1 !min-w-0"
-              value={world() ?? ""}
+              className="flex-1 !min-w-0"
+              value={world ?? ""}
               onChange={(v) => setWorld(v)}
-              options={(worlds() ?? []).map((w) => ({ value: w.folder, label: w.name || w.folder }))}
+              options={(worlds ?? []).map((w) => ({ value: w.folder, label: w.name || w.folder }))}
             />
           </label>
-        </Show>
-      </Show>
+        ) : (
+          <div className="text-[12px] leading-[1.7] text-muted py-[4px]">{t("instance.datapackNoWorlds")}</div>
+        ))}
 
-      <Show
-        when={props.browse}
-        fallback={
+      {props.browse ? (
+        // 浏览模式 = 复用探索页:搜索列表 →(点进)详情安装,装完回到已安装。
+        detail ? (
+          <ProjectInstallDetail
+            hit={detail}
+            kind={props.searchKind as Exclude<ProjectKind, "modpack">}
+            provider={detailProvider}
+            lockedInstance={props.instance}
+            onBack={() => setDetail(null)}
+            onInstalled={() => {
+              refetch();
+              if (detail) setAdded((s) => new Set(s).add(detail.id));
+            }}
+          />
+        ) : (
           <>
-            {/* 默认:「已安装」标题行,右侧聚拢动作(打开目录 + 紧凑「添加」)。 */}
-            <div class="flex items-center justify-between">
-              <div class={LABEL}>{t("instance.installedTitle")}</div>
-              <div class="flex items-center gap-[6px]">
-                <button
-                  class={OPEN_BTN}
-                  onClick={() =>
-                    openInstanceSubdir(
-                      activeRoot(),
-                      props.instance.id,
-                      props.kind === "resource_pack"
-                        ? "resourcepacks"
-                        : props.kind === "shader"
-                          ? "shaderpacks"
-                          : world()
-                            ? `saves/${world()}/datapacks`
-                            : "datapacks",
-                    )
-                  }
-                >
-                  {t("instance.openDir")}
-                </button>
-                <button
-                  class="shrink-0 h-[28px] px-[10px] rounded-none bg-accent text-white shadow-raised text-[12px] font-semibold cursor-pointer transition-[box-shadow,background-color] duration-[var(--dur)] ease-app hover:bg-accent-hover active:shadow-pressed"
-                  onClick={startBrowse}
-                >
-                  {t("instance.add")}
-                </button>
-              </div>
-            </div>
-
-            <Show
-              when={!packs.loading}
-              fallback={
-                <div class="flex items-center gap-[10px] text-muted text-[13px] py-[12px]">
-                  <Spinner size={16} /> {t("instance.scanning")}
-                </div>
-              }
+            <button
+              className="self-start inline-flex items-center gap-[4px] h-[28px] px-[10px] rounded-none border-none bg-transparent text-muted text-[12px] cursor-pointer transition-colors duration-150 hover:bg-panel-3 hover:text-fg"
+              onClick={() => {
+                setDetail(null);
+                props.onBrowse(false);
+              }}
             >
-              <Show
-                when={(packs() ?? []).length > 0}
-                fallback={
-                  packs.error ? (
-                    <ErrorState compact message={t("instance.loadFailedShort")} onRetry={() => void refetch()} />
-                  ) : (
-                    <div class="flex flex-col items-center justify-center gap-[12px] py-[40px] text-center">
-                      <div class="text-muted text-[13px]">{props.emptyHint}</div>
-                      <button
-                        class={ACCENT_BTN}
-                        onClick={startBrowse}
-                      >
-                        {t("instance.add")}
-                      </button>
-                    </div>
+              {t("instance.backToInstalled")}
+            </button>
+            <ContentBrowser
+              kind={props.searchKind}
+              mcVersion={props.instance.mc_version}
+              loader={null}
+              onOpenDetail={(hit, provider) => {
+                setDetail(hit);
+                setDetailProvider(provider);
+              }}
+              onAdd={(hit, provider) => install(hit.id, hit.title, provider)}
+              addingIds={installing}
+              addedIds={added}
+              disabledReason={
+                isDatapack ? () => (worldArg ? null : t("instance.selectTargetWorldFirst")) : undefined
+              }
+              autofocus
+              onEscape={() => props.onBrowse(false)}
+              placeholder={t("instance.searchModrinth", { version: props.instance.mc_version })}
+            />
+          </>
+        )
+      ) : (
+        <>
+          {/* 默认:「已安装」标题行,右侧聚拢动作(打开目录 + 紧凑「添加」)。 */}
+          <div className="flex items-center justify-between">
+            <div className={LABEL}>{t("instance.installedTitle")}</div>
+            <div className="flex items-center gap-[6px]">
+              <button
+                className={OPEN_BTN}
+                onClick={() =>
+                  openInstanceSubdir(
+                    activeRoot(),
+                    props.instance.id,
+                    props.kind === "resource_pack"
+                      ? "resourcepacks"
+                      : props.kind === "shader"
+                        ? "shaderpacks"
+                        : world
+                          ? `saves/${world}/datapacks`
+                          : "datapacks",
                   )
                 }
               >
-                <div class="flex flex-col gap-[6px]">
-                  <For each={packs()}>
-                    {(p) => (
-                      <div
-                        class="flex items-center gap-[10px] py-[8px] px-[10px] rounded-none bg-panel-2"
-                        classList={{ "opacity-55": !p.enabled }}
-                      >
-                        <div class="flex-1 min-w-0">
-                          <div class="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">
-                            {p.file_name.replace(/\.disabled$/, "")}
-                          </div>
-                          <div class="text-[11px] text-muted whitespace-nowrap overflow-hidden text-ellipsis">
-                            {[p.description, fmtSize(p.size)].filter(Boolean).join(" · ")}
-                          </div>
-                        </div>
-                        <div class="flex items-center shrink-0">
-                          <Toggle checked={p.enabled} onChange={(v) => toggle(p, v)} title={t("instance.enable")} />
-                        </div>
-                        <button class={DEL_BTN} onClick={() => setConfirmDel(p)}>
-                          {t("instance.delete")}
-                        </button>
-                      </div>
-                    )}
-                  </For>
-                </div>
-              </Show>
-            </Show>
-          </>
-        }
-      >
-        {/* 浏览模式 = 复用探索页:搜索列表 →(点进)详情安装,装完回到已安装。 */}
-        <Show
-          when={detail()}
-          fallback={
-            <>
-              <button
-                class="self-start inline-flex items-center gap-[4px] h-[28px] px-[10px] rounded-none border-none bg-transparent text-muted text-[12px] cursor-pointer transition-colors duration-150 hover:bg-panel-3 hover:text-fg"
-                onClick={() => {
-                  setDetail(null);
-                  props.onBrowse(false);
-                }}
-              >
-                {t("instance.backToInstalled")}
+                {t("instance.openDir")}
               </button>
-              <ContentBrowser
-                kind={props.searchKind}
-                mcVersion={props.instance.mc_version}
-                loader={null}
-                onOpenDetail={(hit, provider) => { setDetail(hit); setDetailProvider(provider); }}
-                onAdd={(hit, provider) => install(hit.id, hit.title, provider)}
-                addingIds={installing()}
-                addedIds={added()}
-                disabledReason={
-                  isDatapack() ? (() => (worldArg() ? null : t("instance.selectTargetWorldFirst"))) : undefined
-                }
-                autofocus
-                onEscape={() => props.onBrowse(false)}
-                placeholder={t("instance.searchModrinth", { version: props.instance.mc_version })}
-              />
-            </>
-          }
-        >
-          {(d) => (
-            <ProjectInstallDetail
-              hit={d()}
-              kind={props.searchKind as Exclude<ProjectKind, "modpack">}
-              provider={detailProvider()}
-              lockedInstance={props.instance}
-              onBack={() => setDetail(null)}
-              onInstalled={() => {
-                refetch();
-                const d = detail();
-                if (d) setAdded((s) => new Set(s).add(d.id));
-              }}
-            />
+              <button
+                className="shrink-0 h-[28px] px-[10px] rounded-none bg-accent text-white shadow-raised text-[12px] font-semibold cursor-pointer transition-[box-shadow,background-color] duration-[var(--dur)] ease-app hover:bg-accent-hover active:shadow-pressed"
+                onClick={startBrowse}
+              >
+                {t("instance.add")}
+              </button>
+            </div>
+          </div>
+
+          {packsLoading ? (
+            <div className="flex items-center gap-[10px] text-muted text-[13px] py-[12px]">
+              <Spinner size={16} /> {t("instance.scanning")}
+            </div>
+          ) : (packs ?? []).length > 0 ? (
+            <div className="flex flex-col gap-[6px]">
+              {packs!.map((p) => (
+                <div
+                  key={p.file_name}
+                  className={clsx("flex items-center gap-[10px] py-[8px] px-[10px] rounded-none bg-panel-2", {
+                    "opacity-55": !p.enabled,
+                  })}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">
+                      {p.file_name.replace(/\.disabled$/, "")}
+                    </div>
+                    <div className="text-[11px] text-muted whitespace-nowrap overflow-hidden text-ellipsis">
+                      {[p.description, fmtSize(p.size)].filter(Boolean).join(" · ")}
+                    </div>
+                  </div>
+                  <div className="flex items-center shrink-0">
+                    <Toggle checked={p.enabled} onChange={(v) => toggle(p, v)} title={t("instance.enable")} />
+                  </div>
+                  <button className={DEL_BTN} onClick={() => setConfirmDel(p)}>
+                    {t("instance.delete")}
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : packsError ? (
+            <ErrorState compact message={t("instance.loadFailedShort")} onRetry={() => void refetch()} />
+          ) : (
+            <div className="flex flex-col items-center justify-center gap-[12px] py-[40px] text-center">
+              <div className="text-muted text-[13px]">{props.emptyHint}</div>
+              <button className={ACCENT_BTN} onClick={startBrowse}>
+                {t("instance.add")}
+              </button>
+            </div>
           )}
-        </Show>
-      </Show>
+        </>
+      )}
 
       <Dialog
-        open={confirmDel() !== null}
+        open={confirmDel !== null}
         onClose={() => setConfirmDel(null)}
         label={t("instance.deleteResourcePack")}
         contentClass="w-[360px] max-w-[calc(100vw-48px)] overflow-hidden"
       >
-        <div class="p-[20px] flex flex-col gap-[14px]">
-          <div class="text-[15px] font-semibold text-fg break-words">
-            {t("instance.deleteFileConfirm", { file: confirmDel()?.file_name.replace(/\.disabled$/, "") ?? "" })}
+        <div className="p-[20px] flex flex-col gap-[14px]">
+          <div className="text-[15px] font-semibold text-fg break-words">
+            {t("instance.deleteFileConfirm", { file: confirmDel?.file_name.replace(/\.disabled$/, "") ?? "" })}
           </div>
-          <div class="text-[13px] text-muted leading-[1.6]">{t("instance.deleteFileBody")}</div>
-          <div class="flex justify-end gap-[10px]">
+          <div className="text-[13px] text-muted leading-[1.6]">{t("instance.deleteFileBody")}</div>
+          <div className="flex justify-end gap-[10px]">
             <Button variant="ghost" onClick={() => setConfirmDel(null)}>
               {t("instance.cancel")}
             </Button>
             <Button
               variant="danger"
               onClick={() => {
-                const p = confirmDel();
+                const p = confirmDel;
                 setConfirmDel(null);
                 if (p) void remove(p);
               }}
@@ -595,24 +550,27 @@ const PacksPanel: Component<{
       </Dialog>
     </div>
   );
-};
+}
 
 /**
  * WorldsPanel —— 存档世界列表 + 备份(导出 zip)/ 重命名(改显示名)/ 删除(走回收站)。
  */
-const WorldsPanel: Component<{ instance: InstanceSummary; tick?: number }> = (props) => {
-  const [worlds, { refetch }] = createResource(
-    () => [props.instance.id, props.tick ?? 0] as const,
-    ([id]) => api.instanceWorlds(activeRoot(), id),
+function WorldsPanel(props: { instance: InstanceSummary; tick?: number }) {
+  const { data: worlds, loading: worldsLoading, error: worldsError, refetch } = useAsync<WorldInfo[]>(
+    () => api.instanceWorlds(activeRoot(), props.instance.id),
+    [props.instance.id, props.tick ?? 0],
   );
 
   // 行内重命名:正在编辑的世界 folder + 草稿名。
-  const [editing, setEditing] = createSignal<string | null>(null);
-  const [draft, setDraft] = createSignal("");
-  const [busy, setBusy] = createSignal<string | null>(null);
-  const [importing, setImporting] = createSignal(false);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
   // 删除存档前确认(存档含游玩进度,删除是破坏性的)。
-  const [confirmDel, setConfirmDel] = createSignal<WorldInfo | null>(null);
+  const [confirmDel, setConfirmDel] = useState<WorldInfo | null>(null);
+  // commitRename 的防重入要读最新 editing(否则 onBlur 的旧闭包会误判为仍在编辑本行)。
+  const editingRef = useRef(editing);
+  editingRef.current = editing;
 
   async function importZip() {
     const picked = await openDialog({
@@ -669,10 +627,10 @@ const WorldsPanel: Component<{ instance: InstanceSummary; tick?: number }> = (pr
 
   async function commitRename(w: WorldInfo) {
     // 防重入:Enter 提交成功后会 setEditing(null),输入框卸载又触发 onBlur 二次调用;
-    // Escape 也先 setEditing(null) 再触发 onBlur。两种情况此时 editing() 已不是本行,
+    // Escape 也先 setEditing(null) 再触发 onBlur。两种情况此时 editing 已不是本行,
     // 直接返回 —— 避免重复重命名/重复 toast,以及「Escape 反而保存」。
-    if (editing() !== w.folder) return;
-    const name = draft().trim();
+    if (editingRef.current !== w.folder) return;
+    const name = draft.trim();
     if (!name || name === w.name) {
       setEditing(null);
       return;
@@ -687,130 +645,119 @@ const WorldsPanel: Component<{ instance: InstanceSummary; tick?: number }> = (pr
     }
   }
 
-  const MODE_LABEL = (): Record<string, string> => ({
+  const MODE_LABEL: Record<string, string> = {
     survival: t("instance.modeSurvival"),
     creative: t("instance.modeCreative"),
     adventure: t("instance.modeAdventure"),
     spectator: t("instance.modeSpectator"),
     unknown: t("instance.modeUnknown"),
-  });
+  };
 
   return (
-    <div class="flex flex-col gap-[8px]">
-      <div class="flex items-center justify-between">
-        <div class={LABEL}>{t("instance.worldsListTitle")}</div>
-        <div class="flex items-center gap-[4px]">
+    <div className="flex flex-col gap-[8px]">
+      <div className="flex items-center justify-between">
+        <div className={LABEL}>{t("instance.worldsListTitle")}</div>
+        <div className="flex items-center gap-[4px]">
           <button
-            class={OPEN_BTN}
+            className={OPEN_BTN}
             onClick={() => openInstanceSubdir(activeRoot(), props.instance.id, "saves")}
           >
             {t("instance.openDir")}
           </button>
           <button
-            class="text-[12px] text-accent px-[8px] py-[3px] rounded-none cursor-pointer hover:bg-panel-2 disabled:opacity-50 disabled:cursor-default"
-            disabled={importing()}
+            className="text-[12px] text-accent px-[8px] py-[3px] rounded-none cursor-pointer hover:bg-panel-2 disabled:opacity-50 disabled:cursor-default"
+            disabled={importing}
             onClick={importZip}
           >
-            {importing() ? t("instance.importingWorld") : t("instance.importWorld")}
+            {importing ? t("instance.importingWorld") : t("instance.importWorld")}
           </button>
         </div>
       </div>
 
-      <Show
-        when={!worlds.loading}
-        fallback={
-          <div class="flex items-center gap-[10px] text-muted text-[13px] py-[12px]">
-            <Spinner size={16} /> {t("instance.scanningWorlds")}
-          </div>
-        }
-      >
-      <Show
-        when={(worlds() ?? []).length > 0}
-        fallback={
-          worlds.error
-            ? <ErrorState compact message={t("instance.worldsLoadError")} onRetry={() => void refetch()} />
-            : <div class="text-muted text-[13px] py-[12px]">{t("instance.noWorlds")}</div>
-        }
-      >
-        <div class="flex flex-col gap-[6px]">
-          <For each={worlds()}>
-            {(w) => (
-              <div class="bg-panel-2 shadow-sunken flex items-center gap-[10px] py-[8px] px-[10px] rounded-none">
-                <div class="flex-1 min-w-0">
-                  <Show
-                    when={editing() === w.folder}
-                    fallback={
-                      <div class="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">
-                        {w.name}
-                      </div>
-                    }
-                  >
-                    <input
-                      class={`${FIELD} h-[26px] w-full text-[12px]`}
-                      ref={(el) => queueMicrotask(() => el.focus())}
-                      name="worldName"
-                      autocomplete="off"
-                      spellcheck={false}
-                      value={draft()}
-                      onInput={(e) => setDraft(e.currentTarget.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") commitRename(w);
-                        else if (e.key === "Escape") setEditing(null);
-                      }}
-                      onBlur={() => commitRename(w)}
-                    />
-                  </Show>
-                  <div class="text-[11px] text-muted whitespace-nowrap overflow-hidden text-ellipsis">
-                    {[
-                      MODE_LABEL()[w.game_mode] ?? w.game_mode,
-                      fmtSize(w.size_bytes),
-                      w.seed != null ? t("instance.seed", { seed: w.seed }) : null,
-                      w.folder,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </div>
-                </div>
-                <button
-                  class="shrink-0 text-[12px] text-muted px-[8px] py-[4px] rounded-none cursor-pointer hover:text-fg hover:bg-panel-2 disabled:opacity-50 disabled:cursor-default"
-                  disabled={busy() === w.folder}
-                  onClick={() => backup(w)}
-                >
-                  {busy() === w.folder ? t("instance.backingUp") : t("instance.backup")}
-                </button>
-                <button
-                  class="shrink-0 text-[12px] text-muted px-[8px] py-[4px] rounded-none cursor-pointer hover:text-fg hover:bg-panel-2"
-                  onClick={() => startRename(w)}
-                >
-                  {t("instance.rename")}
-                </button>
-                <button class={DEL_BTN} onClick={() => setConfirmDel(w)}>
-                  {t("instance.delete")}
-                </button>
-              </div>
-            )}
-          </For>
+      {worldsLoading ? (
+        <div className="flex items-center gap-[10px] text-muted text-[13px] py-[12px]">
+          <Spinner size={16} /> {t("instance.scanningWorlds")}
         </div>
-      </Show>
-      </Show>
+      ) : (worlds ?? []).length > 0 ? (
+        <div className="flex flex-col gap-[6px]">
+          {worlds!.map((w) => (
+            <div key={w.folder} className="bg-panel-2 shadow-sunken flex items-center gap-[10px] py-[8px] px-[10px] rounded-none">
+              <div className="flex-1 min-w-0">
+                {editing === w.folder ? (
+                  <input
+                    className={`${FIELD} h-[26px] w-full text-[12px]`}
+                    ref={(el) => {
+                      if (el) queueMicrotask(() => el.focus());
+                    }}
+                    name="worldName"
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={draft}
+                    onChange={(e) => setDraft(e.currentTarget.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commitRename(w);
+                      else if (e.key === "Escape") setEditing(null);
+                    }}
+                    onBlur={() => commitRename(w)}
+                  />
+                ) : (
+                  <div className="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">{w.name}</div>
+                )}
+                <div className="text-[11px] text-muted whitespace-nowrap overflow-hidden text-ellipsis">
+                  {[
+                    MODE_LABEL[w.game_mode] ?? w.game_mode,
+                    fmtSize(w.size_bytes),
+                    w.seed != null ? t("instance.seed", { seed: w.seed }) : null,
+                    w.folder,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </div>
+              </div>
+              <button
+                className="shrink-0 text-[12px] text-muted px-[8px] py-[4px] rounded-none cursor-pointer hover:text-fg hover:bg-panel-2 disabled:opacity-50 disabled:cursor-default"
+                disabled={busy === w.folder}
+                onClick={() => backup(w)}
+              >
+                {busy === w.folder ? t("instance.backingUp") : t("instance.backup")}
+              </button>
+              <button
+                className="shrink-0 text-[12px] text-muted px-[8px] py-[4px] rounded-none cursor-pointer hover:text-fg hover:bg-panel-2"
+                onClick={() => startRename(w)}
+              >
+                {t("instance.rename")}
+              </button>
+              <button className={DEL_BTN} onClick={() => setConfirmDel(w)}>
+                {t("instance.delete")}
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : worldsError ? (
+        <ErrorState compact message={t("instance.worldsLoadError")} onRetry={() => void refetch()} />
+      ) : (
+        <div className="text-muted text-[13px] py-[12px]">{t("instance.noWorlds")}</div>
+      )}
 
       <Dialog
-        open={confirmDel() !== null}
+        open={confirmDel !== null}
         onClose={() => setConfirmDel(null)}
         label={t("instance.deleteWorld")}
         contentClass="w-[360px] max-w-[calc(100vw-48px)] overflow-hidden"
       >
-        <div class="p-[20px] flex flex-col gap-[14px]">
-          <div class="text-[15px] font-semibold text-fg">{t("instance.deleteWorldConfirm", { name: confirmDel()?.name ?? "" })}</div>
-          <div class="text-[13px] text-muted leading-[1.6]">{t("instance.deleteWorldBody")}</div>
-          <div class="flex justify-end gap-[10px]">
+        <div className="p-[20px] flex flex-col gap-[14px]">
+          <div className="text-[15px] font-semibold text-fg">
+            {t("instance.deleteWorldConfirm", { name: confirmDel?.name ?? "" })}
+          </div>
+          <div className="text-[13px] text-muted leading-[1.6]">{t("instance.deleteWorldBody")}</div>
+          <div className="flex justify-end gap-[10px]">
             <Button variant="ghost" onClick={() => setConfirmDel(null)}>
               {t("instance.cancel")}
             </Button>
             <Button
               variant="danger"
               onClick={() => {
-                const w = confirmDel();
+                const w = confirmDel;
                 setConfirmDel(null);
                 if (w) void remove(w);
               }}
@@ -822,7 +769,7 @@ const WorldsPanel: Component<{ instance: InstanceSummary; tick?: number }> = (pr
       </Dialog>
     </div>
   );
-};
+}
 
 /** 加载器选项(与后端 parse_loader_kind 对齐)。 */
 const LOADER_OPTS = [
@@ -836,25 +783,28 @@ const LOADER_OPTS = [
  * AddLoaderPanel —— 原版实例「加装核心」:选加载器(+ Forge/NeoForge 版本)→ install_loader。
  * 装完后端可能换实例 id(实例目录名恰为原版号的退化情形),回调把新 id 传出去重定向。
  */
-const AddLoaderPanel: Component<{
-  instance: InstanceSummary;
-  onAdded: (newId: string) => void;
-}> = (props) => {
-  const [loader, setLoader] = createSignal("fabric");
-  const [version, setVersion] = createSignal("");
-  const [busy, setBusy] = createSignal(false);
-  const [progress, setProgress] = createSignal("");
-  const needsVersion = () => loader() === "forge" || loader() === "neoforge";
+function AddLoaderPanel(props: { instance: InstanceSummary; onAdded: (newId: string) => void }) {
+  const [loader, setLoader] = useState("fabric");
+  const [version, setVersion] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState("");
+  const needsVersion = loader === "forge" || loader === "neoforge";
+  // 进度回调装一次即可,却要读最新 busy —— 用 ref 避免旧闭包永远看到 busy=false。
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
 
-  const off = onInstallProgress((p) => {
-    if (!busy()) return;
-    setProgress(p.total > 0 ? `${p.stage} ${p.current}/${p.total}` : p.stage);
-  });
-  onCleanup(off);
+  useEffect(
+    () =>
+      onInstallProgress((p) => {
+        if (!busyRef.current) return;
+        setProgress(p.total > 0 ? `${p.stage} ${p.current}/${p.total}` : p.stage);
+      }),
+    [],
+  );
 
   async function add() {
-    if (busy()) return;
-    if (needsVersion() && !version().trim()) {
+    if (busy) return;
+    if (needsVersion && !version.trim()) {
       toast({ type: "error", message: t("instance.fillForgeVersion") });
       return;
     }
@@ -865,8 +815,8 @@ const AddLoaderPanel: Component<{
         activeRoot(),
         props.instance.id,
         props.instance.mc_version,
-        loader(),
-        needsVersion() ? version().trim() : null,
+        loader,
+        needsVersion ? version.trim() : null,
       );
       toast({ type: "success", message: t("instance.loaderAdded") });
       props.onAdded(newId);
@@ -879,38 +829,36 @@ const AddLoaderPanel: Component<{
   }
 
   return (
-    <div class="flex flex-col gap-[10px] py-[4px]">
-      <div class="text-[13px] text-muted leading-[1.6]">
-        {t("instance.addLoaderIntro")}
-      </div>
-      <div class="flex items-center gap-[8px]">
-        <Select value={loader()} onChange={setLoader} options={LOADER_OPTS} />
-        <Show when={needsVersion()}>
+    <div className="flex flex-col gap-[10px] py-[4px]">
+      <div className="text-[13px] text-muted leading-[1.6]">{t("instance.addLoaderIntro")}</div>
+      <div className="flex items-center gap-[8px]">
+        <Select value={loader} onChange={setLoader} options={LOADER_OPTS} />
+        {needsVersion && (
           <input
-            class={`${FIELD} flex-1`}
-            placeholder={loader() === "forge" ? t("instance.forgeBuildPlaceholder") : t("instance.neoforgeVersionPlaceholder")}
-            value={version()}
-            onInput={(e) => setVersion(e.currentTarget.value)}
+            className={`${FIELD} flex-1`}
+            placeholder={loader === "forge" ? t("instance.forgeBuildPlaceholder") : t("instance.neoforgeVersionPlaceholder")}
+            value={version}
+            onChange={(e) => setVersion(e.currentTarget.value)}
           />
-        </Show>
+        )}
         <button
-          class="shrink-0 h-[34px] px-[14px] rounded-none bg-accent text-white shadow-raised text-[13px] font-semibold cursor-pointer transition-[box-shadow,background-color] duration-[var(--dur)] ease-app hover:bg-accent-hover active:shadow-pressed disabled:opacity-50 disabled:cursor-default"
-          disabled={busy()}
+          className="shrink-0 h-[34px] px-[14px] rounded-none bg-accent text-white shadow-raised text-[13px] font-semibold cursor-pointer transition-[box-shadow,background-color] duration-[var(--dur)] ease-app hover:bg-accent-hover active:shadow-pressed disabled:opacity-50 disabled:cursor-default"
+          disabled={busy}
           onClick={add}
         >
-          {busy() ? t("instance.installing") : t("instance.addLoader")}
+          {busy ? t("instance.installing") : t("instance.addLoader")}
         </button>
       </div>
-      <Show when={busy() && progress()}>
-        <div class="flex items-center gap-[8px] text-accent text-[12px]">
-          <Spinner size={14} /> {progress()}
+      {busy && progress && (
+        <div className="flex items-center gap-[8px] text-accent text-[12px]">
+          <Spinner size={14} /> {progress}
         </div>
-      </Show>
+      )}
     </div>
   );
-};
+}
 
-export const InstanceManageDialog: Component<{
+export function InstanceManageDialog(props: {
   open: boolean;
   instance: InstanceSummary | null;
   /** 关闭(仅非内嵌的 Dialog 模式使用;内嵌详情页无「完成」按钮)。 */
@@ -928,37 +876,39 @@ export const InstanceManageDialog: Component<{
   hideTabs?: boolean;
   /** 进入/退出「添加」浏览模式(复用探索页占满内容区)时通知外层,详情页据此隐藏头部。 */
   onBrowsingChange?: (browsing: boolean) => void;
-}> = (props) => {
-  const [internalTab, setInternalTab] = createSignal<InstanceManageTab>("settings");
-  const [cfg, setCfg] = createSignal<InstanceConfig | null>(null);
-  const [copying, setCopying] = createSignal(false);
-  // 内存设置辅助:本机物理内存总量(MiB,一次即可)与按本实例 mod 数推荐的最大堆(MiB)。
-  const [sysTotalMb, setSysTotalMb] = createSignal<number | null>(null);
-  const [suggestedMb, setSuggestedMb] = createSignal<number | null>(null);
-  // 「浏览/添加」模式:任一内容标签点「+ 添加」即进入,占满内容区(复用探索页)。
-  // 切换标签时复位;变化时通知外层(详情页隐藏头部 + 本组件隐藏 tab 条)。
-  const [browsing, setBrowsing] = createSignal(false);
-  createEffect(() => props.onBrowsingChange?.(browsing()));
+}) {
+  useLang();
+  const socialOn = useAppStore((s) => s.socialEnabled);
+  const kobeSignedIn = useAppStore((s) => s.kobeUser !== null);
 
-  const tab = () => props.tab ?? internalTab();
+  const [internalTab, setInternalTab] = useState<InstanceManageTab>("settings");
+  const [cfg, setCfg] = useState<InstanceConfig | null>(null);
+  const [copying, setCopying] = useState(false);
+  // 内存设置辅助:本机物理内存总量(MiB,一次即可)与按本实例 mod 数推荐的最大堆(MiB)。
+  const [sysTotalMb, setSysTotalMb] = useState<number | null>(null);
+  const [suggestedMb, setSuggestedMb] = useState<number | null>(null);
+  // 「浏览/添加」模式:任一内容标签点「+ 添加」即进入,占满内容区(复用探索页)。
+  const [browsing, setBrowsing] = useState(false);
+  // keep-alive:记录已访问过的标签(惰性挂载——首访才挂,之后常驻、切走只以 display:none 隐藏)。
+  const [visited, setVisited] = useState<Set<InstanceManageTab>>(new Set());
+
+  const tab = props.tab ?? internalTab;
   const setTab = (next: InstanceManageTab) => {
     setInternalTab(next);
     props.onTabChange?.(next);
   };
   // 整合包来源(modrinth)→ 多一个「概览」标签并置于首位。
-  const modpackSource = () => {
-    const s = cfg()?.source;
+  const modpackSource = (() => {
+    const s = cfg?.source;
     return s && s.provider === "modrinth" ? s : null;
-  };
-  // 领域实例:多一个「领域」标签置于首位(领域同步 / 成员管理),并把「设置」降到末尾
-  // (服务器与截图之间)—— 领域成员的主线是同步,设置是次要项。非领域沿用原顺序。
-  // 仅在「社交开启 + 已登录 kobeMC」时才把领域当作领域(否则隐藏领域 tab,与顶栏社交入口一致)。
-  const isRealm = () => !!props.instance?.realm && socialEnabled() && isKobeSignedIn();
+  })();
+  // 领域实例:多一个「领域」标签置于首位。仅在「社交开启 + 已登录 kobeMC」时把领域当作领域。
+  const isRealm = !!props.instance?.realm && socialOn && kobeSignedIn;
   const visibleTabs = (): { key: InstanceManageTab; label: string }[] => {
-    if (isRealm()) {
+    if (isRealm) {
       return [
         { key: "realm", label: t("instance.tabRealm") },
-        ...(modpackSource() ? [{ key: "overview" as const, label: t("instance.tabOverview") }] : []),
+        ...(modpackSource ? [{ key: "overview" as const, label: t("instance.tabOverview") }] : []),
         { key: "mods", label: t("instance.tabMods") },
         { key: "resource_pack", label: t("instance.tabResourcePack") },
         { key: "shader", label: t("instance.tabShader") },
@@ -969,25 +919,25 @@ export const InstanceManageDialog: Component<{
         { key: "screenshots", label: t("instance.tabScreenshots") },
       ];
     }
-    return modpackSource() ? [{ key: "overview", label: t("instance.tabOverview") }, ...TABS()] : TABS();
+    return modpackSource ? [{ key: "overview", label: t("instance.tabOverview") }, ...TABS()] : TABS();
   };
 
   // 是否「活动」(应加载数据 / 接受拖放):弹窗模式看 open,内嵌模式只要挂载即活动。
-  const active = () => props.embedded || props.open;
+  const active = props.embedded || props.open;
 
-  // keep-alive:记录已访问过的标签(惰性挂载——首访才挂,之后常驻、切走只以 display:none 隐藏)。
-  // 切走不卸载,保留面板内状态(服务器输入框 / 存档重命名草稿 / 已加载截图缩略图 / 滚动),
-  // 并避免每次切回都重新扫描磁盘。镜像 layout/AppShell 的 keep-alive 实现。
-  const [visited, setVisited] = createSignal<Set<InstanceManageTab>>(new Set());
-  createEffect(() => {
-    const cur = tab();
-    if (active() && !visited().has(cur)) setVisited((s) => new Set(s).add(cur));
-  });
+  // 通知外层浏览态变化(详情页隐藏头部 + 本组件隐藏 tab 条)。
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => props.onBrowsingChange?.(browsing), [browsing]);
+
+  // 首访即登记该标签(之后常驻);functional setState 免把 visited 放进 deps。
+  useEffect(() => {
+    if (active) setVisited((s) => (s.has(tab) ? s : new Set(s).add(tab)));
+  }, [tab, active]);
 
   async function copyInstance() {
     const inst = props.instance;
     if (!inst) return;
-    // 运行中复制会把正在写入的存档/文件拷成半截,复制副本可能损坏 —— 先要求停止。
+    // 运行中复制会把正在写入的存档/文件拷成半截 —— 先要求停止。
     if (isRunning(inst.id)) {
       toast({ type: "error", message: t("instance.stopBeforeCopy") });
       return;
@@ -1004,11 +954,16 @@ export const InstanceManageDialog: Component<{
     }
   }
 
+  // 系统内存只取一次;推荐值按本实例 mod 数计算,随实例变化。sysTotalMb 走 ref 读——否则本
+  // effect 会订阅它自己 set 的 sysTotalMb,首次解析(null→值)重跑整个 effect、
+  // 重复拉 getInstanceConfig/suggestInstanceMemory 并闪一下配置 spinner。
+  const sysTotalRef = useRef<number | null>(null);
+
   // 打开/切换实例时拉配置 + 复位到设置页;关闭时清空。
-  createEffect(() => {
+  useEffect(() => {
     const inst = props.instance;
     setUpdates(null); // 切换实例/开关时清掉上一个实例的更新检查结果。
-    if (active() && inst) {
+    if (active && inst) {
       setCfg(null);
       setSuggestedMb(null);
       api
@@ -1017,60 +972,68 @@ export const InstanceManageDialog: Component<{
           setCfg(c);
           // 默认标签(仅非受控时):领域实例落「领域」,整合包来源落「概览」,其余落「设置」。
           if (props.tab === undefined)
-            setInternalTab(
-              isRealm() ? "realm" : c.source?.provider === "modrinth" ? "overview" : "settings",
-            );
+            setInternalTab(isRealm ? "realm" : c.source?.provider === "modrinth" ? "overview" : "settings");
         })
         .catch((e) => toast({ type: "error", message: t("instance.readConfigFailed", { err: String(e) }) }));
-      // 系统内存只取一次;推荐值按本实例 mod 数计算,随实例变化。untrack 读——否则本
-      // effect 会订阅它自己 set 的 sysTotalMb,首次解析(null→值)重跑整个 effect、
-      // 重复拉 getInstanceConfig/suggestInstanceMemory 并闪一下配置 spinner。
-      if (untrack(sysTotalMb) === null)
-        api.systemMemory().then((m) => setSysTotalMb(m.total_mb)).catch(() => {});
+      if (sysTotalRef.current === null)
+        api
+          .systemMemory()
+          .then((m) => {
+            sysTotalRef.current = m.total_mb;
+            setSysTotalMb(m.total_mb);
+          })
+          .catch(() => {});
       api.suggestInstanceMemory(activeRoot(), inst.id).then(setSuggestedMb).catch(() => {});
-    } else if (!active()) {
+    } else if (!active) {
       setCfg(null);
       setTab("settings");
     }
-  });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.instance, active]);
 
-  // Mods:仅在 Mods 标签 + 弹窗打开时拉取。
-  const [mods, { refetch: refetchMods }] = createResource(
-    () => (active() && props.instance && visited().has("mods") ? props.instance.id : false),
-    (id) => api.instanceMods(activeRoot(), id as string),
+  // Mods:仅在 Mods 标签 + 弹窗打开时拉取(gate:未满足条件不真正打后端)。
+  const modsGated = active && !!props.instance && visited.has("mods");
+  const { data: mods, loading: modsLoading, error: modsError, refetch: refetchMods } = useAsync<ModInfo[] | undefined>(
+    () => (modsGated && props.instance ? api.instanceMods(activeRoot(), props.instance.id) : Promise.resolve(undefined)),
+    [modsGated, props.instance?.id],
   );
 
   // ---- 从 Modrinth 搜索并安装 ----
   // vanilla 实例没有加载器,搜 mod 无意义,这里把 loader 归一为 null(不限)。
-  const searchLoader = () => {
+  const searchLoader = (() => {
     const l = props.instance?.loader;
     return l && l !== "vanilla" ? l : null;
-  };
-  const [modDetail, setModDetail] = createSignal<ModpackHit | null>(null);
-  const [modDetailProvider, setModDetailProvider] = createSignal<ContentProvider>("modrinth");
+  })();
+  const [modDetail, setModDetail] = useState<ModpackHit | null>(null);
+  const [modDetailProvider, setModDetailProvider] = useState<ContentProvider>("modrinth");
   // 后台并行安装:正在安装的 project_id 集合(不阻塞其它行)。
-  const [installing, setInstalling] = createSignal<Set<string>>(new Set());
-  // 本次浏览已添加的 mod project_id:行按钮即时变「已添加」,无需返回已安装确认。
-  const [addedMods, setAddedMods] = createSignal<Set<string>>(new Set());
+  const [installing, setInstalling] = useState<Set<string>>(new Set());
+  // 本次浏览已添加的 mod project_id:行按钮即时变「已添加」。
+  const [addedMods, setAddedMods] = useState<Set<string>>(new Set());
   // 删除 mod 前确认(删除是破坏性的,与存档/资源包删除一致)。
-  const [confirmDelMod, setConfirmDelMod] = createSignal<ModInfo | null>(null);
+  const [confirmDelMod, setConfirmDelMod] = useState<ModInfo | null>(null);
   const startBrowse = () => {
     setAddedMods(new Set<string>());
     setBrowsing(true);
   };
-  // 切换标签(含外层受控切换)即退出浏览/添加模式并清掉详情,避免浏览态串到别的标签。
-  createEffect(on(tab, () => {
+  // 切换标签(含外层受控切换)即退出浏览/添加模式并清掉详情;defer:首挂不跑(初值已是复位态)。
+  const tabResetFirst = useRef(true);
+  useEffect(() => {
+    if (tabResetFirst.current) {
+      tabResetFirst.current = false;
+      return;
+    }
     setBrowsing(false);
     setModDetail(null);
-  }, { defer: true }));
+  }, [tab]);
 
   // 行内「下载」:直接装最新兼容版(解析依赖),不进详情;后台并行,不阻塞其它行。
   async function installHit(projectId: string, title: string, provider: ContentProvider = "modrinth") {
     const inst = props.instance;
-    if (!inst || installing().has(projectId)) return;
+    if (!inst || installing.has(projectId)) return;
     setInstalling((s) => new Set(s).add(projectId));
     try {
-      const report = await api.installMod(activeRoot(), inst.id, projectId, inst.mc_version, searchLoader() ?? "", provider);
+      const report = await api.installMod(activeRoot(), inst.id, projectId, inst.mc_version, searchLoader ?? "", provider);
       if ((report.blocked?.length ?? 0) > 0) {
         toast({ type: "warn", message: t("instance.blockedManual", { count: report.blocked!.length }) });
       } else {
@@ -1079,7 +1042,10 @@ export const InstanceManageDialog: Component<{
         } else {
           const parts = [t("instance.modInstalledCount", { n: report.installed.length })];
           if (report.unresolved.length > 0) parts.push(t("instance.modUnresolvedCount", { n: report.unresolved.length }));
-          toast({ type: report.unresolved.length > 0 ? "warn" : "success", message: t("instance.modInstallResult", { title, parts: parts.join(",") }) });
+          toast({
+            type: report.unresolved.length > 0 ? "warn" : "success",
+            message: t("instance.modInstallResult", { title, parts: parts.join(",") }),
+          });
         }
         setAddedMods((s) => new Set(s).add(projectId));
         refetchMods();
@@ -1096,22 +1062,17 @@ export const InstanceManageDialog: Component<{
   }
 
   // ---- Mod 更新检查 ----
-  const [updates, setUpdates] = createSignal<ModUpdate[] | null>(null);
-  const [checking, setChecking] = createSignal(false);
+  const [updates, setUpdates] = useState<ModUpdate[] | null>(null);
+  const [checking, setChecking] = useState(false);
   // 后台并行更新:正在更新的文件集合(不阻塞其它行/全部更新串行)。
-  const [updating, setUpdating] = createSignal<Set<string>>(new Set());
+  const [updating, setUpdating] = useState<Set<string>>(new Set());
 
   async function checkUpdates() {
     const inst = props.instance;
     if (!inst) return;
     setChecking(true);
     try {
-      const list = await api.checkModUpdates(
-        activeRoot(),
-        inst.id,
-        inst.mc_version,
-        searchLoader() ?? "",
-      );
+      const list = await api.checkModUpdates(activeRoot(), inst.id, inst.mc_version, searchLoader ?? "");
       setUpdates(list);
       toast({
         type: list.length > 0 ? "info" : "success",
@@ -1126,7 +1087,7 @@ export const InstanceManageDialog: Component<{
 
   async function applyUpdate(u: ModUpdate) {
     const inst = props.instance;
-    if (!inst || updating().has(u.file_name)) return;
+    if (!inst || updating.has(u.file_name)) return;
     setUpdating((s) => new Set(s).add(u.file_name));
     try {
       await api.applyModUpdate(activeRoot(), inst.id, u);
@@ -1146,36 +1107,44 @@ export const InstanceManageDialog: Component<{
 
   async function applyAllUpdates() {
     // 后台并行更新,不阻塞单项;每个失败只提示该项,不中断其余。
-    await Promise.all((updates() ?? []).map((u) => applyUpdate(u)));
+    await Promise.all((updates ?? []).map((u) => applyUpdate(u)));
   }
 
   // ---- 拖拽导入 ----
   // Tauri 启用了原生文件拖放,HTML5 ondrop 不触发,改用 webview 的 onDragDropEvent。
-  // 整个弹窗作为拖放区,目标类型由当前标签决定。
-  const [dragOver, setDragOver] = createSignal(false);
-  const [dropping, setDropping] = createSignal(false);
-  const [importTick, setImportTick] = createSignal(0);
-  const [worldTick, setWorldTick] = createSignal(0);
+  const [dragOver, setDragOver] = useState(false);
+  const [dropping, setDropping] = useState(false);
+  const [importTick, setImportTick] = useState(0);
+  const [worldTick, setWorldTick] = useState(0);
+
+  // 拖放事件在监听装好之后才触发,需读「当时」的 tab/instance/active —— 走 ref 取实时值,
+  // 让监听只随 active 重订阅(镜像 Solid effect 只追踪 active())。
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const instanceRef = useRef(props.instance);
+  instanceRef.current = props.instance;
 
   /** 当前标签接受拖拽吗(设置标签不接受)。 */
-  function dropAccepted(): boolean {
-    return tab() === "mods" || isPackTab(tab()) || tab() === "worlds";
+  function dropAcceptedFor(cur: InstanceManageTab): boolean {
+    return cur === "mods" || isPackTab(cur) || cur === "worlds";
   }
 
   /** mods/资源包/光影/数据包的导入目标类型(存档走单独的 zip 导入命令,这里返回 null)。 */
-  function resourceTarget(): string | null {
-    if (tab() === "mods") return "mod";
-    if (isPackTab(tab())) return tab() === "resource_pack" ? "resourcepack" : tab();
+  function resourceTargetFor(cur: InstanceManageTab): string | null {
+    if (cur === "mods") return "mod";
+    if (isPackTab(cur)) return cur === "resource_pack" ? "resourcepack" : cur;
     return null;
   }
 
   async function handleDrop(paths: string[]) {
-    const inst = props.instance;
-    if (!inst || !dropAccepted()) {
+    const inst = instanceRef.current;
+    const cur = tabRef.current;
+    if (!inst || !dropAcceptedFor(cur)) {
       toast({ type: "info", message: t("instance.dropHint") });
       return;
     }
-    const cur = tab();
     setDropping(true);
     try {
       // 并行导入(串行会让拖入多个大文件逐个卡住);用 allSettled 汇总成败。
@@ -1183,7 +1152,7 @@ export const InstanceManageDialog: Component<{
         paths.map((path) =>
           cur === "worlds"
             ? api.importWorldZip(activeRoot(), inst.id, path)
-            : api.importLocalResource(activeRoot(), inst.id, resourceTarget()!, path, null),
+            : api.importLocalResource(activeRoot(), inst.id, resourceTargetFor(cur)!, path, null),
         ),
       );
       const ok = results.filter((r) => r.status === "fulfilled").length;
@@ -1202,10 +1171,10 @@ export const InstanceManageDialog: Component<{
     }
   }
 
-  createEffect(() => {
-    if (!active()) return;
+  useEffect(() => {
+    if (!active) return;
     const unlisten = getCurrentWebview().onDragDropEvent((e) => {
-      if (!active()) return;
+      if (!activeRef.current) return;
       const p = e.payload;
       if (p.type === "enter" || p.type === "over") setDragOver(true);
       else if (p.type === "leave") setDragOver(false);
@@ -1214,11 +1183,12 @@ export const InstanceManageDialog: Component<{
         void handleDrop(p.paths);
       }
     });
-    onCleanup(() => void unlisten.then((f) => f()));
-  });
+    return () => void unlisten.then((f) => f());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
 
   function patch(p: Partial<InstanceConfig>) {
-    const cur = cfg();
+    const cur = cfg;
     const inst = props.instance;
     if (!cur || !inst) return;
     const next = { ...cur, ...p };
@@ -1237,9 +1207,8 @@ export const InstanceManageDialog: Component<{
 
   // 把内存滑块设为后端按系统内存 + mod 数推荐的值。
   function applyRecommendedMemory() {
-    const mb = suggestedMb();
-    if (mb == null) return;
-    patch({ memory_mb: mb });
+    if (suggestedMb == null) return;
+    patch({ memory_mb: suggestedMb });
   }
 
   async function pickIcon() {
@@ -1282,516 +1251,473 @@ export const InstanceManageDialog: Component<{
     }
   }
 
+  const dropAccepted = dropAcceptedFor(tab);
+
   const body = (
-      <div
-        class="relative flex flex-col transition-shadow duration-150"
-        classList={{
-          "max-h-[calc(100vh-100px)]": !props.embedded,
-          "h-full": props.embedded,
-          "ring-2 ring-inset ring-accent": dragOver(),
-        }}
-      >
-        <Show when={dragOver() && dropAccepted()}>
-          <div class="absolute inset-0 z-10 grid place-items-center bg-window/85 pointer-events-none">
-            <div class="text-[14px] text-accent font-semibold">{t("instance.dropToImport")}</div>
+    <div
+      className={clsx("relative flex flex-col transition-shadow duration-150", {
+        "max-h-[calc(100vh-100px)]": !props.embedded,
+        "h-full": props.embedded,
+        "ring-2 ring-inset ring-accent": dragOver,
+      })}
+    >
+      {dragOver && dropAccepted && (
+        <div className="absolute inset-0 z-10 grid place-items-center bg-window/85 pointer-events-none">
+          <div className="text-[14px] text-accent font-semibold">{t("instance.dropToImport")}</div>
+        </div>
+      )}
+      {dropping && (
+        <div className="absolute inset-0 z-10 grid place-items-center bg-window/85">
+          <div className="flex items-center gap-[10px] text-[14px] text-fg font-semibold">
+            <Spinner size={18} /> {t("instance.importingOverlay")}
           </div>
-        </Show>
-        <Show when={dropping()}>
-          <div class="absolute inset-0 z-10 grid place-items-center bg-window/85">
-            <div class="flex items-center gap-[10px] text-[14px] text-fg font-semibold">
-              <Spinner size={18} /> {t("instance.importingOverlay")}
-            </div>
-          </div>
-        </Show>
-        <Show when={!props.embedded}>
-          <Heading size="sub" class="px-[20px] pt-[18px]">
-            {props.instance?.name || props.instance?.id}
-          </Heading>
-        </Show>
+        </div>
+      )}
+      {!props.embedded && (
+        <Heading size="sub" className="px-[20px] pt-[18px]">
+          {props.instance?.name || props.instance?.id}
+        </Heading>
+      )}
 
-        <Show when={!props.hideTabs && !browsing()}>
-          <div class="shrink-0 flex gap-[4px] px-[16px] border-b border-titlebar mt-[10px] overflow-x-auto">
-            <For each={visibleTabs()}>
-              {(item) => (
-                <button
-                  class={`${TAB} whitespace-nowrap ${tab() === item.key ? TAB_ACTIVE : ""}`}
-                  onClick={() => setTab(item.key)}
-                >
-                  {item.label}
-                </button>
-              )}
-            </For>
-          </div>
-        </Show>
-
-        <div class="flex-1 min-h-0 p-[20px] flex flex-col gap-[14px] overflow-y-auto">
-          {/* ---- 领域(同步 / 成员;领域实例的主标签)---- */}
-          <Show when={visited().has("realm") && isRealm() && props.instance}>
-            {(i) => (
-              <div classList={{ hidden: tab() !== "realm" }}>
-                <RealmPanel instance={i()} onChanged={() => props.onChanged?.()} />
-              </div>
-            )}
-          </Show>
-
-          {/* ---- 概览(整合包来源)---- */}
-          <Show when={visited().has("overview") && modpackSource()}>
-            {(s) => (
-              <div classList={{ hidden: tab() !== "overview" }}>
-                <ModpackOverview projectId={s().project_id} />
-              </div>
-            )}
-          </Show>
-
-          {/* ---- 设置 ---- */}
-          <Show when={visited().has("settings")}>
-            <div class="flex flex-col gap-[14px]" classList={{ hidden: tab() !== "settings" }}>
-            <Show
-              when={cfg()}
-              fallback={
-                <div class="flex items-center gap-[10px] text-muted text-[13px] py-[12px]">
-                  <Spinner size={16} /> {t("instance.readingConfig")}
-                </div>
-              }
+      {!props.hideTabs && !browsing && (
+        <div className="shrink-0 flex gap-[4px] px-[16px] border-b border-titlebar mt-[10px] overflow-x-auto">
+          {visibleTabs().map((item) => (
+            <button
+              key={item.key}
+              className={`${TAB} whitespace-nowrap ${tab === item.key ? TAB_ACTIVE : ""}`}
+              onClick={() => setTab(item.key)}
             >
-              {(c) => (
-                <>
-                  <div class="flex items-center gap-[12px]">
-                    <div class="w-[56px] h-[56px] rounded-none overflow-hidden bg-panel-2 shrink-0 select-none">
-                      <InstanceIcon name={props.instance?.name || props.instance?.id} icon={props.instance?.icon ?? undefined} />
-                    </div>
-                    <div class="flex flex-col gap-[5px]">
-                      <span class={LABEL}>{t("instance.instanceIcon")}</span>
-                      <button
-                        class="h-[30px] px-[12px] shadow-raised rounded-none bg-panel-3 text-fg text-[12px] cursor-pointer transition-[box-shadow,filter] duration-[var(--dur)] ease-app hover:brightness-110 active:shadow-pressed w-fit"
-                        onClick={pickIcon}
-                      >
-                        {t("instance.changeIcon")}
-                      </button>
-                    </div>
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="flex-1 min-h-0 p-[20px] flex flex-col gap-[14px] overflow-y-auto">
+        {/* ---- 领域(同步 / 成员;领域实例的主标签)---- */}
+        {visited.has("realm") && isRealm && props.instance && (
+          <div className={clsx({ hidden: tab !== "realm" })}>
+            <RealmPanel instance={props.instance} onChanged={() => props.onChanged?.()} />
+          </div>
+        )}
+
+        {/* ---- 概览(整合包来源)---- */}
+        {visited.has("overview") && modpackSource && (
+          <div className={clsx({ hidden: tab !== "overview" })}>
+            <ModpackOverview projectId={modpackSource.project_id} />
+          </div>
+        )}
+
+        {/* ---- 设置 ---- */}
+        {visited.has("settings") && (
+          <div className={clsx("flex flex-col gap-[14px]", { hidden: tab !== "settings" })}>
+            {cfg ? (
+              <>
+                <div className="flex items-center gap-[12px]">
+                  <div className="w-[56px] h-[56px] rounded-none overflow-hidden bg-panel-2 shrink-0 select-none">
+                    <InstanceIcon name={props.instance?.name || props.instance?.id} icon={props.instance?.icon ?? undefined} />
                   </div>
-
-                  <label class="flex flex-col gap-[5px]">
-                    <span class={LABEL}>{t("instance.name")}</span>
-                    <input
-                      class={FIELD}
-                      value={c().name ?? ""}
-                      onChange={(e) => patch({ name: e.currentTarget.value || null })}
-                    />
-                  </label>
-
-                  <div class="flex flex-col gap-[5px]">
-                    <div class="flex items-center justify-between gap-[8px]">
-                      <span class={LABEL}>{t("instance.maxMemory", { mb: c().memory_mb ?? 0 })}</span>
-                      <div class="flex items-center gap-[8px]">
-                        <Show when={sysTotalMb() !== null}>
-                          <span class="text-muted text-[11px]">
-                            {t("instance.systemMemory", { gb: memGb(sysTotalMb()!) })}
-                          </span>
-                        </Show>
-                        <Show when={suggestedMb() !== null}>
-                          <button
-                            type="button"
-                            class="h-[22px] px-[8px] rounded-none bg-panel-3 text-fg text-[11px] cursor-pointer shadow-raised hover:brightness-110 active:shadow-pressed transition-[box-shadow,filter] duration-[var(--dur)] ease-app"
-                            title={t("instance.recommendMemoryHint")}
-                            onClick={applyRecommendedMemory}
-                          >
-                            {t("instance.recommendMemory", { gb: memGb(suggestedMb()!) })}
-                          </button>
-                        </Show>
-                      </div>
-                    </div>
-                    <input
-                      class="kb-range"
-                      type="range"
-                      min="512"
-                      max="16384"
-                      step="256"
-                      value={c().memory_mb}
-                      onInput={(e) => setCfg({ ...c(), memory_mb: +e.currentTarget.value })}
-                      onChange={(e) => patch({ memory_mb: +e.currentTarget.value })}
-                    />
-                  </div>
-
-                  <label class="flex flex-col gap-[5px]">
-                    <span class={LABEL}>{t("instance.javaPath")}</span>
-                    <input
-                      class={FIELD}
-                      placeholder={t("instance.javaPathPlaceholder")}
-                      value={c().java_path ?? ""}
-                      onChange={(e) => patch({ java_path: e.currentTarget.value || null })}
-                    />
-                  </label>
-
-                  <label class="flex flex-col gap-[5px]">
-                    <span class={LABEL}>{t("instance.extraJvmArgs")}</span>
-                    <input
-                      class={FIELD}
-                      value={(c().jvm_args ?? []).join(" ")}
-                      onChange={(e) =>
-                        patch({ jvm_args: e.currentTarget.value.split(/\s+/).filter(Boolean) })
-                      }
-                    />
-                  </label>
-
-                  <div class="flex gap-[12px]">
-                    <label class="flex-1 flex flex-col gap-[5px]">
-                      <span class={LABEL}>{t("instance.windowWidth")}</span>
-                      <input
-                        class={FIELD}
-                        type="number"
-                        min="1"
-                        max="7680"
-                        placeholder={t("instance.defaultPlaceholder")}
-                        value={c().width ?? ""}
-                        onChange={(e) => {
-                          const n = Math.floor(+e.currentTarget.value);
-                          patch({ width: Number.isFinite(n) && n > 0 ? n : null });
-                        }}
-                      />
-                    </label>
-                    <label class="flex-1 flex flex-col gap-[5px]">
-                      <span class={LABEL}>{t("instance.windowHeight")}</span>
-                      <input
-                        class={FIELD}
-                        type="number"
-                        min="1"
-                        max="4320"
-                        placeholder={t("instance.defaultPlaceholder")}
-                        value={c().height ?? ""}
-                        onChange={(e) => {
-                          const n = Math.floor(+e.currentTarget.value);
-                          patch({ height: Number.isFinite(n) && n > 0 ? n : null });
-                        }}
-                      />
-                    </label>
-                  </div>
-
-                  <div class="flex items-center justify-between text-fg text-[13px]">
-                    <span>{t("instance.fullscreenLaunch")}</span>
-                    <Toggle checked={c().fullscreen ?? false} onChange={(v) => patch({ fullscreen: v })} title={t("instance.fullscreenLaunch")} />
-                  </div>
-
-                  <div class="pt-[4px]">
+                  <div className="flex flex-col gap-[5px]">
+                    <span className={LABEL}>{t("instance.instanceIcon")}</span>
                     <button
-                      class="h-[30px] px-[12px] shadow-raised rounded-none bg-panel-3 text-fg text-[12px] cursor-pointer transition-[box-shadow,filter] duration-[var(--dur)] ease-app hover:brightness-110 active:shadow-pressed"
-                      onClick={() => props.instance && openInstanceDir(activeRoot(), props.instance.id)}
+                      className="h-[30px] px-[12px] shadow-raised rounded-none bg-panel-3 text-fg text-[12px] cursor-pointer transition-[box-shadow,filter] duration-[var(--dur)] ease-app hover:brightness-110 active:shadow-pressed w-fit"
+                      onClick={pickIcon}
                     >
-                      {t("instance.openGameDir")}
+                      {t("instance.changeIcon")}
                     </button>
                   </div>
-                </>
-              )}
-            </Show>
-            </div>
-          </Show>
+                </div>
 
-          {/* ---- Mods ---- */}
-          <Show when={visited().has("mods")}>
-            {/* 从 Modrinth 搜索并安装(按本实例的 MC 版本 + 加载器过滤)。
-                搜索体验复用 <ContentBrowser>;「添加」装最新兼容版,点击行打开详情。 */}
-            <div class="flex flex-col gap-[8px]" classList={{ hidden: tab() !== "mods" }}>
-              <Show
-                when={searchLoader() !== null}
-                fallback={
-                  <AddLoaderPanel
-                    instance={props.instance!}
-                    onAdded={(newId) => {
-                      props.onChanged?.();
-                      if (newId !== props.instance!.id) openInstance(newId);
-                    }}
+                <label className="flex flex-col gap-[5px]">
+                  <span className={LABEL}>{t("instance.name")}</span>
+                  {/* 非受控 + onBlur 持久化:自由输入,失焦才写盘(等价 Solid 的 onChange)。 */}
+                  <input
+                    key={`name-${props.instance?.id ?? ""}`}
+                    className={FIELD}
+                    defaultValue={cfg.name ?? ""}
+                    onBlur={(e) => patch({ name: e.currentTarget.value || null })}
                   />
-                }
-              >
-                <Show
-                  when={tab() === "mods" && browsing()}
-                  fallback={
-                    <>
-                      {/* 默认:「已安装」标题行,右侧聚拢动作(打开目录 + 检查更新 + 紧凑「添加」)。 */}
-                      <div class="flex items-center justify-between">
-                        <div class={LABEL}>{t("instance.installedTitle")}</div>
-                        <div class="flex items-center gap-[6px]">
-                          <button
-                            class={OPEN_BTN}
-                            onClick={() => openInstanceSubdir(activeRoot(), props.instance!.id, "mods")}
-                          >
-                            {t("instance.openDir")}
-                          </button>
-                          <button
-                            class="text-[12px] text-accent px-[8px] py-[3px] rounded-none cursor-pointer hover:bg-panel-2 disabled:opacity-50 disabled:cursor-default"
-                            disabled={checking() || searchLoader() === null}
-                            onClick={checkUpdates}
-                          >
-                            {checking() ? t("instance.checking") : t("instance.checkUpdates")}
-                          </button>
-                          <button
-                            class="shrink-0 h-[28px] px-[10px] rounded-none bg-accent text-white shadow-raised text-[12px] font-semibold cursor-pointer transition-[box-shadow,background-color] duration-[var(--dur)] ease-app hover:bg-accent-hover active:shadow-pressed"
-                            onClick={startBrowse}
-                          >
-                            {t("instance.add")}
-                          </button>
-                        </div>
-                      </div>
+                </label>
 
-                      {/* 可更新清单(检查后才出现) */}
-                      <Show when={(updates() ?? []).length > 0}>
-                        <div class="flex flex-col gap-[6px] rounded-none bg-panel-2 p-[8px]">
-                          <div class="flex items-center justify-between">
-                            <span class="text-[12px] text-fg font-semibold">
-                              {t("instance.updatesAvailable", { n: updates()!.length })}
-                            </span>
-                            <button
-                              class={INSTALL_BTN}
-                              disabled={updating().size > 0}
-                              onClick={applyAllUpdates}
-                            >
-                              {t("instance.updateAll")}
-                            </button>
-                          </div>
-                          <For each={updates()}>
-                            {(u) => (
-                              <div class="bg-panel-2 shadow-sunken flex items-center gap-[10px] py-[6px] px-[8px] rounded-none">
-                                <div class="flex-1 min-w-0">
-                                  <div class="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">
-                                    {u.name}
-                                  </div>
-                                  <div class="text-[11px] text-muted whitespace-nowrap overflow-hidden text-ellipsis">
-                                    {(u.current_version ?? t("instance.currentVersion")) + " → " + u.new_version}
-                                  </div>
-                                </div>
-                                <button
-                                  class={INSTALL_BTN}
-                                  disabled={updating().has(u.file_name)}
-                                  onClick={() => applyUpdate(u)}
-                                >
-                                  {updating().has(u.file_name) ? t("instance.updating") : t("instance.update")}
-                                </button>
-                              </div>
-                            )}
-                          </For>
-                        </div>
-                      </Show>
-
-                      {/* 已安装 mod 列表 */}
-                      <Show
-                        when={!mods.loading}
-                        fallback={
-                          <div class="flex items-center gap-[10px] text-muted text-[13px] py-[12px]">
-                            <Spinner size={16} /> {t("instance.scanningMods")}
-                          </div>
-                        }
-                      >
-                        <Show
-                          when={(mods() ?? []).length > 0}
-                          fallback={
-                            mods.error ? (
-                              <ErrorState compact message={t("instance.modListError")} onRetry={() => void refetchMods()} />
-                            ) : (
-                              <div class="flex flex-col items-center justify-center gap-[12px] py-[40px] text-center">
-                                <div class="text-muted text-[13px]">{t("instance.noMods")}</div>
-                                <button
-                                  class={ACCENT_BTN}
-                                  onClick={startBrowse}
-                                >
-                                  {t("instance.addMod")}
-                                </button>
-                              </div>
-                            )
-                          }
-                        >
-                          <div class="flex flex-col gap-[6px]">
-                            <For each={mods()}>
-                              {(m) => (
-                                <div
-                                  class="flex items-center gap-[10px] py-[8px] px-[10px] rounded-none bg-panel-2"
-                                  classList={{ "opacity-55": !m.enabled }}
-                                >
-                                  <div class="flex-1 min-w-0">
-                                    <div class="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">
-                                      {m.name}
-                                    </div>
-                                    <div class="text-[11px] text-muted whitespace-nowrap overflow-hidden text-ellipsis">
-                                      {[m.version, m.loader, m.file_name].filter(Boolean).join(" · ")}
-                                    </div>
-                                  </div>
-                                  <div class="flex items-center shrink-0">
-                                    <Toggle checked={m.enabled} onChange={(v) => toggleMod(m, v)} title={t("instance.enable")} />
-                                  </div>
-                                  <button class={DEL_BTN} onClick={() => setConfirmDelMod(m)}>
-                                    {t("instance.delete")}
-                                  </button>
-                                </div>
-                              )}
-                            </For>
-                          </div>
-                        </Show>
-                      </Show>
-                    </>
-                  }
-                >
-                  {/* 浏览模式 = 复用探索页:搜索列表 →(点进)详情安装,装完回到已安装。 */}
-                  <Show
-                    when={modDetail()}
-                    fallback={
-                      <>
+                <div className="flex flex-col gap-[5px]">
+                  <div className="flex items-center justify-between gap-[8px]">
+                    <span className={LABEL}>{t("instance.maxMemory", { mb: cfg.memory_mb ?? 0 })}</span>
+                    <div className="flex items-center gap-[8px]">
+                      {sysTotalMb !== null && (
+                        <span className="text-muted text-[11px]">{t("instance.systemMemory", { gb: memGb(sysTotalMb) })}</span>
+                      )}
+                      {suggestedMb !== null && (
                         <button
-                          class="self-start inline-flex items-center gap-[4px] h-[28px] px-[10px] rounded-none border-none bg-transparent text-muted text-[12px] cursor-pointer transition-colors duration-150 hover:bg-panel-3 hover:text-fg"
-                          onClick={() => setBrowsing(false)}
+                          type="button"
+                          className="h-[22px] px-[8px] rounded-none bg-panel-3 text-fg text-[11px] cursor-pointer shadow-raised hover:brightness-110 active:shadow-pressed transition-[box-shadow,filter] duration-[var(--dur)] ease-app"
+                          title={t("instance.recommendMemoryHint")}
+                          onClick={applyRecommendedMemory}
                         >
-                          {t("instance.backToInstalled")}
+                          {t("instance.recommendMemory", { gb: memGb(suggestedMb) })}
                         </button>
-                        <ContentBrowser
-                          kind="mod"
-                          mcVersion={props.instance?.mc_version ?? ""}
-                          loader={searchLoader()}
-                          onOpenDetail={(hit, provider) => { setModDetail(hit); setModDetailProvider(provider); }}
-                          onAdd={(hit, provider) => installHit(hit.id, hit.title, provider)}
-                          addingIds={installing()}
-                          addedIds={addedMods()}
-                          autofocus
-                          onEscape={() => setBrowsing(false)}
-                          placeholder={t("instance.searchModrinthMod", { version: props.instance?.mc_version ?? "", loader: searchLoader() ?? t("instance.noLoader") })}
-                        />
-                      </>
-                    }
+                      )}
+                    </div>
+                  </div>
+                  {/* 拖动时 onChange 只更新本地(实时刻度);松手(mouseup/keyup)才写盘,避免逐帧持久化。 */}
+                  <input
+                    className="kb-range"
+                    type="range"
+                    min={512}
+                    max={16384}
+                    step={256}
+                    value={cfg.memory_mb}
+                    onChange={(e) => {
+                      const v = +e.currentTarget.value;
+                      setCfg((prev) => (prev ? { ...prev, memory_mb: v } : prev));
+                    }}
+                    onMouseUp={(e) => patch({ memory_mb: +e.currentTarget.value })}
+                    onKeyUp={(e) => patch({ memory_mb: +e.currentTarget.value })}
+                  />
+                </div>
+
+                <label className="flex flex-col gap-[5px]">
+                  <span className={LABEL}>{t("instance.javaPath")}</span>
+                  <input
+                    key={`java-${props.instance?.id ?? ""}`}
+                    className={FIELD}
+                    placeholder={t("instance.javaPathPlaceholder")}
+                    defaultValue={cfg.java_path ?? ""}
+                    onBlur={(e) => patch({ java_path: e.currentTarget.value || null })}
+                  />
+                </label>
+
+                <label className="flex flex-col gap-[5px]">
+                  <span className={LABEL}>{t("instance.extraJvmArgs")}</span>
+                  <input
+                    key={`jvm-${props.instance?.id ?? ""}`}
+                    className={FIELD}
+                    defaultValue={(cfg.jvm_args ?? []).join(" ")}
+                    onBlur={(e) => patch({ jvm_args: e.currentTarget.value.split(/\s+/).filter(Boolean) })}
+                  />
+                </label>
+
+                <div className="flex gap-[12px]">
+                  <label className="flex-1 flex flex-col gap-[5px]">
+                    <span className={LABEL}>{t("instance.windowWidth")}</span>
+                    <input
+                      key={`w-${props.instance?.id ?? ""}`}
+                      className={FIELD}
+                      type="number"
+                      min={1}
+                      max={7680}
+                      placeholder={t("instance.defaultPlaceholder")}
+                      defaultValue={cfg.width ?? ""}
+                      onBlur={(e) => {
+                        const n = Math.floor(+e.currentTarget.value);
+                        patch({ width: Number.isFinite(n) && n > 0 ? n : null });
+                      }}
+                    />
+                  </label>
+                  <label className="flex-1 flex flex-col gap-[5px]">
+                    <span className={LABEL}>{t("instance.windowHeight")}</span>
+                    <input
+                      key={`h-${props.instance?.id ?? ""}`}
+                      className={FIELD}
+                      type="number"
+                      min={1}
+                      max={4320}
+                      placeholder={t("instance.defaultPlaceholder")}
+                      defaultValue={cfg.height ?? ""}
+                      onBlur={(e) => {
+                        const n = Math.floor(+e.currentTarget.value);
+                        patch({ height: Number.isFinite(n) && n > 0 ? n : null });
+                      }}
+                    />
+                  </label>
+                </div>
+
+                <div className="flex items-center justify-between text-fg text-[13px]">
+                  <span>{t("instance.fullscreenLaunch")}</span>
+                  <Toggle
+                    checked={cfg.fullscreen ?? false}
+                    onChange={(v) => patch({ fullscreen: v })}
+                    title={t("instance.fullscreenLaunch")}
+                  />
+                </div>
+
+                <div className="pt-[4px]">
+                  <button
+                    className="h-[30px] px-[12px] shadow-raised rounded-none bg-panel-3 text-fg text-[12px] cursor-pointer transition-[box-shadow,filter] duration-[var(--dur)] ease-app hover:brightness-110 active:shadow-pressed"
+                    onClick={() => props.instance && openInstanceDir(activeRoot(), props.instance.id)}
                   >
-                    {(d) => (
-                      <ProjectInstallDetail
-                        hit={d()}
-                        kind="mod"
-                        provider={modDetailProvider()}
-                        lockedInstance={props.instance!}
-                        onBack={() => setModDetail(null)}
-                        onInstalled={() => {
-                          refetchMods();
-                          setAddedMods((s) => new Set(s).add(d().id));
-                        }}
-                      />
-                    )}
-                  </Show>
-                </Show>
-              </Show>
-            </div>
-          </Show>
-
-          {/* ---- 资源包 / 光影 / 数据包 ---- */}
-          {/* keep-alive:三个 pack 标签各自独立常驻,browse 只对当前激活的 pack 标签生效
-              (隐藏面板不应跟着进浏览态、误触发搜索)。 */}
-          <Show when={visited().has("resource_pack") && props.instance}>
-            {(inst) => (
-              <div classList={{ hidden: tab() !== "resource_pack" }}>
-                <PacksPanel
-                  instance={inst()}
-                  kind="resource_pack"
-                  searchKind="resourcepack"
-                  emptyHint={t("instance.emptyResourcePack")}
-                  tick={importTick()}
-                  browse={tab() === "resource_pack" && browsing()}
-                  onBrowse={setBrowsing}
-                />
+                    {t("instance.openGameDir")}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="flex items-center gap-[10px] text-muted text-[13px] py-[12px]">
+                <Spinner size={16} /> {t("instance.readingConfig")}
               </div>
             )}
-          </Show>
-          <Show when={visited().has("shader") && props.instance}>
-            {(inst) => (
-              <div classList={{ hidden: tab() !== "shader" }}>
-                <PacksPanel
-                  instance={inst()}
-                  kind="shader"
-                  searchKind="shader"
-                  emptyHint={t("instance.emptyShader")}
-                  tick={importTick()}
-                  browse={tab() === "shader" && browsing()}
-                  onBrowse={setBrowsing}
-                />
-              </div>
-            )}
-          </Show>
-          <Show when={visited().has("datapack") && props.instance}>
-            {(inst) => (
-              <div classList={{ hidden: tab() !== "datapack" }}>
-                <PacksPanel
-                  instance={inst()}
-                  kind="datapack"
-                  searchKind="datapack"
-                  emptyHint={t("instance.emptyDatapack")}
-                  tick={importTick()}
-                  browse={tab() === "datapack" && browsing()}
-                  onBrowse={setBrowsing}
-                />
-              </div>
-            )}
-          </Show>
-
-          {/* ---- 存档 ---- */}
-          <Show when={visited().has("worlds") && props.instance}>
-            {(inst) => (
-              <div classList={{ hidden: tab() !== "worlds" }}>
-                <WorldsPanel instance={inst()} tick={worldTick()} />
-              </div>
-            )}
-          </Show>
-
-          {/* ---- 多人服务器(servers.dat) ---- */}
-          <Show when={visited().has("servers") && props.instance}>
-            {(inst) => (
-              <div class="h-full min-h-0" classList={{ hidden: tab() !== "servers" }}>
-                <ServersPanel instance={inst()} />
-              </div>
-            )}
-          </Show>
-
-          {/* ---- 截图 ---- */}
-          <Show when={visited().has("screenshots") && props.instance}>
-            {(inst) => (
-              <div classList={{ hidden: tab() !== "screenshots" }}>
-                <ScreenshotsPanel instance={inst()} />
-              </div>
-            )}
-          </Show>
-        </div>
-
-        {/* 内嵌模式(实例详情页)不渲染底部栏:复制实例移到详情页头部 ⋮ 菜单,完成本就不显示。 */}
-        <Show when={!props.embedded}>
-          <div class="flex justify-between items-center px-[20px] py-[14px] border-t border-titlebar">
-            <Button variant="ghost" disabled={copying() || !props.instance} onClick={copyInstance}>
-              {copying() ? t("instance.copying") : t("instance.copyInstance")}
-            </Button>
-            <Button variant="ghost" onClick={() => props.onClose?.()}>
-              {t("instance.done")}
-            </Button>
           </div>
-        </Show>
+        )}
 
-        <Dialog
-          open={confirmDelMod() !== null}
-          onClose={() => setConfirmDelMod(null)}
-          label={t("instance.deleteMod")}
-          contentClass="w-[360px] max-w-[calc(100vw-48px)] overflow-hidden"
-        >
-          <div class="p-[20px] flex flex-col gap-[14px]">
-            <div class="text-[15px] font-semibold text-fg break-words">
-              {t("instance.deleteModConfirm", { name: confirmDelMod()?.name ?? "" })}
-            </div>
-            <div class="text-[13px] text-muted leading-[1.6]">{t("instance.deleteModBody")}</div>
-            <div class="flex justify-end gap-[10px]">
-              <Button variant="ghost" onClick={() => setConfirmDelMod(null)}>
-                {t("instance.cancel")}
-              </Button>
-              <Button
-                variant="danger"
-                onClick={() => {
-                  const m = confirmDelMod();
-                  setConfirmDelMod(null);
-                  if (m) void removeMod(m);
+        {/* ---- Mods ---- */}
+        {visited.has("mods") && (
+          <div className={clsx("flex flex-col gap-[8px]", { hidden: tab !== "mods" })}>
+            {searchLoader === null ? (
+              <AddLoaderPanel
+                instance={props.instance!}
+                onAdded={(newId) => {
+                  props.onChanged?.();
+                  if (newId !== props.instance!.id) openInstance(newId);
                 }}
-              >
-                {t("instance.delete")}
-              </Button>
-            </div>
+              />
+            ) : tab === "mods" && browsing ? (
+              // 浏览模式 = 复用探索页:搜索列表 →(点进)详情安装,装完回到已安装。
+              modDetail ? (
+                <ProjectInstallDetail
+                  hit={modDetail}
+                  kind="mod"
+                  provider={modDetailProvider}
+                  lockedInstance={props.instance!}
+                  onBack={() => setModDetail(null)}
+                  onInstalled={() => {
+                    refetchMods();
+                    if (modDetail) setAddedMods((s) => new Set(s).add(modDetail.id));
+                  }}
+                />
+              ) : (
+                <>
+                  <button
+                    className="self-start inline-flex items-center gap-[4px] h-[28px] px-[10px] rounded-none border-none bg-transparent text-muted text-[12px] cursor-pointer transition-colors duration-150 hover:bg-panel-3 hover:text-fg"
+                    onClick={() => setBrowsing(false)}
+                  >
+                    {t("instance.backToInstalled")}
+                  </button>
+                  <ContentBrowser
+                    kind="mod"
+                    mcVersion={props.instance?.mc_version ?? ""}
+                    loader={searchLoader}
+                    onOpenDetail={(hit, provider) => {
+                      setModDetail(hit);
+                      setModDetailProvider(provider);
+                    }}
+                    onAdd={(hit, provider) => installHit(hit.id, hit.title, provider)}
+                    addingIds={installing}
+                    addedIds={addedMods}
+                    autofocus
+                    onEscape={() => setBrowsing(false)}
+                    placeholder={t("instance.searchModrinthMod", {
+                      version: props.instance?.mc_version ?? "",
+                      loader: searchLoader ?? t("instance.noLoader"),
+                    })}
+                  />
+                </>
+              )
+            ) : (
+              <>
+                {/* 默认:「已安装」标题行,右侧聚拢动作(打开目录 + 检查更新 + 紧凑「添加」)。 */}
+                <div className="flex items-center justify-between">
+                  <div className={LABEL}>{t("instance.installedTitle")}</div>
+                  <div className="flex items-center gap-[6px]">
+                    <button
+                      className={OPEN_BTN}
+                      onClick={() => openInstanceSubdir(activeRoot(), props.instance!.id, "mods")}
+                    >
+                      {t("instance.openDir")}
+                    </button>
+                    <button
+                      className="text-[12px] text-accent px-[8px] py-[3px] rounded-none cursor-pointer hover:bg-panel-2 disabled:opacity-50 disabled:cursor-default"
+                      disabled={checking || searchLoader === null}
+                      onClick={checkUpdates}
+                    >
+                      {checking ? t("instance.checking") : t("instance.checkUpdates")}
+                    </button>
+                    <button
+                      className="shrink-0 h-[28px] px-[10px] rounded-none bg-accent text-white shadow-raised text-[12px] font-semibold cursor-pointer transition-[box-shadow,background-color] duration-[var(--dur)] ease-app hover:bg-accent-hover active:shadow-pressed"
+                      onClick={startBrowse}
+                    >
+                      {t("instance.add")}
+                    </button>
+                  </div>
+                </div>
+
+                {/* 可更新清单(检查后才出现) */}
+                {(updates ?? []).length > 0 && (
+                  <div className="flex flex-col gap-[6px] rounded-none bg-panel-2 p-[8px]">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[12px] text-fg font-semibold">
+                        {t("instance.updatesAvailable", { n: updates!.length })}
+                      </span>
+                      <button className={INSTALL_BTN} disabled={updating.size > 0} onClick={applyAllUpdates}>
+                        {t("instance.updateAll")}
+                      </button>
+                    </div>
+                    {updates!.map((u) => (
+                      <div key={u.file_name} className="bg-panel-2 shadow-sunken flex items-center gap-[10px] py-[6px] px-[8px] rounded-none">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">{u.name}</div>
+                          <div className="text-[11px] text-muted whitespace-nowrap overflow-hidden text-ellipsis">
+                            {(u.current_version ?? t("instance.currentVersion")) + " → " + u.new_version}
+                          </div>
+                        </div>
+                        <button
+                          className={INSTALL_BTN}
+                          disabled={updating.has(u.file_name)}
+                          onClick={() => applyUpdate(u)}
+                        >
+                          {updating.has(u.file_name) ? t("instance.updating") : t("instance.update")}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* 已安装 mod 列表 */}
+                {modsLoading ? (
+                  <div className="flex items-center gap-[10px] text-muted text-[13px] py-[12px]">
+                    <Spinner size={16} /> {t("instance.scanningMods")}
+                  </div>
+                ) : (mods ?? []).length > 0 ? (
+                  <div className="flex flex-col gap-[6px]">
+                    {mods!.map((m) => (
+                      <div
+                        key={m.file_name}
+                        className={clsx("flex items-center gap-[10px] py-[8px] px-[10px] rounded-none bg-panel-2", {
+                          "opacity-55": !m.enabled,
+                        })}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[13px] text-fg whitespace-nowrap overflow-hidden text-ellipsis">{m.name}</div>
+                          <div className="text-[11px] text-muted whitespace-nowrap overflow-hidden text-ellipsis">
+                            {[m.version, m.loader, m.file_name].filter(Boolean).join(" · ")}
+                          </div>
+                        </div>
+                        <div className="flex items-center shrink-0">
+                          <Toggle checked={m.enabled} onChange={(v) => toggleMod(m, v)} title={t("instance.enable")} />
+                        </div>
+                        <button className={DEL_BTN} onClick={() => setConfirmDelMod(m)}>
+                          {t("instance.delete")}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : modsError ? (
+                  <ErrorState compact message={t("instance.modListError")} onRetry={() => void refetchMods()} />
+                ) : (
+                  <div className="flex flex-col items-center justify-center gap-[12px] py-[40px] text-center">
+                    <div className="text-muted text-[13px]">{t("instance.noMods")}</div>
+                    <button className={ACCENT_BTN} onClick={startBrowse}>
+                      {t("instance.addMod")}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
           </div>
-        </Dialog>
+        )}
+
+        {/* ---- 资源包 / 光影 / 数据包 ---- */}
+        {/* keep-alive:三个 pack 标签各自独立常驻,browse 只对当前激活的 pack 标签生效。 */}
+        {visited.has("resource_pack") && props.instance && (
+          <div className={clsx({ hidden: tab !== "resource_pack" })}>
+            <PacksPanel
+              instance={props.instance}
+              kind="resource_pack"
+              searchKind="resourcepack"
+              emptyHint={t("instance.emptyResourcePack")}
+              tick={importTick}
+              browse={tab === "resource_pack" && browsing}
+              onBrowse={setBrowsing}
+            />
+          </div>
+        )}
+        {visited.has("shader") && props.instance && (
+          <div className={clsx({ hidden: tab !== "shader" })}>
+            <PacksPanel
+              instance={props.instance}
+              kind="shader"
+              searchKind="shader"
+              emptyHint={t("instance.emptyShader")}
+              tick={importTick}
+              browse={tab === "shader" && browsing}
+              onBrowse={setBrowsing}
+            />
+          </div>
+        )}
+        {visited.has("datapack") && props.instance && (
+          <div className={clsx({ hidden: tab !== "datapack" })}>
+            <PacksPanel
+              instance={props.instance}
+              kind="datapack"
+              searchKind="datapack"
+              emptyHint={t("instance.emptyDatapack")}
+              tick={importTick}
+              browse={tab === "datapack" && browsing}
+              onBrowse={setBrowsing}
+            />
+          </div>
+        )}
+
+        {/* ---- 存档 ---- */}
+        {visited.has("worlds") && props.instance && (
+          <div className={clsx({ hidden: tab !== "worlds" })}>
+            <WorldsPanel instance={props.instance} tick={worldTick} />
+          </div>
+        )}
+
+        {/* ---- 多人服务器(servers.dat) ---- */}
+        {visited.has("servers") && props.instance && (
+          <div className={clsx("h-full min-h-0", { hidden: tab !== "servers" })}>
+            <ServersPanel instance={props.instance} />
+          </div>
+        )}
+
+        {/* ---- 截图 ---- */}
+        {visited.has("screenshots") && props.instance && (
+          <div className={clsx({ hidden: tab !== "screenshots" })}>
+            <ScreenshotsPanel instance={props.instance} />
+          </div>
+        )}
       </div>
+
+      {/* 内嵌模式(实例详情页)不渲染底部栏:复制实例移到详情页头部 ⋮ 菜单,完成本就不显示。 */}
+      {!props.embedded && (
+        <div className="flex justify-between items-center px-[20px] py-[14px] border-t border-titlebar">
+          <Button variant="ghost" disabled={copying || !props.instance} onClick={copyInstance}>
+            {copying ? t("instance.copying") : t("instance.copyInstance")}
+          </Button>
+          <Button variant="ghost" onClick={() => props.onClose?.()}>
+            {t("instance.done")}
+          </Button>
+        </div>
+      )}
+
+      <Dialog
+        open={confirmDelMod !== null}
+        onClose={() => setConfirmDelMod(null)}
+        label={t("instance.deleteMod")}
+        contentClass="w-[360px] max-w-[calc(100vw-48px)] overflow-hidden"
+      >
+        <div className="p-[20px] flex flex-col gap-[14px]">
+          <div className="text-[15px] font-semibold text-fg break-words">
+            {t("instance.deleteModConfirm", { name: confirmDelMod?.name ?? "" })}
+          </div>
+          <div className="text-[13px] text-muted leading-[1.6]">{t("instance.deleteModBody")}</div>
+          <div className="flex justify-end gap-[10px]">
+            <Button variant="ghost" onClick={() => setConfirmDelMod(null)}>
+              {t("instance.cancel")}
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                const m = confirmDelMod;
+                setConfirmDelMod(null);
+                if (m) void removeMod(m);
+              }}
+            >
+              {t("instance.delete")}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+    </div>
   );
 
   // 内嵌模式直接铺在父容器;否则套 Dialog 作模态。
@@ -1807,6 +1733,6 @@ export const InstanceManageDialog: Component<{
       {body}
     </Dialog>
   );
-};
+}
 
 export default InstanceManageDialog;

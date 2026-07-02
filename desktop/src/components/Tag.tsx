@@ -1,4 +1,4 @@
-import { JSX, splitProps } from "solid-js";
+import type { ReactNode } from "react";
 
 /* ============================================================================
  * Tag —— Blocky Craft 静态标签(类别 / 加载器:Fabric、Optimization…)。
@@ -6,21 +6,21 @@ import { JSX, splitProps } from "solid-js";
  * ========================================================================== */
 
 export interface TagProps {
-  children: JSX.Element;
-  class?: string;
+  children: ReactNode;
+  className?: string;
   title?: string;
 }
 
-export function Tag(props: TagProps): JSX.Element {
-  const [local, rest] = splitProps(props, ["children", "class"]);
+export function Tag(props: TagProps): React.ReactElement {
+  const { children, className, title } = props;
   return (
     <span
-      {...rest}
-      class={`inline-flex items-center bg-panel-2 text-tag text-[10px] leading-none px-[8px] py-[3px] rounded-none whitespace-nowrap${
-        local.class ? " " + local.class : ""
+      title={title}
+      className={`inline-flex items-center bg-panel-2 text-tag text-[10px] leading-none px-[8px] py-[3px] rounded-none whitespace-nowrap${
+        className ? " " + className : ""
       }`}
     >
-      {local.children}
+      {children}
     </span>
   );
 }

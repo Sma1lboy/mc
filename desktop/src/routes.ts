@@ -1,4 +1,3 @@
-import type { Component } from "solid-js";
 import type { Page } from "./store";
 import Home from "./pages/Home";
 import Library from "./pages/Library";
@@ -14,7 +13,8 @@ import AgentChat from "./agent/ChatPage";
  */
 export interface Route {
   page: Page;
-  component: Component;
+  // migration: pages 仍是 Solid,阶段④转 React 后收紧为具体 props。
+  component: React.ComponentType<any>;
   /**
    * 该页是否需要右侧上下文栏(ContextBar)。新 IA 下账号收成右上芯片、
    * 好友/动态移出主区,所有页面主内容铺满,故默认 false;ContextBar 组件

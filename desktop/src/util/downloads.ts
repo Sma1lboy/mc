@@ -2,7 +2,7 @@
 // install://progress 是单一全局事件流(无任务 id),所以这里把下载**串行化**(同一时刻
 // 只跑一个活跃任务),并把这条流路由给当前活跃任务;副产物正好是一个真实的「下载队列」。
 // 任意页面用 enqueueDownload(...) 投递任务;顶栏队列面板与列表行直接读 tasks() 渲染进度。
-import { createSignal } from "solid-js";
+import { create } from "zustand";
 import { onInstallProgress } from "../ipc/api";
 import type { ProjectKind } from "../ipc/types";
 
@@ -43,8 +43,22 @@ interface Job {
   onError?: (err: unknown) => void;
 }
 
-const [tasks, setTasks] = createSignal<DownloadTask[]>([]);
-export { tasks };
+// 队列视图存进 zustand:组件用 useDownloadStore((s) => s.tasks) 真订阅;非组件代码走
+// tasks() 取快照。exported 名字与旧 Solid 版一致(tasks 仍是取值 getter)。
+interface DownloadState {
+  tasks: DownloadTask[];
+}
+export const useDownloadStore = create<DownloadState>(() => ({ tasks: [] }));
+
+/** 当前队列快照(非组件代码用;组件请用 useTasks / useDownloadStore 订阅)。 */
+export const tasks = (): DownloadTask[] => useDownloadStore.getState().tasks;
+
+/** 组件里订阅整条队列(切换/进度变化即重渲染)。 */
+export const useTasks = (): DownloadTask[] => useDownloadStore((s) => s.tasks);
+
+function setTasks(updater: (ts: DownloadTask[]) => DownloadTask[]): void {
+  useDownloadStore.setState((s) => ({ tasks: updater(s.tasks) }));
+}
 
 // 任务的副作用(run / 回调)与可展示视图分开存:视图响应式,Job 留在 Map 里不入信号。
 const jobs = new Map<string, Job>();

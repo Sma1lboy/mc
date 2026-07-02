@@ -1,6 +1,6 @@
-import { Component, Show, For, createSignal, createEffect } from "solid-js";
-import { Dynamic } from "solid-js/web";
-import { currentPage, type Page } from "../store";
+import { useEffect, useState } from "react";
+import clsx from "clsx";
+import { useAppStore, type Page } from "../store";
 import { WORKSPACE_ROUTES, routeFor } from "../routes";
 import Rail from "./Rail";
 import TopBar from "./TopBar";
@@ -29,63 +29,65 @@ const KEEP_ALIVE: Page[] = ["home", "discover", "library", "agent", "settings"];
  * ContextBar 仍按路由的 showContext 显隐(现全为 false 故不渲染),组件暂留备用:
  * 某页若日后重新需要右栏,把它的 showContext 置 true 即可恢复两列。
  */
-
-const AppShell: Component = () => {
-  // 当前页对应的路由(组件 + 是否需要右栏)。currentPage 是 signal,读它即建立响应依赖。
-  const route = () => routeFor(WORKSPACE_ROUTES, currentPage());
-  const showContext = () => route().showContext ?? false;
+export default function AppShell(): React.ReactElement {
+  const currentPage = useAppStore((s) => s.currentPage);
+  const route = routeFor(WORKSPACE_ROUTES, currentPage);
+  const showContext = route.showContext ?? false;
+  const currentIsKeepAlive = KEEP_ALIVE.includes(currentPage);
 
   // keep-alive:记录已访问过的常驻页(惰性挂载——首访才挂,之后常驻)。
-  const [visited, setVisited] = createSignal<Set<Page>>(new Set());
-  createEffect(() => {
-    const p = currentPage();
-    if (KEEP_ALIVE.includes(p) && !visited().has(p)) {
-      setVisited((s) => new Set(s).add(p));
+  const [visited, setVisited] = useState<Set<Page>>(() => new Set());
+  useEffect(() => {
+    if (KEEP_ALIVE.includes(currentPage) && !visited.has(currentPage)) {
+      setVisited((s) => new Set(s).add(currentPage));
     }
-  });
-  const keepAliveRoutes = () =>
-    WORKSPACE_ROUTES.filter((r) => KEEP_ALIVE.includes(r.page) && visited().has(r.page));
-  const currentIsKeepAlive = () => KEEP_ALIVE.includes(currentPage());
+  }, [currentPage, visited]);
+
+  const keepAliveRoutes = WORKSPACE_ROUTES.filter(
+    (r) => KEEP_ALIVE.includes(r.page) && visited.has(r.page),
+  );
+
+  // 非常驻页(实例详情等)的组件:大写变量供 JSX 实例化。
+  const ActiveComponent = route.component;
 
   return (
-    <div class="app-shell grid w-screen h-screen text-fg text-[length:var(--fs-base)] overflow-hidden">
+    <div className="app-shell grid w-screen h-screen text-fg text-[length:var(--fs-base)] overflow-hidden">
       <Rail />
       <TopBar />
       {/* body:有右栏时两列(1fr 340px),无右栏时单列铺满 */}
       <div
-        class="grid min-h-0 min-w-0 [grid-area:body]"
-        classList={{
-          "grid-cols-[1fr]": !showContext(),
-          "grid-cols-[1fr_340px]": showContext(),
-        }}
+        className={clsx("grid min-h-0 min-w-0 [grid-area:body]", {
+          "grid-cols-[1fr]": !showContext,
+          "grid-cols-[1fr_340px]": showContext,
+        })}
       >
-        <main class="[grid-row:1] [grid-column:1] w-full h-full min-w-0 min-h-0 overflow-hidden bg-window">
+        <main className="[grid-row:1] [grid-column:1] w-full h-full min-w-0 min-h-0 overflow-hidden bg-window">
           {/* 常驻标签页:首访后保持挂载,用 display 切显隐,各自独立滚动(wrapper 自带 overflow)。
               页内已自管滚动(h-full overflow-auto)的页在此正好撑满,不会出现双滚动条。 */}
-          <For each={keepAliveRoutes()}>
-            {(r) => (
+          {keepAliveRoutes.map((r) => {
+            const KeptComponent = r.component;
+            return (
               <div
-                class="w-full h-full min-w-0 min-h-0 overflow-y-auto overflow-x-hidden"
-                classList={{ hidden: currentPage() !== r.page }}
+                key={r.page}
+                className={clsx(
+                  "w-full h-full min-w-0 min-h-0 overflow-y-auto overflow-x-hidden",
+                  { hidden: currentPage !== r.page },
+                )}
               >
-                <Dynamic component={r.component} />
+                <KeptComponent />
               </div>
-            )}
-          </For>
+            );
+          })}
           {/* 非常驻页(实例详情等):按需挂载/卸载。 */}
-          <Show when={!currentIsKeepAlive()}>
-            <div class="w-full h-full min-w-0 min-h-0 overflow-y-auto overflow-x-hidden">
-              <Dynamic component={route().component} />
+          {!currentIsKeepAlive && (
+            <div className="w-full h-full min-w-0 min-h-0 overflow-y-auto overflow-x-hidden">
+              <ActiveComponent />
             </div>
-          </Show>
+          )}
         </main>
-        {/* 右栏按页面显隐。Show 卸载时整列从 grid 消失,主内容自然铺满。 */}
-        <Show when={showContext()}>
-          <ContextBar />
-        </Show>
+        {/* 右栏按页面显隐。卸载时整列从 grid 消失,主内容自然铺满。 */}
+        {showContext && <ContextBar />}
       </div>
     </div>
   );
-};
-
-export default AppShell;
+}

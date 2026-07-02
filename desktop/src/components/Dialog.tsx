@@ -1,6 +1,6 @@
-import { Component, JSX } from "solid-js";
-import { Portal } from "solid-js/web";
-import { Dialog as Ark } from "@ark-ui/solid/dialog";
+import type { ReactNode } from "react";
+import { Dialog as Ark } from "@ark-ui/react/dialog";
+import { Portal } from "@ark-ui/react/portal";
 
 /**
  * Dialog —— 基于 Ark UI(headless)的模态弹窗外壳:焦点陷阱 / Esc 关闭 /
@@ -12,7 +12,7 @@ import { Dialog as Ark } from "@ark-ui/solid/dialog";
 export interface DialogProps {
   open: boolean;
   onClose: () => void;
-  children: JSX.Element;
+  children: ReactNode;
   /** Content 卡片额外类名(尺寸/覆盖);不透明面板皮肤(底/边/倒角)已恒定应用,这里只加尺寸等。 */
   contentClass?: string;
   /** 遮罩类名(默认深色半透明)。 */
@@ -21,38 +21,33 @@ export interface DialogProps {
   label?: string;
 }
 
-export const Dialog: Component<DialogProps> = (props) => {
+export function Dialog({ open, onClose, children, contentClass, backdropClass, label }: DialogProps) {
   return (
     <Ark.Root
-      open={props.open}
+      open={open}
       onOpenChange={(e: { open: boolean }) => {
-        if (!e.open) props.onClose();
+        if (!e.open) onClose();
       }}
     >
       <Portal>
-        <Ark.Backdrop
-          class={
-            "fixed inset-0 z-[100] " +
-            (props.backdropClass ?? "bg-[rgba(8,7,5,0.62)]")
-          }
-        />
-        <Ark.Positioner class="fixed inset-0 z-[100] flex items-center justify-center p-[24px] overscroll-contain">
+        <Ark.Backdrop className={"fixed inset-0 z-[100] " + (backdropClass ?? "bg-[rgba(8,7,5,0.62)]")} />
+        <Ark.Positioner className="fixed inset-0 z-[100] flex items-center justify-center p-[24px] overscroll-contain">
           <Ark.Content
-            aria-label={props.label}
+            aria-label={label}
             // 不透明面板皮肤恒定应用(避免调用方只传尺寸 contentClass 时漏掉底色导致弹窗透明);
             // contentClass 仅追加尺寸/覆盖。
-            class={
+            className={
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent " +
               "bg-panel text-fg border border-titlebar shadow-raised rounded-none overflow-hidden " +
-              (props.contentClass ?? "w-[420px] max-w-[calc(100vw-48px)]")
+              (contentClass ?? "w-[420px] max-w-[calc(100vw-48px)]")
             }
           >
-            {props.children}
+            {children}
           </Ark.Content>
         </Ark.Positioner>
       </Portal>
     </Ark.Root>
   );
-};
+}
 
 export default Dialog;
