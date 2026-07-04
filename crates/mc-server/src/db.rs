@@ -168,6 +168,24 @@ CREATE TABLE IF NOT EXISTS notifications (
 CREATE INDEX IF NOT EXISTS notifications_user_idx ON notifications(user_id, created_at DESC);
 "#;
 
+/// Agent conversation history — per-user cloud persistence of the launcher's
+/// agent chats (the desktop keeps localStorage as an offline cache and syncs by
+/// `updated_at_ms`, the client's own clock, so newest-wins merging is stable
+/// across devices). `json` is the opaque ConversationRecord (UIMessage[] + meta);
+/// `title` is denormalized for cheap listing.
+const AGENT_CONVERSATIONS_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS agent_conversations (
+    user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    id            TEXT NOT NULL,
+    title         TEXT NOT NULL DEFAULT '',
+    updated_at_ms BIGINT NOT NULL DEFAULT 0,
+    json          TEXT NOT NULL,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, id)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_conversations_user ON agent_conversations(user_id, updated_at_ms DESC);
+"#;
+
 /// Connect to Postgres and ensure both schemas exist.
 pub async fn connect() -> anyhow::Result<PgPool> {
     let url = std::env::var("DATABASE_URL")
@@ -187,6 +205,7 @@ pub async fn connect() -> anyhow::Result<PgPool> {
     sqlx::raw_sql(FRIENDS_SQL).execute(&pool).await.context("建 friendships 表")?;
     sqlx::raw_sql(PRESENCE_SQL).execute(&pool).await.context("加 presence 列")?;
     sqlx::raw_sql(NOTIFICATIONS_SQL).execute(&pool).await.context("建 notifications 表")?;
+    sqlx::raw_sql(AGENT_CONVERSATIONS_SQL).execute(&pool).await.context("建 agent_conversations 表")?;
     Ok(pool)
 }
 
@@ -204,5 +223,6 @@ pub async fn test_pool() -> Option<PgPool> {
     sqlx::raw_sql(FRIENDS_SQL).execute(&pool).await.ok()?;
     sqlx::raw_sql(PRESENCE_SQL).execute(&pool).await.ok()?;
     sqlx::raw_sql(NOTIFICATIONS_SQL).execute(&pool).await.ok()?;
+    sqlx::raw_sql(AGENT_CONVERSATIONS_SQL).execute(&pool).await.ok()?;
     Some(pool)
 }

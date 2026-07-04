@@ -8,6 +8,7 @@ mod account;
 mod auth;
 mod db;
 mod friend;
+mod history;
 mod meta;
 mod news;
 mod notification;
@@ -90,6 +91,12 @@ async fn main() {
         // Publishing a share requires a signed-in user (owner is recorded).
         .route("/v1/instances/share", post(share_instance))
         .route("/v1/agent/conversations", post(share_conversation))
+        // Private per-user conversation history (cloud sync for the desktop).
+        .route("/v1/agent/history", get(history::list))
+        .route(
+            "/v1/agent/history/{id}",
+            get(history::get_one).put(history::put_one).delete(history::delete_one),
+        )
         // Account linking (bind Microsoft to a kobeMC user; authed).
         .route("/v1/account/link/microsoft", post(account::link_microsoft))
         .route("/v1/account/identities", get(account::list_identities))

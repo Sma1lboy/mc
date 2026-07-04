@@ -484,6 +484,14 @@ export const commands = {
 	/**  Read-only lean instance list for the agent (id / name / mc_version / loader). */
 	agentToolListInstances: (root: string) => typedError<ListInstancesOutput, string>(__TAURI_INVOKE("agent_tool_list_instances", { root })),
 	agentLlmConfig: () => typedError<AgentLlmConfigDto, string>(__TAURI_INVOKE("agent_llm_config")),
+	/**  List the signed-in user's archived conversations (heads only, newest first). */
+	agentHistoryList: () => typedError<AgentConversationHead[], string>(__TAURI_INVOKE("agent_history_list")),
+	/**  Fetch one archived conversation's full record, as a JSON string. */
+	agentHistoryGet: (id: string) => typedError<string, string>(__TAURI_INVOKE("agent_history_get", { id })),
+	/**  Upsert one conversation record (JSON string) into the user's cloud history. */
+	agentHistoryPut: (id: string, recordJson: string) => typedError<null, string>(__TAURI_INVOKE("agent_history_put", { id, recordJson })),
+	/**  Delete one archived conversation from the user's cloud history. */
+	agentHistoryDelete: (id: string) => typedError<null, string>(__TAURI_INVOKE("agent_history_delete", { id })),
 	/**  是否处于画廊模式(环境变量 `MC_GALLERY` 非空且非 "0")。前端据此决定是否自动跑截图流程。 */
 	galleryEnabled: () => typedError<boolean, string>(__TAURI_INVOKE("gallery_enabled")),
 	/**  抓「main」窗口当前画面到 `<data_dir>/gallery/<name>.png`,返回文件绝对路径。 */
@@ -505,6 +513,16 @@ export type AccountSummary = {
 	selected?: boolean,
 	/**  Whether the account owns Minecraft (Microsoft accounts only). */
 	owns_game?: boolean,
+};
+
+/**
+ *  One conversation head in the user's cloud agent history. `updated_at_ms` is
+ *  the client's own clock (from the record), used for newest-wins merging.
+ */
+export type AgentConversationHead = {
+	id: string,
+	title: string,
+	updated_at_ms: number,
 };
 
 export type AgentInstance = {

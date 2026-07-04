@@ -1615,6 +1615,52 @@ pub async fn agent_share_conversation(
     Ok(SharedConversation { id, url })
 }
 
+// --- agent conversation history (cloud sync; authed) -------------------------
+// Thin wrappers over `ServerClient::agent_history_*`. Records travel as JSON
+// strings (same reason as `agent_share_conversation`: no recursive Value in specta).
+
+/// List the signed-in user's archived conversations (heads only, newest first).
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_history_list(
+    client: tauri::State<'_, mc_core::server::ServerClient>,
+) -> CmdResult<Vec<mc_core::server::AgentConversationHead>> {
+    client.agent_history_list().await.map_err(err)
+}
+
+/// Fetch one archived conversation's full record, as a JSON string.
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_history_get(
+    client: tauri::State<'_, mc_core::server::ServerClient>,
+    id: String,
+) -> CmdResult<String> {
+    let record = client.agent_history_get(&id).await.map_err(err)?;
+    serde_json::to_string(&record).map_err(err)
+}
+
+/// Upsert one conversation record (JSON string) into the user's cloud history.
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_history_put(
+    client: tauri::State<'_, mc_core::server::ServerClient>,
+    id: String,
+    record_json: String,
+) -> CmdResult<()> {
+    let record: serde_json::Value = serde_json::from_str(&record_json).map_err(err)?;
+    client.agent_history_put(&id, &record).await.map_err(err)
+}
+
+/// Delete one archived conversation from the user's cloud history.
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_history_delete(
+    client: tauri::State<'_, mc_core::server::ServerClient>,
+    id: String,
+) -> CmdResult<()> {
+    client.agent_history_delete(&id).await.map_err(err)
+}
+
 // --- kobeMC account (our backend: better-auth email/password) ----------------
 // These reuse one shared ServerClient held in Tauri state (lib.rs `.manage`) so
 // the better-auth session cookie persists across calls within an app session.

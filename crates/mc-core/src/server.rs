@@ -67,6 +67,15 @@ pub struct SharedInstance {
     pub id: String,
 }
 
+/// One conversation head in the user's cloud agent history. `updated_at_ms` is
+/// the client's own clock (from the record), used for newest-wins merging.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+pub struct AgentConversationHead {
+    pub id: String,
+    pub title: String,
+    pub updated_at_ms: i64,
+}
+
 /// The authenticated user (better-auth user shape). The session lives in the
 /// reqwest cookie jar (better-auth sets a session cookie), so keep one
 /// `ServerClient` and its session persists across calls.
@@ -280,6 +289,28 @@ impl ServerClient {
         // lives on the marketing domain, independent of the API base.
         let url = format!("{SHARE_PAGE_BASE}/share/{id}");
         Ok((id, url))
+    }
+
+    /// List the user's archived agent conversations, newest first (heads only).
+    pub async fn agent_history_list(&self) -> Result<Vec<AgentConversationHead>> {
+        self.get_json("/v1/agent/history").await
+    }
+
+    /// Fetch one archived conversation's full record (opaque JSON as stored).
+    pub async fn agent_history_get(&self, id: &str) -> Result<serde_json::Value> {
+        self.get_json(&format!("/v1/agent/history/{id}")).await
+    }
+
+    /// Upsert one conversation record (opaque JSON; server lifts title/updatedAt).
+    pub async fn agent_history_put(&self, id: &str, record: &serde_json::Value) -> Result<()> {
+        let path = format!("/v1/agent/history/{id}");
+        self.send_checked(self.http.put(self.url(&path)).json(record), &path).await?;
+        Ok(())
+    }
+
+    /// Delete one archived conversation.
+    pub async fn agent_history_delete(&self, id: &str) -> Result<()> {
+        self.delete_no_content(&format!("/v1/agent/history/{id}")).await
     }
 
     /// Register a launcher account (better-auth email sign-up). The session

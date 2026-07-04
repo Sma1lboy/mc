@@ -15,7 +15,8 @@ import type { UIMessage } from "ai";
 // Type-only import: erased at build, so the host-agnostic brain (and its `ai`
 // dependency) stays out of the main bundle — the TS path is dynamic-imported below.
 import type { ModpackAgent } from "@kobemc/agent-core";
-import { setCurrentPage } from "../store";
+import { setCurrentPage, kobeUser, useAppStore } from "../store";
+import { commands } from "../ipc/bindings";
 import { t } from "../i18n";
 
 interface ChatState {
@@ -74,8 +75,9 @@ export function currentChatSessionId(): string {
   return currentConvId;
 }
 
-/* ——— 会话记录(dev 调试:按时间选不同对话)———
- * 每轮结束把当前对话存到 localStorage;DebugTools 据此列出、切换。dev-only,不向普通用户暴露。
+/* ——— 会话记录 ———
+ * 每轮结束把当前对话存到 localStorage(离线缓存),登录 kobeMC 账号后同时同步到
+ * mc-server 数据库(按 updatedAt 新者胜,跨设备保留);DebugTools 据此列出、切换。
  * 记录就是 UIMessage[](既渲染又能喂模型),切换会话即无缝续聊。 */
 export interface ConversationRecord {
   id: string;
@@ -137,7 +139,66 @@ function saveCurrentConversation(): void {
   else list.unshift(rec);
   persistConversations(list);
   useChatStore.setState({ conversations: list });
+  pushConversation(rec);
 }
+
+/* ——— 云端同步 ———
+ * 登录后每次存档都 fire-and-forget 推到 mc-server(agent_conversations 表,按账号);
+ * syncConversations() 双向合并:两侧都以记录自带的 updatedAt(客户端时钟)新者胜。
+ * 未登录 / 离线 / 服务端出错一律静默跳过 —— localStorage 始终是可用的本地缓存。 */
+
+function pushConversation(rec: ConversationRecord): void {
+  if (!kobeUser()) return;
+  void commands.agentHistoryPut(rec.id, JSON.stringify(rec));
+}
+
+let syncing = false;
+
+/** 拉取云端会话列表并与本地双向合并(登录时自动触发;可重入保护)。 */
+export async function syncConversations(): Promise<void> {
+  if (syncing || !kobeUser()) return;
+  syncing = true;
+  try {
+    const res = await commands.agentHistoryList();
+    if (res.status !== "ok") return;
+    let list = useChatStore.getState().conversations.slice();
+    const byId = new Map(list.map((c) => [c.id, c] as const));
+    // 拉:云端较新或本地没有的,取全量记录
+    for (const head of res.data) {
+      const local = byId.get(head.id);
+      if (local && local.updatedAt >= head.updated_at_ms) continue;
+      const full = await commands.agentHistoryGet(head.id);
+      if (full.status !== "ok") continue;
+      try {
+        const rec = JSON.parse(full.data) as ConversationRecord;
+        if (!rec || !Array.isArray(rec.messages)) continue;
+        list = local ? list.map((c) => (c.id === rec.id ? rec : c)) : [...list, rec];
+      } catch {
+        /* 损坏记录:跳过,不影响其余同步 */
+      }
+    }
+    // 推:本地较新或云端没有的
+    const remote = new Map(res.data.map((h) => [h.id, h.updated_at_ms] as const));
+    for (const c of list) {
+      const ts = remote.get(c.id);
+      if (ts == null || c.updatedAt > ts) void commands.agentHistoryPut(c.id, JSON.stringify(c));
+    }
+    list.sort((a, b) => b.updatedAt - a.updatedAt);
+    persistConversations(list);
+    useChatStore.setState({ conversations: list });
+  } finally {
+    syncing = false;
+  }
+}
+
+// 登录态变化即同步:启动时已登录(会话恢复)或用户中途登录都会触发一次。
+useAppStore.subscribe(
+  (s) => s.kobeUser?.id ?? null,
+  (id) => {
+    if (id) void syncConversations();
+  },
+  { fireImmediately: true },
+);
 
 /** 载入一条历史对话(dev):恢复 messages(即上下文),可无缝续聊。流式中忽略。 */
 export function loadConversation(id: string): void {
