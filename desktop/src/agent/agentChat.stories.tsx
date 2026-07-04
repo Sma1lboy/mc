@@ -2,6 +2,7 @@ import type { Story, StoryDefault } from "@ladle/react";
 import type { UIMessage } from "ai";
 import { Panel } from "../components";
 import { AskUserOptions } from "./AskUserOptions";
+import { ModpackCard } from "./ModpackCard";
 import { AssistantText, ActivityGroup, ToolChip, type Part, type ToolPart } from "./ChatParts";
 import { MessageList } from "./MessageList";
 
@@ -121,6 +122,74 @@ export const AskAnswered: Story = () => (
   />
 );
 AskAnswered.storyName = "AskUserOptions · output-available (已作答)";
+
+// —— 整合包卡片(show_modpack client tool)——————————————————————————
+
+/** 造一个 show_modpack 工具 part。 */
+function packPart(over: ToolOver): ToolPart {
+  return {
+    type: "tool-show_modpack",
+    toolCallId: "call_pack_1",
+    state: "input-available",
+    ...over,
+  } as unknown as ToolPart;
+}
+
+const BASE_PACK_INPUT = {
+  base: {
+    provider: "modrinth",
+    project_id: "fabulously-optimized",
+    version_id: "ver_123",
+    title: "Fabulously Optimized",
+    mc_version: "1.20.1",
+    loader: "fabric",
+  },
+};
+
+export const PackCardBase: Story = () => (
+  <ModpackCard msgId="m1" globalStreaming={false} part={packPart({ input: BASE_PACK_INPUT })} />
+);
+PackCardBase.storyName = "ModpackCard · base 现成包(可安装)";
+
+export const PackCardMrpack: Story = () => (
+  <ModpackCard
+    msgId="m1"
+    globalStreaming={false}
+    part={packPart({
+      input: {
+        mrpack: { path: "/data/agent/chat/my-pack.mrpack", title: "我的科技包", mc_version: "1.20.1", loader: "fabric" },
+      },
+    })}
+  />
+);
+PackCardMrpack.storyName = "ModpackCard · mrpack 构建产物(可安装)";
+
+export const PackCardStreaming: Story = () => (
+  <ModpackCard msgId="m1" globalStreaming={false} part={packPart({ state: "input-streaming", input: {} })} />
+);
+PackCardStreaming.storyName = "ModpackCard · input-streaming(骨架)";
+
+export const PackCardInstalled: Story = () => (
+  <ModpackCard
+    msgId="m1"
+    globalStreaming={false}
+    part={packPart({
+      state: "output-available",
+      input: BASE_PACK_INPUT,
+      output: { installed: true, instance_id: "fabulously-optimized" },
+    })}
+  />
+);
+PackCardInstalled.storyName = "ModpackCard · output-available(已安装)";
+
+export const PackCardSkipped: Story = () => (
+  <ModpackCard
+    msgId="m1"
+    globalStreaming={false}
+    part={packPart({ state: "output-available", input: BASE_PACK_INPUT, output: { installed: false } })}
+  />
+);
+PackCardSkipped.storyName = "ModpackCard · output-available(已跳过)";
 
 // —— 工具芯片 —————————————————————————————————————————————————————
 

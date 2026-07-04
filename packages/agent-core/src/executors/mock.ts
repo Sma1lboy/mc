@@ -83,11 +83,6 @@ const DEFAULTS: ToolExecutor = {
     output_size: 1024,
     manifest: { status: "ok" },
   }),
-  install_modpack: async () => ({
-    instance_id: "mock-instance",
-    blocked: [],
-    skipped_optional: [],
-  }),
   list_instances: async () => ({
     instances: [
       {

@@ -2,6 +2,7 @@ import type { UIMessage } from "ai";
 import { Panel, Spinner } from "../components";
 import { t } from "../i18n";
 import { AskUserOptions, ASK_USER_TOOL_TYPE } from "./AskUserOptions";
+import { ModpackCard, SHOW_MODPACK_TOOL_TYPE } from "./ModpackCard";
 import { AssistantText, ActivityGroup, isActivity, isTool } from "./ChatParts";
 
 /**
@@ -58,6 +59,8 @@ export function MessageRow({
       );
     } else if (isTool(part) && part.type === ASK_USER_TOOL_TYPE) {
       nodes.push(<AskUserOptions key={i} msgId={msg.id} part={part} globalStreaming={streaming} />);
+    } else if (isTool(part) && part.type === SHOW_MODPACK_TOOL_TYPE) {
+      nodes.push(<ModpackCard key={i} msgId={msg.id} part={part} globalStreaming={streaming} />);
     }
   }
 

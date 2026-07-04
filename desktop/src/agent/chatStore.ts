@@ -284,33 +284,39 @@ export function dequeueQueued(index: number): void {
 }
 
 /**
- * 提交一次 ask_user 选择(原生 client-side tool 做法):把该工具调用 part 置为 output-available
- * (带用户选择),再 run 一次 —— convertToModelMessages 会据此把选择作为 tool 结果喂回模型,
- * 续跑同一会话。流式中 / 空选择忽略。
+ * 完成一次 client-side 工具调用(ask_user_question / show_modpack 通用):把该工具 part
+ * 置为 output-available(带结构化结果),可选追加一条用户回显气泡,再 run 一次 ——
+ * convertToModelMessages 会据此把结果作为 tool result 喂回模型,续跑同一会话。流式中忽略。
  */
-export function submitAskUserAnswer(msgId: string, toolCallId: string, selected: string[]): void {
-  if (selected.length === 0 || useChatStore.getState().streaming) return;
-  // 1) 把该 tool part 置为 output-available(模型据此拿到结构化结果、UI 标记已答)。
+export function resolveClientTool(
+  msgId: string,
+  toolCallId: string,
+  output: unknown,
+  echoText?: string,
+): void {
+  if (useChatStore.getState().streaming) return;
   const answered = useChatStore.getState().messages.map((m) => {
     if (m.id !== msgId) return m;
     return {
       ...m,
       parts: m.parts.map((p) =>
         isToolPart(p) && p.toolCallId === toolCallId
-          ? { ...p, state: "output-available", output: { selected } }
+          ? { ...p, state: "output-available", output }
           : p,
       ),
     } as UIMessage;
   });
-  // 2) 追加一条用户气泡回显所选(用户视角:我的回答出现在对话流里),再续跑。
-  const echo: UIMessage = {
-    id: nextId(),
-    role: "user",
-    parts: [{ type: "text", text: selected.join("、") }],
-  };
-  const history = [...answered, echo];
+  const history = echoText
+    ? [...answered, { id: nextId(), role: "user", parts: [{ type: "text", text: echoText }] } as UIMessage]
+    : answered;
   useChatStore.setState({ messages: history });
   void drive(history);
+}
+
+/** 提交一次 ask_user 选择:结果 = 所选项,回显一条用户气泡。空选择忽略。 */
+export function submitAskUserAnswer(msgId: string, toolCallId: string, selected: string[]): void {
+  if (selected.length === 0) return;
+  resolveClientTool(msgId, toolCallId, { selected }, selected.join("、"));
 }
 
 /** 是否为工具 part(UIMessage 里工具 part 的 type 形如 "tool-<name>",带 toolCallId)。 */

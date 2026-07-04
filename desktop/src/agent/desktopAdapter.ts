@@ -35,16 +35,10 @@ function buildExecutor(): ToolExecutor {
     mod_get_detail: bind(commands.agentToolModGetDetail),
     resolve_mods: bind(commands.agentToolResolveMods),
     build_modpack: bind(commands.agentToolBuildModpack),
-    // Launcher-side tools need the CURRENT game root, which only the UI knows —
-    // injected here per call (not captured at build time) so a root switch
-    // mid-conversation is respected.
-    install_modpack: (args) =>
-      unwrap(
-        commands.agentToolInstallModpack(
-          activeRoot(),
-          args as Parameters<typeof commands.agentToolInstallModpack>[1],
-        ),
-      ),
+    // Launcher-side tool: needs the CURRENT game root, which only the UI knows —
+    // injected per call (not captured at build time) so a root switch
+    // mid-conversation is respected. (Installing is NOT here: it's the
+    // `show_modpack` client tool — the user's click on the card, see ModpackCard.)
     list_instances: () => unwrap(commands.agentToolListInstances(activeRoot())),
   };
 }
