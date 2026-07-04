@@ -1,9 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 
-import type { ToolExecutor } from "../types";
-
-export const searchMods = (exec: ToolExecutor) =>
+export const searchMods = () =>
   tool({
     description:
       "Search for individual Minecraft mods compatible with a Minecraft version + loader. Returns real candidates with provider, project_id, slug, title, downloads, and description. Use English keywords.",
@@ -12,5 +10,5 @@ export const searchMods = (exec: ToolExecutor) =>
       mc_version: z.string().describe('Target Minecraft version, e.g. "1.20.1".'),
       loader: z.string().describe('Target loader, e.g. "fabric".'),
     }),
-    execute: (args) => exec.search_mods(args),
+    // No execute: launcher client runs this through Rust IPC and appends output.
   });

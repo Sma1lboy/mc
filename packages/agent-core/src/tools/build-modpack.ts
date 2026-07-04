@@ -1,8 +1,6 @@
 import { tool } from "ai";
 import { z } from "zod";
 
-import type { ToolExecutor } from "../types";
-
 const buildTarget = z.object({
   mc_version: z.string(),
   loader: z.string(),
@@ -22,7 +20,7 @@ const buildModRef = z.object({
   title: z.string().optional(),
 });
 
-export const buildModpack = (exec: ToolExecutor) =>
+export const buildModpack = () =>
   tool({
     description:
       "Deterministically build and verify a .mrpack from a base pack (or from scratch) plus extra mods. THIS WRITES TO DISK — only call it after the user has explicitly confirmed the final plan.",
@@ -34,5 +32,5 @@ export const buildModpack = (exec: ToolExecutor) =>
         .string()
         .describe('Output file name (no path). ".mrpack" is appended if missing. The launcher decides the directory.'),
     }),
-    execute: (args) => exec.build_modpack(args),
+    // No execute: launcher client runs this through Rust IPC and appends output.
   });

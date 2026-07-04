@@ -1,30 +1,29 @@
-// The streaming tool-use loop — the public entrypoint of the brain.
+// The OpenRouter engine — the API-key-based entrypoint of the brain.
 //
-// One call runs ONE turn: the model streams text/reasoning and calls the
-// deterministic tools (the SDK auto-dispatches them) until it produces a final
-// answer or hits the step cap. We use the AI SDK's native UI-message stream:
-// `streamText().toUIMessageStream()` → `readUIMessageStream()` accumulates a growing
-// `UIMessage` (text / reasoning / tool parts with an input-streaming → available →
-// output state machine), which the caller renders directly. History is kept as
-// `UIMessage[]` (single source for render AND model, via `convertToModelMessages`).
+// The loop is the AI SDK's standard `ToolLoopAgent` (the same `Agent` (agent-v1)
+// interface the local-runtime engine's `HarnessAgent` implements — the two
+// engines differ only in who owns the model loop, not in shape). One call runs
+// ONE turn: the agent streams text/reasoning/tool requests until a final answer,
+// client-side tool pause, or the step cap. We consume its
+// native UI-message stream: `agent.stream().toUIMessageStream()` →
+// `readUIMessageStream()` accumulates a growing `UIMessage` (text / reasoning /
+// tool parts with an input-streaming → available → output state machine), which
+// the caller renders directly. History is kept as `UIMessage[]` (single source
+// for render AND model, via `convertToModelMessages` — done here, not via the
+// `createAgentUIStream` sugar, because we need `ignoreIncompleteToolCalls`: an
+// interrupted turn can leave a dangling tool call in history).
 //
-// `ask_user_question` is a native client-side tool (no executor): the turn pauses
-// with its tool part in `input-available` (no output). The caller collects the
-// user's pick, sets that part to `output-available`, and calls `resumeTurn` to
-// continue the SAME conversation.
+// All tools are native client-side tools (no `execute`): the turn pauses with
+// tool parts in `input-available` (no output). The launcher client runs the tool
+// through Rust IPC or UI, sets the part to `output-available`, and calls `run`
+// again to continue the SAME conversation.
 
-import {
-  streamText,
-  stepCountIs,
-  convertToModelMessages,
-  readUIMessageStream,
-  type UIMessage,
-} from "ai";
+import { ToolLoopAgent, stepCountIs, convertToModelMessages, readUIMessageStream, type UIMessage } from "ai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 
 import { CHAT_AGENT_SYSTEM_PROMPT } from "./prompt";
 import { buildTools } from "./tools";
-import type { AgentLlmSettings, ToolExecutor } from "./types";
+import type { AgentLlmSettings } from "./types";
 
 /** Max tool round-trips per turn. */
 const MAX_STEPS = 16;
@@ -47,8 +46,8 @@ export interface ModpackAgent {
    * failure surfaces as `TurnResult.error` and whatever streamed so far is kept.
    *
    * The caller owns history mutations: to send a message, append a user
-   * `UIMessage` first; to resume after the `ask_user_question` client-side tool,
-   * set that tool part to `output-available` (the user's pick) in the last message.
+   * `UIMessage` first; to resume after any client-side tool, set that tool part
+   * to `output-available` in the last assistant message.
    * Either way, just pass the full history — a completed tool result is fed back to
    * the model via `convertToModelMessages`; a pending one pauses the turn.
    */
@@ -59,58 +58,95 @@ export interface ModpackAgent {
   ): Promise<TurnResult>;
 }
 
+interface UIStreamResult<TStream> {
+  toUIMessageStream(options?: { sendReasoning?: boolean }): TStream;
+}
+
+interface RunUiMessageTurnOptions<TStream, TMessage> {
+  history: UIMessage[];
+  onUpdate: (assistant: UIMessage) => void;
+  signal?: AbortSignal;
+  start: () => Promise<UIStreamResult<TStream>>;
+  readUIMessageStream: (options: {
+    stream: TStream;
+    onError: (error: unknown) => void;
+  }) => AsyncIterable<TMessage>;
+  mapMessage: (message: TMessage) => UIMessage;
+}
+
 /**
- * Create a modpack agent bound to an LLM endpoint and a host tool backend.
+ * Shared turn runner for all engines. The engine decides how to start the LLM
+ * stream; this layer owns UIMessage accumulation, update callbacks, abort
+ * semantics, and `TurnResult` shape.
+ */
+export async function runUiMessageTurn<TStream, TMessage>({
+  history,
+  onUpdate,
+  signal,
+  start,
+  readUIMessageStream: read,
+  mapMessage,
+}: RunUiMessageTurnOptions<TStream, TMessage>): Promise<TurnResult> {
+  let error: string | undefined;
+  let assistant: UIMessage | undefined;
+  try {
+    const result = await start();
+    const uiStream = result.toUIMessageStream({ sendReasoning: true });
+    for await (const msg of read({
+      stream: uiStream,
+      onError: (e) => {
+        error = errText(e);
+      },
+    })) {
+      assistant = mapMessage(msg);
+      onUpdate(assistant);
+    }
+  } catch (e) {
+    // A user interrupt (AbortSignal) is a clean stop, not a failure: keep the
+    // partial assistant that streamed so far and surface no error.
+    if (!isAbort(e, signal)) error = errText(e);
+  }
+  return { messages: assistant ? [...history, assistant] : history, error };
+}
+
+/**
+ * Create a modpack agent bound to an LLM endpoint.
  * The provider is an OpenAI-compatible client over `settings.baseUrl`.
  */
-export function createModpackAgent(settings: AgentLlmSettings, tools: ToolExecutor): ModpackAgent {
+export function createModpackAgent(settings: AgentLlmSettings): ModpackAgent {
   const provider = createOpenRouter({ apiKey: settings.apiKey, baseURL: settings.baseUrl });
-  const model = provider.chat(settings.model);
-  const toolSet = buildTools(tools);
+  const toolSet = buildTools();
+  const agent = new ToolLoopAgent({
+    model: provider.chat(settings.model),
+    instructions: CHAT_AGENT_SYSTEM_PROMPT,
+    tools: toolSet,
+    temperature: TEMPERATURE,
+    maxOutputTokens: MAX_OUTPUT_TOKENS,
+    stopWhen: stepCountIs(MAX_STEPS),
+  });
 
-  // Stream one assistant turn from the given UI history. Returns the updated
-  // history (+ the streamed assistant) and any error. Never throws.
-  async function stream(
-    uiHistory: UIMessage[],
+  function run(
+    history: UIMessage[],
     onUpdate: (assistant: UIMessage) => void,
     signal?: AbortSignal,
   ): Promise<TurnResult> {
-    let error: string | undefined;
-    let assistant: UIMessage | undefined;
-    try {
-      const modelMessages = await convertToModelMessages(uiHistory, {
-        tools: toolSet,
-        ignoreIncompleteToolCalls: true,
-      });
-      const result = streamText({
-        model,
-        system: CHAT_AGENT_SYSTEM_PROMPT,
-        messages: modelMessages,
-        tools: toolSet,
-        temperature: TEMPERATURE,
-        maxOutputTokens: MAX_OUTPUT_TOKENS,
-        stopWhen: stepCountIs(MAX_STEPS),
-        abortSignal: signal,
-      });
-      const uiStream = result.toUIMessageStream({ sendReasoning: true });
-      for await (const msg of readUIMessageStream({
-        stream: uiStream,
-        onError: (e) => {
-          error = errText(e);
-        },
-      })) {
-        assistant = msg;
-        onUpdate(msg);
-      }
-    } catch (e) {
-      // A user interrupt (AbortSignal) is a clean stop, not a failure: keep the
-      // partial assistant that streamed so far and surface no error.
-      if (!isAbort(e, signal)) error = errText(e);
-    }
-    return { messages: assistant ? [...uiHistory, assistant] : uiHistory, error };
+    return runUiMessageTurn({
+      history,
+      onUpdate,
+      signal,
+      start: async () => {
+        const modelMessages = await convertToModelMessages(history, {
+          tools: toolSet,
+          ignoreIncompleteToolCalls: true,
+        });
+        return agent.stream({ prompt: modelMessages, abortSignal: signal });
+      },
+      readUIMessageStream,
+      mapMessage: (msg) => msg as UIMessage,
+    });
   }
 
-  return { run: stream };
+  return { run };
 }
 
 function errText(e: unknown): string {

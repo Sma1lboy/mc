@@ -1,11 +1,10 @@
-// Tool registry — one self-contained file per tool (native AI SDK `tool()` with
-// its own `execute` inlined). Assembled here into the per-turn `ToolSet`. Adding
-// a tool = add a file + one line in `buildTools`.
+// Tool registry — one self-contained schema per tool. Every tool is a native AI
+// SDK client-side tool: agent-core emits tool calls, and the launcher client
+// supplies outputs through Rust IPC before resuming the conversation.
 
 import type { ToolSet } from "ai";
 import type { z } from "zod";
 
-import type { ToolExecutor } from "../types";
 import { searchBaseModpacks } from "./search-base-modpacks";
 import { inspectBaseModpack } from "./inspect-base-modpack";
 import { searchMods } from "./search-mods";
@@ -20,20 +19,19 @@ export { ASK_USER_TOOL } from "./ask-user-question";
 export { SHOW_MODPACK_TOOL } from "./show-modpack";
 
 /**
- * Build the AI SDK `ToolSet` for one turn. Host tools take the injected `exec`
- * backend; the client tool (`ask_user_question`) ignores it. Listed explicitly
- * (not a loop) so each tool keeps its own concrete input type for SDK inference.
+ * Build the AI SDK `ToolSet` for one turn. Listed explicitly so each tool keeps
+ * its concrete input type for SDK inference.
  */
-export function buildTools(exec: ToolExecutor): ToolSet {
+export function buildTools(): ToolSet {
   return {
-    search_base_modpacks: searchBaseModpacks(exec),
-    inspect_base_modpack: inspectBaseModpack(exec),
-    search_mods: searchMods(exec),
-    mod_get_detail: modGetDetail(exec),
-    resolve_mods: resolveMods(exec),
-    build_modpack: buildModpack(exec),
+    search_base_modpacks: searchBaseModpacks(),
+    inspect_base_modpack: inspectBaseModpack(),
+    search_mods: searchMods(),
+    mod_get_detail: modGetDetail(),
+    resolve_mods: resolveMods(),
+    build_modpack: buildModpack(),
     show_modpack: showModpack(),
-    list_instances: listInstances(exec),
+    list_instances: listInstances(),
     ask_user_question: askUserQuestion(),
   };
 }
@@ -41,9 +39,8 @@ export function buildTools(exec: ToolExecutor): ToolSet {
 /**
  * Each tool's zod input schema, keyed by name — for validating a raw tool-call
  * payload (and unit tests). Derived from the built tools so every schema stays
- * single-sourced inside its own tool file; building never invokes `execute`, so
- * the empty executor here is only ever used to read `inputSchema`.
+ * single-sourced inside its own tool file; building never invokes `execute`.
  */
 export const toolSchemas: Record<string, z.ZodType> = Object.fromEntries(
-  Object.entries(buildTools({})).map(([name, t]) => [name, t.inputSchema as z.ZodType]),
+  Object.entries(buildTools()).map(([name, t]) => [name, t.inputSchema as z.ZodType]),
 );

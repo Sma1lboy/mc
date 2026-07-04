@@ -5,7 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./executors": "./src/executors/index.ts"
+    "./harness": "./src/harness/index.ts"
   },
   "bin": {
     "mc-agent": "./bin/mc-agent.mjs"
@@ -14,8 +14,12 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@ai-sdk/harness": "^1.0.17",
+    "@ai-sdk/harness-claude-code": "^1.0.17",
     "@openrouter/ai-sdk-provider": "^2.10.0",
     "ai": "^6.0.218",
+    "ai-v7": "npm:ai@^7.0.14",
+    "ws": "^8.21.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

@@ -1,16 +1,24 @@
 #!/usr/bin/env node
 // mc-agent — a headless test harness for the @kobemc/agent-core brain.
 //
-//   mc-agent chat "<prompt>" [--executor mock|modrinth] [--model X] [--json]
-//                            [--turns "msg1||msg2"]
+//   mc-agent chat "<prompt>" [--engine openrouter|claude-code]
+//                            [--model X] [--json] [--turns "msg1||msg2"]
 //
-// Streams TextDelta to stdout live and prints tool chips like the Rust CLI
-// (🔧 name(args) / ✓ name: summary). With --json it prints one AgentStreamEvent
-// per line instead (pi-style print/JSON mode). LLM endpoint comes from the env:
+// Streams TextDelta to stdout live and prints tool-call chips. This CLI is
+// headless, so launcher client tools are NOT executed here; a tool call is the
+// expected stopping point unless the selected runtime supplies its own bridge.
+// With --json it prints one AgentStreamEvent per line (pi-style print/JSON
+// mode).
+//
+// --engine openrouter (default): LLM endpoint comes from the env:
 //   OPENROUTER_API_KEY   (required for a real turn)
 //   OPENROUTER_MODEL     (or --model; default openai/gpt-4o-mini)
 //   OPENROUTER_BASE_URL  (default https://openrouter.ai/api/v1)
 // A repo-root .env is loaded too when present (via node:process loadEnvFile).
+//
+// --engine claude-code: NO API key — turns run on the locally-installed
+// Claude Code runtime (its subscription login) via the harness engine;
+// --model then takes an Anthropic model id (default: the CLI's own default).
 //
 // The core is TypeScript source (no build step), so we register tsx before
 // importing it — this file therefore runs under plain `node`, no flags needed.
@@ -20,29 +28,31 @@ import process from "node:process";
 register();
 
 const { createModpackAgent } = await import(new URL("../src/index.ts", import.meta.url).href);
-const { mockExecutor, modrinthExecutor } = await import(
-  new URL("../src/executors/index.ts", import.meta.url).href
-);
 
 // --- args ---------------------------------------------------------------------
 
 const argv = process.argv.slice(2);
 if (argv[0] !== "chat") {
   process.stderr.write(
-    'usage: mc-agent chat "<prompt>" [--executor mock|modrinth] [--model X] [--json] [--turns "a||b"]\n',
+    'usage: mc-agent chat "<prompt>" [--engine openrouter|claude-code] [--model X] [--json] [--turns "a||b"]\n',
   );
   process.exit(1);
 }
 
-const flags = { executor: "modrinth", model: "", json: false, turns: "" };
+const flags = { engine: "openrouter", model: "", json: false, turns: "" };
 const positional = [];
 for (let i = 1; i < argv.length; i++) {
   const arg = argv[i];
   if (arg === "--json") flags.json = true;
-  else if (arg === "--executor") flags.executor = argv[++i];
+  else if (arg === "--engine") flags.engine = argv[++i];
+  else if (arg === "--tools" || arg === "--executor") i++; // legacy no-op
   else if (arg === "--model") flags.model = argv[++i];
   else if (arg === "--turns") flags.turns = argv[++i];
   else positional.push(arg);
+}
+if (flags.engine !== "openrouter" && flags.engine !== "claude-code") {
+  process.stderr.write(`error: unknown --engine "${flags.engine}" (openrouter|claude-code)\n`);
+  process.exit(1);
 }
 
 const messages = flags.turns
@@ -78,17 +88,6 @@ const settings = {
     "deepseek/deepseek-v4-pro", // align with mc-core's DEFAULT_OPENROUTER_MODEL
   baseUrl: process.env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1",
 };
-
-const executor =
-  flags.executor === "mock"
-    ? mockExecutor()
-    : flags.executor === "modrinth"
-      ? modrinthExecutor()
-      : null;
-if (!executor) {
-  process.stderr.write(`error: unknown --executor "${flags.executor}" (mock|modrinth)\n`);
-  process.exit(1);
-}
 
 // --- run ----------------------------------------------------------------------
 
@@ -167,7 +166,15 @@ function makeOnUpdate() {
 
 let uid = 0;
 const nextId = () => `m${++uid}`;
-const agent = createModpackAgent(settings, executor);
+let agent;
+if (flags.engine === "claude-code") {
+  const { createClaudeCodeModpackAgent } = await import(
+    new URL("../src/harness/index.ts", import.meta.url).href
+  );
+  agent = createClaudeCodeModpackAgent({}, flags.model ? { model: flags.model } : {});
+} else {
+  agent = createModpackAgent(settings);
+}
 let history = [];
 for (const [i, msg] of messages.entries()) {
   if (!flags.json) process.stdout.write(`\n${i > 0 ? "\n" : ""}› ${msg}\n`);
@@ -176,4 +183,5 @@ for (const [i, msg] of messages.entries()) {
   if (res.error) emit({ type: "error", message: res.error });
   history = res.messages;
 }
+await agent.dispose?.();
 if (!flags.json) process.stdout.write("\n");

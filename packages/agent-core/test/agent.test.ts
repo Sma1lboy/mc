@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import type { UIMessage } from "ai";
 
 import { createModpackAgent, toolSchemas } from "../src/index";
-import { mockExecutor } from "../src/executors/index";
 import { startMockServer } from "./fixtures/mockOpenRouter.mjs";
 
 const settings = (baseUrl: string) => ({ apiKey: "test", model: "mock", baseUrl });
@@ -16,7 +15,7 @@ describe("runTurn", () => {
   it("(a) streams a growing assistant UIMessage and returns grown history", async () => {
     const mock = await startMockServer({ scenario: "text", chunks: 5 });
     try {
-      const agent = createModpackAgent(settings(mock.url), mockExecutor());
+      const agent = createModpackAgent(settings(mock.url));
       const updates: UIMessage[] = [];
       const { messages, error } = await agent.run([userMsg("hi")], (m) => updates.push(m));
 
@@ -33,34 +32,30 @@ describe("runTurn", () => {
     }
   });
 
-  it("(b) dispatches a tool call to the executor and feeds the result back", async () => {
+  it("(b) surfaces tool calls as client-side UIMessage parts", async () => {
     const mock = await startMockServer({
       scenario: "tool",
       toolName: "search_base_modpacks",
       toolArgs: { query: "tech" },
     });
     try {
-      const calls: unknown[] = [];
-      const exec = mockExecutor({
-        search_base_modpacks: async (args) => {
-          calls.push(args);
-          return { candidates: [] };
-        },
-      });
-      const agent = createModpackAgent(settings(mock.url), exec);
+      const agent = createModpackAgent(settings(mock.url));
       const { messages, error } = await agent.run([userMsg("make a tech pack")], () => {});
 
       expect(error).toBeUndefined();
-      expect(calls).toHaveLength(1);
-      expect(calls[0]).toMatchObject({ query: "tech" });
 
       const assistant = messages.at(-1)!;
-      // the turn carried a tool part (type "tool-<name>") and a final text answer.
       const toolParts = assistant.parts.filter(
         (p) => typeof p.type === "string" && p.type.startsWith("tool-"),
       );
-      expect(toolParts.length).toBeGreaterThan(0);
-      expect(textOf(assistant).length).toBeGreaterThan(0);
+      expect(toolParts).toHaveLength(1);
+      expect(toolParts[0]).toMatchObject({
+        type: "tool-search_base_modpacks",
+        toolCallId: "call_mock_1",
+        state: "input-available",
+        input: { query: "tech" },
+      });
+      expect(textOf(assistant)).toBe("");
     } finally {
       await mock.close();
     }

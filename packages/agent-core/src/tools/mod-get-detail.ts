@@ -1,9 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 
-import type { ToolExecutor } from "../types";
-
-export const modGetDetail = (exec: ToolExecutor) =>
+export const modGetDetail = () =>
   tool({
     description:
       "Get the details of ONE mod: its title/description/categories plus the newest versions available for a Minecraft version + loader (with real version ids, version numbers, and dependency counts). Use this to verify a specific mod actually supports the target before proposing or resolving it.",
@@ -13,5 +11,5 @@ export const modGetDetail = (exec: ToolExecutor) =>
       minecraft_version: z.string().optional().describe('Target Minecraft version to filter versions by, e.g. "1.20.1".'),
       loader: z.string().optional().describe('Target loader to filter versions by, e.g. "fabric".'),
     }),
-    execute: (args) => exec.mod_get_detail(args),
+    // No execute: launcher client runs this through Rust IPC and appends output.
   });

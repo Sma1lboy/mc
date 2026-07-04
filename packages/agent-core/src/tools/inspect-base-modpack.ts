@@ -1,9 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 
-import type { ToolExecutor } from "../types";
-
-export const inspectBaseModpack = (exec: ToolExecutor) =>
+export const inspectBaseModpack = () =>
   tool({
     description:
       "Inspect a base modpack: download its archive, list the mods it already includes, and report the feature categories it covers. Use this before deciding which extra mods to add.",
@@ -12,5 +10,5 @@ export const inspectBaseModpack = (exec: ToolExecutor) =>
       mc_version: z.string().optional().describe("Target Minecraft version, used to pick the right pack version."),
       loader: z.string().optional().describe("Target loader, used to pick the right pack version."),
     }),
-    execute: (args) => exec.inspect_base_modpack(args),
+    // No execute: launcher client runs this through Rust IPC and appends output.
   });

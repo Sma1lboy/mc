@@ -1,8 +1,8 @@
-// Host-agnostic type surface for the modpack-agent "brain".
+// Type surface for the modpack-agent brain.
 //
-// This directory (agent/core/) MUST NOT import react / @tauri-apps / any project
-// UI code — only `ai`, `zod`, and std TS. Everything host-specific (Tauri invoke,
-// an HTTP route, the daemon) lives in an adapter that injects a `ToolExecutor`.
+// This package must not import React / @tauri-apps / project UI code. Tool
+// definitions live here as schema/protocol; the launcher client provides output
+// for every tool call through its Rust IPC boundary.
 
 import { z } from "zod";
 
@@ -18,14 +18,9 @@ export const askUserOptionSchema = z.object({
 });
 export type AskUserOption = z.infer<typeof askUserOptionSchema>;
 
-/**
- * Host-injected tool backend: a map of tool name → async executor. The core
- * never talks to Tauri/HTTP; the host binds each of the six tool names to a real
- * call (desktop → `invoke`, mc-server → its own resolver, …). Args are the JSON
- * the model produced (validated again on the Rust side); the return is the tool's
- * output JSON, echoed into a `tool_result` summary.
- */
-export type ToolExecutor = Record<string, (args: unknown) => Promise<unknown>>;
+/** Client-provided tool handler used by hosts that bridge a local runtime. */
+export type ClientToolHandler = (args: unknown) => Promise<unknown>;
+export type ClientToolHandlers = Partial<Record<string, ClientToolHandler>>;
 
 /**
  * LLM endpoint config. Mirrors mc-core `AgentLlmConfig` (`api_key`/`model`/
