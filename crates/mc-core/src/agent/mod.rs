@@ -7,7 +7,9 @@
 
 mod build;
 pub mod llm;
+pub mod runtime;
 pub mod tools;
 
 pub use llm::AgentLlmConfig;
+pub use runtime::{detect_local_runtime, LocalRuntimeStatus};
 pub use tools::{ChatToolError, ChatToolsCtx};

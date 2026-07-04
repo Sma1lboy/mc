@@ -26,6 +26,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         .typ::<commands::GameLog>()
         .typ::<commands::GameStarted>()
         .typ::<commands::GameExit>()
+        .typ::<commands::AgentHostEvent>()
         // The agent stream now uses the AI SDK's native UIMessage on the TS side, so
         // there's no bespoke stream-event type to export here anymore.
         .commands(collect_commands![
@@ -164,6 +165,10 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::agent_tool_install_modpack,
             commands::agent_tool_list_instances,
             commands::agent_llm_config,
+            commands::agent_host_start,
+            commands::agent_host_send,
+            commands::agent_host_stop,
+            commands::agent_runtime_detect,
             commands::agent_history_list,
             commands::agent_history_get,
             commands::agent_history_put,
@@ -229,6 +234,8 @@ pub fn run() {
         // 流式聊天 agent 的每会话 transcript(rig 原始 transcript 不过 Tauri 边界)。
         // Shared tool context for the `agent_tool_*` commands (a TS-side agent loop).
         .manage(commands::AgentToolsState::default())
+        // 本地 agent runtime 的 Node 宿主子进程(claude-code 引擎;同一时刻最多一个)。
+        .manage(commands::AgentHostState::default())
         // EasyTier 联机会话状态(同一时刻最多一个会话)。
         .manage(commands::LobbyState::default())
         // Shared mc-server client — kobeMC auth session cookie persists across calls.

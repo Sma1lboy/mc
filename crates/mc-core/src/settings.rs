@@ -82,6 +82,11 @@ pub struct GlobalSettings {
     /// `Some(_)` = 用户在设置里的显式覆盖。
     #[serde(default)]
     pub social_enabled: Option<bool>,
+
+    /// 整合包助手的 LLM 引擎:`None`/`"openrouter"` = OpenRouter API(默认);
+    /// `"claude-code"` = 本机安装的 Claude Code(订阅登录,免 API key,经 Node 宿主)。
+    #[serde(default)]
+    pub agent_provider: Option<String>,
 }
 
 fn default_download_source() -> String {
@@ -110,6 +115,7 @@ impl Default for GlobalSettings {
             custom_roots: Vec::new(),
             cf_api_key: None,
             social_enabled: None,
+            agent_provider: None,
         }
     }
 }
@@ -250,6 +256,7 @@ mod tests {
             custom_roots: vec!["/games/a".to_string(), "/games/b".to_string()],
             cf_api_key: Some("cf-secret-key".to_string()),
             social_enabled: Some(false),
+            agent_provider: Some("claude-code".to_string()),
         };
 
         // 目录尚不存在,save 必须自动创建。
