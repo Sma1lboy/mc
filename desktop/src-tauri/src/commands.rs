@@ -7,11 +7,12 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use mc_core::agent::tools::{
-    tool_build_modpack, tool_inspect_base_modpack, tool_mod_get_detail, tool_resolve_mods,
-    tool_search_base_modpacks, tool_search_mods, BuildModpackArgs, BuildModpackOutput,
-    InspectBaseModpackArgs, InspectBaseModpackOutput, ModGetDetailArgs, ModGetDetailOutput,
-    ResolveModsArgs, ResolveModsOutput, SearchBaseModpacksArgs, SearchBaseModpacksOutput,
-    SearchModsArgs, SearchModsOutput,
+    tool_build_modpack, tool_inspect_base_modpack, tool_install_modpack, tool_list_instances,
+    tool_mod_get_detail, tool_resolve_mods, tool_search_base_modpacks, tool_search_mods,
+    BuildModpackArgs, BuildModpackOutput, InspectBaseModpackArgs, InspectBaseModpackOutput,
+    InstallModpackArgs, InstallModpackOutput, ListInstancesOutput, ModGetDetailArgs,
+    ModGetDetailOutput, ResolveModsArgs, ResolveModsOutput, SearchBaseModpacksArgs,
+    SearchBaseModpacksOutput, SearchModsArgs, SearchModsOutput,
 };
 use mc_core::agent::ChatToolsCtx;
 use mc_core::auth::{AccountStore, MsaClient, StoredAccount};
@@ -3277,6 +3278,32 @@ pub async fn agent_tool_build_modpack(
     args: BuildModpackArgs,
 ) -> CmdResult<BuildModpackOutput> {
     tool_build_modpack(&state.ctx(), args).await.map_err(err)
+}
+
+/// Install an agent-built `.mrpack` (from the chat sandbox dir) into `root` as a
+/// playable instance. Path sandboxing lives in the mc-core tool; the engine here
+/// is the same import engine `import_modpack` uses.
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_tool_install_modpack(
+    state: State<'_, AgentToolsState>,
+    root: String,
+    args: InstallModpackArgs,
+) -> CmdResult<InstallModpackOutput> {
+    use mc_core::modpack::import::ImportEngine;
+    let dl = make_downloader()?;
+    let engine = ImportEngine::with_defaults(dl, make_registry());
+    let paths = root_paths(&root);
+    tool_install_modpack(&state.ctx(), &engine, paths.root(), args)
+        .await
+        .map_err(err)
+}
+
+/// Read-only lean instance list for the agent (id / name / mc_version / loader).
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_tool_list_instances(root: String) -> CmdResult<ListInstancesOutput> {
+    tool_list_instances(&root_paths(&root)).map_err(err)
 }
 
 /// The local OpenRouter config (key / model / base_url) resolved from env + the

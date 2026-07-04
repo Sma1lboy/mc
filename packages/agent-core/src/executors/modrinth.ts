@@ -484,5 +484,13 @@ export function modrinthExecutor(opts: ModrinthExecutorOptions = {}): ToolExecut
     async build_modpack() {
       return { status: "unsupported", error: BUILD_UNSUPPORTED_MESSAGE };
     },
+
+    // Launcher-side tools — meaningless without the desktop host.
+    async install_modpack() {
+      return { status: "unsupported", error: BUILD_UNSUPPORTED_MESSAGE };
+    },
+    async list_instances() {
+      return { instances: [] };
+    },
   };
 }

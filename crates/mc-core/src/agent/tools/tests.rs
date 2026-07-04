@@ -297,3 +297,34 @@ async fn build_modpack_from_scratch_writes_verified_mrpack() {
     let _ = std::fs::remove_dir_all(&out_dir);
 }
 
+
+#[tokio::test]
+async fn install_modpack_rejects_paths_outside_sandbox() {
+    use crate::download::Downloader;
+    use crate::modpack::import::ImportEngine;
+    use crate::modplatform::provider::ProviderRegistry;
+
+    use super::{tool_install_modpack, InstallModpackArgs};
+
+    let sandbox = temp_dir("install-sandbox");
+    std::fs::create_dir_all(&sandbox).unwrap();
+    let outside = temp_dir("install-outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    let evil = outside.join("evil.mrpack");
+    std::fs::write(&evil, b"not a real pack").unwrap();
+
+    let ctx = ChatToolsCtx::new(registry_of(FakeChatProvider::default()), sandbox.clone());
+    let engine = ImportEngine::with_defaults(Downloader::new(2).unwrap(), ProviderRegistry::new());
+    let err = tool_install_modpack(
+        &ctx,
+        &engine,
+        &outside,
+        InstallModpackArgs { path: evil.to_string_lossy().to_string() },
+    )
+    .await
+    .expect_err("a path outside the agent output dir must be rejected");
+    assert!(err.0.contains("outside"), "unexpected error: {}", err.0);
+
+    let _ = std::fs::remove_dir_all(&sandbox);
+    let _ = std::fs::remove_dir_all(&outside);
+}

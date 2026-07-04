@@ -13,6 +13,8 @@
 
 mod build_modpack;
 mod inspect_base_modpack;
+mod install_modpack;
+mod list_instances;
 mod mod_get_detail;
 mod resolve_mods;
 mod search_base_modpacks;
@@ -25,6 +27,8 @@ mod tests;
 
 pub use build_modpack::*;
 pub use inspect_base_modpack::*;
+pub use install_modpack::*;
+pub use list_instances::*;
 pub use mod_get_detail::*;
 pub use resolve_mods::*;
 pub use search_base_modpacks::*;

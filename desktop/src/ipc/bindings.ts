@@ -475,6 +475,14 @@ export const commands = {
 	 *  extra mods. Writes to disk; the TS loop must gate this behind user confirmation.
 	 */
 	agentToolBuildModpack: (args: BuildModpackArgs) => typedError<BuildModpackOutput, string>(__TAURI_INVOKE("agent_tool_build_modpack", { args })),
+	/**
+	 *  Install an agent-built `.mrpack` (from the chat sandbox dir) into `root` as a
+	 *  playable instance. Path sandboxing lives in the mc-core tool; the engine here
+	 *  is the same import engine `import_modpack` uses.
+	 */
+	agentToolInstallModpack: (root: string, args: InstallModpackArgs) => typedError<InstallModpackOutput, string>(__TAURI_INVOKE("agent_tool_install_modpack", { root, args })),
+	/**  Read-only lean instance list for the agent (id / name / mc_version / loader). */
+	agentToolListInstances: (root: string) => typedError<ListInstancesOutput, string>(__TAURI_INVOKE("agent_tool_list_instances", { root })),
 	agentLlmConfig: () => typedError<AgentLlmConfigDto, string>(__TAURI_INVOKE("agent_llm_config")),
 	/**  是否处于画廊模式(环境变量 `MC_GALLERY` 非空且非 "0")。前端据此决定是否自动跑截图流程。 */
 	galleryEnabled: () => typedError<boolean, string>(__TAURI_INVOKE("gallery_enabled")),
@@ -497,6 +505,16 @@ export type AccountSummary = {
 	selected?: boolean,
 	/**  Whether the account owns Minecraft (Microsoft accounts only). */
 	owns_game?: boolean,
+};
+
+export type AgentInstance = {
+	id: string,
+	name: string,
+	mc_version: string,
+	loader: string,
+	loader_version: string | null,
+	/**  Whether the core (version + loader) is installed and launchable. */
+	installed: boolean,
 };
 
 /**
@@ -773,6 +791,28 @@ export type InspectedMod = {
 	categories: string[],
 };
 
+export type InstallBlockedFile = {
+	name: string,
+	website_url: string,
+	required: boolean,
+};
+
+export type InstallModpackArgs = {
+	/**
+	 *  The `output_path` returned by a successful `build_modpack` in this
+	 *  conversation, verbatim. Only files inside the agent build output
+	 *  directory are accepted.
+	 */
+	path: string,
+};
+
+export type InstallModpackOutput = {
+	instance_id: string,
+	/**  CurseForge files the user must download manually (none for pure-Modrinth packs). */
+	blocked: InstallBlockedFile[],
+	skipped_optional: string[],
+};
+
 /**  一个已成功安装的 mod 记录。 */
 export type InstalledMod = {
 	/**  Modrinth project id。 */
@@ -947,6 +987,10 @@ export type KobeCredentials = {
 	email: string,
 	password: string,
 	auto_login?: boolean,
+};
+
+export type ListInstancesOutput = {
+	instances: AgentInstance[],
 };
 
 /**  Mod loader families. */

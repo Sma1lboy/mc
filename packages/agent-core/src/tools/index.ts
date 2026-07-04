@@ -12,6 +12,8 @@ import { searchMods } from "./search-mods";
 import { modGetDetail } from "./mod-get-detail";
 import { resolveMods } from "./resolve-mods";
 import { buildModpack } from "./build-modpack";
+import { installModpack } from "./install-modpack";
+import { listInstances } from "./list-instances";
 import { askUserQuestion } from "./ask-user-question";
 
 export { ASK_USER_TOOL } from "./ask-user-question";
@@ -29,6 +31,8 @@ export function buildTools(exec: ToolExecutor): ToolSet {
     mod_get_detail: modGetDetail(exec),
     resolve_mods: resolveMods(exec),
     build_modpack: buildModpack(exec),
+    install_modpack: installModpack(exec),
+    list_instances: listInstances(exec),
     ask_user_question: askUserQuestion(),
   };
 }

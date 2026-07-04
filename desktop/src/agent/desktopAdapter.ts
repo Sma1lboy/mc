@@ -7,6 +7,7 @@
 // main bundle for rust-brain users.
 
 import { commands } from "../ipc/bindings";
+import { activeRoot } from "../store";
 import { createModpackAgent, type ModpackAgent } from "@kobemc/agent-core";
 import type { AgentLlmSettings, ToolExecutor } from "@kobemc/agent-core";
 
@@ -34,6 +35,17 @@ function buildExecutor(): ToolExecutor {
     mod_get_detail: bind(commands.agentToolModGetDetail),
     resolve_mods: bind(commands.agentToolResolveMods),
     build_modpack: bind(commands.agentToolBuildModpack),
+    // Launcher-side tools need the CURRENT game root, which only the UI knows —
+    // injected here per call (not captured at build time) so a root switch
+    // mid-conversation is respected.
+    install_modpack: (args) =>
+      unwrap(
+        commands.agentToolInstallModpack(
+          activeRoot(),
+          args as Parameters<typeof commands.agentToolInstallModpack>[1],
+        ),
+      ),
+    list_instances: () => unwrap(commands.agentToolListInstances(activeRoot())),
   };
 }
 

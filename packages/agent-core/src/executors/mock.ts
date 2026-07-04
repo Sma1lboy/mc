@@ -83,6 +83,23 @@ const DEFAULTS: ToolExecutor = {
     output_size: 1024,
     manifest: { status: "ok" },
   }),
+  install_modpack: async () => ({
+    instance_id: "mock-instance",
+    blocked: [],
+    skipped_optional: [],
+  }),
+  list_instances: async () => ({
+    instances: [
+      {
+        id: "mock-instance",
+        name: "Mock Instance",
+        mc_version: "1.20.1",
+        loader: "fabric",
+        loader_version: null,
+        installed: true,
+      },
+    ],
+  }),
 };
 
 /** Build a canned executor; `fixtures` overrides individual tools. */
