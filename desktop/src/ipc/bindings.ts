@@ -483,6 +483,10 @@ export const commands = {
 	agentToolInstallModpack: (root: string, args: InstallModpackArgs) => typedError<InstallModpackOutput, string>(__TAURI_INVOKE("agent_tool_install_modpack", { root, args })),
 	/**  Read-only lean instance list for the agent (id / name / mc_version / loader). */
 	agentToolListInstances: (root: string) => typedError<ListInstancesOutput, string>(__TAURI_INVOKE("agent_tool_list_instances", { root })),
+	/**  Search the host-injected local wiki corpus for the current installed instance. */
+	agentToolWikiSearch: (root: string, args: WikiSearchArgs) => typedError<WikiSearchOutput_Serialize, string>(__TAURI_INVOKE("agent_tool_wiki_search", { root, args })),
+	/**  Open one wiki chunk returned by `agent_tool_wiki_search`. */
+	agentToolWikiOpen: (root: string, args: WikiOpenArgs) => typedError<WikiOpenOutput_Serialize, string>(__TAURI_INVOKE("agent_tool_wiki_open", { root, args })),
 	agentLlmConfig: () => typedError<AgentLlmConfigDto, string>(__TAURI_INVOKE("agent_llm_config")),
 	/**  Start (or reuse) the Node agent host. Idempotent: a live child is kept. */
 	agentHostStart: () => typedError<null, string>(__TAURI_INVOKE("agent_host_start")),
@@ -1663,6 +1667,81 @@ export type VersionInstallReport = {
 	incompatible?: string[],
 	/**  CurseForge 作者禁第三方分发时需用户手动下载的文件;非空时前端弹 BlockedFilesDialog。 */
 	blocked?: BlockedFileDto[],
+};
+
+export type WikiChunk = {
+	chunk_id: string,
+	document_id: string,
+	title: string,
+	source_label: string,
+	location: string,
+	content: string,
+};
+
+export type WikiOpenArgs = {
+	modpack_id: string,
+	instance_id?: string | null,
+	/**  Same host-injected source list used for `wiki_search`. */
+	source_paths?: string[],
+	chunk_id: string,
+};
+
+export type WikiOpenOutput = WikiOpenOutput_Serialize | WikiOpenOutput_Deserialize;
+
+export type WikiOpenOutput_Deserialize = {
+	scope: WikiScope_Deserialize,
+	chunk: WikiChunk,
+};
+
+export type WikiOpenOutput_Serialize = {
+	scope: WikiScope_Serialize,
+	chunk: WikiChunk,
+};
+
+export type WikiScope = WikiScope_Serialize | WikiScope_Deserialize;
+
+export type WikiScope_Deserialize = {
+	modpack_id: string,
+	instance_id?: string | null,
+	corpus_id: string,
+};
+
+export type WikiScope_Serialize = {
+	modpack_id: string,
+	instance_id?: string | null,
+	corpus_id: string,
+};
+
+export type WikiSearchArgs = {
+	modpack_id: string,
+	instance_id?: string | null,
+	/**  Local files, directories, `.mrpack`, or `.zip` archives selected by the host. */
+	source_paths?: string[],
+	query: string,
+	top_k?: number | null,
+};
+
+export type WikiSearchHit = {
+	chunk_id: string,
+	title: string,
+	snippet: string,
+	source_label: string,
+	location: string,
+	score: number | null,
+};
+
+export type WikiSearchOutput = WikiSearchOutput_Serialize | WikiSearchOutput_Deserialize;
+
+export type WikiSearchOutput_Deserialize = {
+	scope: WikiScope_Deserialize,
+	source_count: number,
+	hits: WikiSearchHit[],
+};
+
+export type WikiSearchOutput_Serialize = {
+	scope: WikiScope_Serialize,
+	source_count: number,
+	hits: WikiSearchHit[],
 };
 
 /**

@@ -20,7 +20,7 @@ import type { UIMessage } from "ai";
 import type { ModpackAgent } from "@kobemc/agent-core";
 import { commands, type AgentHostEvent } from "../ipc/bindings";
 import { runLauncherClientTool, unwrap } from "./clientToolDispatcher";
-import { registerLocalClientTool, clearLocalClientTools } from "./chatStore";
+import { registerLocalClientTool, clearLocalClientTools, useChatStore } from "./chatStore";
 
 type HostMsg =
   | { type: "update"; message: UIMessage }
@@ -50,7 +50,7 @@ export async function createLocalRuntimeAgent(): Promise<ModpackAgent> {
         const run =
           msg.name === "ask_user_question" || msg.name === "show_modpack"
             ? new Promise((resolve) => registerLocalClientTool(msg.name, resolve))
-            : runLauncherClientTool(msg.name, msg.args);
+            : runLauncherClientTool(msg.name, msg.args, useChatStore.getState().toolContext);
         void run.then(
           (result) => send({ type: "tool_result", id: msg.id, ok: true, result }),
           (e) => send({ type: "tool_result", id: msg.id, ok: false, error: String(e) }),

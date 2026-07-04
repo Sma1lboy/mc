@@ -43,6 +43,8 @@ interface ChatState {
   draft: string | null;
   /** 历史对话记录(dev 调试选择器用;localStorage 持久)。 */
   conversations: ConversationRecord[];
+  /** Host-owned deterministic tool context, never supplied by the model. */
+  toolContext: AgentToolContext | null;
   /**
    * 本地引擎(claude-code)模式下「正在等用户作答」的交互 client tool 名
    * (ask_user_question / show_modpack),无则 null。此时 turn 仍在流式,
@@ -58,6 +60,7 @@ export const useChatStore = create<ChatState>(() => ({
   error: null,
   draft: null,
   conversations: loadConversations(),
+  toolContext: null,
   pendingLocalTool: null,
 }));
 
@@ -138,6 +141,18 @@ export interface ConversationRecord {
   /** 首条用户消息(截断),用作列表标题。 */
   title: string;
   messages: UIMessage[];
+  toolContext?: AgentToolContext | null;
+}
+
+export interface AgentWikiContext {
+  root: string;
+  modpackId: string;
+  instanceId: string;
+  sourcePaths: string[];
+}
+
+export interface AgentToolContext {
+  wiki?: AgentWikiContext;
 }
 
 const CONV_KEY = "mc-launcher.agentConversations";
@@ -174,10 +189,11 @@ function firstUserText(messages: UIMessage[]): string {
 
 // 把当前对话 upsert 进记录列表(每轮结束调用)。空对话不存。
 function saveCurrentConversation(): void {
-  const messages = useChatStore.getState().messages;
+  const state = useChatStore.getState();
+  const messages = state.messages;
   if (messages.length === 0) return;
   const now = Date.now();
-  const list = useChatStore.getState().conversations.slice();
+  const list = state.conversations.slice();
   const i = list.findIndex((c) => c.id === currentConvId);
   const createdAt = i >= 0 ? list[i].createdAt : now;
   const rec: ConversationRecord = {
@@ -186,6 +202,7 @@ function saveCurrentConversation(): void {
     updatedAt: now,
     title: firstUserText(messages).slice(0, 60),
     messages,
+    toolContext: state.toolContext,
   };
   if (i >= 0) list[i] = rec;
   else list.unshift(rec);
@@ -258,7 +275,7 @@ export function loadConversation(id: string): void {
   const rec = useChatStore.getState().conversations.find((c) => c.id === id);
   if (!rec) return;
   currentConvId = id;
-  useChatStore.setState({ messages: rec.messages, error: null });
+  useChatStore.setState({ messages: rec.messages, error: null, toolContext: rec.toolContext ?? null });
 }
 
 /**
@@ -311,9 +328,10 @@ async function resolveAutomaticClientTools(
   if (pending.length === 0) return null;
 
   let next = messages;
+  const toolContext = useChatStore.getState().toolContext;
   for (const call of pending) {
     try {
-      const output = await runLauncherClientTool(call.name, call.part.input);
+      const output = await runLauncherClientTool(call.name, call.part.input, toolContext);
       next = withToolOutput(next, call.msgId, call.part.toolCallId, output);
     } catch (e) {
       next = withToolError(next, call.msgId, call.part.toolCallId, e instanceof Error ? e.message : String(e));
@@ -496,16 +514,29 @@ export function newChat(): void {
   if (useChatStore.getState().streaming) return;
   saveCurrentConversation(); // 开新对话前把当前的存档,别丢
   currentConvId = mintConvId();
-  useChatStore.setState({ messages: [], error: null, queued: [] });
+  useChatStore.setState({ messages: [], error: null, queued: [], toolContext: null });
 }
 
 /**
  * 从其它页面(发现 / 新建实例)带一句上下文提示打开助手:预填输入框草稿并切到助手页。
  * 不自动发送——ChatPage 取草稿后填进输入框、聚焦,由用户审阅 / 编辑再发。
  */
-export function openAgentChat(prompt: string): void {
-  useChatStore.setState({ draft: prompt });
+export function openAgentChat(prompt: string, toolContext: AgentToolContext | null = null): void {
+  const current = useChatStore.getState();
+  if (
+    current.messages.length > 0 &&
+    !sameAgentToolContext(current.toolContext, toolContext)
+  ) {
+    saveCurrentConversation();
+    currentConvId = mintConvId();
+    useChatStore.setState({ messages: [], error: null, queued: [] });
+  }
+  useChatStore.setState({ draft: prompt, toolContext });
   setCurrentPage("agent");
+}
+
+function sameAgentToolContext(a: AgentToolContext | null, b: AgentToolContext | null): boolean {
+  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 }
 
 /** ChatPage 取用一次性草稿后清空(避免重渲染 / 重挂载再次注入)。 */

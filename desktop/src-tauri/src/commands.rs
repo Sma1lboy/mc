@@ -9,10 +9,12 @@ use std::sync::{Arc, Mutex};
 use mc_core::agent::tools::{
     tool_build_modpack, tool_inspect_base_modpack, tool_install_modpack, tool_list_instances,
     tool_mod_get_detail, tool_resolve_mods, tool_search_base_modpacks, tool_search_mods,
-    BuildModpackArgs, BuildModpackOutput, InspectBaseModpackArgs, InspectBaseModpackOutput,
-    InstallModpackArgs, InstallModpackOutput, ListInstancesOutput, ModGetDetailArgs,
-    ModGetDetailOutput, ResolveModsArgs, ResolveModsOutput, SearchBaseModpacksArgs,
-    SearchBaseModpacksOutput, SearchModsArgs, SearchModsOutput,
+    tool_wiki_open, tool_wiki_search, BuildModpackArgs, BuildModpackOutput,
+    InspectBaseModpackArgs, InspectBaseModpackOutput, InstallModpackArgs,
+    InstallModpackOutput, ListInstancesOutput, ModGetDetailArgs, ModGetDetailOutput,
+    ResolveModsArgs, ResolveModsOutput, SearchBaseModpacksArgs, SearchBaseModpacksOutput,
+    SearchModsArgs, SearchModsOutput, WikiOpenArgs, WikiOpenOutput, WikiSearchArgs,
+    WikiSearchOutput,
 };
 use mc_core::agent::ChatToolsCtx;
 use mc_core::auth::{AccountStore, MsaClient, StoredAccount};
@@ -3240,7 +3242,7 @@ pub fn lobby_privileged_ready() -> CmdResult<bool> {
 
 // --- agent deterministic tools (for a TS-side agent loop) -----------------
 //
-// Six deterministic modpack tools, exposed one-per-command so the TS agent brain
+// Deterministic modpack tools, exposed one-per-command so the TS agent brain
 // (Vercel AI SDK in the webview) can run the tool-use loop itself and dispatch each
 // tool via `invoke()`. Every command is a thin wrapper over the single-source
 // `tool_*` fn in `mc_core::agent::tools` — no logic
@@ -3350,6 +3352,43 @@ pub async fn agent_tool_install_modpack(
 #[specta::specta]
 pub async fn agent_tool_list_instances(root: String) -> CmdResult<ListInstancesOutput> {
     tool_list_instances(&root_paths(&root)).map_err(err)
+}
+
+fn validate_agent_wiki_source_paths(root: &str, source_paths: &[String]) -> CmdResult<()> {
+    if source_paths.is_empty() {
+        return Err("wiki source paths are required".into());
+    }
+    let game_root = root_paths(root).root().canonicalize().map_err(err)?;
+    for raw in source_paths {
+        let path = PathBuf::from(raw);
+        let canonical = path.canonicalize().map_err(err)?;
+        if !canonical.starts_with(&game_root) {
+            return Err(format!(
+                "wiki source path must be inside the active game root: {}",
+                path.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Search the host-injected local wiki corpus for the current installed instance.
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_tool_wiki_search(
+    root: String,
+    args: WikiSearchArgs,
+) -> CmdResult<WikiSearchOutput> {
+    validate_agent_wiki_source_paths(&root, &args.source_paths)?;
+    tool_wiki_search(args).await.map_err(err)
+}
+
+/// Open one wiki chunk returned by `agent_tool_wiki_search`.
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_tool_wiki_open(root: String, args: WikiOpenArgs) -> CmdResult<WikiOpenOutput> {
+    validate_agent_wiki_source_paths(&root, &args.source_paths)?;
+    tool_wiki_open(args).await.map_err(err)
 }
 
 /// The local OpenRouter config (key / model / base_url) resolved from env + the

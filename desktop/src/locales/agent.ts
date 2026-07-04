@@ -60,6 +60,8 @@ const dict = {
     discoverPrompt: "帮我做一个整合包:{{ query }}{{ constraints }}",
     discoverPromptOpen: "帮我推荐一个耐玩的整合包{{ constraints }}",
     instancePrompt: "帮我为新建的实例生成一个整合包{{ constraints }}",
+    wikiPrompt:
+      "帮我根据这个已安装实例的本地资料回答问题:{{ name }}(Minecraft {{ version }} / {{ loader }})。请先搜索资料再回答。",
   } as Record<string, string>,
   en: {
     title: "Modpack Assistant",
@@ -121,6 +123,8 @@ const dict = {
     discoverPrompt: "Help me build a modpack: {{ query }}{{ constraints }}",
     discoverPromptOpen: "Recommend and build a modpack worth playing{{ constraints }}",
     instancePrompt: "Build a modpack for my new instance{{ constraints }}",
+    wikiPrompt:
+      "Help me answer questions from this installed instance's local sources: {{ name }} (Minecraft {{ version }} / {{ loader }}). Search the local sources first.",
   } as Record<string, string>,
 };
 
