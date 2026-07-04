@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, EmptyState, Heading, Panel } from "../components";
+import { Button, EmptyState, Heading, Panel, Select } from "../components";
 import { t, useLang } from "../i18n";
-import { useChatStore, sendMessage, newChat, clearDraft, dequeueQueued, stopTurn } from "./chatStore";
+import { api } from "../ipc/api";
+import {
+  useChatStore,
+  sendMessage,
+  newChat,
+  clearDraft,
+  dequeueQueued,
+  stopTurn,
+  resetAgent,
+} from "./chatStore";
 import { DebugTools } from "./DebugTools";
 import { MessageList } from "./MessageList";
 import { ShareButton } from "./ShareButton";
@@ -18,6 +27,47 @@ import "./chat.css";
  *
  * 无副作用的渲染碎片(文本 / 工具芯片 / 活动块)抽到 ChatParts.tsx,便于隔离预览(Ladle)。
  */
+
+/**
+ * 引擎切换(页头小下拉):OpenRouter API ↔ 本地 Claude Code(订阅,免 key)。
+ * 选择持久化在 GlobalSettings.agent_provider;切换即丢弃缓存的大脑实例,下一条消息生效。
+ * 本地运行时(claude + node + pnpm)未检测齐时,该选项标注「未检测到」但仍可选 ——
+ * 若坚持选择,首条消息会把具体缺失报为本轮错误。
+ */
+function EngineSelect({ streaming }: { streaming: boolean }) {
+  const [provider, setProvider] = useState<string | null>(null);
+  const [runtimeOk, setRuntimeOk] = useState(true);
+  useEffect(() => {
+    void api.getSettings().then((s) => setProvider(s.agent_provider ?? "openrouter")).catch(() => {});
+    void api
+      .agentRuntimeDetect()
+      .then((r) => setRuntimeOk(Boolean(r.claude_code && r.node && r.pnpm)))
+      .catch(() => {});
+  }, []);
+  if (provider == null) return null;
+  return (
+    <Select
+      className="shrink-0"
+      value={provider}
+      onChange={(v) => {
+        if (streaming || v === provider) return;
+        setProvider(v);
+        void api
+          .getSettings()
+          .then((s) => api.setSettings({ ...s, agent_provider: v === "openrouter" ? null : v }))
+          .catch(() => {});
+        resetAgent();
+      }}
+      options={[
+        { value: "openrouter", label: t("agent.engineOpenrouter") },
+        {
+          value: "claude-code",
+          label: runtimeOk ? t("agent.engineClaudeCode") : t("agent.engineClaudeCodeMissing"),
+        },
+      ]}
+    />
+  );
+}
 
 /** 一条消息渲染(用户 / 助手)。 */
 export default function ChatPage() {
@@ -101,6 +151,7 @@ export default function ChatPage() {
           <div className="min-w-0 overflow-x-auto">
             <DebugTools />
           </div>
+          <EngineSelect streaming={streaming} />
           <ShareButton />
           <Button variant="ghost" disabled={streaming} onClick={() => newChat()} className="shrink-0">
             {t("agent.newChat")}

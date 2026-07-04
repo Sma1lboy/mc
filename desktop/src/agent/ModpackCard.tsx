@@ -3,7 +3,7 @@ import type { UIMessage } from "ai";
 import { t } from "../i18n";
 import { commands } from "../ipc/bindings";
 import { activeRoot } from "../store";
-import { resolveClientTool } from "./chatStore";
+import { resolveClientTool, useChatStore } from "./chatStore";
 
 /* ============================================================================
  * ModpackCard —— 渲染 `show_modpack`(原生 client-side tool)的可安装整合包卡片。
@@ -59,7 +59,12 @@ export function ModpackCard(props: {
 
   const done = part.state === "output-available";
   const output = (done ? part.output : null) as ShowOutput | null;
-  const live = part.state === "input-available" && !globalStreaming && !busy;
+  // 本地引擎(claude-code)下 turn 暂停等答时 streaming 仍为 true —— 以待答标记放行。
+  const pendingLocal = useChatStore((s) => s.pendingLocalTool);
+  const live =
+    part.state === "input-available" &&
+    (!globalStreaming || pendingLocal === "show_modpack") &&
+    !busy;
   const skeleton = !done && !title;
 
   const install = async (): Promise<void> => {

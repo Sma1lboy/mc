@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { UIMessage } from "ai";
 import clsx from "clsx";
 import { t } from "../i18n";
-import { submitAskUserAnswer } from "./chatStore";
+import { submitAskUserAnswer, useChatStore } from "./chatStore";
 
 /* ============================================================================
  * AskUserOptions —— 渲染 `ask_user_question`(原生 client-side tool)的可点选项。
@@ -38,9 +38,14 @@ export function AskUserOptions(props: {
   const input = (part.input ?? {}) as AskInput;
   const question = typeof input.question === "string" ? input.question : "";
   const multiSelect = input.multi_select === true;
-  const options = (Array.isArray(input.options) ? input.options : []).filter(
-    (o): o is { label: string; id?: string; description?: string } => !!o && typeof o.label === "string",
-  );
+  // 宽容外部模型输入:本地 runtime 不像 AI SDK loop 那样硬校验工具入参,
+  // 模型偶尔会把 options 发成裸字符串数组 —— 归一成 {label}。
+  const options = (Array.isArray(input.options) ? input.options : [])
+    .map((o) => (typeof o === "string" ? { label: o } : o))
+    .filter(
+      (o): o is { label: string; id?: string; description?: string } =>
+        !!o && typeof o.label === "string",
+    );
 
   const answered = part.state === "output-available";
   const chosen = new Set<string>(
@@ -48,7 +53,10 @@ export function AskUserOptions(props: {
       ? (part.output as { selected: string[] }).selected
       : [],
   );
-  const live = part.state === "input-available" && !globalStreaming;
+  // 本地引擎(claude-code)下 turn 暂停等答时 streaming 仍为 true —— 以待答标记放行。
+  const pendingLocal = useChatStore((s) => s.pendingLocalTool);
+  const live =
+    part.state === "input-available" && (!globalStreaming || pendingLocal === "ask_user_question");
   const skeleton = options.length === 0 && !answered;
 
   const toggle = (i: number): void => {

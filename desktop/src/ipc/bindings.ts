@@ -484,6 +484,17 @@ export const commands = {
 	/**  Read-only lean instance list for the agent (id / name / mc_version / loader). */
 	agentToolListInstances: (root: string) => typedError<ListInstancesOutput, string>(__TAURI_INVOKE("agent_tool_list_instances", { root })),
 	agentLlmConfig: () => typedError<AgentLlmConfigDto, string>(__TAURI_INVOKE("agent_llm_config")),
+	/**  Start (or reuse) the Node agent host. Idempotent: a live child is kept. */
+	agentHostStart: () => typedError<null, string>(__TAURI_INVOKE("agent_host_start")),
+	/**  Forward one protocol line to the Node host's stdin. */
+	agentHostSend: (line: string) => typedError<null, string>(__TAURI_INVOKE("agent_host_send", { line })),
+	/**
+	 *  Stop the Node host: ask it to dispose (kills its runtime session), close
+	 *  stdin, then reap — force-kill only if it lingers.
+	 */
+	agentHostStop: () => typedError<null, string>(__TAURI_INVOKE("agent_host_stop")),
+	/**  Detect the locally-installed Claude Code runtime prerequisites (settings UI). */
+	agentRuntimeDetect: () => typedError<LocalRuntimeStatusDto, string>(__TAURI_INVOKE("agent_runtime_detect")),
 	/**  List the signed-in user's archived conversations (heads only, newest first). */
 	agentHistoryList: () => typedError<AgentConversationHead[], string>(__TAURI_INVOKE("agent_history_list")),
 	/**  Fetch one archived conversation's full record, as a JSON string. */
@@ -523,6 +534,15 @@ export type AgentConversationHead = {
 	id: string,
 	title: string,
 	updated_at_ms: number,
+};
+
+/**
+ *  One line from the Node host's stdout (a JSON protocol message), or the
+ *  synthetic `{"type":"host_exit"}` emitted when the child dies, so the webview
+ *  can fail an in-flight turn instead of hanging.
+ */
+export type AgentHostEvent = {
+	line: string,
 };
 
 export type AgentInstance = {
@@ -763,6 +783,11 @@ export type GlobalSettings = {
 	 *  `Some(_)` = 用户在设置里的显式覆盖。
 	 */
 	social_enabled?: boolean | null,
+	/**
+	 *  整合包助手的 LLM 引擎:`None`/`"openrouter"` = OpenRouter API(默认);
+	 *  `"claude-code"` = 本机安装的 Claude Code(订阅登录,免 API key,经 Node 宿主)。
+	 */
+	agent_provider?: string | null,
 };
 
 /**
@@ -1054,6 +1079,13 @@ export type LobbyStatus = {
 	running: boolean,
 	virtual_ip: string | null,
 	peers: LobbyPeer[],
+};
+
+/**  What the local Claude Code agent path needs, per binary (None = not found). */
+export type LocalRuntimeStatusDto = {
+	claude_code: string | null,
+	node: string | null,
+	pnpm: string | null,
 };
 
 /**  One entry from Mojang's version manifest. */
