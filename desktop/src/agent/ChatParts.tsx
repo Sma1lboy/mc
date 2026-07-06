@@ -130,7 +130,7 @@ export function ActivityGroup({ parts, forceOpen }: { parts: Part[]; forceOpen?:
       <div className="mt-[6px] flex flex-col gap-[4px] border-l-2 border-titlebar pl-[10px]">
         {parts.map((p, i) =>
           isTool(p) ? (
-            <ToolChip key={p.toolCallId} part={p} />
+            <ToolChip key={`${p.toolCallId}-${i}`} part={p} />
           ) : p.type === "reasoning" || p.type === "text" ? (
             // 折进来的中间进度文字 / 思考,以低调样式显示。
             <div key={i} className="whitespace-pre-wrap break-words text-muted text-[12px] leading-[1.6]">

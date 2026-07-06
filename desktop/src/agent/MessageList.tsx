@@ -94,7 +94,7 @@ export function MessageList({
   return (
     <div className="flex flex-col gap-[18px]">
       {messages.map((msg, i) => (
-        <MessageRow key={msg.id} msg={msg} last={i === messages.length - 1} streaming={streaming} />
+        <MessageRow key={`${msg.id}-${i}`} msg={msg} last={i === messages.length - 1} streaming={streaming} />
       ))}
       {pendingReply && (
         <div className="flex justify-start">
