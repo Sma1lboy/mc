@@ -49,6 +49,45 @@ fn rewrite_first_cached_wiki_chunk(dir: &std::path::Path, content: &str) {
     std::fs::write(&cache_path, serde_json::to_vec_pretty(&value).unwrap()).unwrap();
 }
 
+fn write_cached_wiki_project_detail(
+    dir: &std::path::Path,
+    provider: &str,
+    project_id: &str,
+    title: &str,
+    body: &str,
+) {
+    let safe: String = project_id
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    let path = dir
+        .join(".wiki-project-cache")
+        .join(provider)
+        .join("project")
+        .join(format!("{safe}.json"));
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let cached = serde_json::json!({
+        "fetched_at": 4_102_444_800u64,
+        "data": {
+            "id": project_id,
+            "slug": project_id,
+            "title": title,
+            "description": "A cached project description.",
+            "body": body,
+            "downloads": 42,
+            "followers": 7,
+            "icon_url": null,
+            "categories": ["technology"],
+            "gallery": [],
+            "source_url": "https://github.com/example/pack",
+            "issues_url": null,
+            "wiki_url": "https://example.com/wiki",
+            "discord_url": null
+        }
+    });
+    std::fs::write(path, serde_json::to_vec_pretty(&cached).unwrap()).unwrap();
+}
+
 #[tokio::test]
 async fn search_base_modpacks_maps_provider_hits() {
     let provider = FakeChatProvider {
@@ -619,6 +658,288 @@ async fn wiki_search_builds_structured_ftb_quest_chunks_and_matches_typos() {
         .chunk
         .content
         .contains("Quest token: create:crushing_wheel"));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn wiki_search_extracts_structured_recipe_documents_from_mod_jars() {
+    let dir = temp_dir("wiki-mod-jar-recipes");
+    let mods_dir = dir.join("mods");
+    std::fs::create_dir_all(&mods_dir).unwrap();
+    std::fs::write(
+        mods_dir.join("create.jar"),
+        zip_bytes(&[
+            (
+                "assets/create/lang/en_us.json",
+                br#"{
+                    "block.create.andesite_casing": "Andesite Casing",
+                    "item.create.andesite_alloy": "Andesite Alloy"
+                }"#,
+            ),
+            (
+                "data/create/recipes/crafting/andesite_casing.json",
+                br#"{
+                    "type": "minecraft:crafting_shaped",
+                    "pattern": ["PPP", "PAP", "PPP"],
+                    "key": {
+                        "P": { "item": "minecraft:oak_planks" },
+                        "A": { "item": "create:andesite_alloy" }
+                    },
+                    "result": { "item": "create:andesite_casing", "count": 1 }
+                }"#,
+            ),
+        ]),
+    )
+    .unwrap();
+
+    let out = tool_wiki_search(WikiSearchArgs {
+        modpack_id: "create-pack".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        query: "andesite casing recipe".to_string(),
+        top_k: Some(5),
+    })
+    .await
+    .unwrap();
+
+    let hit = out
+        .hits
+        .iter()
+        .find(|hit| hit.kind.as_deref() == Some("recipe"))
+        .expect("recipe JSON inside mod jar should become a structured wiki hit");
+    assert!(hit.title.contains("Andesite Casing"));
+    assert_eq!(hit.source_label, "generated:recipe");
+    assert_eq!(
+        hit.structured
+            .as_ref()
+            .and_then(|value| value.pointer("/result/id"))
+            .and_then(|value| value.as_str()),
+        Some("create:andesite_casing")
+    );
+
+    let opened = tool_wiki_open(WikiOpenArgs {
+        modpack_id: "create-pack".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        chunk_id: hit.chunk_id.clone(),
+    })
+    .await
+    .unwrap();
+    assert_eq!(opened.chunk.kind.as_deref(), Some("recipe"));
+    assert!(opened.chunk.content.contains("kind: recipe"));
+    assert!(opened.chunk.content.contains("create:andesite_alloy"));
+    assert_eq!(
+        opened
+            .chunk
+            .structured
+            .as_ref()
+            .and_then(|value| value.pointer("/result/label"))
+            .and_then(|value| value.as_str()),
+        Some("Andesite Casing")
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn wiki_search_does_not_let_large_lang_files_hide_mod_jar_recipes() {
+    let dir = temp_dir("wiki-mod-jar-lang-budget");
+    let mods_dir = dir.join("mods");
+    std::fs::create_dir_all(&mods_dir).unwrap();
+    let huge_lang = format!(r#"{{"item.create.filler":"{}"}}"#, "x".repeat(240 * 1024));
+    let mut entries: Vec<(String, Vec<u8>)> = (0..10)
+        .map(|idx| {
+            (
+                format!("assets/create/lang/filler_{idx}.json"),
+                huge_lang.as_bytes().to_vec(),
+            )
+        })
+        .collect();
+    entries.push((
+        "assets/create/lang/en_us.json".to_string(),
+        br#"{"item.create.andesite_alloy":"Andesite Alloy"}"#.to_vec(),
+    ));
+    entries.push((
+        "data/create/recipes/crafting/materials/andesite_alloy.json".to_string(),
+        br#"{
+            "type": "minecraft:crafting_shaped",
+            "pattern": ["BA", "AB"],
+            "key": {
+                "A": { "item": "minecraft:andesite" },
+                "B": { "tag": "forge:nuggets/iron" }
+            },
+            "result": { "item": "create:andesite_alloy" }
+        }"#
+        .to_vec(),
+    ));
+    let refs = entries
+        .iter()
+        .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+        .collect::<Vec<_>>();
+    std::fs::write(mods_dir.join("create.jar"), zip_bytes(&refs)).unwrap();
+
+    let out = tool_wiki_search(WikiSearchArgs {
+        modpack_id: "create-pack".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        query: "andesite alloy recipe".to_string(),
+        top_k: Some(5),
+    })
+    .await
+    .unwrap();
+
+    let hit = out
+        .hits
+        .iter()
+        .find(|hit| {
+            hit.kind.as_deref() == Some("recipe")
+                && hit
+                    .structured
+                    .as_ref()
+                    .and_then(|value| value.pointer("/result/id"))
+                    .and_then(|value| value.as_str())
+                    == Some("create:andesite_alloy")
+        })
+        .expect("recipe entries must be indexed even when jar has many large lang files first");
+    assert!(hit.title.contains("Andesite Alloy"));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn wiki_search_keeps_large_tags_searchable_without_huge_structured_payloads() {
+    let dir = temp_dir("wiki-large-tag-payload");
+    let mods_dir = dir.join("mods");
+    std::fs::create_dir_all(&mods_dir).unwrap();
+    let values = (0..300)
+        .map(|idx| format!(r#""example:item_{idx}""#))
+        .collect::<Vec<_>>()
+        .join(",");
+    let tag_json = format!(r#"{{"replace":false,"values":[{values}]}}"#);
+    std::fs::write(
+        mods_dir.join("big-tags.jar"),
+        zip_bytes(&[(
+            "data/minecraft/tags/blocks/mineable/pickaxe.json",
+            tag_json.as_bytes(),
+        )]),
+    )
+    .unwrap();
+
+    let out = tool_wiki_search(WikiSearchArgs {
+        modpack_id: "tag-pack".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        query: "example:item_299".to_string(),
+        top_k: Some(5),
+    })
+    .await
+    .unwrap();
+
+    let hit = out
+        .hits
+        .iter()
+        .find(|hit| hit.kind.as_deref() == Some("tag"))
+        .expect("large tag values should stay searchable");
+    let structured = hit
+        .structured
+        .as_ref()
+        .expect("tag hit has structured data");
+    assert_eq!(
+        structured
+            .get("value_count")
+            .and_then(|value| value.as_u64()),
+        Some(300)
+    );
+    assert_eq!(
+        structured
+            .get("values_truncated")
+            .and_then(|value| value.as_bool()),
+        Some(true)
+    );
+    assert!(
+        structured
+            .get("values")
+            .and_then(|value| value.as_array())
+            .map(|values| values.len())
+            .unwrap_or(usize::MAX)
+            <= 128
+    );
+    assert!(
+        serde_json::to_string(structured).unwrap().len() < 16 * 1024,
+        "large tag structured payload should remain compact"
+    );
+
+    let opened = tool_wiki_open(WikiOpenArgs {
+        modpack_id: "tag-pack".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        chunk_id: hit.chunk_id.clone(),
+    })
+    .await
+    .unwrap();
+    assert!(opened.chunk.content.contains("example:item_299"));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn wiki_search_includes_cached_modpack_project_details() {
+    let dir = temp_dir("wiki-project-docs");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("instance.json"),
+        r#"{
+            "source": {
+                "provider": "modrinth",
+                "project_id": "create-above-and-beyond",
+                "version_id": "v1"
+            }
+        }"#,
+    )
+    .unwrap();
+    write_cached_wiki_project_detail(
+        &dir,
+        "modrinth",
+        "create-above-and-beyond",
+        "Create: Above and Beyond",
+        "This pack has chapter-based automation and kinetic progression.",
+    );
+
+    let out = tool_wiki_search(WikiSearchArgs {
+        modpack_id: "create-above-and-beyond".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        query: "kinetic progression".to_string(),
+        top_k: Some(5),
+    })
+    .await
+    .unwrap();
+
+    let hit = out
+        .hits
+        .iter()
+        .find(|hit| hit.kind.as_deref() == Some("project_doc"))
+        .expect("cached project detail should be indexed as a project doc");
+    assert_eq!(hit.source_label, "generated:project-doc");
+    assert_eq!(
+        hit.structured
+            .as_ref()
+            .and_then(|value| value.pointer("/provider"))
+            .and_then(|value| value.as_str()),
+        Some("modrinth")
+    );
+
+    let opened = tool_wiki_open(WikiOpenArgs {
+        modpack_id: "create-above-and-beyond".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        chunk_id: hit.chunk_id.clone(),
+    })
+    .await
+    .unwrap();
+    assert!(opened.chunk.content.contains("kinetic progression"));
+    assert_eq!(opened.chunk.kind.as_deref(), Some("project_doc"));
 
     let _ = std::fs::remove_dir_all(&dir);
 }

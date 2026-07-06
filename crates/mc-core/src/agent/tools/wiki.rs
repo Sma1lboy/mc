@@ -5,31 +5,39 @@
 //! reads, symlink skipping, stable chunk ids, and cache fingerprinting.
 
 use std::collections::{HashMap, HashSet};
-use std::io::Read;
+use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use futures::future::BoxFuture;
+use mc_types::JsonValue;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::ChatToolError;
 use crate::error::{CoreError, IoResultExt, Result as CoreResult};
 use crate::instance::InstanceConfig;
+use crate::modplatform::modrinth::{ModrinthApi, ProjectDetail};
 use crate::version::pack::PackProfile;
 
 const WIKI_FILE_MAX_BYTES: u64 = 256 * 1024;
-const WIKI_CORPUS_MAX_BYTES: usize = 3 * 1024 * 1024;
-const WIKI_CORPUS_MAX_DOCUMENTS: usize = 800;
+const WIKI_CORPUS_MAX_BYTES: usize = 128 * 1024 * 1024;
+const WIKI_CORPUS_MAX_DOCUMENTS: usize = 50_000;
 const WIKI_ARCHIVE_MAX_BYTES: usize = 512 * 1024;
 const WIKI_ARCHIVE_MAX_ENTRIES: usize = 128;
 const WIKI_SEARCH_DEFAULT_TOP_K: usize = 5;
 const WIKI_SEARCH_MAX_TOP_K: usize = 8;
 const WIKI_CHUNK_MAX_LINES: usize = 80;
 const WIKI_CHUNK_MAX_BYTES: usize = 64 * 1024;
-const WIKI_CORPUS_CACHE_VERSION: u32 = 3;
+const WIKI_CORPUS_CACHE_VERSION: u32 = 6;
 const WIKI_CORPUS_CACHE_FILE: &str = "wiki-corpus.json";
+const WIKI_PROJECT_CACHE_DIR: &str = ".wiki-project-cache";
+const WIKI_PROJECT_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 3600);
+const WIKI_PROJECT_FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
 const INSTANCE_DATA_MAX_ENTRIES: usize = 200;
+const MOD_JAR_ENTRY_MAX_BYTES: u64 = 256 * 1024;
+const TAG_STRUCTURED_VALUES_MAX: usize = 128;
 
 const INSTANCE_DATA_DIRS: &[&str] = &[
     "mods",
@@ -94,6 +102,39 @@ pub struct WikiSourceDocument {
     pub source_label: String,
     pub uri: String,
     pub content: String,
+    pub kind: Option<String>,
+    pub structured: Option<Value>,
+}
+
+impl WikiSourceDocument {
+    fn text(title: String, source_label: String, uri: String, content: String) -> Self {
+        Self {
+            title,
+            source_label,
+            uri,
+            content,
+            kind: None,
+            structured: None,
+        }
+    }
+
+    fn structured(
+        title: String,
+        source_label: String,
+        uri: String,
+        content: String,
+        kind: impl Into<String>,
+        structured: Value,
+    ) -> Self {
+        Self {
+            title,
+            source_label,
+            uri,
+            content,
+            kind: Some(kind.into()),
+            structured: Some(structured),
+        }
+    }
 }
 
 pub trait WikiSource: Send + Sync {
@@ -130,6 +171,11 @@ pub struct WikiChunk {
     pub source_label: String,
     pub location: String,
     pub content: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(type = Option<JsonValue>)]
+    pub structured: Option<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
@@ -140,6 +186,11 @@ pub struct WikiSearchHit {
     pub source_label: String,
     pub location: String,
     pub score: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(type = Option<JsonValue>)]
+    pub structured: Option<Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -215,6 +266,8 @@ impl WikiCorpus {
                     source_label: chunk.source_label.clone(),
                     location: chunk.location.clone(),
                     score,
+                    kind: chunk.kind.clone(),
+                    structured: chunk.structured.clone(),
                 })
             })
             .collect::<Vec<_>>();
@@ -332,12 +385,13 @@ async fn build_wiki_corpus_from_paths(
     source_paths: Vec<PathBuf>,
 ) -> CoreResult<WikiCorpus> {
     let source_count = source_paths.len();
-    tokio::task::spawn_blocking(move || {
-        let documents = read_local_wiki_documents(&source_paths)?;
-        WikiCorpus::from_documents(scope, source_count, documents)
-    })
-    .await
-    .map_err(|err| CoreError::other(format!("wiki corpus build task failed: {err}")))?
+    let local_source_paths = source_paths.clone();
+    let mut documents =
+        tokio::task::spawn_blocking(move || read_local_wiki_documents(&local_source_paths))
+            .await
+            .map_err(|err| CoreError::other(format!("wiki corpus build task failed: {err}")))??;
+    documents.extend(read_project_wiki_documents(&source_paths).await);
+    WikiCorpus::from_documents(scope, source_count, documents)
 }
 
 fn cacheable_wiki_source_path(source_paths: &[PathBuf]) -> Option<&Path> {
@@ -444,7 +498,7 @@ fn write_wiki_corpus_cache(
         source_count: corpus.source_count,
         chunks: corpus.chunks.clone(),
     };
-    let bytes = serde_json::to_vec_pretty(&cache).map_err(|err| CoreError::Parse {
+    let bytes = serde_json::to_vec(&cache).map_err(|err| CoreError::Parse {
         what: "wiki corpus cache".into(),
         source: err,
     })?;
@@ -542,6 +596,186 @@ fn push_fingerprint_entry(root: &Path, path: &Path, entries: &mut Vec<String>) {
     ));
 }
 
+async fn read_project_wiki_documents(source_paths: &[PathBuf]) -> Vec<WikiSourceDocument> {
+    let mut docs = Vec::new();
+    for path in source_paths {
+        if !regular_dir(path) {
+            continue;
+        }
+        match project_wiki_document_from_instance_dir(path).await {
+            Ok(Some(doc)) => docs.push(doc),
+            Ok(None) => {}
+            Err(err) => {
+                tracing::debug!(
+                    error = %err,
+                    path = %path.display(),
+                    "failed to load project wiki document"
+                );
+            }
+        }
+    }
+    docs
+}
+
+async fn project_wiki_document_from_instance_dir(
+    instance_dir: &Path,
+) -> CoreResult<Option<WikiSourceDocument>> {
+    let config_path = instance_dir.join("instance.json");
+    if !regular_file(&config_path) {
+        return Ok(None);
+    }
+    let config = InstanceConfig::load(&config_path)?;
+    let Some(source) = config.source else {
+        return Ok(None);
+    };
+    let provider = source.provider.trim().to_ascii_lowercase();
+    let project_id = source.project_id.trim().to_string();
+    if project_id.is_empty() {
+        return Ok(None);
+    }
+    let cache_dir = instance_dir.join(WIKI_PROJECT_CACHE_DIR);
+    if let Some(detail) = read_cached_project_detail(
+        &cache_dir,
+        &provider,
+        &project_id,
+        Some(WIKI_PROJECT_CACHE_TTL),
+    ) {
+        return Ok(Some(project_detail_document(
+            &provider,
+            &project_id,
+            detail,
+        )));
+    }
+
+    let detail = if provider == "modrinth" && !cfg!(test) {
+        match tokio::time::timeout(
+            WIKI_PROJECT_FETCH_TIMEOUT,
+            ModrinthApi::new().project_details_cached(
+                &project_id,
+                &cache_dir,
+                WIKI_PROJECT_CACHE_TTL,
+            ),
+        )
+        .await
+        {
+            Ok(Ok(detail)) => Some(detail),
+            Ok(Err(err)) => {
+                tracing::debug!(error = %err, project_id = %project_id, "failed to load Modrinth project details");
+                read_cached_project_detail(&cache_dir, &provider, &project_id, None)
+            }
+            Err(_) => {
+                tracing::debug!(project_id = %project_id, "timed out loading Modrinth project details");
+                read_cached_project_detail(&cache_dir, &provider, &project_id, None)
+            }
+        }
+    } else {
+        read_cached_project_detail(&cache_dir, &provider, &project_id, None)
+    };
+
+    Ok(detail.map(|detail| project_detail_document(&provider, &project_id, detail)))
+}
+
+#[derive(Debug, Deserialize)]
+struct CachedWikiProjectDetail {
+    fetched_at: u64,
+    data: ProjectDetail,
+}
+
+fn read_cached_project_detail(
+    cache_dir: &Path,
+    provider: &str,
+    project_id: &str,
+    ttl: Option<std::time::Duration>,
+) -> Option<ProjectDetail> {
+    let safe = safe_project_cache_id(project_id);
+    let path = cache_dir
+        .join(provider)
+        .join("project")
+        .join(format!("{safe}.json"));
+    let bytes = std::fs::read(path).ok()?;
+    let cached: CachedWikiProjectDetail = serde_json::from_slice(&bytes).ok()?;
+    if let Some(ttl) = ttl {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?
+            .as_secs();
+        if now.saturating_sub(cached.fetched_at) >= ttl.as_secs() {
+            return None;
+        }
+    }
+    Some(cached.data)
+}
+
+fn safe_project_cache_id(project_id: &str) -> String {
+    project_id
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect()
+}
+
+fn project_detail_document(
+    provider: &str,
+    project_id: &str,
+    detail: ProjectDetail,
+) -> WikiSourceDocument {
+    let structured = serde_json::json!({
+        "kind": "project_doc",
+        "provider": provider,
+        "project_id": project_id,
+        "title": detail.title,
+        "slug": detail.slug,
+        "description": detail.description,
+        "body": detail.body,
+        "categories": detail.categories,
+        "links": {
+            "source_url": detail.source_url,
+            "issues_url": detail.issues_url,
+            "wiki_url": detail.wiki_url,
+            "discord_url": detail.discord_url,
+        },
+    });
+    let mut lines = vec![
+        "kind: project_doc".to_string(),
+        format!(
+            "title: {}",
+            structured
+                .get("title")
+                .and_then(|value| value.as_str())
+                .unwrap_or(project_id)
+        ),
+        format!("provider: {provider}"),
+        format!("project_id: {project_id}"),
+    ];
+    for key in ["description", "body"] {
+        if let Some(text) = structured.get(key).and_then(|value| value.as_str()) {
+            if !text.trim().is_empty() {
+                lines.push(format!("{key}: {text}"));
+            }
+        }
+    }
+    if let Some(links) = structured.get("links").and_then(|value| value.as_object()) {
+        for (key, value) in links {
+            if let Some(url) = value.as_str().filter(|url| !url.trim().is_empty()) {
+                lines.push(format!("{key}: {url}"));
+            }
+        }
+    }
+    WikiSourceDocument::structured(
+        format!(
+            "Project: {} ({provider}:{project_id})",
+            structured
+                .get("title")
+                .and_then(|value| value.as_str())
+                .unwrap_or(project_id)
+        ),
+        "generated:project-doc".to_string(),
+        format!("generated://project-doc/{provider}/{project_id}"),
+        lines.join("\n"),
+        "project_doc",
+        structured,
+    )
+}
+
 fn read_local_wiki_documents(paths: &[PathBuf]) -> CoreResult<Vec<WikiSourceDocument>> {
     let mut docs = Vec::new();
     let mut total_bytes = 0usize;
@@ -562,6 +796,11 @@ fn read_local_wiki_documents(paths: &[PathBuf]) -> CoreResult<Vec<WikiSourceDocu
                 if let Some(doc) = generated_instance_data_document(path)? {
                     push_bounded_doc(&mut docs, doc, &mut total_bytes);
                 }
+                push_bounded_docs(
+                    &mut docs,
+                    read_structured_gameplay_documents(path)?,
+                    &mut total_bytes,
+                );
                 push_bounded_docs(&mut docs, read_ftb_quest_documents(path)?, &mut total_bytes);
             }
             let mut files = Vec::new();
@@ -679,12 +918,20 @@ fn generated_instance_data_document(path: &Path) -> CoreResult<Option<WikiSource
     if !has_data {
         return Ok(None);
     }
-    Ok(Some(WikiSourceDocument {
-        title: "Current modpack instance data".to_string(),
-        source_label: "generated:instance-data".to_string(),
-        uri: format!("generated://instance-data/{}", path.display()),
-        content: lines.join("\n"),
-    }))
+    Ok(Some(WikiSourceDocument::structured(
+        "Current modpack instance data".to_string(),
+        "generated:instance-data".to_string(),
+        format!("generated://instance-data/{}", path.display()),
+        lines.join("\n"),
+        "instance_data",
+        serde_json::json!({
+            "kind": "instance_data",
+            "source": {
+                "origin": "local",
+                "uri": path.display().to_string(),
+            },
+        }),
+    )))
 }
 
 fn read_ftb_quest_documents(root: &Path) -> CoreResult<Vec<WikiSourceDocument>> {
@@ -709,14 +956,764 @@ fn read_ftb_quest_documents(root: &Path) -> CoreResult<Vec<WikiSourceDocument>> 
         let rel = relative_slash_path(root, &file);
         let mut structured = ftb_quest_documents_from_content(&rel, &content);
         docs.append(&mut structured);
-        docs.push(WikiSourceDocument {
-            title: format!("FTB Quests: {rel}"),
-            source_label: "generated:ftb-quests".to_string(),
-            uri: format!("generated://ftb-quests/{rel}"),
-            content: format!("FTB Quests source file: {rel}\n\n{content}"),
-        });
+        docs.push(WikiSourceDocument::text(
+            format!("FTB Quests: {rel}"),
+            "generated:ftb-quests".to_string(),
+            format!("generated://ftb-quests/{rel}"),
+            format!("FTB Quests source file: {rel}\n\n{content}"),
+        ));
     }
     Ok(docs)
+}
+
+fn read_structured_gameplay_documents(root: &Path) -> CoreResult<Vec<WikiSourceDocument>> {
+    let mut labels = HashMap::new();
+    let mut docs = read_mod_jar_structured_documents(root, &mut labels)?;
+    docs.extend(read_local_data_structured_documents(root, &labels)?);
+    docs.sort_by(|a, b| a.uri.cmp(&b.uri));
+    Ok(docs)
+}
+
+fn read_mod_jar_structured_documents(
+    root: &Path,
+    global_labels: &mut HashMap<String, String>,
+) -> CoreResult<Vec<WikiSourceDocument>> {
+    let mods_dir = root.join("mods");
+    if !regular_dir(&mods_dir) {
+        return Ok(Vec::new());
+    }
+
+    let mut jars = Vec::new();
+    let Ok(read) = std::fs::read_dir(&mods_dir) else {
+        return Ok(Vec::new());
+    };
+    for entry in read.flatten() {
+        let path = entry.path();
+        if regular_file(&path)
+            && path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext.eq_ignore_ascii_case("jar"))
+                .unwrap_or(false)
+        {
+            jars.push(path);
+        }
+    }
+    jars.sort();
+
+    let mut docs = Vec::new();
+    for jar in jars {
+        match read_single_mod_jar_structured_documents(root, &jar, global_labels) {
+            Ok((mut jar_docs, labels)) => {
+                global_labels.extend(labels);
+                docs.append(&mut jar_docs);
+            }
+            Err(err) => {
+                tracing::debug!(
+                    error = %err,
+                    path = %jar.display(),
+                    "skipping unreadable mod jar while indexing wiki"
+                );
+            }
+        }
+    }
+    Ok(docs)
+}
+
+fn read_single_mod_jar_structured_documents(
+    root: &Path,
+    jar_path: &Path,
+    global_labels: &HashMap<String, String>,
+) -> CoreResult<(Vec<WikiSourceDocument>, HashMap<String, String>)> {
+    let file = std::fs::File::open(jar_path).with_path(jar_path)?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|err| CoreError::Zip(err.to_string()))?;
+    let mut lang_entries = Vec::new();
+    let mut recipe_entries = Vec::new();
+    let mut tag_entries = Vec::new();
+    let mut patchouli_entries = Vec::new();
+
+    for index in 0..archive.len() {
+        let Ok(entry) = archive.by_index(index) else {
+            continue;
+        };
+        if entry.is_dir() {
+            continue;
+        }
+        let name = entry.name().to_string();
+        if should_skip_virtual_path(&name) {
+            continue;
+        }
+        if is_lang_entry(&name) {
+            lang_entries.push(name);
+        } else if is_recipe_entry(&name) {
+            recipe_entries.push(name);
+        } else if is_tag_entry(&name) {
+            tag_entries.push(name);
+        } else if is_patchouli_entry(&name) {
+            patchouli_entries.push(name);
+        }
+    }
+
+    let mut local_labels = HashMap::new();
+    for name in preferred_lang_entries(&lang_entries) {
+        if let Some(content) = read_zip_text_by_name(&mut archive, &name) {
+            local_labels.extend(labels_from_lang_json(&content));
+        }
+    }
+
+    let mut labels = global_labels.clone();
+    labels.extend(local_labels.clone());
+    let jar_rel = relative_slash_path(root, jar_path);
+    let mut docs = Vec::new();
+    for name in recipe_entries {
+        let Some(content) = read_zip_text_by_name(&mut archive, &name) else {
+            continue;
+        };
+        let uri = format!("{}!{name}", jar_path.display());
+        if let Some(doc) = recipe_document_from_json(&uri, &jar_rel, &name, &content, &labels) {
+            docs.push(doc);
+        }
+    }
+    for name in tag_entries {
+        let Some(content) = read_zip_text_by_name(&mut archive, &name) else {
+            continue;
+        };
+        let uri = format!("{}!{name}", jar_path.display());
+        if let Some(doc) = tag_document_from_json(&uri, &jar_rel, &name, &content, &labels) {
+            docs.push(doc);
+        }
+    }
+    for name in patchouli_entries {
+        let Some(content) = read_zip_text_by_name(&mut archive, &name) else {
+            continue;
+        };
+        let uri = format!("{}!{name}", jar_path.display());
+        if let Some(doc) = patchouli_document_from_json(&uri, &jar_rel, &name, &content) {
+            docs.push(doc);
+        }
+    }
+    Ok((docs, local_labels))
+}
+
+fn read_local_data_structured_documents(
+    root: &Path,
+    labels: &HashMap<String, String>,
+) -> CoreResult<Vec<WikiSourceDocument>> {
+    let mut files = Vec::new();
+    for rel in ["datapacks", "kubejs/data"] {
+        let dir = root.join(rel);
+        if regular_dir(&dir) {
+            collect_json_files(&dir, &mut files)?;
+        }
+    }
+    files.sort();
+    files.dedup();
+
+    let mut docs = Vec::new();
+    for file in files {
+        let Some(entry_name) = virtual_data_entry_name(root, &file) else {
+            continue;
+        };
+        if !(is_recipe_entry(&entry_name)
+            || is_tag_entry(&entry_name)
+            || is_patchouli_entry(&entry_name))
+        {
+            continue;
+        }
+        let Some(content) = read_text_file_bounded(&file, WIKI_FILE_MAX_BYTES) else {
+            continue;
+        };
+        let uri = file.to_string_lossy().to_string();
+        let source_rel = relative_slash_path(root, &file);
+        if is_recipe_entry(&entry_name) {
+            if let Some(doc) =
+                recipe_document_from_json(&uri, &source_rel, &entry_name, &content, labels)
+            {
+                docs.push(doc);
+            }
+        } else if is_tag_entry(&entry_name) {
+            if let Some(doc) =
+                tag_document_from_json(&uri, &source_rel, &entry_name, &content, labels)
+            {
+                docs.push(doc);
+            }
+        } else if let Some(doc) =
+            patchouli_document_from_json(&uri, &source_rel, &entry_name, &content)
+        {
+            docs.push(doc);
+        }
+    }
+    Ok(docs)
+}
+
+fn preferred_lang_entries(entries: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    for lang in ["en_us", "zh_tw", "zh_cn", "zh_hans"] {
+        let suffix = format!("/{lang}.json");
+        for entry in entries {
+            if entry.ends_with(&suffix) {
+                out.push(entry.clone());
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+fn read_zip_text_by_name<R: Read + Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    name: &str,
+) -> Option<String> {
+    let mut entry = archive.by_name(name).ok()?;
+    if entry.is_dir() {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    (&mut entry)
+        .take(MOD_JAR_ENTRY_MAX_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.len() as u64 > MOD_JAR_ENTRY_MAX_BYTES {
+        return None;
+    }
+    String::from_utf8(bytes).ok()
+}
+
+fn collect_json_files(dir: &Path, files: &mut Vec<PathBuf>) -> CoreResult<()> {
+    let Ok(read) = std::fs::read_dir(dir) else {
+        return Ok(());
+    };
+    for entry in read.flatten() {
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        if kind.is_symlink() {
+            continue;
+        }
+        let path = entry.path();
+        if kind.is_dir() {
+            collect_json_files(&path, files)?;
+        } else if kind.is_file()
+            && path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext.eq_ignore_ascii_case("json"))
+                .unwrap_or(false)
+        {
+            files.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn virtual_data_entry_name(root: &Path, path: &Path) -> Option<String> {
+    let rel = relative_slash_path(root, path);
+    let parts = rel.split('/').collect::<Vec<_>>();
+    let data_index = parts.iter().position(|part| *part == "data")?;
+    Some(parts[data_index..].join("/"))
+}
+
+fn labels_from_lang_json(content: &str) -> HashMap<String, String> {
+    let Ok(value) = serde_json::from_str::<HashMap<String, String>>(content) else {
+        return HashMap::new();
+    };
+    value
+        .into_iter()
+        .filter_map(|(key, label)| translation_key_item_id(&key).map(|id| (id, label)))
+        .collect()
+}
+
+fn translation_key_item_id(key: &str) -> Option<String> {
+    let rest = key
+        .strip_prefix("item.")
+        .or_else(|| key.strip_prefix("block."))?;
+    let (namespace, path) = rest.split_once('.')?;
+    if namespace.is_empty() || path.is_empty() {
+        return None;
+    }
+    Some(format!("{namespace}:{}", path.replace('.', "_")))
+}
+
+fn recipe_document_from_json(
+    uri: &str,
+    source_rel: &str,
+    entry_name: &str,
+    content: &str,
+    labels: &HashMap<String, String>,
+) -> Option<WikiSourceDocument> {
+    let value: Value = serde_json::from_str(content).ok()?;
+    let result = recipe_result_value(&value, labels)?;
+    let result_id = result.get("id")?.as_str()?.to_string();
+    let result_label = result
+        .get("label")
+        .and_then(|value| value.as_str())
+        .unwrap_or(&result_id)
+        .to_string();
+    let recipe_type = value
+        .get("type")
+        .and_then(|value| value.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+    let ingredients = recipe_ingredients_value(&value, labels);
+    let pattern = recipe_pattern_value(&value);
+    let grid = recipe_grid_value(&value, labels);
+    let recipe_id = format!("recipe:{}:{}", result_id, stable_hex(uri));
+    let structured = serde_json::json!({
+        "kind": "recipe",
+        "id": recipe_id,
+        "type": recipe_type,
+        "result": result,
+        "ingredients": ingredients,
+        "pattern": pattern,
+        "grid": grid,
+        "source": {
+            "origin": "local",
+            "type": source_type_for_uri(uri),
+            "uri": uri,
+            "file": source_rel,
+        },
+    });
+    let mut lines = vec![
+        "kind: recipe".to_string(),
+        format!("title: {result_label}"),
+        format!("result: {result_id}"),
+        format!("result_label: {result_label}"),
+        format!("recipe_type: {recipe_type}"),
+        format!("source: {source_rel}"),
+        format!("entry: {entry_name}"),
+    ];
+    for ingredient in collect_ingredient_terms(structured.get("ingredients")) {
+        lines.push(format!("ingredient: {ingredient}"));
+    }
+    if let Some(rows) = pattern.as_array() {
+        for row in rows.iter().filter_map(|row| row.as_str()) {
+            lines.push(format!("pattern: {row}"));
+        }
+    }
+    Some(WikiSourceDocument::structured(
+        format!("Recipe: {result_label} ({result_id})"),
+        "generated:recipe".to_string(),
+        format!("generated://recipe/{entry_name}#{}", stable_hex(uri)),
+        lines.join("\n"),
+        "recipe",
+        structured,
+    ))
+}
+
+fn recipe_result_value(value: &Value, labels: &HashMap<String, String>) -> Option<Value> {
+    let result = value.get("result").or_else(|| value.get("output"))?;
+    let (id, count) = if let Some(id) = result.as_str() {
+        (id.to_string(), 1u64)
+    } else {
+        let object = result.as_object()?;
+        let id = object
+            .get("item")
+            .or_else(|| object.get("id"))
+            .and_then(|value| value.as_str())?
+            .to_string();
+        let count = object
+            .get("count")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(1);
+        (id, count)
+    };
+    Some(serde_json::json!({
+        "id": id,
+        "label": item_label(&id, labels),
+        "count": count,
+    }))
+}
+
+fn recipe_ingredients_value(value: &Value, labels: &HashMap<String, String>) -> Value {
+    if let Some(key) = value.get("key").and_then(|value| value.as_object()) {
+        let mut out = serde_json::Map::new();
+        for (symbol, ingredient) in key {
+            out.insert(symbol.clone(), ingredient_value(ingredient, labels));
+        }
+        return Value::Object(out);
+    }
+    if let Some(items) = value.get("ingredients").and_then(|value| value.as_array()) {
+        return Value::Array(
+            items
+                .iter()
+                .map(|ingredient| ingredient_value(ingredient, labels))
+                .collect(),
+        );
+    }
+    Value::Null
+}
+
+fn recipe_pattern_value(value: &Value) -> Value {
+    value
+        .get("pattern")
+        .and_then(|value| value.as_array())
+        .map(|rows| {
+            Value::Array(
+                rows.iter()
+                    .filter_map(|row| row.as_str())
+                    .map(|row| Value::String(row.to_string()))
+                    .collect(),
+            )
+        })
+        .unwrap_or(Value::Null)
+}
+
+fn recipe_grid_value(value: &Value, labels: &HashMap<String, String>) -> Value {
+    let Some(pattern) = value.get("pattern").and_then(|value| value.as_array()) else {
+        return Value::Null;
+    };
+    let Some(key) = value.get("key").and_then(|value| value.as_object()) else {
+        return Value::Null;
+    };
+    let rows = pattern
+        .iter()
+        .filter_map(|row| row.as_str())
+        .map(|row| {
+            Value::Array(
+                row.chars()
+                    .map(|symbol| {
+                        if symbol == ' ' {
+                            Value::Null
+                        } else {
+                            key.get(&symbol.to_string())
+                                .map(|ingredient| ingredient_value(ingredient, labels))
+                                .unwrap_or(Value::Null)
+                        }
+                    })
+                    .collect(),
+            )
+        })
+        .collect();
+    Value::Array(rows)
+}
+
+fn ingredient_value(value: &Value, labels: &HashMap<String, String>) -> Value {
+    if let Some(id) = value.as_str() {
+        return serde_json::json!({
+            "kind": "item",
+            "id": id,
+            "label": item_label(id, labels),
+        });
+    }
+    if let Some(array) = value.as_array() {
+        return serde_json::json!({
+            "kind": "alternatives",
+            "options": array
+                .iter()
+                .map(|item| ingredient_value(item, labels))
+                .collect::<Vec<_>>(),
+        });
+    }
+    let Some(object) = value.as_object() else {
+        return serde_json::json!({ "kind": "unknown", "raw": value });
+    };
+    if let Some(id) = object
+        .get("item")
+        .or_else(|| object.get("id"))
+        .and_then(|value| value.as_str())
+    {
+        return serde_json::json!({
+            "kind": "item",
+            "id": id,
+            "label": item_label(id, labels),
+        });
+    }
+    if let Some(tag) = object.get("tag").and_then(|value| value.as_str()) {
+        return serde_json::json!({
+            "kind": "tag",
+            "id": format!("#{tag}"),
+            "label": format!("#{tag}"),
+        });
+    }
+    serde_json::json!({ "kind": "unknown", "raw": value })
+}
+
+fn collect_ingredient_terms(value: Option<&Value>) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(value) = value {
+        collect_ingredient_terms_inner(value, &mut out);
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+fn collect_ingredient_terms_inner(value: &Value, out: &mut Vec<String>) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                collect_ingredient_terms_inner(item, out);
+            }
+        }
+        Value::Object(map) => {
+            if let Some(id) = map.get("id").and_then(|value| value.as_str()) {
+                out.push(id.to_string());
+            }
+            if let Some(label) = map.get("label").and_then(|value| value.as_str()) {
+                out.push(label.to_string());
+            }
+            for value in map.values() {
+                collect_ingredient_terms_inner(value, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn tag_document_from_json(
+    uri: &str,
+    source_rel: &str,
+    entry_name: &str,
+    content: &str,
+    labels: &HashMap<String, String>,
+) -> Option<WikiSourceDocument> {
+    let value: Value = serde_json::from_str(content).ok()?;
+    let tag_id = tag_id_from_entry_name(entry_name)?;
+    let values = value
+        .get("values")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let normalized_values = values
+        .into_iter()
+        .filter_map(|value| tag_value(value, labels))
+        .collect::<Vec<_>>();
+    let value_terms = collect_ingredient_terms(Some(&Value::Array(normalized_values.clone())));
+    let value_count = normalized_values.len();
+    let values_truncated = value_count > TAG_STRUCTURED_VALUES_MAX;
+    let structured_values = normalized_values
+        .iter()
+        .take(TAG_STRUCTURED_VALUES_MAX)
+        .cloned()
+        .collect::<Vec<_>>();
+    let structured = serde_json::json!({
+        "kind": "tag",
+        "id": tag_id,
+        "replace": value.get("replace").and_then(|value| value.as_bool()).unwrap_or(false),
+        "value_count": value_count,
+        "values_truncated": values_truncated,
+        "values": structured_values,
+        "source": {
+            "origin": "local",
+            "type": source_type_for_uri(uri),
+            "uri": uri,
+            "file": source_rel,
+        },
+    });
+    let mut lines = vec![
+        "kind: tag".to_string(),
+        format!("title: {tag_id}"),
+        format!("tag: {tag_id}"),
+        format!("source: {source_rel}"),
+        format!("entry: {entry_name}"),
+        format!("value_count: {value_count}"),
+    ];
+    for value in value_terms {
+        lines.push(format!("value: {value}"));
+    }
+    Some(WikiSourceDocument::structured(
+        format!("Tag: {tag_id}"),
+        "generated:tag".to_string(),
+        format!("generated://tag/{entry_name}#{}", stable_hex(uri)),
+        lines.join("\n"),
+        "tag",
+        structured,
+    ))
+}
+
+fn tag_value(value: Value, labels: &HashMap<String, String>) -> Option<Value> {
+    if let Some(id) = value.as_str() {
+        if let Some(tag) = id.strip_prefix('#') {
+            return Some(serde_json::json!({
+                "kind": "tag",
+                "id": format!("#{tag}"),
+                "label": format!("#{tag}"),
+            }));
+        }
+        return Some(serde_json::json!({
+            "kind": "item",
+            "id": id,
+            "label": item_label(id.trim_start_matches('#'), labels),
+        }));
+    }
+    let object = value.as_object()?;
+    let id = object.get("id").and_then(|value| value.as_str())?;
+    if let Some(tag) = id.strip_prefix('#') {
+        return Some(serde_json::json!({
+            "kind": "tag",
+            "id": format!("#{tag}"),
+            "required": object.get("required").and_then(|value| value.as_bool()).unwrap_or(true),
+            "label": format!("#{tag}"),
+        }));
+    }
+    Some(serde_json::json!({
+        "kind": "item",
+        "id": id,
+        "required": object.get("required").and_then(|value| value.as_bool()).unwrap_or(true),
+        "label": item_label(id.trim_start_matches('#'), labels),
+    }))
+}
+
+fn patchouli_document_from_json(
+    uri: &str,
+    source_rel: &str,
+    entry_name: &str,
+    content: &str,
+) -> Option<WikiSourceDocument> {
+    let value: Value = serde_json::from_str(content).ok()?;
+    let title = value
+        .get("name")
+        .or_else(|| value.get("title"))
+        .and_then(|value| value.as_str())
+        .unwrap_or(entry_name)
+        .to_string();
+    let mut text_lines = Vec::new();
+    collect_patchouli_text(&value, &mut text_lines);
+    let structured = serde_json::json!({
+        "kind": "patchouli_page",
+        "title": title,
+        "text": text_lines,
+        "source": {
+            "origin": "local",
+            "type": source_type_for_uri(uri),
+            "uri": uri,
+            "file": source_rel,
+        },
+    });
+    let mut lines = vec![
+        "kind: patchouli_page".to_string(),
+        format!("title: {title}"),
+        format!("source: {source_rel}"),
+        format!("entry: {entry_name}"),
+    ];
+    lines.extend(
+        text_lines
+            .iter()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| format!("text: {line}")),
+    );
+    Some(WikiSourceDocument::structured(
+        format!("Patchouli: {title}"),
+        "generated:patchouli".to_string(),
+        format!("generated://patchouli/{entry_name}#{}", stable_hex(uri)),
+        lines.join("\n"),
+        "patchouli_page",
+        structured,
+    ))
+}
+
+fn collect_patchouli_text(value: &Value, out: &mut Vec<String>) {
+    match value {
+        Value::String(text) => {
+            if !text.trim().is_empty() {
+                out.push(text.clone());
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_patchouli_text(item, out);
+            }
+        }
+        Value::Object(map) => {
+            for key in ["name", "title", "text"] {
+                if let Some(value) = map.get(key) {
+                    collect_patchouli_text(value, out);
+                }
+            }
+            if let Some(pages) = map.get("pages") {
+                collect_patchouli_text(pages, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_lang_entry(name: &str) -> bool {
+    let parts = name.split('/').collect::<Vec<_>>();
+    parts.len() == 4 && parts[0] == "assets" && parts[2] == "lang" && parts[3].ends_with(".json")
+}
+
+fn is_recipe_entry(name: &str) -> bool {
+    let parts = name.split('/').collect::<Vec<_>>();
+    parts.len() >= 4
+        && parts[0] == "data"
+        && matches!(parts[2], "recipe" | "recipes")
+        && parts
+            .last()
+            .map(|part| part.ends_with(".json"))
+            .unwrap_or(false)
+}
+
+fn is_tag_entry(name: &str) -> bool {
+    let parts = name.split('/').collect::<Vec<_>>();
+    parts.len() >= 5
+        && parts[0] == "data"
+        && parts[2] == "tags"
+        && parts
+            .last()
+            .map(|part| part.ends_with(".json"))
+            .unwrap_or(false)
+}
+
+fn is_patchouli_entry(name: &str) -> bool {
+    let parts = name.split('/').collect::<Vec<_>>();
+    parts.len() >= 5
+        && parts[0] == "data"
+        && parts[2] == "patchouli_books"
+        && parts
+            .last()
+            .map(|part| part.ends_with(".json"))
+            .unwrap_or(false)
+}
+
+fn tag_id_from_entry_name(entry_name: &str) -> Option<String> {
+    let parts = entry_name.split('/').collect::<Vec<_>>();
+    if parts.len() < 5 || parts[0] != "data" || parts[2] != "tags" {
+        return None;
+    }
+    let namespace = parts[1];
+    let path = parts[4..].join("/");
+    let path = path.strip_suffix(".json").unwrap_or(&path);
+    Some(format!("#{namespace}:{path}"))
+}
+
+fn source_type_for_uri(uri: &str) -> &'static str {
+    if uri.contains(".jar!") {
+        "mod_jar"
+    } else if uri.contains("/kubejs/") || uri.starts_with("kubejs/") {
+        "kubejs"
+    } else if uri.contains("/datapacks/") || uri.starts_with("datapacks/") {
+        "datapack"
+    } else {
+        "local"
+    }
+}
+
+fn item_label(id: &str, labels: &HashMap<String, String>) -> String {
+    labels
+        .get(id)
+        .cloned()
+        .unwrap_or_else(|| pretty_item_id(id))
+}
+
+fn pretty_item_id(id: &str) -> String {
+    let path = id
+        .trim_start_matches('#')
+        .split_once(':')
+        .map(|(_, path)| path)
+        .unwrap_or(id);
+    path.split(['_', '/', '.'])
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn collect_ftb_quest_files(dir: &Path, files: &mut Vec<PathBuf>) -> CoreResult<()> {
@@ -893,12 +1890,7 @@ fn read_archive_wiki_texts(path: &Path) -> CoreResult<Vec<WikiSourceDocument>> {
 }
 
 fn document_from_parts(uri: String, content: String) -> WikiSourceDocument {
-    WikiSourceDocument {
-        title: uri.clone(),
-        source_label: uri.clone(),
-        uri,
-        content,
-    }
+    WikiSourceDocument::text(uri.clone(), uri.clone(), uri, content)
 }
 
 fn read_text_file_bounded(path: &Path, max_bytes: u64) -> Option<String> {
@@ -957,14 +1949,26 @@ fn ftb_quest_documents_from_content(rel: &str, content: &str) -> Vec<WikiSourceD
 
         lines.push(String::new());
         lines.push("Raw quest source:".to_string());
-        lines.push(block);
+        lines.push(block.clone());
 
-        docs.push(WikiSourceDocument {
-            title: format!("FTB Quest: {title} ({rel})"),
-            source_label: "generated:ftb-quests".to_string(),
-            uri: format!("generated://ftb-quests/{rel}#quest-{marker}"),
-            content: lines.join("\n"),
-        });
+        docs.push(WikiSourceDocument::structured(
+            format!("FTB Quest: {title} ({rel})"),
+            "generated:ftb-quests".to_string(),
+            format!("generated://ftb-quests/{rel}#quest-{marker}"),
+            lines.join("\n"),
+            "quest",
+            serde_json::json!({
+                "kind": "quest",
+                "title": title,
+                "chapter": chapter_title.clone(),
+                "source": {
+                    "origin": "local",
+                    "type": "ftbquests",
+                    "uri": rel,
+                },
+                "raw": block,
+            }),
+        ));
     }
     docs
 }
@@ -1193,6 +2197,8 @@ fn chunk_from_content(
         source_label: doc.source_label.clone(),
         location: format!("lines {start_line}-{end_line}"),
         content: content.to_string(),
+        kind: doc.kind.clone(),
+        structured: doc.structured.clone(),
     }
 }
 
@@ -1344,8 +2350,16 @@ impl SearchText {
 
 fn source_weight(source_label: &str) -> f32 {
     let lower = source_label.to_ascii_lowercase();
-    if lower == "generated:ftb-quests" {
+    if lower == "generated:recipe" {
+        1.55
+    } else if lower == "generated:ftb-quests" {
         1.35
+    } else if lower == "generated:patchouli" {
+        1.3
+    } else if lower == "generated:tag" {
+        1.2
+    } else if lower == "generated:project-doc" {
+        1.05
     } else if lower == "generated:instance-data" {
         0.75
     } else if lower.contains("kubejs") || lower.contains("scripts") {

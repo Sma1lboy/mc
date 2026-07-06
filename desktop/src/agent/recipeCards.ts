@@ -18,6 +18,7 @@ export type RecipeTextSegment =
   | { type: "markdown"; text: string }
   | { type: "recipe_card"; card: RecipeCardData };
 
+const ICON_ID_SEPARATOR = "\u0001";
 const RECIPE_FENCE = /```recipe_card\s*\n([\s\S]*?)\n```/g;
 
 export function parseRecipeCardBlocks(text: string): RecipeTextSegment[] {
@@ -40,6 +41,27 @@ export function parseRecipeCardBlocks(text: string): RecipeTextSegment[] {
   if (!matched) return [{ type: "markdown", text }];
   pushMarkdown(segments, text.slice(cursor));
   return segments;
+}
+
+export function recipeCardIconIds(card: RecipeCardData): string[] {
+  const items: Array<RecipeItem | null | undefined> = [card.result];
+  for (const row of card.grid ?? []) items.push(...row);
+  items.push(...(card.ingredients ?? []));
+  return Array.from(
+    new Set(
+      items
+        .map((item) => item?.id?.trim() ?? "")
+        .filter((id) => id.includes(":") && !id.startsWith("#")),
+    ),
+  );
+}
+
+export function recipeCardIconIdsKey(card: RecipeCardData): string {
+  return recipeCardIconIds(card).join(ICON_ID_SEPARATOR);
+}
+
+export function recipeCardIconIdsFromKey(key: string): string[] {
+  return key ? key.split(ICON_ID_SEPARATOR) : [];
 }
 
 function pushMarkdown(segments: RecipeTextSegment[], text: string): void {

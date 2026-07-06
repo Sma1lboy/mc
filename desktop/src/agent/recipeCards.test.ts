@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseRecipeCardBlocks } from "./recipeCards";
+import { parseRecipeCardBlocks, recipeCardIconIdsKey } from "./recipeCards";
 
 describe("parseRecipeCardBlocks", () => {
   it("extracts recipe_card fenced JSON while preserving surrounding markdown", () => {
@@ -64,5 +64,44 @@ describe("parseRecipeCardBlocks", () => {
     const text = "```recipe_card\n{ nope\n```";
 
     expect(parseRecipeCardBlocks(text)).toEqual([{ type: "markdown", text }]);
+  });
+
+  it("builds a stable icon lookup key for reparsed recipe cards", () => {
+    const text = [
+      "```recipe_card",
+      JSON.stringify({
+        version: 1,
+        type: "crafting_shaped",
+        result: { id: "create:andesite_casing", label: "安山机壳" },
+        grid: [
+          [
+            { id: "#minecraft:planks", label: "任意木板" },
+            { id: "#minecraft:planks", label: "任意木板" },
+            { id: "#minecraft:planks", label: "任意木板" },
+          ],
+          [
+            { id: "#minecraft:planks", label: "任意木板" },
+            { id: "create:andesite_alloy", label: "安山合金" },
+            { id: "#minecraft:planks", label: "任意木板" },
+          ],
+          [
+            { id: "#minecraft:planks", label: "任意木板" },
+            { id: "#minecraft:planks", label: "任意木板" },
+            { id: "#minecraft:planks", label: "任意木板" },
+          ],
+        ],
+      }),
+      "```",
+    ].join("\n");
+
+    const first = parseRecipeCardBlocks(text);
+    const second = parseRecipeCardBlocks(text);
+    if (first[0].type !== "recipe_card" || second[0].type !== "recipe_card") {
+      throw new Error("expected recipe cards");
+    }
+
+    expect(first[0].card).not.toBe(second[0].card);
+    expect(recipeCardIconIdsKey(first[0].card)).toBe(recipeCardIconIdsKey(second[0].card));
+    expect(recipeCardIconIdsKey(first[0].card)).toBe("create:andesite_casing\u0001create:andesite_alloy");
   });
 });

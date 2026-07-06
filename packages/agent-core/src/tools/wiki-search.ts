@@ -4,7 +4,7 @@ import { z } from "zod";
 export const wikiSearch = () =>
   tool({
     description:
-      "Search the current installed modpack's local wiki/config/quest corpus. Use this for questions about the user's current instance, progression, quests, config, included files, or pack-specific behavior. The launcher host injects the current modpack id and local source paths; you only provide the user's query.",
+      "Search the current installed modpack's local gameplay/wiki corpus. Results may include kind + structured data for parsed recipes, quests, tags, Patchouli pages, project docs, configs, and included files. Use this for questions about the user's current instance, progression, recipes, quests, config, included files, or pack-specific behavior. The launcher host injects the current modpack id and local source paths; you only provide the user's query.",
     inputSchema: z
       .object({
         query: z.string().describe("Search terms for the current installed modpack's local corpus."),

@@ -1687,13 +1687,28 @@ export type VersionInstallReport = {
 	blocked?: BlockedFileDto[],
 };
 
-export type WikiChunk = {
+export type WikiChunk = WikiChunk_Serialize | WikiChunk_Deserialize;
+
+export type WikiChunk_Deserialize = {
 	chunk_id: string,
 	document_id: string,
 	title: string,
 	source_label: string,
 	location: string,
 	content: string,
+	kind?: string | null,
+	structured?: JsonValue | null,
+};
+
+export type WikiChunk_Serialize = {
+	chunk_id: string,
+	document_id: string,
+	title: string,
+	source_label: string,
+	location: string,
+	content: string,
+	kind?: string | null,
+	structured?: JsonValue | null,
 };
 
 export type WikiOpenArgs = {
@@ -1708,12 +1723,12 @@ export type WikiOpenOutput = WikiOpenOutput_Serialize | WikiOpenOutput_Deseriali
 
 export type WikiOpenOutput_Deserialize = {
 	scope: WikiScope_Deserialize,
-	chunk: WikiChunk,
+	chunk: WikiChunk_Deserialize,
 };
 
 export type WikiOpenOutput_Serialize = {
 	scope: WikiScope_Serialize,
-	chunk: WikiChunk,
+	chunk: WikiChunk_Serialize,
 };
 
 export type WikiScope = WikiScope_Serialize | WikiScope_Deserialize;
@@ -1739,13 +1754,28 @@ export type WikiSearchArgs = {
 	top_k?: number | null,
 };
 
-export type WikiSearchHit = {
+export type WikiSearchHit = WikiSearchHit_Serialize | WikiSearchHit_Deserialize;
+
+export type WikiSearchHit_Deserialize = {
 	chunk_id: string,
 	title: string,
 	snippet: string,
 	source_label: string,
 	location: string,
 	score: number | null,
+	kind?: string | null,
+	structured?: JsonValue | null,
+};
+
+export type WikiSearchHit_Serialize = {
+	chunk_id: string,
+	title: string,
+	snippet: string,
+	source_label: string,
+	location: string,
+	score: number | null,
+	kind?: string | null,
+	structured?: JsonValue | null,
 };
 
 export type WikiSearchOutput = WikiSearchOutput_Serialize | WikiSearchOutput_Deserialize;
@@ -1753,13 +1783,13 @@ export type WikiSearchOutput = WikiSearchOutput_Serialize | WikiSearchOutput_Des
 export type WikiSearchOutput_Deserialize = {
 	scope: WikiScope_Deserialize,
 	source_count: number,
-	hits: WikiSearchHit[],
+	hits: WikiSearchHit_Deserialize[],
 };
 
 export type WikiSearchOutput_Serialize = {
 	scope: WikiScope_Serialize,
 	source_count: number,
-	hits: WikiSearchHit[],
+	hits: WikiSearchHit_Serialize[],
 };
 
 /**

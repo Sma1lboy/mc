@@ -2,7 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { commands } from "../ipc/bindings";
 import { activeRoot } from "../store";
 import { useChatStore } from "./chatStore";
-import type { RecipeCardData, RecipeItem } from "./recipeCards";
+import {
+  recipeCardIconIdsFromKey,
+  recipeCardIconIdsKey,
+  type RecipeCardData,
+  type RecipeItem,
+} from "./recipeCards";
 import { uniqueSiblingKeys } from "./renderKeys";
 
 type SpectaResult<T> = { status: "ok"; data: T } | { status: "error"; error: string };
@@ -11,7 +16,8 @@ type IconMap = Record<string, string>;
 
 export function RecipeCard({ card }: { card: RecipeCardData }) {
   const wiki = useChatStore((s) => s.toolContext?.wiki ?? null);
-  const ids = useMemo(() => collectResolvableItemIds(card), [card]);
+  const iconIdsKey = useMemo(() => recipeCardIconIdsKey(card), [card]);
+  const ids = useMemo(() => recipeCardIconIdsFromKey(iconIdsKey), [iconIdsKey]);
   const [icons, setIcons] = useState<IconMap>({});
   const root = wiki?.root || activeRoot();
   const instanceId = wiki?.instanceId || "";
@@ -34,7 +40,7 @@ export function RecipeCard({ card }: { card: RecipeCardData }) {
     return () => {
       cancelled = true;
     };
-  }, [ids, instanceId, root]);
+  }, [iconIdsKey, instanceId, root]);
 
   const title = card.title || card.result?.label || card.result?.id || "Recipe";
   const grid = card.grid && card.grid.length > 0 ? normalizeGrid(card.grid) : [];
@@ -122,19 +128,6 @@ function RecipeSlot({
         </span>
       )}
     </div>
-  );
-}
-
-function collectResolvableItemIds(card: RecipeCardData): string[] {
-  const items: Array<RecipeItem | null | undefined> = [card.result];
-  for (const row of card.grid ?? []) items.push(...row);
-  items.push(...(card.ingredients ?? []));
-  return Array.from(
-    new Set(
-      items
-        .map((item) => item?.id?.trim() ?? "")
-        .filter((id) => id.includes(":") && !id.startsWith("#")),
-    ),
   );
 }
 
