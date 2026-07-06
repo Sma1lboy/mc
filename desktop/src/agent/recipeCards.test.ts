@@ -102,6 +102,31 @@ describe("parseRecipeCardBlocks", () => {
 
     expect(first[0].card).not.toBe(second[0].card);
     expect(recipeCardIconIdsKey(first[0].card)).toBe(recipeCardIconIdsKey(second[0].card));
-    expect(recipeCardIconIdsKey(first[0].card)).toBe("create:andesite_casing\u0001create:andesite_alloy");
+    expect(recipeCardIconIdsKey(first[0].card)).toBe(
+      "create:andesite_casing\u0001minecraft:oak_planks\u0001create:andesite_alloy",
+    );
+  });
+
+  it("uses representative item icons for common recipe tags", () => {
+    const parts = parseRecipeCardBlocks([
+      "```recipe_card",
+      JSON.stringify({
+        version: 1,
+        type: "crafting_shaped",
+        result: { id: "create:andesite_alloy", label: "安山合金" },
+        grid: [
+          [
+            { id: "#forge:nuggets/iron", label: "铁粒" },
+            { id: "minecraft:andesite", label: "安山岩" },
+          ],
+        ],
+      }),
+      "```",
+    ].join("\n"));
+    if (parts[0].type !== "recipe_card") throw new Error("expected recipe card");
+
+    expect(recipeCardIconIdsKey(parts[0].card)).toBe(
+      "create:andesite_alloy\u0001minecraft:iron_nugget\u0001minecraft:andesite",
+    );
   });
 });

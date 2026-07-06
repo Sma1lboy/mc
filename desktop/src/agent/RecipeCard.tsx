@@ -5,6 +5,7 @@ import { useChatStore } from "./chatStore";
 import {
   recipeCardIconIdsFromKey,
   recipeCardIconIdsKey,
+  recipeItemIconLookupId,
   type RecipeCardData,
   type RecipeItem,
 } from "./recipeCards";
@@ -141,7 +142,8 @@ function normalizeGrid(grid: Array<Array<RecipeItem | null>>): Array<RecipeItem 
 }
 
 function iconFor(icons: IconMap, item?: RecipeItem | null): string | undefined {
-  return item?.id ? icons[item.id] : undefined;
+  const id = recipeItemIconLookupId(item);
+  return id ? icons[id] : undefined;
 }
 
 function shortLabel(label: string): string {

@@ -11,6 +11,7 @@ use serde::Serialize;
 
 use super::{base64_encode, sniff_image_mime, Instance};
 use crate::error::{CoreError, IoResultExt, Result};
+use crate::version::{InheritNode, VersionHead};
 
 const ICON_MAX_BYTES: usize = 512 * 1024;
 
@@ -39,6 +40,11 @@ pub fn resolve_item_icon(inst: &Instance, item_id: &str) -> Result<Option<ItemIc
     }
     for pack in archive_asset_roots(&inst.resourcepacks_dir())? {
         if let Some(found) = resolve_from_archive(&pack, &query)? {
+            return Ok(Some(found.into_icon(item_id)));
+        }
+    }
+    for jar in version_asset_roots(inst) {
+        if let Some(found) = resolve_from_archive(&jar, &query)? {
             return Ok(Some(found.into_icon(item_id)));
         }
     }
@@ -114,6 +120,26 @@ fn archive_asset_roots(dir: &Path) -> Result<Vec<PathBuf>> {
     }
     out.sort();
     Ok(out)
+}
+
+fn version_asset_roots(inst: &Instance) -> Vec<PathBuf> {
+    let paths = inst.paths();
+    let ids = crate::version::walk_inherits(inst.version_id(), |cur| {
+        let parent = fs::read_to_string(paths.version_json(cur))
+            .ok()
+            .and_then(|raw| VersionHead::parse(&raw))
+            .and_then(|head| head.inherits_from);
+        Ok::<_, CoreError>(InheritNode {
+            payload: cur.to_string(),
+            parent,
+        })
+    })
+    .unwrap_or_else(|_| vec![inst.version_id().to_string()]);
+
+    ids.into_iter()
+        .map(|id| paths.version_jar(&id))
+        .filter(|path| path.is_file())
+        .collect()
 }
 
 fn directory_asset_roots(dir: &Path) -> Result<Vec<PathBuf>> {
@@ -423,5 +449,41 @@ mod tests {
         assert!(icon
             .source
             .ends_with("pack/assets/create/textures/item/andesite_casing.png"));
+    }
+
+    #[test]
+    fn resolves_vanilla_item_icon_from_inherited_version_jar() {
+        let temp = TempRoot::new("version-jar");
+        let inst = Instance::new("pack", temp.path.clone());
+        let paths = inst.paths();
+        fs::create_dir_all(paths.version_dir("pack")).unwrap();
+        fs::create_dir_all(paths.version_dir("1.19.2")).unwrap();
+        fs::write(
+            paths.version_json("pack"),
+            r#"{"id":"pack","inheritsFrom":"1.19.2"}"#,
+        )
+        .unwrap();
+        fs::write(paths.version_json("1.19.2"), r#"{"id":"1.19.2"}"#).unwrap();
+        write_zip(
+            &paths.version_jar("1.19.2"),
+            &[
+                (
+                    "assets/minecraft/models/item/iron_nugget.json",
+                    br#"{"parent":"minecraft:item/generated","textures":{"layer0":"minecraft:item/iron_nugget"}}"#,
+                ),
+                ("assets/minecraft/textures/item/iron_nugget.png", PNG),
+            ],
+        );
+
+        let icon = resolve_item_icon(&inst, "minecraft:iron_nugget")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(icon.item_id, "minecraft:iron_nugget");
+        assert_eq!(
+            icon.data_url,
+            format!("data:image/png;base64,{}", base64_encode(PNG))
+        );
+        assert!(icon.source.ends_with("1.19.2.jar"));
     }
 }

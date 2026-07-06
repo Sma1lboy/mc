@@ -19,6 +19,30 @@ export type RecipeTextSegment =
   | { type: "recipe_card"; card: RecipeCardData };
 
 const ICON_ID_SEPARATOR = "\u0001";
+const TAG_ICON_REPRESENTATIVES: Record<string, string> = {
+  "minecraft:logs": "minecraft:oak_log",
+  "minecraft:planks": "minecraft:oak_planks",
+  "minecraft:stone_crafting_materials": "minecraft:cobblestone",
+  "minecraft:wool": "minecraft:white_wool",
+  "forge:gems/diamond": "minecraft:diamond",
+  "forge:gems/emerald": "minecraft:emerald",
+  "forge:ingots/copper": "minecraft:copper_ingot",
+  "forge:ingots/gold": "minecraft:gold_ingot",
+  "forge:ingots/iron": "minecraft:iron_ingot",
+  "forge:ingots/zinc": "create:zinc_ingot",
+  "forge:nuggets/gold": "minecraft:gold_nugget",
+  "forge:nuggets/iron": "minecraft:iron_nugget",
+  "forge:nuggets/zinc": "create:zinc_nugget",
+  "c:gems/diamond": "minecraft:diamond",
+  "c:gems/emerald": "minecraft:emerald",
+  "c:ingots/copper": "minecraft:copper_ingot",
+  "c:ingots/gold": "minecraft:gold_ingot",
+  "c:ingots/iron": "minecraft:iron_ingot",
+  "c:ingots/zinc": "create:zinc_ingot",
+  "c:nuggets/gold": "minecraft:gold_nugget",
+  "c:nuggets/iron": "minecraft:iron_nugget",
+  "c:nuggets/zinc": "create:zinc_nugget",
+};
 const RECIPE_FENCE = /```recipe_card\s*\n([\s\S]*?)\n```/g;
 
 export function parseRecipeCardBlocks(text: string): RecipeTextSegment[] {
@@ -50,10 +74,17 @@ export function recipeCardIconIds(card: RecipeCardData): string[] {
   return Array.from(
     new Set(
       items
-        .map((item) => item?.id?.trim() ?? "")
-        .filter((id) => id.includes(":") && !id.startsWith("#")),
+        .map(recipeItemIconLookupId)
+        .filter((id): id is string => Boolean(id)),
     ),
   );
+}
+
+export function recipeItemIconLookupId(item: RecipeItem | null | undefined): string | undefined {
+  const id = item?.id?.trim();
+  if (!id || !id.includes(":")) return undefined;
+  if (!id.startsWith("#")) return id;
+  return TAG_ICON_REPRESENTATIVES[id.slice(1).toLowerCase()];
 }
 
 export function recipeCardIconIdsKey(card: RecipeCardData): string {
