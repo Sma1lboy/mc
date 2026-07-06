@@ -3,6 +3,7 @@ import { commands } from "../ipc/bindings";
 import { activeRoot } from "../store";
 import { useChatStore } from "./chatStore";
 import type { RecipeCardData, RecipeItem } from "./recipeCards";
+import { uniqueSiblingKeys } from "./renderKeys";
 
 type SpectaResult<T> = { status: "ok"; data: T } | { status: "error"; error: string };
 
@@ -36,44 +37,48 @@ export function RecipeCard({ card }: { card: RecipeCardData }) {
   }, [ids, instanceId, root]);
 
   const title = card.title || card.result?.label || card.result?.id || "Recipe";
+  const grid = card.grid && card.grid.length > 0 ? normalizeGrid(card.grid) : [];
+  const gridKeys = uniqueSiblingKeys(grid, (item, i) => `slot:${i}:${item?.id ?? item?.label ?? "empty"}`);
+  const ingredientKeys = uniqueSiblingKeys(
+    card.ingredients ?? [],
+    (item) => `ingredient:${item.id ?? item.label ?? "item"}`,
+  );
 
   return (
     <div className="my-[10px] max-w-full overflow-x-auto">
-      <div className="inline-flex min-w-[320px] flex-col gap-[9px] bg-panel-2 shadow-sunken px-[12px] py-[10px]">
-        <div className="flex items-start justify-between gap-[12px]">
-          <div className="min-w-0">
-            <div className="text-[13px] font-semibold leading-[1.3] text-fg break-words">{title}</div>
-            <div className="mt-[2px] text-[10px] uppercase tracking-[0.08em] text-faint">
-              {recipeKindLabel(card.type)}
-            </div>
-          </div>
-          {card.result && <RecipeSlot item={card.result} icon={iconFor(icons, card.result)} result />}
+      <div className="mc-recipe-card">
+        <div className="mc-recipe-title">
+          <span className="mc-recipe-name">{title}</span>
+          <span className="mc-recipe-kind">{recipeKindLabel(card.type)}</span>
         </div>
 
-        {card.grid && card.grid.length > 0 ? (
-          <div className="flex items-center gap-[10px]">
-            <div className="grid grid-cols-3 gap-[3px]">
-              {normalizeGrid(card.grid).map((item, i) => (
-                <RecipeSlot key={i} item={item} icon={iconFor(icons, item)} />
+        {grid.length > 0 ? (
+          <div className="mc-recipe-workbench">
+            <div className="mc-recipe-grid" aria-label="Crafting grid">
+              {grid.map((item, i) => (
+                <RecipeSlot key={gridKeys[i]} item={item} icon={iconFor(icons, item)} />
               ))}
             </div>
             {card.result && (
               <>
-                <div className="text-[18px] leading-none text-muted">-&gt;</div>
+                <div className="mc-recipe-arrow" aria-hidden="true">
+                  <span />
+                </div>
                 <RecipeSlot item={card.result} icon={iconFor(icons, card.result)} result />
               </>
             )}
           </div>
         ) : (
-          <div className="flex flex-wrap gap-[4px]">
+          <div className="mc-recipe-ingredients">
             {(card.ingredients ?? []).map((item, i) => (
-              <RecipeSlot key={`${item.id ?? item.label ?? "item"}-${i}`} item={item} icon={iconFor(icons, item)} />
+              <RecipeSlot key={ingredientKeys[i]} item={item} icon={iconFor(icons, item)} />
             ))}
+            {card.result && <RecipeSlot item={card.result} icon={iconFor(icons, card.result)} result />}
           </div>
         )}
 
         {card.source_chunk_ids && card.source_chunk_ids.length > 0 && (
-          <div className="border-t border-titlebar pt-[6px] text-[10px] leading-[1.4] text-faint">
+          <div className="mc-recipe-source">
             {card.source_chunk_ids.join(" · ")}
           </div>
         )}
@@ -95,26 +100,24 @@ function RecipeSlot({
   return (
     <div
       title={label}
-      className={`relative flex shrink-0 items-center justify-center overflow-hidden bg-panel shadow-input ${
-        result ? "h-[48px] w-[48px]" : "h-[42px] w-[42px]"
-      }`}
+      className={result ? "mc-recipe-slot mc-recipe-slot-result" : "mc-recipe-slot"}
     >
       {item ? (
         icon ? (
           <img
             src={icon}
             alt={label}
-            className="h-[30px] w-[30px] object-contain [image-rendering:pixelated]"
+            className="mc-recipe-icon"
             draggable={false}
           />
         ) : (
-          <span className="px-[3px] text-center text-[9px] font-medium leading-[1.1] text-sub break-words">
+          <span className="mc-recipe-fallback">
             {shortLabel(label)}
           </span>
         )
       ) : null}
       {item?.count && item.count > 1 && (
-        <span className="absolute bottom-[2px] right-[3px] text-[10px] font-semibold leading-none text-fg drop-shadow">
+        <span className="mc-recipe-count">
           {item.count}
         </span>
       )}

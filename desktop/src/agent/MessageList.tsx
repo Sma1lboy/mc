@@ -4,6 +4,7 @@ import { t } from "../i18n";
 import { AskUserOptions, ASK_USER_TOOL_TYPE } from "./AskUserOptions";
 import { ModpackCard, SHOW_MODPACK_TOOL_TYPE } from "./ModpackCard";
 import { AssistantText, ActivityGroup, isActivity, isTool } from "./ChatParts";
+import { chatMessageKeys, chatPartKeys } from "./renderKeys";
 
 /**
  * MessageList / MessageRow —— 组装聊天消息流(store-coupled:一条 ask_user 会经
@@ -51,16 +52,17 @@ export function MessageRow({
       <ActivityGroup key="act" parts={msg.parts.slice(0, lastActivity + 1)} forceOpen={last && streaming} />,
     );
   }
+  const partKeys = chatPartKeys(msg.parts);
   for (let i = lastActivity + 1; i < msg.parts.length; i++) {
     const part = msg.parts[i];
     if (part.type === "text") {
       nodes.push(
-        <AssistantText key={i} text={part.text} live={last && streaming && i === msg.parts.length - 1} />,
+        <AssistantText key={partKeys[i]} text={part.text} live={last && streaming && i === msg.parts.length - 1} />,
       );
     } else if (isTool(part) && part.type === ASK_USER_TOOL_TYPE) {
-      nodes.push(<AskUserOptions key={i} msgId={msg.id} part={part} globalStreaming={streaming} />);
+      nodes.push(<AskUserOptions key={partKeys[i]} msgId={msg.id} part={part} globalStreaming={streaming} />);
     } else if (isTool(part) && part.type === SHOW_MODPACK_TOOL_TYPE) {
-      nodes.push(<ModpackCard key={i} msgId={msg.id} part={part} globalStreaming={streaming} />);
+      nodes.push(<ModpackCard key={partKeys[i]} msgId={msg.id} part={part} globalStreaming={streaming} />);
     }
   }
 
@@ -91,10 +93,11 @@ export function MessageList({
   // 独立的「思考中…」行,免得空窗期什么都不显示。
   const pendingReply =
     streaming && (messages.length === 0 || messages[messages.length - 1].role === "user");
+  const messageKeys = chatMessageKeys(messages);
   return (
     <div className="flex flex-col gap-[18px]">
       {messages.map((msg, i) => (
-        <MessageRow key={`${msg.id}-${i}`} msg={msg} last={i === messages.length - 1} streaming={streaming} />
+        <MessageRow key={messageKeys[i]} msg={msg} last={i === messages.length - 1} streaming={streaming} />
       ))}
       {pendingReply && (
         <div className="flex justify-start">
