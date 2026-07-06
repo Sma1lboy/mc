@@ -14,6 +14,8 @@ import { buildModpack } from "./build-modpack";
 import { showModpack } from "./show-modpack";
 import { listInstances } from "./list-instances";
 import { askUserQuestion } from "./ask-user-question";
+import { wikiSearch } from "./wiki-search";
+import { wikiOpen } from "./wiki-open";
 
 export { ASK_USER_TOOL } from "./ask-user-question";
 export { SHOW_MODPACK_TOOL } from "./show-modpack";
@@ -32,6 +34,8 @@ export function buildTools(): ToolSet {
     build_modpack: buildModpack(),
     show_modpack: showModpack(),
     list_instances: listInstances(),
+    wiki_search: wikiSearch(),
+    wiki_open: wikiOpen(),
     ask_user_question: askUserQuestion(),
   };
 }

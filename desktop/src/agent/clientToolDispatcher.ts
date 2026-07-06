@@ -1,5 +1,6 @@
 import { commands } from "../ipc/bindings";
 import { activeRoot } from "../store";
+import type { AgentToolContext, AgentWikiContext } from "./chatStore";
 
 type SpectaResult<T> = { status: "ok"; data: T } | { status: "error"; error: string };
 
@@ -23,9 +24,15 @@ const AUTO_TOOL_NAMES = new Set([
   "resolve_mods",
   "build_modpack",
   "list_instances",
+  "wiki_search",
+  "wiki_open",
 ]);
 
-export function runLauncherClientTool(name: string, args: unknown): Promise<unknown> {
+export function runLauncherClientTool(
+  name: string,
+  args: unknown,
+  context: AgentToolContext | null = null,
+): Promise<unknown> {
   switch (name) {
     case "search_base_modpacks":
       return unwrap(commands.agentToolSearchBaseModpacks(args as never));
@@ -41,7 +48,55 @@ export function runLauncherClientTool(name: string, args: unknown): Promise<unkn
       return unwrap(commands.agentToolBuildModpack(args as never));
     case "list_instances":
       return unwrap(commands.agentToolListInstances(activeRoot()));
+    case "wiki_search":
+      return unwrap(commands.agentToolWikiSearch(wikiRoot(context), wikiSearchArgs(args, context)));
+    case "wiki_open":
+      return unwrap(commands.agentToolWikiOpen(wikiRoot(context), wikiOpenArgs(args, context)));
     default:
       return Promise.reject(new Error(`unknown client tool: ${name}`));
   }
+}
+
+function wikiContext(context: AgentToolContext | null): AgentWikiContext {
+  const wiki = context?.wiki;
+  if (!wiki || !wiki.modpackId || !wiki.instanceId || wiki.sourcePaths.length === 0) {
+    throw new Error("wiki tools require an installed instance context");
+  }
+  return wiki;
+}
+
+function wikiRoot(context: AgentToolContext | null): string {
+  return wikiContext(context).root || activeRoot();
+}
+
+function wikiSearchArgs(args: unknown, context: AgentToolContext | null): never {
+  const wiki = wikiContext(context);
+  const input = objectArgs(args);
+  const query = input.query;
+  if (typeof query !== "string" || !query.trim()) throw new Error("wiki_search requires query");
+  const out: Record<string, unknown> = {
+    modpack_id: wiki.modpackId,
+    instance_id: wiki.instanceId,
+    source_paths: wiki.sourcePaths,
+    query,
+  };
+  if (typeof input.top_k === "number") out.top_k = input.top_k;
+  return out as never;
+}
+
+function wikiOpenArgs(args: unknown, context: AgentToolContext | null): never {
+  const wiki = wikiContext(context);
+  const input = objectArgs(args);
+  const chunkId = input.chunk_id;
+  if (typeof chunkId !== "string" || !chunkId.trim()) throw new Error("wiki_open requires chunk_id");
+  return {
+    modpack_id: wiki.modpackId,
+    instance_id: wiki.instanceId,
+    source_paths: wiki.sourcePaths,
+    chunk_id: chunkId,
+  } as never;
+}
+
+function objectArgs(args: unknown): Record<string, unknown> {
+  return args && typeof args === "object" ? (args as Record<string, unknown>) : {};
 }

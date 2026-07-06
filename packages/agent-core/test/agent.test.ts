@@ -71,5 +71,12 @@ describe("runTurn", () => {
       toolSchemas.search_mods.safeParse({ query: "x", mc_version: "1.20.1", loader: "fabric" })
         .success,
     ).toBe(true);
+    // wiki tools expose only model-owned fields; host-owned paths/ids are injected by the launcher.
+    expect(toolSchemas.wiki_search.safeParse({ query: "aether quest", top_k: 3 }).success).toBe(true);
+    expect(toolSchemas.wiki_search.safeParse({ top_k: 3 }).success).toBe(false);
+    expect(toolSchemas.wiki_search.safeParse({ query: "x", source_paths: ["/tmp"] }).success).toBe(false);
+    expect(toolSchemas.wiki_open.safeParse({ chunk_id: "chunk:doc:0:content" }).success).toBe(true);
+    expect(toolSchemas.wiki_open.safeParse({ chunk_id: "x", modpack_id: "pack" }).success).toBe(false);
+    expect(toolSchemas.wiki_open.safeParse({}).success).toBe(false);
   });
 });

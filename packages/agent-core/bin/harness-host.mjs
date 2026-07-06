@@ -51,6 +51,8 @@ const TOOL_NAMES = [
   "resolve_mods",
   "build_modpack",
   "list_instances",
+  "wiki_search",
+  "wiki_open",
   // Client-side tools: the webview's override resolves them with the USER's
   // answer (chips click / install click) — the turn stays open while waiting.
   "ask_user_question",
