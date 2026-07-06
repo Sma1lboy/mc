@@ -4,7 +4,7 @@
 //! local source paths, and this module owns the trust boundary: bounded file
 //! reads, symlink skipping, stable chunk ids, and cache fingerprinting.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -27,7 +27,7 @@ const WIKI_SEARCH_DEFAULT_TOP_K: usize = 5;
 const WIKI_SEARCH_MAX_TOP_K: usize = 8;
 const WIKI_CHUNK_MAX_LINES: usize = 80;
 const WIKI_CHUNK_MAX_BYTES: usize = 64 * 1024;
-const WIKI_CORPUS_CACHE_VERSION: u32 = 2;
+const WIKI_CORPUS_CACHE_VERSION: u32 = 3;
 const WIKI_CORPUS_CACHE_FILE: &str = "wiki-corpus.json";
 const INSTANCE_DATA_MAX_ENTRIES: usize = 200;
 
@@ -199,29 +199,19 @@ impl WikiCorpus {
     }
 
     pub async fn search(&self, query: &str, top_k: usize) -> CoreResult<Vec<WikiSearchHit>> {
-        let terms = search_terms(query);
-        if terms.is_empty() {
+        let query = SearchQuery::parse(query);
+        if query.is_empty() {
             return Ok(Vec::new());
         }
         let mut hits = self
             .chunks
             .iter()
             .filter_map(|chunk| {
-                let content = chunk.content.to_ascii_lowercase();
-                let title = chunk.title.to_ascii_lowercase();
-                let mut score = 0.0_f32;
-                for term in &terms {
-                    if content.contains(term) {
-                        score += 2.0;
-                    }
-                    if title.contains(term) {
-                        score += 1.0;
-                    }
-                }
+                let score = score_chunk(chunk, &query);
                 (score > 0.0).then(|| WikiSearchHit {
                     chunk_id: chunk.chunk_id.clone(),
                     title: chunk.title.clone(),
-                    snippet: snippet_for_terms(&chunk.content, &terms),
+                    snippet: snippet_for_terms(&chunk.content, &query.snippet_terms),
                     source_label: chunk.source_label.clone(),
                     location: chunk.location.clone(),
                     score,
@@ -362,6 +352,14 @@ pub fn wiki_corpus_cache_path(instance_dir: &Path) -> PathBuf {
 }
 
 pub async fn prebuild_wiki_corpus_cache(
+    modpack_id: String,
+    instance_id: Option<String>,
+    instance_dir: &Path,
+) -> CoreResult<()> {
+    refresh_wiki_corpus_cache(modpack_id, instance_id, instance_dir).await
+}
+
+pub async fn refresh_wiki_corpus_cache(
     modpack_id: String,
     instance_id: Option<String>,
     instance_dir: &Path,
@@ -709,6 +707,8 @@ fn read_ftb_quest_documents(root: &Path) -> CoreResult<Vec<WikiSourceDocument>> 
             continue;
         };
         let rel = relative_slash_path(root, &file);
+        let mut structured = ftb_quest_documents_from_content(&rel, &content);
+        docs.append(&mut structured);
         docs.push(WikiSourceDocument {
             title: format!("FTB Quests: {rel}"),
             source_label: "generated:ftb-quests".to_string(),
@@ -917,6 +917,188 @@ fn read_text_file_bounded(path: &Path, max_bytes: u64) -> Option<String> {
     String::from_utf8(bytes).ok()
 }
 
+fn ftb_quest_documents_from_content(rel: &str, content: &str) -> Vec<WikiSourceDocument> {
+    let mut docs = Vec::new();
+    let mut seen = HashSet::new();
+    let chapter_title = first_snbt_string_value(content, "title");
+    for block in snbt_object_blocks(content) {
+        if !looks_like_quest_block(&block) {
+            continue;
+        }
+        let Some(title) = first_snbt_string_value(&block, "title") else {
+            continue;
+        };
+        let marker = stable_hex(&block);
+        if !seen.insert(marker.clone()) {
+            continue;
+        }
+
+        let mut lines = vec![
+            format!("FTB Quests source file: {rel}"),
+            format!("Quest title: {title}"),
+        ];
+        if let Some(chapter) = chapter_title.as_deref().filter(|chapter| *chapter != title) {
+            lines.push(format!("Chapter title: {chapter}"));
+            lines.push(format!("title: \"{chapter}\""));
+        }
+        for value in snbt_string_values_for_key(&block, "subtitle") {
+            lines.push(format!("Quest subtitle: {value}"));
+        }
+        for value in snbt_string_values_for_key(&block, "description") {
+            lines.push(format!("Quest description: {value}"));
+        }
+
+        let mut tokens = symbol_tokens(&block);
+        tokens.sort();
+        tokens.dedup();
+        for token in tokens {
+            lines.push(format!("Quest token: {token}"));
+        }
+
+        lines.push(String::new());
+        lines.push("Raw quest source:".to_string());
+        lines.push(block);
+
+        docs.push(WikiSourceDocument {
+            title: format!("FTB Quest: {title} ({rel})"),
+            source_label: "generated:ftb-quests".to_string(),
+            uri: format!("generated://ftb-quests/{rel}#quest-{marker}"),
+            content: lines.join("\n"),
+        });
+    }
+    docs
+}
+
+fn snbt_object_blocks(content: &str) -> Vec<String> {
+    let mut stack = Vec::new();
+    let mut blocks = Vec::new();
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for (idx, ch) in content.char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            match ch {
+                '\\' => escaped = true,
+                '"' => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+
+        match ch {
+            '"' => in_string = true,
+            '{' => stack.push(idx),
+            '}' => {
+                if let Some(start) = stack.pop() {
+                    blocks.push(content[start..idx + ch.len_utf8()].to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    blocks
+}
+
+fn looks_like_quest_block(block: &str) -> bool {
+    let lower = block.to_ascii_lowercase();
+    lower.contains("title:")
+        && !lower.contains("quests:")
+        && (lower.contains("tasks:")
+            || lower.contains("rewards:")
+            || lower.contains("description:")
+            || lower.contains("item:"))
+}
+
+fn first_snbt_string_value(text: &str, key: &str) -> Option<String> {
+    snbt_string_values_for_key(text, key).into_iter().next()
+}
+
+fn snbt_string_values_for_key(text: &str, key: &str) -> Vec<String> {
+    let lower = text.to_ascii_lowercase();
+    let needle = format!("{}:", key.to_ascii_lowercase());
+    let mut values = Vec::new();
+    let mut offset = 0usize;
+    while let Some(pos) = lower[offset..].find(&needle) {
+        let start = offset + pos + needle.len();
+        let end = value_scan_end(text, start);
+        values.extend(quoted_strings(&text[start..end]));
+        offset = start;
+    }
+    values
+}
+
+fn value_scan_end(text: &str, start: usize) -> usize {
+    let mut end = start;
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut square = 0i32;
+    let mut brace = 0i32;
+    for (rel, ch) in text[start..].char_indices() {
+        end = start + rel + ch.len_utf8();
+        if in_string {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            match ch {
+                '\\' => escaped = true,
+                '"' => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+        match ch {
+            '"' => in_string = true,
+            '[' => square += 1,
+            ']' => square -= 1,
+            '{' => brace += 1,
+            '}' => {
+                if brace == 0 && square == 0 {
+                    return start + rel;
+                }
+                brace -= 1;
+            }
+            '\n' if square <= 0 && brace <= 0 => return start + rel,
+            _ => {}
+        }
+    }
+    end
+}
+
+fn quoted_strings(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut buf = String::new();
+    let mut in_string = false;
+    let mut escaped = false;
+    for ch in text.chars() {
+        if in_string {
+            if escaped {
+                buf.push(ch);
+                escaped = false;
+                continue;
+            }
+            match ch {
+                '\\' => escaped = true,
+                '"' => {
+                    if !buf.trim().is_empty() {
+                        out.push(std::mem::take(&mut buf));
+                    }
+                    in_string = false;
+                }
+                _ => buf.push(ch),
+            }
+        } else if ch == '"' {
+            in_string = true;
+            buf.clear();
+        }
+    }
+    out
+}
+
 fn chunks_from_document(doc: &WikiSourceDocument) -> Vec<WikiChunk> {
     let mut chunks = Vec::new();
     let mut current = Vec::new();
@@ -1018,6 +1200,159 @@ fn stable_hex(input: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(input.as_bytes());
     hex::encode(hasher.finalize())[..16].to_string()
+}
+
+#[derive(Debug, Clone)]
+struct SearchQuery {
+    terms: Vec<String>,
+    special_terms: Vec<String>,
+    normalized_phrase: String,
+    snippet_terms: Vec<String>,
+}
+
+impl SearchQuery {
+    fn parse(input: &str) -> Self {
+        let mut terms = search_terms(input);
+        let mut special_terms = symbol_tokens(input);
+        for special in &special_terms {
+            terms.extend(search_terms(special));
+        }
+        terms.sort();
+        terms.dedup();
+        special_terms.sort();
+        special_terms.dedup();
+        let mut snippet_terms = terms.clone();
+        snippet_terms.extend(special_terms.iter().cloned());
+        snippet_terms.sort();
+        snippet_terms.dedup();
+        Self {
+            terms,
+            special_terms,
+            normalized_phrase: normalize_search_text(input),
+            snippet_terms,
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.terms.is_empty() && self.special_terms.is_empty()
+    }
+}
+
+fn score_chunk(chunk: &WikiChunk, query: &SearchQuery) -> f32 {
+    let title = SearchText::new(&chunk.title);
+    let source = SearchText::new(&format!("{} {}", chunk.source_label, chunk.location));
+    let content = SearchText::new(&chunk.content);
+
+    let mut score = 0.0_f32;
+    if query.normalized_phrase.len() >= 4 {
+        if title.normalized.contains(&query.normalized_phrase) {
+            score += 14.0;
+        }
+        if content.normalized.contains(&query.normalized_phrase) {
+            score += 8.0;
+        }
+    }
+
+    for special in &query.special_terms {
+        let special = special.as_str();
+        if title.lower.contains(special) {
+            score += 9.0;
+        }
+        if content.lower.contains(special) {
+            score += 7.0;
+        }
+        if source.lower.contains(special) {
+            score += 4.0;
+        }
+    }
+
+    for term in &query.terms {
+        score += title.term_score(term, 5.0, 2.5);
+        score += source.term_score(term, 2.0, 1.0);
+        score += content.term_score(term, 1.4, 0.9);
+    }
+
+    if score <= 0.0 {
+        for term in &query.terms {
+            score += title.fuzzy_score(term, 3.0);
+            score += source.fuzzy_score(term, 1.0);
+            score += content.fuzzy_score(term, 0.7);
+        }
+    }
+
+    if score > 0.0 {
+        score *= source_weight(&chunk.source_label);
+    }
+    score
+}
+
+#[derive(Debug)]
+struct SearchText {
+    lower: String,
+    normalized: String,
+    tokens: Vec<String>,
+    counts: HashMap<String, usize>,
+}
+
+impl SearchText {
+    fn new(text: &str) -> Self {
+        let lower = text.to_ascii_lowercase();
+        let normalized = normalize_search_text(text);
+        let mut tokens = search_terms(text);
+        tokens.extend(
+            symbol_tokens(text)
+                .into_iter()
+                .flat_map(|token| search_terms(&token)),
+        );
+        tokens.sort();
+        let mut counts = HashMap::new();
+        for token in &tokens {
+            *counts.entry(token.clone()).or_insert(0) += 1;
+        }
+        tokens.dedup();
+        Self {
+            lower,
+            normalized,
+            tokens,
+            counts,
+        }
+    }
+
+    fn term_score(&self, term: &str, exact_weight: f32, fuzzy_weight: f32) -> f32 {
+        if let Some(count) = self.counts.get(term) {
+            return exact_weight * (*count).min(4) as f32;
+        }
+        self.fuzzy_score(term, fuzzy_weight)
+    }
+
+    fn fuzzy_score(&self, term: &str, weight: f32) -> f32 {
+        if term.len() < 3 {
+            return 0.0;
+        }
+        let best = self
+            .tokens
+            .iter()
+            .map(|candidate| fuzzy_similarity(term, candidate))
+            .fold(0.0_f32, f32::max);
+        if best > 0.66 {
+            weight * (1.0 + (best - 0.66) * 2.0)
+        } else {
+            0.0
+        }
+    }
+}
+
+fn source_weight(source_label: &str) -> f32 {
+    let lower = source_label.to_ascii_lowercase();
+    if lower == "generated:ftb-quests" {
+        1.35
+    } else if lower == "generated:instance-data" {
+        0.75
+    } else if lower.contains("kubejs") || lower.contains("scripts") {
+        1.15
+    } else {
+        1.0
+    }
 }
 
 fn is_allowed_wiki_file(path: &Path) -> CoreResult<bool> {
@@ -1143,6 +1478,96 @@ fn search_terms(query: &str) -> Vec<String> {
         .collect::<Vec<_>>();
     terms.sort();
     terms
+}
+
+fn symbol_tokens(text: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut buf = String::new();
+    for ch in text.chars() {
+        if ch.is_alphanumeric() || matches!(ch, ':' | '_' | '-' | '.' | '/') {
+            buf.push(ch.to_ascii_lowercase());
+        } else {
+            push_symbol_token(&mut tokens, &mut buf);
+        }
+    }
+    push_symbol_token(&mut tokens, &mut buf);
+    tokens
+}
+
+fn push_symbol_token(tokens: &mut Vec<String>, buf: &mut String) {
+    if buf.len() >= 3
+        && buf
+            .chars()
+            .any(|ch| matches!(ch, ':' | '_' | '-' | '.' | '/'))
+        && buf.chars().any(|ch| ch.is_ascii_alphabetic())
+    {
+        tokens.push(std::mem::take(buf));
+    } else {
+        buf.clear();
+    }
+}
+
+fn normalize_search_text(text: &str) -> String {
+    let mut out = String::new();
+    let mut last_space = true;
+    for ch in text.chars() {
+        if ch.is_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+            last_space = false;
+        } else if !last_space {
+            out.push(' ');
+            last_space = true;
+        }
+    }
+    out.trim().to_string()
+}
+
+fn fuzzy_similarity(a: &str, b: &str) -> f32 {
+    if a == b {
+        return 1.0;
+    }
+    if a.len() < 3 || b.len() < 3 {
+        return 0.0;
+    }
+    if is_subsequence(a, b) || is_subsequence(b, a) {
+        return 0.82;
+    }
+    let a_set = trigrams(a);
+    let b_set = trigrams(b);
+    if a_set.is_empty() || b_set.is_empty() {
+        return 0.0;
+    }
+    let intersection = a_set.intersection(&b_set).count() as f32;
+    let union = a_set.union(&b_set).count() as f32;
+    intersection / union
+}
+
+fn trigrams(input: &str) -> HashSet<String> {
+    let chars = input.chars().collect::<Vec<_>>();
+    if chars.len() < 3 {
+        return HashSet::new();
+    }
+    chars
+        .windows(3)
+        .map(|w| w.iter().collect::<String>())
+        .collect()
+}
+
+fn is_subsequence(short: &str, long: &str) -> bool {
+    if short.len() > long.len() {
+        return false;
+    }
+    let mut chars = short.chars();
+    let mut next = chars.next();
+    for ch in long.chars() {
+        if Some(ch) == next {
+            next = chars.next();
+            if next.is_none() {
+                return true;
+            }
+        }
+    }
+    next.is_none()
 }
 
 fn snippet_for_terms(content: &str, terms: &[String]) -> String {

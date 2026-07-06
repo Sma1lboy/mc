@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { UIMessage } from "ai";
 
-import { createModpackAgent, toolSchemas } from "../src/index";
+import { buildTools, createModpackAgent, promptForMode, toolSchemas } from "../src/index";
 import { startMockServer } from "./fixtures/mockOpenRouter.mjs";
 
 const settings = (baseUrl: string) => ({ apiKey: "test", model: "mock", baseUrl });
@@ -78,5 +78,31 @@ describe("runTurn", () => {
     expect(toolSchemas.wiki_open.safeParse({ chunk_id: "chunk:doc:0:content" }).success).toBe(true);
     expect(toolSchemas.wiki_open.safeParse({ chunk_id: "x", modpack_id: "pack" }).success).toBe(false);
     expect(toolSchemas.wiki_open.safeParse({}).success).toBe(false);
+  });
+
+  it("(d) exposes only modpack tools by default", () => {
+    expect(Object.keys(buildTools()).sort()).toEqual([
+      "ask_user_question",
+      "build_modpack",
+      "inspect_base_modpack",
+      "list_instances",
+      "mod_get_detail",
+      "resolve_mods",
+      "search_base_modpacks",
+      "search_mods",
+      "show_modpack",
+    ]);
+  });
+
+  it("(e) exposes only local wiki tools in wiki mode", () => {
+    expect(Object.keys(buildTools("wiki")).sort()).toEqual(["wiki_open", "wiki_search"]);
+  });
+
+  it("(f) uses a wiki-specific system prompt in wiki mode", () => {
+    const prompt = promptForMode("wiki");
+    expect(prompt).toContain("wiki_search");
+    expect(prompt).toContain("wiki_open");
+    expect(prompt).not.toContain("build_modpack");
+    expect(prompt).not.toContain("search_base_modpacks");
   });
 });

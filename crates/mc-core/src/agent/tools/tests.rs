@@ -12,11 +12,12 @@ use super::fake_provider::{
     FakeChatProvider,
 };
 use super::{
-    prebuild_wiki_corpus_cache, tool_build_modpack, tool_inspect_base_modpack, tool_mod_get_detail,
-    tool_resolve_mods, tool_search_base_modpacks, tool_search_mods, tool_wiki_open,
-    tool_wiki_search, wiki_corpus_cache_path, BuildModRef, BuildModpackArgs, BuildTarget,
-    ChatToolsCtx, InspectBaseModpackArgs, LocalPathWikiSource, ModGetDetailArgs, ResolveModsArgs,
-    SearchBaseModpacksArgs, SearchModsArgs, WikiCorpus, WikiOpenArgs, WikiScope, WikiSearchArgs,
+    prebuild_wiki_corpus_cache, refresh_wiki_corpus_cache, tool_build_modpack,
+    tool_inspect_base_modpack, tool_mod_get_detail, tool_resolve_mods, tool_search_base_modpacks,
+    tool_search_mods, tool_wiki_open, tool_wiki_search, wiki_corpus_cache_path, BuildModRef,
+    BuildModpackArgs, BuildTarget, ChatToolsCtx, InspectBaseModpackArgs, LocalPathWikiSource,
+    ModGetDetailArgs, ResolveModsArgs, SearchBaseModpacksArgs, SearchModsArgs, WikiCorpus,
+    WikiOpenArgs, WikiScope, WikiSearchArgs,
 };
 
 // ---------------------------------------------------------------------------
@@ -556,6 +557,73 @@ async fn wiki_search_reads_complete_ftb_quest_sources() {
 }
 
 #[tokio::test]
+async fn wiki_search_builds_structured_ftb_quest_chunks_and_matches_typos() {
+    let dir = temp_dir("wiki-structured-ftb-quest");
+    let quests_dir = dir
+        .join("config")
+        .join("ftbquests")
+        .join("quests")
+        .join("chapters");
+    std::fs::create_dir_all(&quests_dir).unwrap();
+    std::fs::write(
+        quests_dir.join("create_start.snbt"),
+        r#"{
+            title: "Create Start"
+            quests: [{
+                title: "Make a Crushing Wheel"
+                subtitle: "Create automation"
+                description: [
+                    "Craft Andesite Alloy",
+                    "Use Create stress units"
+                ]
+                tasks: [{
+                    type: "item"
+                    item: "create:crushing_wheel"
+                }]
+                rewards: [{ type: "item", item: "minecraft:diamond" }]
+            }]
+        }"#,
+    )
+    .unwrap();
+
+    let out = tool_wiki_search(WikiSearchArgs {
+        modpack_id: "create-pack".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        query: "crushng whl".to_string(),
+        top_k: Some(5),
+    })
+    .await
+    .unwrap();
+
+    let hit = out
+        .hits
+        .first()
+        .expect("typo query should still find the structured quest chunk");
+    assert_eq!(hit.source_label, "generated:ftb-quests");
+    assert!(hit.title.contains("Make a Crushing Wheel"));
+
+    let opened = tool_wiki_open(WikiOpenArgs {
+        modpack_id: "create-pack".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        chunk_id: hit.chunk_id.clone(),
+    })
+    .await
+    .unwrap();
+    assert!(opened
+        .chunk
+        .content
+        .contains("Quest title: Make a Crushing Wheel"));
+    assert!(opened
+        .chunk
+        .content
+        .contains("Quest token: create:crushing_wheel"));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
 async fn wiki_search_and_open_use_valid_corpus_cache() {
     let dir = temp_dir("wiki-cache-hit");
     std::fs::create_dir_all(&dir).unwrap();
@@ -586,6 +654,58 @@ async fn wiki_search_and_open_use_valid_corpus_cache() {
 
     assert_eq!(out.hits.len(), 1);
     assert_eq!(out.hits[0].title, "Cached wiki chunk");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn wiki_refresh_rebuilds_stale_corpus_cache_in_instance_dir() {
+    let dir = temp_dir("wiki-refresh-cache");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("guide.md"), "The old guide mentions copper.").unwrap();
+
+    prebuild_wiki_corpus_cache(
+        "refresh-pack".to_string(),
+        Some("local-instance".to_string()),
+        &dir,
+    )
+    .await
+    .unwrap();
+    rewrite_first_cached_wiki_chunk(&dir, "stale sentinel answer from old cache");
+    std::fs::write(dir.join("guide.md"), "The fresh guide mentions sapphire.").unwrap();
+
+    refresh_wiki_corpus_cache(
+        "refresh-pack".to_string(),
+        Some("local-instance".to_string()),
+        &dir,
+    )
+    .await
+    .unwrap();
+
+    let fresh = tool_wiki_search(WikiSearchArgs {
+        modpack_id: "refresh-pack".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        query: "sapphire".to_string(),
+        top_k: Some(5),
+    })
+    .await
+    .unwrap();
+    assert_eq!(fresh.hits.len(), 1);
+
+    let stale = tool_wiki_search(WikiSearchArgs {
+        modpack_id: "refresh-pack".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        query: "stale sentinel".to_string(),
+        top_k: Some(5),
+    })
+    .await
+    .unwrap();
+    assert!(
+        stale.hits.is_empty(),
+        "manual refresh must replace stale wiki-corpus.json contents"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }

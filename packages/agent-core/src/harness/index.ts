@@ -28,9 +28,9 @@ import { createClaudeCode } from "@ai-sdk/harness-claude-code";
 import { readUIMessageStream } from "ai-v7";
 import type { UIMessage } from "ai";
 
-import { CHAT_AGENT_SYSTEM_PROMPT } from "../prompt";
+import { promptForMode } from "../prompt";
 import { buildTools, ASK_USER_TOOL, SHOW_MODPACK_TOOL } from "../tools";
-import type { ClientToolHandlers } from "../types";
+import type { AgentMode, ClientToolHandlers } from "../types";
 import { runUiMessageTurn, type ModpackAgent, type TurnResult } from "../agent";
 import { createLocalSandbox } from "./local-sandbox";
 
@@ -50,6 +50,8 @@ const CLIENT_TOOLS = [ASK_USER_TOOL, SHOW_MODPACK_TOOL] as const;
 export interface ClaudeCodeEngineOptions {
   /** Anthropic model id for the runtime (defaults to the CLI's own default). */
   model?: string;
+  /** Entry-specific prompt/tool surface. Defaults to the modpack builder. */
+  mode?: AgentMode;
 }
 
 /**
@@ -61,7 +63,8 @@ export function createClaudeCodeModpackAgent(
   handlers: ClientToolHandlers = {},
   options: ClaudeCodeEngineOptions = {},
 ): ModpackAgent & { dispose: () => Promise<void> } {
-  const toolSet = buildTools();
+  const mode = options.mode ?? "modpack";
+  const toolSet = buildTools(mode);
   for (const [name, impl] of Object.entries(handlers)) {
     if (toolSet[name]) toolSet[name] = { ...toolSet[name], execute: (args: unknown) => impl(args) } as never;
   }
@@ -70,7 +73,7 @@ export function createClaudeCodeModpackAgent(
   // them, otherwise the runtime can pause forever waiting for a user action.
   let textFallback = false;
   for (const name of CLIENT_TOOLS) {
-    if (!handlers[name]) {
+    if (toolSet[name] && !handlers[name]) {
       delete toolSet[name];
       textFallback = true;
     }
@@ -83,7 +86,7 @@ export function createClaudeCodeModpackAgent(
     // At runtime both are { description, inputSchema(zod), execute } — the
     // harness reads the zod schema via asSchema, which accepts both.
     tools: toolSet as never,
-    instructions: CHAT_AGENT_SYSTEM_PROMPT + (textFallback ? TEXT_FALLBACK_NOTE : ""),
+    instructions: promptForMode(mode) + (textFallback ? TEXT_FALLBACK_NOTE : ""),
     // Constructor-level activeTools drives builtin-tool filtering: naming only
     // our tools denies the runtime's own coding tools (bash/read/write/…).
     activeTools: Object.keys(toolSet) as never,

@@ -4,6 +4,8 @@ import { Spinner } from "../components";
 import { t } from "../i18n";
 import { ASK_USER_TOOL_TYPE } from "./AskUserOptions";
 import { SHOW_MODPACK_TOOL_TYPE } from "./ModpackCard";
+import { RecipeCard } from "./RecipeCard";
+import { parseRecipeCardBlocks } from "./recipeCards";
 import "./chat.css";
 
 /**
@@ -32,10 +34,17 @@ export const isActivity = (p: Part): boolean =>
 
 /** 助手文本 part:整段交给 Streamdown;live 时尾部显示光标。 */
 export function AssistantText({ text, live }: { text: string; live: boolean }) {
+  const segments = parseRecipeCardBlocks(text);
   return (
     <div className="text-[14px] leading-[1.7] text-fg break-words">
       <Suspense fallback={<div className="chat-md whitespace-pre-wrap">{text}</div>}>
-        <Streamdown className="chat-md">{text}</Streamdown>
+        {segments.map((segment, i) =>
+          segment.type === "recipe_card" ? (
+            <RecipeCard key={i} card={segment.card} />
+          ) : (
+            <Streamdown key={i} className="chat-md">{segment.text}</Streamdown>
+          ),
+        )}
       </Suspense>
       {live && (
         <span className="text-accent animate-pulse select-none" aria-hidden="true">

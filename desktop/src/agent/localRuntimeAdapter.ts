@@ -17,7 +17,7 @@
 
 import { listen } from "@tauri-apps/api/event";
 import type { UIMessage } from "ai";
-import type { ModpackAgent } from "@kobemc/agent-core";
+import type { AgentMode, ModpackAgent } from "@kobemc/agent-core";
 import { commands, type AgentHostEvent } from "../ipc/bindings";
 import { runLauncherClientTool, unwrap } from "./clientToolDispatcher";
 import { registerLocalClientTool, clearLocalClientTools, useChatStore } from "./chatStore";
@@ -35,7 +35,7 @@ interface ActiveTurn {
   finish: (error?: string) => void;
 }
 
-export async function createLocalRuntimeAgent(): Promise<ModpackAgent> {
+export async function createLocalRuntimeAgent(mode: AgentMode = "modpack"): Promise<ModpackAgent> {
   await unwrap(commands.agentHostStart());
 
   let active: ActiveTurn | null = null;
@@ -102,7 +102,7 @@ export async function createLocalRuntimeAgent(): Promise<ModpackAgent> {
     try {
       const error = await new Promise<string | undefined>((resolve, reject) => {
         active = { history, onUpdate, finish: resolve };
-        send({ type: "turn", text, reset }).catch(reject);
+        send({ type: "turn", text, reset, mode }).catch(reject);
       });
       const assistant = active?.assistant;
       const messages = assistant ? [...history, assistant] : history;
