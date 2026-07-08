@@ -117,6 +117,42 @@ fn dotenv_value_from_files(name: &str, paths: &[PathBuf]) -> Option<String> {
 mod tests {
     use super::*;
 
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    const OPENROUTER_TEST_ENV_KEYS: &[&str] = &[
+        OPENROUTER_KEY_ENV,
+        OPENROUTER_BASE_URL_ENV,
+        OPENROUTER_MODEL_ENV,
+        MC_AGENT_OPENROUTER_MODEL_ENV,
+    ];
+
+    struct EnvRestore(Vec<(&'static str, Option<String>)>);
+
+    impl EnvRestore {
+        fn clear(keys: &[&'static str]) -> Self {
+            let values = keys
+                .iter()
+                .map(|key| (*key, std::env::var(key).ok()))
+                .collect::<Vec<_>>();
+            for key in keys {
+                std::env::remove_var(key);
+            }
+            Self(values)
+        }
+    }
+
+    impl Drop for EnvRestore {
+        fn drop(&mut self) {
+            for (key, value) in self.0.drain(..) {
+                if let Some(value) = value {
+                    std::env::set_var(key, value);
+                } else {
+                    std::env::remove_var(key);
+                }
+            }
+        }
+    }
+
     fn temp_data_dir() -> PathBuf {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -130,6 +166,8 @@ mod tests {
 
     #[test]
     fn reads_openrouter_values_from_dotenv_file() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let _env = EnvRestore::clear(OPENROUTER_TEST_ENV_KEYS);
         let dir = temp_data_dir();
         std::fs::create_dir_all(&dir).unwrap();
         let env_file = dir.join(".env");

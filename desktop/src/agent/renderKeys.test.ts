@@ -14,9 +14,9 @@ describe("chat render keys", () => {
 
   it("keeps duplicate chat message ids unique among siblings", () => {
     const keys = chatMessageKeys([
-      { id: "u1", role: "user", parts: [] },
-      { id: "u1", role: "assistant", parts: [] },
-      { id: "u2", role: "assistant", parts: [] },
+      { id: "u1" },
+      { id: "u1" },
+      { id: "u2" },
     ]);
 
     expect(new Set(keys).size).toBe(keys.length);
@@ -26,8 +26,8 @@ describe("chat render keys", () => {
 
   it("keeps duplicate tool call ids unique among activity siblings", () => {
     const keys = chatPartKeys([
-      { type: "tool-wiki_search", toolCallId: "call_1", state: "input-available" },
-      { type: "tool-wiki_search", toolCallId: "call_1", state: "output-available" },
+      { type: "tool-wiki_search", toolCallId: "call_1", state: "input-available", input: {} },
+      { type: "tool-wiki_search", toolCallId: "call_1", state: "output-available", input: {}, output: {} },
       { type: "text", text: "done" },
     ]);
 

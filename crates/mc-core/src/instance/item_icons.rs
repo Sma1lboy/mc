@@ -944,10 +944,7 @@ fn parse_model_ref(raw: &str, default_namespace: &str) -> Option<(String, String
     if raw.is_empty() || raw.contains("..") || raw.starts_with('/') {
         return None;
     }
-    let (namespace, path) = raw
-        .split_once(':')
-        .map(|(ns, path)| (ns, path))
-        .unwrap_or((default_namespace, raw));
+    let (namespace, path) = raw.split_once(':').unwrap_or((default_namespace, raw));
     if namespace.is_empty() || path.is_empty() {
         return None;
     }
@@ -959,10 +956,7 @@ fn parse_texture_ref(raw: &str, default_namespace: &str) -> Option<(String, Stri
     if raw.is_empty() || raw.contains("..") || raw.starts_with('/') {
         return None;
     }
-    let (namespace, path) = raw
-        .split_once(':')
-        .map(|(ns, path)| (ns, path))
-        .unwrap_or((default_namespace, raw));
+    let (namespace, path) = raw.split_once(':').unwrap_or((default_namespace, raw));
     if namespace.is_empty() || path.is_empty() {
         return None;
     }
