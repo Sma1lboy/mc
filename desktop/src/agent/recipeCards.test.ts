@@ -4,7 +4,6 @@ import {
   parseRecipeCardBlocks,
   recipeCardIconIdsKey,
   recipeItemDisplayName,
-  recipeTypeDisplayName,
 } from "./recipeCards";
 
 describe("parseRecipeCardBlocks", () => {
@@ -173,9 +172,7 @@ describe("parseRecipeCardBlocks", () => {
     );
   });
 
-  it("uses user-facing labels instead of namespaced recipe internals", () => {
-    expect(recipeTypeDisplayName("create:sandpaper_polishing")).toBe("砂纸打磨");
-    expect(recipeTypeDisplayName("minecraft:crafting_shapeless")).toBe("无序合成");
+  it("uses user-facing item labels instead of namespaced ids", () => {
     expect(recipeItemDisplayName({
       id: "create:polished_rose_quartz",
       label: "create:polished_rose_quartz",

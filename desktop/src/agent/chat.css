@@ -218,14 +218,6 @@
   white-space: nowrap;
 }
 
-.mc-recipe-kind {
-  flex: 0 0 auto;
-  color: #5b5b5b;
-  font-size: 10px;
-  letter-spacing: 0;
-  line-height: 1;
-}
-
 .mc-recipe-workbench {
   display: flex;
   align-items: center;

@@ -7,7 +7,6 @@ import {
   recipeCardIconIdsKey,
   recipeItemDisplayName,
   recipeItemIconLookupId,
-  recipeTypeDisplayName,
   type RecipeCardData,
   type RecipeItem,
 } from "./recipeCards";
@@ -58,7 +57,6 @@ export function RecipeCard({ card }: { card: RecipeCardData }) {
       <div className="mc-recipe-card">
         <div className="mc-recipe-title">
           <span className="mc-recipe-name">{title}</span>
-          <span className="mc-recipe-kind">{recipeTypeDisplayName(card.type)}</span>
         </div>
 
         {grid.length > 0 ? (
