@@ -103,11 +103,11 @@ describe("parseRecipeCardBlocks", () => {
     expect(first[0].card).not.toBe(second[0].card);
     expect(recipeCardIconIdsKey(first[0].card)).toBe(recipeCardIconIdsKey(second[0].card));
     expect(recipeCardIconIdsKey(first[0].card)).toBe(
-      "create:andesite_casing\u0001minecraft:oak_planks\u0001create:andesite_alloy",
+      "create:andesite_casing\u0001#minecraft:planks\u0001create:andesite_alloy",
     );
   });
 
-  it("uses representative item icons for common recipe tags", () => {
+  it("keeps recipe tags as backend icon lookup ids", () => {
     const parts = parseRecipeCardBlocks([
       "```recipe_card",
       JSON.stringify({
@@ -126,11 +126,11 @@ describe("parseRecipeCardBlocks", () => {
     if (parts[0].type !== "recipe_card") throw new Error("expected recipe card");
 
     expect(recipeCardIconIdsKey(parts[0].card)).toBe(
-      "create:andesite_alloy\u0001minecraft:iron_nugget\u0001minecraft:andesite",
+      "create:andesite_alloy\u0001#forge:nuggets/iron\u0001minecraft:andesite",
     );
   });
 
-  it("uses representative item icons for quartz and redstone recipe tags", () => {
+  it("keeps quartz and redstone tags as backend icon lookup ids", () => {
     const parts = parseRecipeCardBlocks([
       "```recipe_card",
       JSON.stringify({
@@ -147,7 +147,7 @@ describe("parseRecipeCardBlocks", () => {
     if (parts[0].type !== "recipe_card") throw new Error("expected recipe card");
 
     expect(recipeCardIconIdsKey(parts[0].card)).toBe(
-      "create:rose_quartz\u0001minecraft:quartz\u0001minecraft:redstone",
+      "create:rose_quartz\u0001#forge:gems/quartz\u0001#forge:dusts/redstone",
     );
   });
 });
