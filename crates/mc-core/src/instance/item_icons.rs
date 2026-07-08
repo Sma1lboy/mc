@@ -178,15 +178,41 @@ fn resolve_from_dir(root: &Path, query: &ItemQuery) -> Result<Option<FoundIcon>>
 }
 
 fn read_dir_model_texture(assets: &Path, query: &ItemQuery) -> Result<Option<String>> {
-    let model = assets
-        .join("models")
-        .join("item")
-        .join(format!("{}.json", query.path));
+    read_dir_model_texture_ref(
+        assets,
+        &query.namespace,
+        &format!("{}:item/{}", query.namespace, query.path),
+        0,
+    )
+}
+
+fn read_dir_model_texture_ref(
+    assets: &Path,
+    default_namespace: &str,
+    model_ref: &str,
+    depth: usize,
+) -> Result<Option<String>> {
+    if depth > 16 {
+        return Ok(None);
+    }
+    let Some((namespace, model_path)) = parse_model_ref(model_ref, default_namespace) else {
+        return Ok(None);
+    };
+    if namespace != default_namespace {
+        return Ok(None);
+    }
+    let model = assets.join("models").join(format!("{model_path}.json"));
     if !model.exists() {
         return Ok(None);
     }
     let text = fs::read_to_string(&model).with_path(&model)?;
-    Ok(model_texture_ref(&text))
+    if let Some(texture_ref) = model_texture_ref(&text) {
+        return Ok(Some(texture_ref));
+    }
+    let Some(parent) = model_parent_ref(&text) else {
+        return Ok(None);
+    };
+    read_dir_model_texture_ref(assets, &namespace, &parent, depth + 1)
 }
 
 fn read_dir_texture(
@@ -235,11 +261,37 @@ fn read_archive_model_texture<R: Read + Seek>(
     archive: &mut zip::ZipArchive<R>,
     query: &ItemQuery,
 ) -> Result<Option<String>> {
-    let name = format!("assets/{}/models/item/{}.json", query.namespace, query.path);
+    read_archive_model_texture_ref(
+        archive,
+        &query.namespace,
+        &format!("{}:item/{}", query.namespace, query.path),
+        0,
+    )
+}
+
+fn read_archive_model_texture_ref<R: Read + Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    default_namespace: &str,
+    model_ref: &str,
+    depth: usize,
+) -> Result<Option<String>> {
+    if depth > 16 {
+        return Ok(None);
+    }
+    let Some((namespace, model_path)) = parse_model_ref(model_ref, default_namespace) else {
+        return Ok(None);
+    };
+    let name = format!("assets/{namespace}/models/{model_path}.json");
     let Some(text) = read_archive_text(archive, &name)? else {
         return Ok(None);
     };
-    Ok(model_texture_ref(&text))
+    if let Some(texture_ref) = model_texture_ref(&text) {
+        return Ok(Some(texture_ref));
+    }
+    let Some(parent) = model_parent_ref(&text) else {
+        return Ok(None);
+    };
+    read_archive_model_texture_ref(archive, &namespace, &parent, depth + 1)
 }
 
 fn read_archive_texture<R: Read + Seek>(
@@ -263,6 +315,31 @@ fn model_texture_ref(text: &str) -> Option<String> {
         .map(str::trim)
         .filter(|s| !s.is_empty() && !s.starts_with('#'))
         .map(ToOwned::to_owned)
+}
+
+fn model_parent_ref(text: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(text).ok()?;
+    value
+        .get("parent")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && !s.starts_with('#'))
+        .map(ToOwned::to_owned)
+}
+
+fn parse_model_ref(raw: &str, default_namespace: &str) -> Option<(String, String)> {
+    let raw = raw.trim();
+    if raw.is_empty() || raw.contains("..") || raw.starts_with('/') {
+        return None;
+    }
+    let (namespace, path) = raw
+        .split_once(':')
+        .map(|(ns, path)| (ns, path))
+        .unwrap_or((default_namespace, raw));
+    if namespace.is_empty() || path.is_empty() {
+        return None;
+    }
+    Some((namespace.to_string(), path.to_string()))
 }
 
 fn parse_texture_ref(raw: &str, default_namespace: &str) -> Option<(String, String)> {
@@ -480,6 +557,46 @@ mod tests {
             .unwrap();
 
         assert_eq!(icon.item_id, "minecraft:iron_nugget");
+        assert_eq!(
+            icon.data_url,
+            format!("data:image/png;base64,{}", base64_encode(PNG))
+        );
+        assert!(icon.source.ends_with("1.19.2.jar"));
+    }
+
+    #[test]
+    fn resolves_block_item_icon_through_parent_model() {
+        let temp = TempRoot::new("block-item-parent");
+        let inst = Instance::new("pack", temp.path.clone());
+        let paths = inst.paths();
+        fs::create_dir_all(paths.version_dir("pack")).unwrap();
+        fs::create_dir_all(paths.version_dir("1.19.2")).unwrap();
+        fs::write(
+            paths.version_json("pack"),
+            r#"{"id":"pack","inheritsFrom":"1.19.2"}"#,
+        )
+        .unwrap();
+        fs::write(paths.version_json("1.19.2"), r#"{"id":"1.19.2"}"#).unwrap();
+        write_zip(
+            &paths.version_jar("1.19.2"),
+            &[
+                (
+                    "assets/minecraft/models/item/andesite.json",
+                    br#"{"parent":"minecraft:block/andesite"}"#,
+                ),
+                (
+                    "assets/minecraft/models/block/andesite.json",
+                    br#"{"parent":"minecraft:block/cube_all","textures":{"all":"minecraft:block/andesite"}}"#,
+                ),
+                ("assets/minecraft/textures/block/andesite.png", PNG),
+            ],
+        );
+
+        let icon = resolve_item_icon(&inst, "minecraft:andesite")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(icon.item_id, "minecraft:andesite");
         assert_eq!(
             icon.data_url,
             format!("data:image/png;base64,{}", base64_encode(PNG))
