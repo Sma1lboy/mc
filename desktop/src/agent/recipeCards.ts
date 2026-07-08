@@ -11,6 +11,7 @@ export interface RecipeCardData {
   result?: RecipeItem;
   grid?: Array<Array<RecipeItem | null>>;
   ingredients?: RecipeItem[];
+  source_document_ids?: string[];
   source_chunk_ids?: string[];
 }
 
@@ -101,8 +102,10 @@ function parseRecipeCard(json: string): RecipeCardData | null {
   if (grid) card.grid = grid;
   const ingredients = parseItems(input.ingredients);
   if (ingredients.length > 0) card.ingredients = ingredients;
-  const sources = parseStrings(input.source_chunk_ids);
-  if (sources.length > 0) card.source_chunk_ids = sources;
+  const documentSources = parseStrings(input.source_document_ids);
+  const legacyChunkSources = parseStrings(input.source_chunk_ids).map(chunkIdToDocumentId);
+  const sources = uniqueStrings([...documentSources, ...legacyChunkSources]);
+  if (sources.length > 0) card.source_document_ids = sources;
   return card;
 }
 
@@ -149,4 +152,13 @@ function parseStrings(value: unknown): string[] {
   return value
     .map((v) => (typeof v === "string" ? v.trim() : ""))
     .filter(Boolean);
+}
+
+function chunkIdToDocumentId(id: string): string {
+  const parts = id.split(":");
+  return parts[0] === "chunk" && parts[1] ? `doc:${parts[1]}` : id;
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values));
 }

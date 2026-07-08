@@ -181,6 +181,7 @@ pub struct WikiChunk {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 pub struct WikiSearchHit {
     pub chunk_id: String,
+    pub document_id: String,
     pub title: String,
     pub snippet: String,
     pub source_label: String,
@@ -295,6 +296,7 @@ impl WikiCorpus {
                 ) + source_priority_score(chunk);
                 (score > 0.0).then(|| WikiSearchHit {
                     chunk_id: chunk.chunk_id.clone(),
+                    document_id: chunk.document_id.clone(),
                     title: chunk.title.clone(),
                     snippet: snippet_for_terms(&chunk.content, &query.snippet_terms),
                     source_label: chunk.source_label.clone(),

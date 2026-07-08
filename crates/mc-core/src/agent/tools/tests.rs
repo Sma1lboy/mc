@@ -449,6 +449,10 @@ async fn wiki_search_reads_local_text_sources_and_opens_chunks() {
         .iter()
         .find(|hit| hit.source_label.ends_with("the_aether.snbt"))
         .expect("raw quest source should be searchable");
+    assert!(
+        hit.document_id.starts_with("doc:"),
+        "search hits should expose parent document ids for citations"
+    );
     assert!(hit.snippet.contains("Aether portal"));
 
     let opened = tool_wiki_open(WikiOpenArgs {
@@ -461,6 +465,7 @@ async fn wiki_search_reads_local_text_sources_and_opens_chunks() {
     .unwrap();
 
     assert_eq!(opened.chunk.chunk_id, hit.chunk_id);
+    assert_eq!(opened.chunk.document_id, hit.document_id);
     assert!(opened.chunk.content.contains("Glowstone"));
 
     let _ = std::fs::remove_dir_all(&dir);

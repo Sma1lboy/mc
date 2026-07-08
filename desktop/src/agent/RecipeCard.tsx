@@ -84,9 +84,9 @@ export function RecipeCard({ card }: { card: RecipeCardData }) {
           </div>
         )}
 
-        {card.source_chunk_ids && card.source_chunk_ids.length > 0 && (
+        {card.source_document_ids && card.source_document_ids.length > 0 && (
           <div className="mc-recipe-source">
-            {card.source_chunk_ids.join(" · ")}
+            {card.source_document_ids.join(" · ")}
           </div>
         )}
       </div>

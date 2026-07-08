@@ -1762,6 +1762,7 @@ export type WikiSearchHit = WikiSearchHit_Serialize | WikiSearchHit_Deserialize;
 
 export type WikiSearchHit_Deserialize = {
 	chunk_id: string,
+	document_id: string,
 	title: string,
 	snippet: string,
 	source_label: string,
@@ -1773,6 +1774,7 @@ export type WikiSearchHit_Deserialize = {
 
 export type WikiSearchHit_Serialize = {
 	chunk_id: string,
+	document_id: string,
 	title: string,
 	snippet: string,
 	source_label: string,

@@ -30,7 +30,7 @@ describe("parseRecipeCardBlocks", () => {
             { id: "#minecraft:planks", label: "任意木板" },
           ],
         ],
-        source_chunk_ids: ["chunk:quest:0"],
+        source_document_ids: ["doc:quest"],
       }),
       "```",
       "",
@@ -46,7 +46,7 @@ describe("parseRecipeCardBlocks", () => {
       card: {
         title: "安山机壳",
         result: { id: "create:andesite_casing", label: "安山机壳", count: 1 },
-        source_chunk_ids: ["chunk:quest:0"],
+        source_document_ids: ["doc:quest"],
       },
     });
     if (parts[1].type !== "recipe_card") throw new Error("expected recipe card");
@@ -64,6 +64,23 @@ describe("parseRecipeCardBlocks", () => {
     const text = "```recipe_card\n{ nope\n```";
 
     expect(parseRecipeCardBlocks(text)).toEqual([{ type: "markdown", text }]);
+  });
+
+  it("normalizes legacy chunk citations to parent document citations", () => {
+    const parts = parseRecipeCardBlocks([
+      "```recipe_card",
+      JSON.stringify({
+        version: 1,
+        type: "crafting_shaped",
+        result: { id: "create:andesite_casing", label: "安山机壳" },
+        source_chunk_ids: ["chunk:abcd:2:efgh"],
+      }),
+      "```",
+    ].join("\n"));
+
+    if (parts[0].type !== "recipe_card") throw new Error("expected recipe card");
+    expect(parts[0].card.source_document_ids).toEqual(["doc:abcd"]);
+    expect(parts[0].card.source_chunk_ids).toBeUndefined();
   });
 
   it("builds a stable icon lookup key for reparsed recipe cards", () => {

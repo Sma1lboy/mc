@@ -114,6 +114,9 @@ describe("runTurn", () => {
     expect(prompt).toContain('kind: "recipe"');
     expect(prompt).toContain("recipe_override");
     expect(prompt).toContain("Do not fill gaps with vanilla/Create/default knowledge");
+    expect(prompt).toContain("source_document_ids");
+    expect(prompt).not.toContain("source_chunk_ids");
+    expect(prompt).not.toContain("general knowledge as background");
     expect(prompt).not.toContain("build_modpack");
     expect(prompt).not.toContain("search_base_modpacks");
   });
