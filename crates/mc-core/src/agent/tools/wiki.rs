@@ -1947,6 +1947,15 @@ fn recipe_ingredients_value(value: &Value, labels: &HashMap<String, String>) -> 
                 .collect(),
         );
     }
+    let mut out = serde_json::Map::new();
+    for key in ["ingredient", "input", "template", "base", "addition"] {
+        if let Some(ingredient) = value.get(key) {
+            out.insert(key.to_string(), ingredient_value(ingredient, labels));
+        }
+    }
+    if !out.is_empty() {
+        return Value::Object(out);
+    }
     Value::Null
 }
 
