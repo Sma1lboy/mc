@@ -68,9 +68,7 @@ export function RecipeCard({ card }: { card: RecipeCardData }) {
             </div>
             {card.result && (
               <>
-                <div className="mc-recipe-arrow" aria-hidden="true">
-                  <span />
-                </div>
+                <div className="mc-recipe-arrow" aria-hidden="true" />
                 <RecipeSlot item={card.result} icon={iconFor(icons, card.result)} result />
               </>
             )}
