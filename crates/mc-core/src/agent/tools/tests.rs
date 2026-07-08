@@ -1101,6 +1101,78 @@ async fn wiki_search_indexes_kubejs_custom_recipes_with_js_object_syntax() {
 }
 
 #[tokio::test]
+async fn wiki_search_indexes_kubejs_helper_recipes() {
+    let dir = temp_dir("wiki-kubejs-helper-recipes");
+    let scripts_dir = dir.join("kubejs").join("server_scripts");
+    std::fs::create_dir_all(&scripts_dir).unwrap();
+    std::fs::write(
+        scripts_dir.join("recipes.js"),
+        r#"ServerEvents.recipes(event => {
+            event.shaped('create:andesite_casing', [
+                'PPP',
+                'PAP',
+                'PPP'
+            ], {
+                P: '#minecraft:planks',
+                A: 'create:andesite_alloy'
+            })
+            event.shapeless(Item.of('create:andesite_alloy', 2), [
+                'minecraft:andesite',
+                '#forge:nuggets/iron'
+            ])
+            event.smelting('minecraft:iron_nugget', 'minecraft:iron_ore')
+        })"#,
+    )
+    .unwrap();
+
+    for (target_id, ingredient_id, count) in [
+        ("create:andesite_casing", "create:andesite_alloy", 1),
+        ("create:andesite_casing", "#minecraft:planks", 1),
+        ("create:andesite_alloy", "minecraft:andesite", 2),
+        ("create:andesite_alloy", "#forge:nuggets/iron", 2),
+        ("minecraft:iron_nugget", "minecraft:iron_ore", 1),
+    ] {
+        let out = tool_wiki_search(WikiSearchArgs {
+            modpack_id: "create-pack".to_string(),
+            instance_id: Some("local-instance".to_string()),
+            source_paths: vec![dir.to_string_lossy().to_string()],
+            query: " ".to_string(),
+            top_k: Some(5),
+            kind: Some("recipe".to_string()),
+            target_id: Some(target_id.to_string()),
+            ingredient_id: Some(ingredient_id.to_string()),
+            include_structured: Some(true),
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(
+            out.hits.len(),
+            1,
+            "expected KubeJS helper recipe {target_id} to be searchable by {ingredient_id}"
+        );
+        assert_eq!(
+            out.hits[0]
+                .structured
+                .as_ref()
+                .and_then(|value| value.pointer("/source/type"))
+                .and_then(|value| value.as_str()),
+            Some("kubejs")
+        );
+        assert_eq!(
+            out.hits[0]
+                .structured
+                .as_ref()
+                .and_then(|value| value.pointer("/result/count"))
+                .and_then(|value| value.as_u64()),
+            Some(count)
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
 async fn wiki_search_does_not_let_large_lang_files_hide_mod_jar_recipes() {
     let dir = temp_dir("wiki-mod-jar-lang-budget");
     let mods_dir = dir.join("mods");

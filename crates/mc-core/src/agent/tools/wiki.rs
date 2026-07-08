@@ -1335,7 +1335,195 @@ fn kubejs_recipe_documents_from_script(
         }
     }
 
+    for (idx, args) in extract_js_call_arguments(content, "event.shaped")
+        .into_iter()
+        .enumerate()
+    {
+        let Some(json) = kubejs_shaped_recipe_json(&args) else {
+            continue;
+        };
+        let uri = format!("{file_uri}#shaped-{idx}");
+        let entry_name = format!("{source_rel}#shaped-{idx}");
+        if let Some(doc) = recipe_document_from_json(&uri, &source_rel, &entry_name, &json, labels)
+        {
+            docs.push(doc);
+        }
+    }
+
+    for (idx, args) in extract_js_call_arguments(content, "event.shapeless")
+        .into_iter()
+        .enumerate()
+    {
+        let Some(json) = kubejs_shapeless_recipe_json(&args) else {
+            continue;
+        };
+        let uri = format!("{file_uri}#shapeless-{idx}");
+        let entry_name = format!("{source_rel}#shapeless-{idx}");
+        if let Some(doc) = recipe_document_from_json(&uri, &source_rel, &entry_name, &json, labels)
+        {
+            docs.push(doc);
+        }
+    }
+
+    for (marker, recipe_type) in [
+        ("event.smelting", "minecraft:smelting"),
+        ("event.blasting", "minecraft:blasting"),
+        ("event.smoking", "minecraft:smoking"),
+        ("event.campfireCooking", "minecraft:campfire_cooking"),
+        ("event.stonecutting", "minecraft:stonecutting"),
+    ] {
+        for (idx, args) in extract_js_call_arguments(content, marker)
+            .into_iter()
+            .enumerate()
+        {
+            let Some(json) = kubejs_single_input_recipe_json(recipe_type, &args) else {
+                continue;
+            };
+            let suffix = marker.strip_prefix("event.").unwrap_or(marker);
+            let uri = format!("{file_uri}#{suffix}-{idx}");
+            let entry_name = format!("{source_rel}#{suffix}-{idx}");
+            if let Some(doc) =
+                recipe_document_from_json(&uri, &source_rel, &entry_name, &json, labels)
+            {
+                docs.push(doc);
+            }
+        }
+    }
+
     docs
+}
+
+fn kubejs_shaped_recipe_json(args: &str) -> Option<String> {
+    let parts = split_js_arguments(args);
+    let [output, pattern, key, ..] = parts.as_slice() else {
+        return None;
+    };
+    let result = kubejs_result_json_value(output)?;
+    let pattern = parse_kubejs_json_like_value(pattern)?;
+    let key = kubejs_key_json_value(key)?;
+    let recipe = serde_json::json!({
+        "type": "minecraft:crafting_shaped",
+        "pattern": pattern,
+        "key": key,
+        "result": result,
+    });
+    serde_json::to_string(&recipe).ok()
+}
+
+fn kubejs_shapeless_recipe_json(args: &str) -> Option<String> {
+    let parts = split_js_arguments(args);
+    let [output, ingredients, ..] = parts.as_slice() else {
+        return None;
+    };
+    let result = kubejs_result_json_value(output)?;
+    let ingredients = kubejs_ingredient_arg_json_value(ingredients)?;
+    let recipe = serde_json::json!({
+        "type": "minecraft:crafting_shapeless",
+        "ingredients": ingredients,
+        "result": result,
+    });
+    serde_json::to_string(&recipe).ok()
+}
+
+fn kubejs_single_input_recipe_json(recipe_type: &str, args: &str) -> Option<String> {
+    let parts = split_js_arguments(args);
+    let [output, ingredient, ..] = parts.as_slice() else {
+        return None;
+    };
+    let result = kubejs_result_json_value(output)?;
+    let ingredient = kubejs_ingredient_arg_json_value(ingredient)?;
+    let recipe = serde_json::json!({
+        "type": recipe_type,
+        "ingredient": ingredient,
+        "result": result,
+    });
+    serde_json::to_string(&recipe).ok()
+}
+
+fn kubejs_result_json_value(input: &str) -> Option<Value> {
+    if let Some((id, count)) = kubejs_item_of(input) {
+        return Some(serde_json::json!({
+            "item": id,
+            "count": count,
+        }));
+    }
+    match parse_kubejs_json_like_value(input)? {
+        Value::String(id) => Some(serde_json::json!({ "item": id })),
+        Value::Object(map)
+            if map.contains_key("item") || map.contains_key("id") || map.contains_key("count") =>
+        {
+            Some(Value::Object(map))
+        }
+        _ => None,
+    }
+}
+
+fn kubejs_key_json_value(input: &str) -> Option<Value> {
+    let Value::Object(map) = parse_kubejs_json_like_value(input)? else {
+        return None;
+    };
+    let mut out = serde_json::Map::new();
+    for (symbol, ingredient) in map {
+        out.insert(symbol, kubejs_ingredient_json_value(&ingredient)?);
+    }
+    Some(Value::Object(out))
+}
+
+fn kubejs_ingredient_arg_json_value(input: &str) -> Option<Value> {
+    let value = parse_kubejs_json_like_value(input)?;
+    kubejs_ingredient_json_value(&value)
+}
+
+fn kubejs_ingredient_json_value(value: &Value) -> Option<Value> {
+    match value {
+        Value::String(id) => Some(kubejs_ingredient_string_json_value(id)),
+        Value::Array(items) => Some(Value::Array(
+            items
+                .iter()
+                .filter_map(kubejs_ingredient_json_value)
+                .collect(),
+        )),
+        Value::Object(map) => {
+            if let Some(id) = map
+                .get("item")
+                .or_else(|| map.get("id"))
+                .and_then(|value| value.as_str())
+            {
+                return Some(kubejs_ingredient_string_json_value(id));
+            }
+            if map.get("tag").and_then(|value| value.as_str()).is_some() {
+                return Some(Value::Object(map.clone()));
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+fn kubejs_ingredient_string_json_value(id: &str) -> Value {
+    if let Some(tag) = id.strip_prefix('#') {
+        serde_json::json!({ "tag": tag })
+    } else {
+        serde_json::json!({ "item": id })
+    }
+}
+
+fn kubejs_item_of(input: &str) -> Option<(String, u64)> {
+    let input = input.trim();
+    if !input.starts_with("Item.of") {
+        return None;
+    }
+    let open = input.find('(')?;
+    let (_, args) = balanced_delimited(input, open, '(', ')')?;
+    let parts = split_js_arguments(args);
+    let id = parts
+        .first()
+        .and_then(|part| read_js_string_or_bare_value(part))?;
+    let count = parts
+        .get(1)
+        .and_then(|part| part.trim().parse::<u64>().ok())
+        .unwrap_or(1);
+    Some((id, count))
 }
 
 fn kubejs_recipe_override_document(
@@ -1477,6 +1665,11 @@ fn parse_kubejs_json_like_object(input: &str) -> Option<String> {
     Some(json)
 }
 
+fn parse_kubejs_json_like_value(input: &str) -> Option<Value> {
+    let json = normalize_kubejs_object_body(input.trim())?;
+    serde_json::from_str::<Value>(&json).ok()
+}
+
 fn normalize_kubejs_object_body(input: &str) -> Option<String> {
     let chars = input.chars().collect::<Vec<_>>();
     let mut out = String::new();
@@ -1526,6 +1719,50 @@ fn normalize_kubejs_object_body(input: &str) -> Option<String> {
         idx += 1;
     }
     Some(remove_trailing_json_commas(&out))
+}
+
+fn split_js_arguments(input: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut start = 0usize;
+    let mut string_quote: Option<char> = None;
+    let mut escaped = false;
+    let mut paren = 0i32;
+    let mut square = 0i32;
+    let mut brace = 0i32;
+    for (idx, ch) in input.char_indices() {
+        if let Some(quote) = string_quote {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == quote {
+                string_quote = None;
+            }
+            continue;
+        }
+        match ch {
+            '\'' | '"' => string_quote = Some(ch),
+            '(' => paren += 1,
+            ')' => paren -= 1,
+            '[' => square += 1,
+            ']' => square -= 1,
+            '{' => brace += 1,
+            '}' => brace -= 1,
+            ',' if paren == 0 && square == 0 && brace == 0 => {
+                let part = input[start..idx].trim();
+                if !part.is_empty() {
+                    out.push(part.to_string());
+                }
+                start = idx + ch.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    let part = input[start..].trim();
+    if !part.is_empty() {
+        out.push(part.to_string());
+    }
+    out
 }
 
 fn read_js_string_chars(chars: &[char], start: usize) -> Option<(String, usize)> {
