@@ -71,6 +71,38 @@ export function recipeCardIconIdsFromKey(key: string): string[] {
   return key ? key.split(ICON_ID_SEPARATOR) : [];
 }
 
+export function recipeTypeDisplayName(kind: string): string {
+  const normalized = kind.trim();
+  const lower = normalized.toLowerCase();
+  const known: Record<string, string> = {
+    "crafting_shaped": "工作台合成",
+    "minecraft:crafting_shaped": "工作台合成",
+    "crafting_shapeless": "无序合成",
+    "minecraft:crafting_shapeless": "无序合成",
+    "create:sandpaper_polishing": "砂纸打磨",
+    "create:mixing": "搅拌",
+    "create:pressing": "机械压片",
+    "create:cutting": "机械切割",
+    "create:crushing": "粉碎",
+    "create:milling": "研磨",
+    "create:deploying": "机械手装配",
+    "create:filling": "注液",
+    "create:emptying": "排液",
+    "create:compacting": "压块",
+    "create:sequenced_assembly": "序列组装",
+    "create:mechanical_crafting": "机械合成",
+  };
+  return known[lower] ?? prettyNamespacedId(normalized);
+}
+
+export function recipeItemDisplayName(item: RecipeItem | null | undefined): string {
+  const label = item?.label?.trim() ?? "";
+  const id = item?.id?.trim() ?? "";
+  if (label && label !== id) return label;
+  if (id) return prettyNamespacedId(id);
+  return label;
+}
+
 function pushMarkdown(segments: RecipeTextSegment[], text: string): void {
   const trimmed = trimBlankLines(text);
   if (trimmed) segments.push({ type: "markdown", text: trimmed });
@@ -161,4 +193,14 @@ function chunkIdToDocumentId(id: string): string {
 
 function uniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values));
+}
+
+function prettyNamespacedId(id: string): string {
+  return id
+    .trim()
+    .replace(/^#/, "")
+    .split(":")
+    .pop()!
+    .replace(/[_-]+/g, " ")
+    .trim();
 }

@@ -117,6 +117,7 @@ describe("runTurn", () => {
     expect(prompt).toContain("source_document_ids");
     expect(prompt).not.toContain("source_chunk_ids");
     expect(prompt).not.toContain("general knowledge as background");
+    expect(prompt).not.toContain("Cite the document ids");
     expect(prompt).not.toContain("build_modpack");
     expect(prompt).not.toContain("search_base_modpacks");
   });

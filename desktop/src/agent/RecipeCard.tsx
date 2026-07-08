@@ -5,7 +5,9 @@ import { useChatStore } from "./chatStore";
 import {
   recipeCardIconIdsFromKey,
   recipeCardIconIdsKey,
+  recipeItemDisplayName,
   recipeItemIconLookupId,
+  recipeTypeDisplayName,
   type RecipeCardData,
   type RecipeItem,
 } from "./recipeCards";
@@ -43,7 +45,7 @@ export function RecipeCard({ card }: { card: RecipeCardData }) {
     };
   }, [iconIdsKey, instanceId, root]);
 
-  const title = card.title || card.result?.label || card.result?.id || "Recipe";
+  const title = card.title || recipeItemDisplayName(card.result) || "Recipe";
   const grid = card.grid && card.grid.length > 0 ? normalizeGrid(card.grid) : [];
   const gridKeys = uniqueSiblingKeys(grid, (item, i) => `slot:${i}:${item?.id ?? item?.label ?? "empty"}`);
   const ingredientKeys = uniqueSiblingKeys(
@@ -56,7 +58,7 @@ export function RecipeCard({ card }: { card: RecipeCardData }) {
       <div className="mc-recipe-card">
         <div className="mc-recipe-title">
           <span className="mc-recipe-name">{title}</span>
-          <span className="mc-recipe-kind">{recipeKindLabel(card.type)}</span>
+          <span className="mc-recipe-kind">{recipeTypeDisplayName(card.type)}</span>
         </div>
 
         {grid.length > 0 ? (
@@ -83,12 +85,6 @@ export function RecipeCard({ card }: { card: RecipeCardData }) {
             {card.result && <RecipeSlot item={card.result} icon={iconFor(icons, card.result)} result />}
           </div>
         )}
-
-        {card.source_document_ids && card.source_document_ids.length > 0 && (
-          <div className="mc-recipe-source">
-            {card.source_document_ids.join(" · ")}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -103,7 +99,7 @@ function RecipeSlot({
   icon?: string;
   result?: boolean;
 }) {
-  const label = item?.label || item?.id || "";
+  const label = recipeItemDisplayName(item);
   return (
     <div
       title={label}
@@ -148,12 +144,6 @@ function iconFor(icons: IconMap, item?: RecipeItem | null): string | undefined {
 
 function shortLabel(label: string): string {
   return label.replace(/^#/, "").replace(/_/g, " ").slice(0, 18);
-}
-
-function recipeKindLabel(kind: string): string {
-  if (kind === "crafting_shaped") return "Crafting table";
-  if (kind === "crafting_shapeless") return "Shapeless crafting";
-  return kind.replace(/_/g, " ");
 }
 
 async function unwrap<T>(p: Promise<SpectaResult<T>>): Promise<T> {
