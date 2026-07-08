@@ -126,6 +126,7 @@ export default function InstanceDetail() {
   const [confirmDel, setConfirmDel] = useState(false);
   // 导出整合包:选格式弹窗(非空 = 打开)。
   const [exportRow, setExportRow] = useState<InstanceRowData | null>(null);
+  const [wikiReindexing, setWikiReindexing] = useState(false);
 
   // ===== 标签编辑 =====
   // 新标签输入框内容;实例的现有标签直接读 inst().tags(后端单一真相)。
@@ -234,6 +235,7 @@ export default function InstanceDetail() {
           loader: fmtLoader(i.loader) || t("instance.noLoader"),
         }),
         {
+          mode: "wiki",
           wiki: {
             root,
             modpackId: source?.project_id || i.id,
@@ -247,12 +249,27 @@ export default function InstanceDetail() {
     }
   }
 
+  async function rebuildWikiIndex() {
+    const i = inst();
+    if (!i || wikiReindexing) return;
+    setWikiReindexing(true);
+    try {
+      await api.rebuildInstanceWikiIndex(activeRoot(), i.id);
+      toast({ type: "success", message: t("instance.wikiReindexSuccess") });
+    } catch (e) {
+      toast({ type: "error", message: t("instance.wikiReindexFailed", { err: String(e) }) });
+    } finally {
+      setWikiReindexing(false);
+    }
+  }
+
   async function onMenuAction(value: string) {
     const i = inst();
     const row = toRowData();
     if (!i || !row) return;
     if (value === "open") void openInstanceDir(activeRoot(), i.id);
     else if (value === "copy") await copyCurrent();
+    else if (value === "rebuildWiki") await rebuildWikiIndex();
     else if (value === "export") setExportRow(row);
     else if (value === "delete") setConfirmDel(true);
   }
@@ -404,6 +421,9 @@ export default function InstanceDetail() {
                   <Menu.Content>
                     <Menu.Item value="open">{t("instance.openGameDir")}</Menu.Item>
                     <Menu.Item value="copy">{t("instance.copyInstanceItem")}</Menu.Item>
+                    <Menu.Item value="rebuildWiki">
+                      {wikiReindexing ? t("instance.wikiReindexing") : t("instance.rebuildWikiIndex")}
+                    </Menu.Item>
                     <Menu.Item value="export">{t("instance.exportModpack")}</Menu.Item>
                     <Menu.Separator />
                     <Menu.Item value="delete" danger>

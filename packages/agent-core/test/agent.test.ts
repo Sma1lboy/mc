@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { UIMessage } from "ai";
 
-import { createModpackAgent, toolSchemas } from "../src/index";
+import { buildTools, createModpackAgent, promptForMode, toolSchemas } from "../src/index";
 import { startMockServer } from "./fixtures/mockOpenRouter.mjs";
 
 const settings = (baseUrl: string) => ({ apiKey: "test", model: "mock", baseUrl });
@@ -73,10 +73,52 @@ describe("runTurn", () => {
     ).toBe(true);
     // wiki tools expose only model-owned fields; host-owned paths/ids are injected by the launcher.
     expect(toolSchemas.wiki_search.safeParse({ query: "aether quest", top_k: 3 }).success).toBe(true);
+    expect(
+      toolSchemas.wiki_search.safeParse({
+        query: "andesite alloy",
+        kind: "recipe",
+        target_id: "create:andesite_alloy",
+        ingredient_id: "#forge:nuggets/iron",
+        include_structured: true,
+      }).success,
+    ).toBe(true);
     expect(toolSchemas.wiki_search.safeParse({ top_k: 3 }).success).toBe(false);
     expect(toolSchemas.wiki_search.safeParse({ query: "x", source_paths: ["/tmp"] }).success).toBe(false);
     expect(toolSchemas.wiki_open.safeParse({ chunk_id: "chunk:doc:0:content" }).success).toBe(true);
     expect(toolSchemas.wiki_open.safeParse({ chunk_id: "x", modpack_id: "pack" }).success).toBe(false);
     expect(toolSchemas.wiki_open.safeParse({}).success).toBe(false);
+  });
+
+  it("(d) exposes only modpack tools by default", () => {
+    expect(Object.keys(buildTools()).sort()).toEqual([
+      "ask_user_question",
+      "build_modpack",
+      "inspect_base_modpack",
+      "list_instances",
+      "mod_get_detail",
+      "resolve_mods",
+      "search_base_modpacks",
+      "search_mods",
+      "show_modpack",
+    ]);
+  });
+
+  it("(e) exposes only local wiki tools in wiki mode", () => {
+    expect(Object.keys(buildTools("wiki")).sort()).toEqual(["wiki_open", "wiki_search"]);
+  });
+
+  it("(f) uses a wiki-specific system prompt in wiki mode", () => {
+    const prompt = promptForMode("wiki");
+    expect(prompt).toContain("wiki_search");
+    expect(prompt).toContain("wiki_open");
+    expect(prompt).toContain('kind: "recipe"');
+    expect(prompt).toContain("recipe_override");
+    expect(prompt).toContain("Do not fill gaps with vanilla/Create/default knowledge");
+    expect(prompt).toContain("source_document_ids");
+    expect(prompt).not.toContain("source_chunk_ids");
+    expect(prompt).not.toContain("general knowledge as background");
+    expect(prompt).not.toContain("Cite the document ids");
+    expect(prompt).not.toContain("build_modpack");
+    expect(prompt).not.toContain("search_base_modpacks");
   });
 });

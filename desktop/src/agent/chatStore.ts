@@ -15,7 +15,7 @@ import { create } from "zustand";
 import type { UIMessage } from "ai";
 // Type-only import: erased at build, so the host-agnostic brain (and its `ai`
 // dependency) stays out of the main bundle — the TS path is dynamic-imported below.
-import type { ModpackAgent } from "@kobemc/agent-core";
+import type { AgentMode, ModpackAgent } from "@kobemc/agent-core";
 import { setCurrentPage, kobeUser, useAppStore } from "../store";
 import { commands } from "../ipc/bindings";
 import { t } from "../i18n";
@@ -86,25 +86,31 @@ export function clearLocalClientTools(): void {
 // 引擎按设置选择:默认 OpenRouter API(webview 内 TS 大脑);`claude-code` =
 // 本机 Claude Code 订阅(Node 宿主进程,经 localRuntimeAdapter)。
 let tsAgent: Promise<ModpackAgent> | null = null;
+let tsAgentKey: string | null = null;
 
 async function getAgent(): Promise<ModpackAgent> {
-  if (!tsAgent)
+  const mode = agentModeFromContext(useChatStore.getState().toolContext);
+  const settings = await commands.getSettings();
+  const provider =
+    settings.status === "ok" ? (settings.data.agent_provider ?? "openrouter") : "openrouter";
+  const key = `${provider}:${mode}`;
+  if (!tsAgent || tsAgentKey !== key) {
+    if (tsAgentKey?.startsWith("claude-code:")) await commands.agentHostStop().catch(() => {});
+    tsAgentKey = key;
     tsAgent = (async () => {
-      const { commands } = await import("../ipc/bindings");
-      const settings = await commands.getSettings();
-      const provider =
-        settings.status === "ok" ? (settings.data.agent_provider ?? "openrouter") : "openrouter";
       if (provider === "claude-code") {
         const m = await import("./localRuntimeAdapter");
-        return m.createLocalRuntimeAgent();
+        return m.createLocalRuntimeAgent(mode);
       }
       const m = await import("./desktopAdapter");
-      return m.createDesktopAgent();
+      return m.createDesktopAgent(mode);
     })();
+  }
   try {
     return await tsAgent;
   } catch (e) {
     tsAgent = null; // 拉起失败(缺 key / import)→ 下次重试重新初始化
+    tsAgentKey = null;
     throw e;
   }
 }
@@ -113,6 +119,7 @@ async function getAgent(): Promise<ModpackAgent> {
  *  顺手停掉可能在跑的本地 Node 宿主 —— 无论切到哪个引擎都安全,下轮会按需重启。 */
 export function resetAgent(): void {
   tsAgent = null;
+  tsAgentKey = null;
   void import("../ipc/bindings").then((m) => m.commands.agentHostStop()).catch(() => {});
 }
 
@@ -152,7 +159,12 @@ export interface AgentWikiContext {
 }
 
 export interface AgentToolContext {
+  mode?: AgentMode;
   wiki?: AgentWikiContext;
+}
+
+function agentModeFromContext(context: AgentToolContext | null): AgentMode {
+  return context?.mode ?? (context?.wiki ? "wiki" : "modpack");
 }
 
 const CONV_KEY = "mc-launcher.agentConversations";

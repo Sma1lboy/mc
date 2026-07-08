@@ -4,6 +4,9 @@ import { Spinner } from "../components";
 import { t } from "../i18n";
 import { ASK_USER_TOOL_TYPE } from "./AskUserOptions";
 import { SHOW_MODPACK_TOOL_TYPE } from "./ModpackCard";
+import { RecipeCard } from "./RecipeCard";
+import { parseRecipeCardBlocks } from "./recipeCards";
+import { chatPartKeys, uniqueSiblingKeys } from "./renderKeys";
 import "./chat.css";
 
 /**
@@ -32,10 +35,22 @@ export const isActivity = (p: Part): boolean =>
 
 /** 助手文本 part:整段交给 Streamdown;live 时尾部显示光标。 */
 export function AssistantText({ text, live }: { text: string; live: boolean }) {
+  const segments = parseRecipeCardBlocks(text);
+  const segmentKeys = uniqueSiblingKeys(segments, (segment, i) =>
+    segment.type === "recipe_card"
+      ? `recipe-card:${segment.card.result?.id ?? segment.card.title ?? i}`
+      : `markdown:${segment.text.slice(0, 48)}`,
+  );
   return (
     <div className="text-[14px] leading-[1.7] text-fg break-words">
       <Suspense fallback={<div className="chat-md whitespace-pre-wrap">{text}</div>}>
-        <Streamdown className="chat-md">{text}</Streamdown>
+        {segments.map((segment, i) =>
+          segment.type === "recipe_card" ? (
+            <RecipeCard key={segmentKeys[i]} card={segment.card} />
+          ) : (
+            <Streamdown key={segmentKeys[i]} className="chat-md">{segment.text}</Streamdown>
+          ),
+        )}
       </Suspense>
       {live && (
         <span className="text-accent animate-pulse select-none" aria-hidden="true">
@@ -100,6 +115,7 @@ export function ToolChip({ part }: { part: ToolPart }) {
  */
 export function ActivityGroup({ parts, forceOpen }: { parts: Part[]; forceOpen?: boolean }) {
   const tools = parts.filter(isTool);
+  const partKeys = chatPartKeys(parts);
   const running = tools.some((p) => p.state === "input-streaming" || p.state === "input-available");
   const errored = tools.some((p) => p.state === "output-error");
   // 「步数」= 工具调用数(用户眼里的检索/解析步骤);纯思考无工具时回退到 part 数。
@@ -121,10 +137,10 @@ export function ActivityGroup({ parts, forceOpen }: { parts: Part[]; forceOpen?:
       <div className="mt-[6px] flex flex-col gap-[4px] border-l-2 border-titlebar pl-[10px]">
         {parts.map((p, i) =>
           isTool(p) ? (
-            <ToolChip key={p.toolCallId} part={p} />
+            <ToolChip key={partKeys[i]} part={p} />
           ) : p.type === "reasoning" || p.type === "text" ? (
             // 折进来的中间进度文字 / 思考,以低调样式显示。
-            <div key={i} className="whitespace-pre-wrap break-words text-muted text-[12px] leading-[1.6]">
+            <div key={partKeys[i]} className="whitespace-pre-wrap break-words text-muted text-[12px] leading-[1.6]">
               {p.text}
             </div>
           ) : null,

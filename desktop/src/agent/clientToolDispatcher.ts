@@ -1,6 +1,7 @@
 import { commands } from "../ipc/bindings";
 import { activeRoot } from "../store";
 import type { AgentToolContext, AgentWikiContext } from "./chatStore";
+import type { AgentMode } from "@kobemc/agent-core";
 
 type SpectaResult<T> = { status: "ok"; data: T } | { status: "error"; error: string };
 
@@ -28,11 +29,25 @@ const AUTO_TOOL_NAMES = new Set([
   "wiki_open",
 ]);
 
+const MODE_TOOL_NAMES: Record<AgentMode, Set<string>> = {
+  modpack: new Set([
+    "search_base_modpacks",
+    "inspect_base_modpack",
+    "search_mods",
+    "mod_get_detail",
+    "resolve_mods",
+    "build_modpack",
+    "list_instances",
+  ]),
+  wiki: new Set(["wiki_search", "wiki_open"]),
+};
+
 export function runLauncherClientTool(
   name: string,
   args: unknown,
   context: AgentToolContext | null = null,
 ): Promise<unknown> {
+  assertToolAllowed(name, context);
   switch (name) {
     case "search_base_modpacks":
       return unwrap(commands.agentToolSearchBaseModpacks(args as never));
@@ -54,6 +69,13 @@ export function runLauncherClientTool(
       return unwrap(commands.agentToolWikiOpen(wikiRoot(context), wikiOpenArgs(args, context)));
     default:
       return Promise.reject(new Error(`unknown client tool: ${name}`));
+  }
+}
+
+function assertToolAllowed(name: string, context: AgentToolContext | null): void {
+  const mode = context?.mode ?? (context?.wiki ? "wiki" : "modpack");
+  if (!MODE_TOOL_NAMES[mode].has(name)) {
+    throw new Error(`${name} is not available in ${mode} agent mode`);
   }
 }
 
@@ -81,6 +103,10 @@ function wikiSearchArgs(args: unknown, context: AgentToolContext | null): never 
     query,
   };
   if (typeof input.top_k === "number") out.top_k = input.top_k;
+  if (typeof input.kind === "string") out.kind = input.kind;
+  if (typeof input.target_id === "string") out.target_id = input.target_id;
+  if (typeof input.ingredient_id === "string") out.ingredient_id = input.ingredient_id;
+  if (typeof input.include_structured === "boolean") out.include_structured = input.include_structured;
   return out as never;
 }
 

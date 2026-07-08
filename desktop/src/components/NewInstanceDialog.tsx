@@ -94,7 +94,9 @@ export function NewInstanceDialog(props: {
   // 关掉对话框,带当前所选版本 / 加载器打开助手(未选则省略;vanilla 无加载器视作未选)。
   function askAgent() {
     props.onClose();
-    openAgentChat(instancePrompt(mcVersion || null, loader !== "vanilla" ? loader : null));
+    openAgentChat(instancePrompt(mcVersion || null, loader !== "vanilla" ? loader : null), {
+      mode: "modpack",
+    });
   }
 
   async function create() {

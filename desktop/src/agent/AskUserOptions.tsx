@@ -3,6 +3,7 @@ import type { UIMessage } from "ai";
 import clsx from "clsx";
 import { t } from "../i18n";
 import { submitAskUserAnswer, useChatStore } from "./chatStore";
+import { askOptionKeys } from "./renderKeys";
 
 /* ============================================================================
  * AskUserOptions —— 渲染 `ask_user_question`(原生 client-side tool)的可点选项。
@@ -58,6 +59,7 @@ export function AskUserOptions(props: {
   const live =
     part.state === "input-available" && (!globalStreaming || pendingLocal === "ask_user_question");
   const skeleton = options.length === 0 && !answered;
+  const optionKeys = askOptionKeys(options);
 
   const toggle = (i: number): void => {
     if (!live) return;
@@ -104,7 +106,7 @@ export function AskUserOptions(props: {
           const selected = answered ? chosen.has(opt.label) : picked.has(i);
           return (
             <button
-              key={opt.id ?? `${i}-${opt.label}`}
+              key={optionKeys[i]}
               type="button"
               disabled={!live}
               aria-pressed={selected}

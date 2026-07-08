@@ -16,28 +16,52 @@ import { listInstances } from "./list-instances";
 import { askUserQuestion } from "./ask-user-question";
 import { wikiSearch } from "./wiki-search";
 import { wikiOpen } from "./wiki-open";
+import type { AgentMode } from "../types";
 
 export { ASK_USER_TOOL } from "./ask-user-question";
 export { SHOW_MODPACK_TOOL } from "./show-modpack";
+
+const TOOL_BUILDERS = {
+  search_base_modpacks: searchBaseModpacks,
+  inspect_base_modpack: inspectBaseModpack,
+  search_mods: searchMods,
+  mod_get_detail: modGetDetail,
+  resolve_mods: resolveMods,
+  build_modpack: buildModpack,
+  show_modpack: showModpack,
+  list_instances: listInstances,
+  wiki_search: wikiSearch,
+  wiki_open: wikiOpen,
+  ask_user_question: askUserQuestion,
+} as const;
+
+export const MODPACK_TOOL_NAMES = [
+  "search_base_modpacks",
+  "inspect_base_modpack",
+  "search_mods",
+  "mod_get_detail",
+  "resolve_mods",
+  "build_modpack",
+  "show_modpack",
+  "list_instances",
+  "ask_user_question",
+] as const;
+
+export const WIKI_TOOL_NAMES = ["wiki_search", "wiki_open"] as const;
+
+function buildAllTools(): ToolSet {
+  return Object.fromEntries(
+    Object.entries(TOOL_BUILDERS).map(([name, build]) => [name, build()]),
+  ) as ToolSet;
+}
 
 /**
  * Build the AI SDK `ToolSet` for one turn. Listed explicitly so each tool keeps
  * its concrete input type for SDK inference.
  */
-export function buildTools(): ToolSet {
-  return {
-    search_base_modpacks: searchBaseModpacks(),
-    inspect_base_modpack: inspectBaseModpack(),
-    search_mods: searchMods(),
-    mod_get_detail: modGetDetail(),
-    resolve_mods: resolveMods(),
-    build_modpack: buildModpack(),
-    show_modpack: showModpack(),
-    list_instances: listInstances(),
-    wiki_search: wikiSearch(),
-    wiki_open: wikiOpen(),
-    ask_user_question: askUserQuestion(),
-  };
+export function buildTools(mode: AgentMode = "modpack"): ToolSet {
+  const names = mode === "wiki" ? WIKI_TOOL_NAMES : MODPACK_TOOL_NAMES;
+  return Object.fromEntries(names.map((name) => [name, TOOL_BUILDERS[name]()])) as ToolSet;
 }
 
 /**
@@ -46,5 +70,5 @@ export function buildTools(): ToolSet {
  * single-sourced inside its own tool file; building never invokes `execute`.
  */
 export const toolSchemas: Record<string, z.ZodType> = Object.fromEntries(
-  Object.entries(buildTools()).map(([name, t]) => [name, t.inputSchema as z.ZodType]),
+  Object.entries(buildAllTools()).map(([name, t]) => [name, t.inputSchema as z.ZodType]),
 );

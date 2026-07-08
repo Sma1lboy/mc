@@ -63,27 +63,47 @@ const toolHandlers = Object.fromEntries(TOOL_NAMES.map((n) => [n, (args) => call
 // --- engine + turn loop ---------------------------------------------------
 
 const model = process.env.MC_AGENT_CLAUDE_MODEL || undefined;
-const agent = createClaudeCodeModpackAgent(toolHandlers, model ? { model } : {});
+const VALID_MODES = new Set(["modpack", "wiki"]);
 
 let history = [];
+let agent = null;
+let agentMode = null;
 let abort = null;
 let running = false;
 let uid = 0;
 
-async function runTurn(text, reset) {
+function modeFrom(value) {
+  return VALID_MODES.has(value) ? value : "modpack";
+}
+
+async function ensureAgent(mode) {
+  if (agent && agentMode === mode) return agent;
+  await agent?.dispose();
+  agent = createClaudeCodeModpackAgent(toolHandlers, {
+    ...(model ? { model } : {}),
+    mode,
+  });
+  agentMode = mode;
+  history = [];
+  return agent;
+}
+
+async function runTurn(text, reset, rawMode) {
   if (running) {
     send({ type: "done", error: "turn already running" });
     return;
   }
   running = true;
   abort = new AbortController();
-  if (reset) {
-    await agent.dispose(); // next run lazily opens a fresh runtime session
-    history = [];
-  }
-  history = [...history, { id: `u${++uid}`, role: "user", parts: [{ type: "text", text }] }];
+  const mode = modeFrom(rawMode);
   try {
-    const res = await agent.run(history, (assistant) => send({ type: "update", message: assistant }), abort.signal);
+    const activeAgent = await ensureAgent(mode);
+    if (reset) {
+      await activeAgent.dispose(); // next run lazily opens a fresh runtime session
+      history = [];
+    }
+    history = [...history, { id: `u${++uid}`, role: "user", parts: [{ type: "text", text }] }];
+    const res = await activeAgent.run(history, (assistant) => send({ type: "update", message: assistant }), abort.signal);
     history = res.messages;
     send({ type: "done", error: res.error });
   } catch (e) {
@@ -107,7 +127,7 @@ rl.on("line", (line) => {
   }
   switch (msg.type) {
     case "turn":
-      void runTurn(String(msg.text ?? ""), msg.reset === true);
+      void runTurn(String(msg.text ?? ""), msg.reset === true, msg.mode);
       break;
     case "tool_result": {
       const pending = pendingTools.get(msg.id);
@@ -121,7 +141,7 @@ rl.on("line", (line) => {
       abort?.abort();
       break;
     case "dispose":
-      void agent.dispose().finally(() => process.exit(0));
+      void Promise.resolve(agent?.dispose()).finally(() => process.exit(0));
       break;
     default:
       process.stderr.write(`harness-host: unknown message type: ${String(msg.type)}\n`);
@@ -130,7 +150,7 @@ rl.on("line", (line) => {
 
 // Parent (Rust) died / closed stdin → clean up the runtime session and exit.
 rl.on("close", () => {
-  void agent.dispose().finally(() => process.exit(0));
+  void Promise.resolve(agent?.dispose()).finally(() => process.exit(0));
 });
 
 process.stderr.write("harness-host: ready\n");

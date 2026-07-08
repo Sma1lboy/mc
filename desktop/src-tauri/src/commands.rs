@@ -7,14 +7,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use mc_core::agent::tools::{
-    tool_build_modpack, tool_inspect_base_modpack, tool_install_modpack, tool_list_instances,
-    tool_mod_get_detail, tool_resolve_mods, tool_search_base_modpacks, tool_search_mods,
-    tool_wiki_open, tool_wiki_search, BuildModpackArgs, BuildModpackOutput,
-    InspectBaseModpackArgs, InspectBaseModpackOutput, InstallModpackArgs,
-    InstallModpackOutput, ListInstancesOutput, ModGetDetailArgs, ModGetDetailOutput,
-    ResolveModsArgs, ResolveModsOutput, SearchBaseModpacksArgs, SearchBaseModpacksOutput,
-    SearchModsArgs, SearchModsOutput, WikiOpenArgs, WikiOpenOutput, WikiSearchArgs,
-    WikiSearchOutput,
+    refresh_wiki_corpus_cache, tool_build_modpack, tool_inspect_base_modpack, tool_install_modpack,
+    tool_list_instances, tool_mod_get_detail, tool_resolve_mods, tool_search_base_modpacks,
+    tool_search_mods, tool_wiki_open, tool_wiki_search, BuildModpackArgs, BuildModpackOutput,
+    InspectBaseModpackArgs, InspectBaseModpackOutput, InstallModpackArgs, InstallModpackOutput,
+    ListInstancesOutput, ModGetDetailArgs, ModGetDetailOutput, ResolveModsArgs, ResolveModsOutput,
+    SearchBaseModpacksArgs, SearchBaseModpacksOutput, SearchModsArgs, SearchModsOutput,
+    WikiOpenArgs, WikiOpenOutput, WikiSearchArgs, WikiSearchOutput,
 };
 use mc_core::agent::ChatToolsCtx;
 use mc_core::auth::{AccountStore, MsaClient, StoredAccount};
@@ -71,7 +70,11 @@ fn settings_global() -> mc_core::settings::GlobalSettings {
 
 /// 用户在设置里添加的自定义游戏根目录(让 `custom_roots` 设置真正参与发现)。
 fn custom_roots() -> Vec<PathBuf> {
-    settings_global().custom_roots.iter().map(PathBuf::from).collect()
+    settings_global()
+        .custom_roots
+        .iter()
+        .map(PathBuf::from)
+        .collect()
 }
 
 /// 按用户设置/环境构造 Provider 注册表:总有 Modrinth;解析出 CurseForge key 才注册 CurseForge。
@@ -94,7 +97,11 @@ fn provider_or_err(
 /// 把前端传入的 provider 字符串(缺省 `modrinth`)映射成 [`ProviderId`]。
 fn parse_provider(s: Option<&str>) -> CmdResult<mc_core::modplatform::ProviderId> {
     use mc_core::modplatform::ProviderId;
-    match s.map(str::trim).filter(|s| !s.is_empty()).unwrap_or("modrinth") {
+    match s
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("modrinth")
+    {
         "modrinth" => Ok(ProviderId::Modrinth),
         "curseforge" => Ok(ProviderId::CurseForge),
         other => Err(format!("未知内容平台: {other}")),
@@ -103,7 +110,12 @@ fn parse_provider(s: Option<&str>) -> CmdResult<mc_core::modplatform::ProviderId
 
 /// CurseForge 作者禁第三方分发时,平台不给 `downloadUrl`(映射后 `file.url` 为空串)。
 /// 用与整合包导入相同的官网手动下载页拼法,给前端 BlockedFilesDialog 引导用户手动下载。
-fn cf_blocked_dto(project_id: &str, file_id: &str, file_name: &str, target_dir: &str) -> BlockedFileDto {
+fn cf_blocked_dto(
+    project_id: &str,
+    file_id: &str,
+    file_name: &str,
+    target_dir: &str,
+) -> BlockedFileDto {
     BlockedFileDto {
         name: file_name.to_string(),
         website_url: format!(
@@ -138,7 +150,11 @@ pub struct JavaDto {
 #[tauri::command]
 #[specta::specta]
 pub fn list_roots() -> CmdResult<Vec<GameRoot>> {
-    Ok(paths::discover_roots(&exe_dir(), &data_dir(), &custom_roots()))
+    Ok(paths::discover_roots(
+        &exe_dir(),
+        &data_dir(),
+        &custom_roots(),
+    ))
 }
 
 // `async` so Tauri runs this on its async runtime rather than the main (UI)
@@ -159,6 +175,20 @@ pub fn instance_dir(root: String, id: String) -> CmdResult<String> {
     let paths = root_paths(&root);
     let dir = Instance::new(&id, paths.root().to_path_buf()).dir();
     Ok(dir.to_string_lossy().to_string())
+}
+
+/// Resolve one item id (for example `create:andesite_casing`) to a local data URL
+/// icon for this installed instance. Missing icons are not errors: the chat UI
+/// falls back to text labels in recipe cards.
+#[tauri::command]
+#[specta::specta]
+pub fn resolve_item_icon(
+    root: String,
+    id: String,
+    item_id: String,
+) -> CmdResult<Option<mc_core::instance::ItemIcon>> {
+    let inst = instance_of(&root, &id);
+    mc_core::instance::resolve_item_icon(&inst, &item_id).map_err(err)
 }
 
 /// 用系统文件管理器打开一个路径(目录/文件)。直接调 OS,绕开 shell 插件只放行 URL 的作用域。
@@ -287,10 +317,7 @@ pub async fn install_loader(
 /// 返回值按「新→旧」排序,前端默认选第一个。网络/解析失败时由前端回退到手填输入框。
 #[tauri::command]
 #[specta::specta]
-pub async fn list_loader_versions(
-    loader: String,
-    mc_version: String,
-) -> CmdResult<Vec<String>> {
+pub async fn list_loader_versions(loader: String, mc_version: String) -> CmdResult<Vec<String>> {
     let kind = match parse_loader_kind(&loader) {
         Some(k) => k,
         None => return Ok(Vec::new()),
@@ -304,7 +331,10 @@ pub async fn list_loader_versions(
 /// 读取某实例的配置(名字/内存/Java/JVM 参数/窗口…)。文件缺失返回默认值。
 #[tauri::command]
 #[specta::specta]
-pub fn get_instance_config(root: String, id: String) -> CmdResult<mc_core::instance::InstanceConfig> {
+pub fn get_instance_config(
+    root: String,
+    id: String,
+) -> CmdResult<mc_core::instance::InstanceConfig> {
     let inst = instance_of(&root, &id);
     inst.load_config().map_err(err)
 }
@@ -332,7 +362,9 @@ pub struct SystemMemory {
 #[tauri::command]
 #[specta::specta]
 pub fn system_memory() -> CmdResult<SystemMemory> {
-    Ok(SystemMemory { total_mb: mc_core::system::system_total_mem_mb() })
+    Ok(SystemMemory {
+        total_mb: mc_core::system::system_total_mem_mb(),
+    })
 }
 
 /// 为某实例推荐一个最大堆内存(MiB):综合本机物理内存与该实例已装 mod 数量。
@@ -382,7 +414,9 @@ pub async fn backfill_instance_icon(root: String, id: String, icon_url: String) 
     if inst.has_icon() || icon_url.trim().is_empty() {
         return Ok(false);
     }
-    let Ok(dl) = make_downloader() else { return Ok(false) };
+    let Ok(dl) = make_downloader() else {
+        return Ok(false);
+    };
     match dl.get_bytes(&icon_url).await {
         Ok(bytes) => Ok(inst.set_icon_bytes(&bytes).is_ok()),
         Err(_) => Ok(false),
@@ -400,7 +434,12 @@ pub async fn instance_mods(root: String, id: String) -> CmdResult<Vec<mc_core::i
 /// 启用/停用一个 mod(改 `.jar` ↔ `.jar.disabled`)。file_name 为 list 返回的稳定标识。
 #[tauri::command]
 #[specta::specta]
-pub fn set_mod_enabled(root: String, id: String, file_name: String, enabled: bool) -> CmdResult<()> {
+pub fn set_mod_enabled(
+    root: String,
+    id: String,
+    file_name: String,
+    enabled: bool,
+) -> CmdResult<()> {
     let inst = instance_of(&root, &id);
     mc_core::instance::mods::set_mod_enabled(&inst, &file_name, enabled).map_err(err)
 }
@@ -548,12 +587,19 @@ pub async fn install_version_file(
     let dl = make_downloader()?;
     let w = world.as_deref();
 
-    let pack_report = |file: String| VersionInstallReport { file, ..Default::default() };
+    let pack_report = |file: String| VersionInstallReport {
+        file,
+        ..Default::default()
+    };
 
     let (v, is_modrinth) = match parse_provider(provider.as_deref())? {
-        mc_core::modplatform::ProviderId::Modrinth => {
-            (ModrinthApi::new().get_version(&version_id).await.map_err(err)?, true)
-        }
+        mc_core::modplatform::ProviderId::Modrinth => (
+            ModrinthApi::new()
+                .get_version(&version_id)
+                .await
+                .map_err(err)?,
+            true,
+        ),
         id @ mc_core::modplatform::ProviderId::CurseForge => {
             let project = project
                 .as_deref()
@@ -570,9 +616,18 @@ pub async fn install_version_file(
                 .ok_or_else(|| format!("CurseForge 版本 {version_id} 不存在"))?;
             // 禁第三方分发 → url 为空串:走与导入相同的 blocked 流,绝不假装成功。
             if resolved.file.url.is_empty() {
-                let dir = if target == "mod" { "mods" } else { pack_kind_for(&target)?.1 };
+                let dir = if target == "mod" {
+                    "mods"
+                } else {
+                    pack_kind_for(&target)?.1
+                };
                 return Ok(VersionInstallReport {
-                    blocked: vec![cf_blocked_dto(project, &version_id, &resolved.file.filename, dir)],
+                    blocked: vec![cf_blocked_dto(
+                        project,
+                        &version_id,
+                        &resolved.file.filename,
+                        dir,
+                    )],
                     ..Default::default()
                 });
             }
@@ -608,8 +663,11 @@ pub async fn install_version_file(
                     .find(|m| m.project_id.is_empty())
                     .map(|m| m.file_name.clone())
                     .unwrap_or_default();
-                let installed_deps =
-                    report.installed.iter().filter(|m| !m.project_id.is_empty()).count();
+                let installed_deps = report
+                    .installed
+                    .iter()
+                    .filter(|m| !m.project_id.is_empty())
+                    .count();
                 Ok(VersionInstallReport {
                     file,
                     installed_deps,
@@ -682,13 +740,14 @@ pub fn import_local_resource(
     match target.as_str() {
         "mod" => mc_core::instance::mods::import_local_mod(&inst, src).map_err(err),
         "resourcepack" => {
-            mc_core::instance::packs::import_local_pack(&inst, PackKind::ResourcePack, src, None).map_err(err)
+            mc_core::instance::packs::import_local_pack(&inst, PackKind::ResourcePack, src, None)
+                .map_err(err)
         }
-        "shader" => {
-            mc_core::instance::packs::import_local_pack(&inst, PackKind::Shader, src, None).map_err(err)
-        }
+        "shader" => mc_core::instance::packs::import_local_pack(&inst, PackKind::Shader, src, None)
+            .map_err(err),
         "datapack" => {
-            mc_core::instance::packs::import_local_pack(&inst, PackKind::Datapack, src, w).map_err(err)
+            mc_core::instance::packs::import_local_pack(&inst, PackKind::Datapack, src, w)
+                .map_err(err)
         }
         other => Err(format!("不支持的导入目标: {other}")),
     }
@@ -761,12 +820,18 @@ pub async fn install_pack(
             let api = ModrinthApi::new();
             mc_core::instance::install_pack(&api, &dl, &inst, kind, &project, &mc_version, w)
                 .await
-                .map(|file| VersionInstallReport { file, ..Default::default() })
+                .map(|file| VersionInstallReport {
+                    file,
+                    ..Default::default()
+                })
                 .map_err(err)
         }
         pid @ mc_core::modplatform::ProviderId::CurseForge => {
             let p = provider_or_err(&make_registry(), pid)?;
-            let versions = p.list_versions(&project, Some(&mc_version), None).await.map_err(err)?;
+            let versions = p
+                .list_versions(&project, Some(&mc_version), None)
+                .await
+                .map_err(err)?;
             let v = versions
                 .iter()
                 .find(|v| v.game_versions.iter().any(|g| g == mc_version.as_str()))
@@ -788,7 +853,10 @@ pub async fn install_pack(
             }
             mc_core::instance::packs::install_pack_version(&inst, &dl, kind, v, w)
                 .await
-                .map(|file| VersionInstallReport { file, ..Default::default() })
+                .map(|file| VersionInstallReport {
+                    file,
+                    ..Default::default()
+                })
                 .map_err(err)
         }
     }
@@ -824,7 +892,10 @@ pub fn delete_screenshot(root: String, id: String, file_name: String) -> CmdResu
 /// 列出某实例的存档世界(名字/模式/大小/上次游玩…)。
 #[tauri::command]
 #[specta::specta]
-pub async fn instance_worlds(root: String, id: String) -> CmdResult<Vec<mc_core::instance::WorldInfo>> {
+pub async fn instance_worlds(
+    root: String,
+    id: String,
+) -> CmdResult<Vec<mc_core::instance::WorldInfo>> {
     let inst = instance_of(&root, &id);
     Ok(mc_core::instance::list_worlds(&inst))
 }
@@ -832,7 +903,10 @@ pub async fn instance_worlds(root: String, id: String) -> CmdResult<Vec<mc_core:
 /// 列出某实例已保存的多人服务器(读 game_dir/servers.dat;文件不存在 → 空表)。
 #[tauri::command]
 #[specta::specta]
-pub fn instance_servers(root: String, id: String) -> CmdResult<Vec<mc_core::instance::SavedServer>> {
+pub fn instance_servers(
+    root: String,
+    id: String,
+) -> CmdResult<Vec<mc_core::instance::SavedServer>> {
     let inst = instance_of(&root, &id);
     mc_core::instance::read_servers(&inst.game_dir()).map_err(err)
 }
@@ -840,7 +914,12 @@ pub fn instance_servers(root: String, id: String) -> CmdResult<Vec<mc_core::inst
 /// 向某实例的 servers.dat 追加一条多人服务器(name 可空,address 必填)。
 #[tauri::command]
 #[specta::specta]
-pub fn add_instance_server(root: String, id: String, name: String, address: String) -> CmdResult<()> {
+pub fn add_instance_server(
+    root: String,
+    id: String,
+    name: String,
+    address: String,
+) -> CmdResult<()> {
     let inst = instance_of(&root, &id);
     mc_core::instance::add_server(&inst.game_dir(), &name, &address).map_err(err)
 }
@@ -864,7 +943,12 @@ pub fn delete_world(root: String, id: String, folder: String) -> CmdResult<()> {
 /// 返回写出的 zip 绝对路径。
 #[tauri::command]
 #[specta::specta]
-pub fn backup_world(root: String, id: String, folder: String, dest_path: String) -> CmdResult<String> {
+pub fn backup_world(
+    root: String,
+    id: String,
+    folder: String,
+    dest_path: String,
+) -> CmdResult<String> {
     let inst = instance_of(&root, &id);
     mc_core::instance::world::backup_world(&inst, &folder, std::path::Path::new(&dest_path))
         .map(|p| p.to_string_lossy().into_owned())
@@ -983,8 +1067,14 @@ pub async fn msa_login_start() -> CmdResult<DeviceCodeDto> {
 #[specta::specta]
 pub async fn msa_login_poll(device_code: String, interval: u64) -> CmdResult<AccountSummary> {
     let client = msa_client();
-    let token = client.poll_token(&device_code, interval).await.map_err(err)?;
-    let session = client.authenticate(&token.access_token).await.map_err(err)?;
+    let token = client
+        .poll_token(&device_code, interval)
+        .await
+        .map_err(err)?;
+    let session = client
+        .authenticate(&token.access_token)
+        .await
+        .map_err(err)?;
     store_and_select(StoredAccount::from_microsoft(&session, token.refresh_token))
 }
 
@@ -1015,8 +1105,14 @@ pub async fn yggdrasil_login(
         return Err("皮肤站地址和用户名不能为空".to_string());
     }
     let client = YggdrasilClient::new(base).with_http(make_downloader()?.client().clone());
-    let session = client.authenticate(username.trim(), &password).await.map_err(err)?;
-    store_and_select(StoredAccount::from_yggdrasil(&session, client.base().to_string()))
+    let session = client
+        .authenticate(username.trim(), &password)
+        .await
+        .map_err(err)?;
+    store_and_select(StoredAccount::from_yggdrasil(
+        &session,
+        client.base().to_string(),
+    ))
 }
 
 /// Switch the active account.
@@ -1087,7 +1183,9 @@ pub async fn skin_upload(
 ) -> CmdResult<mc_core::skin::ProfileSkins> {
     let token = mc_access_token(&account_uuid)?;
     let bytes = std::fs::read(&path).map_err(|e| format!("读取皮肤文件失败:{e}"))?;
-    mc_core::skin::upload_skin(&token, &bytes, &variant).await.map_err(err)
+    mc_core::skin::upload_skin(&token, &bytes, &variant)
+        .await
+        .map_err(err)
 }
 
 /// 设置当前披风(`Some`)或隐藏披风(`None`)。返回更新后的资料。
@@ -1098,7 +1196,9 @@ pub async fn skin_set_cape(
     cape_id: Option<String>,
 ) -> CmdResult<mc_core::skin::ProfileSkins> {
     let token = mc_access_token(&account_uuid)?;
-    mc_core::skin::set_cape(&token, cape_id.as_deref()).await.map_err(err)
+    mc_core::skin::set_cape(&token, cape_id.as_deref())
+        .await
+        .map_err(err)
 }
 
 #[tauri::command]
@@ -1355,7 +1455,10 @@ pub async fn launch_instance(
         launcher_version: LAUNCHER_VERSION.to_string(),
         online,
         runtimes_dir: Some(data_dir().join("java")),
-        global_java_path: settings_global().java_path.filter(|p| !p.is_empty()).map(PathBuf::from),
+        global_java_path: settings_global()
+            .java_path
+            .filter(|p| !p.is_empty())
+            .map(PathBuf::from),
         extra_jvm_args,
         server_override: server,
     };
@@ -1377,7 +1480,13 @@ pub async fn launch_instance(
             let mut lines = BufReader::new(out).lines();
             while let Ok(Some(line)) = lines.next_line().await {
                 push_tail(&tail, &line);
-                let _ = app.emit("game://log", GameLog { line, level: "info" });
+                let _ = app.emit(
+                    "game://log",
+                    GameLog {
+                        line,
+                        level: "info",
+                    },
+                );
             }
         });
     }
@@ -1388,7 +1497,13 @@ pub async fn launch_instance(
             let mut lines = BufReader::new(e).lines();
             while let Ok(Some(line)) = lines.next_line().await {
                 push_tail(&tail, &line);
-                let _ = app.emit("game://log", GameLog { line, level: "error" });
+                let _ = app.emit(
+                    "game://log",
+                    GameLog {
+                        line,
+                        level: "error",
+                    },
+                );
             }
         });
     }
@@ -1557,7 +1672,11 @@ pub fn read_log_tail(lines: usize) -> CmdResult<String> {
         .into_iter()
         .flatten()
         .flatten()
-        .filter(|e| e.file_name().to_string_lossy().starts_with("mc-launcher.log"))
+        .filter(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .starts_with("mc-launcher.log")
+        })
         .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
         .max_by_key(|(t, _)| *t)
         .map(|(_, p)| p);
@@ -1757,7 +1876,9 @@ pub fn kobe_set_auto_login(email: String, auto_login: bool) -> CmdResult<()> {
 // (Modrinth provider); the reconcile downloads missing/changed files and can drop
 // mods the manifest no longer carries.
 
-use mc_core::realm::{CreateRealmReq, RealmManifest, RealmMember, RealmSummary, SyncPlan, SyncReport};
+use mc_core::realm::{
+    CreateRealmReq, RealmManifest, RealmMember, RealmSummary, SyncPlan, SyncReport,
+};
 use mc_core::types::RealmRef;
 
 /// Resolve an instance from a game root + id.
@@ -1797,7 +1918,9 @@ async fn snapshot_of_instance(
     // the installed core so members can install the same loader; else members hit
     // `/loader/<mc>/<display-id>/profile/json` → 400. Falls back to None (auto-pick).
     let loader_version = match loader {
-        "fabric" | "quilt" => mc_core::instance::resolve_loader_version(&root_paths(root), id, mc_version),
+        "fabric" | "quilt" => {
+            mc_core::instance::resolve_loader_version(&root_paths(root), id, mc_version)
+        }
         _ => loader_version,
     };
     mc_core::realm::build_snapshot(&inst, provider.as_ref(), mc_version, loader, loader_version)
@@ -1819,7 +1942,8 @@ async fn apply_overrides_if_any(
     }
     if let Ok(zip) = client.download_overrides(realm_id).await {
         let inst = inst.clone();
-        let _ = tokio::task::spawn_blocking(move || mc_core::realm::apply_overrides(&inst, &zip)).await;
+        let _ =
+            tokio::task::spawn_blocking(move || mc_core::realm::apply_overrides(&inst, &zip)).await;
     }
 }
 
@@ -1827,8 +1951,12 @@ async fn apply_overrides_if_any(
 /// so its detail page shows the modpack overview instead of a bare instance. The
 /// icon rides the overrides blob, so it's already restored by `apply_overrides_if_any`.
 fn apply_manifest_source(inst: &Instance, manifest: &RealmManifest) {
-    let Some(src) = manifest.source.as_ref() else { return };
-    let Ok(mut config) = inst.load_config() else { return };
+    let Some(src) = manifest.source.as_ref() else {
+        return;
+    };
+    let Ok(mut config) = inst.load_config() else {
+        return;
+    };
     let want = mc_core::instance::config::InstanceSource {
         provider: src.provider.clone(),
         project_id: src.project_id.clone(),
@@ -1878,11 +2006,18 @@ pub async fn realm_create(
     let (manifest, overrides) =
         snapshot_of_instance(&root, &instance_id, &mc_version, &loader, loader_version).await?;
     let summary = client
-        .create_realm(&CreateRealmReq { name, expires_in_secs, manifest })
+        .create_realm(&CreateRealmReq {
+            name,
+            expires_in_secs,
+            manifest,
+        })
         .await
         .map_err(err)?;
     if let Some(zip) = overrides {
-        client.upload_overrides(&summary.id, zip).await.map_err(err)?;
+        client
+            .upload_overrides(&summary.id, zip)
+            .await
+            .map_err(err)?;
     }
     let paths = root_paths(&root);
     let _ = mc_core::instance::lifecycle::set_instance_realm(
@@ -1950,13 +2085,22 @@ pub async fn realm_begin(
             Some((kind, lv))
         }
     };
-    mc_core::instance::lifecycle::materialize_core(&dl, &paths, &instance_id, &mc_version, loader_opt, Some(tx.clone()))
-        .await
-        .map_err(err)?;
+    mc_core::instance::lifecycle::materialize_core(
+        &dl,
+        &paths,
+        &instance_id,
+        &mc_version,
+        loader_opt,
+        Some(tx.clone()),
+    )
+    .await
+    .map_err(err)?;
 
     // 2) download the realm's mods.
     let plan = mc_core::realm::plan_sync(&inst, &manifest);
-    let report = mc_core::realm::apply_sync(&inst, &dl, &plan, false, Some(tx)).await.map_err(err)?;
+    let report = mc_core::realm::apply_sync(&inst, &dl, &plan, false, Some(tx))
+        .await
+        .map_err(err)?;
 
     // 3) extract the overrides blob (config/scripts/icon/non-CDN content), if any.
     apply_overrides_if_any(&client, &realm_id, &inst, &manifest).await;
@@ -1987,7 +2131,10 @@ pub async fn realm_set_host(
     realm_id: String,
     address: String,
 ) -> CmdResult<()> {
-    client.realm_set_host(&realm_id, &address).await.map_err(err)
+    client
+        .realm_set_host(&realm_id, &address)
+        .await
+        .map_err(err)
 }
 
 /// 联机大厅 P3 —— 查领域当前(新鲜的)host:有人在主持则返回 `address` + `host_username`,
@@ -2043,7 +2190,10 @@ pub async fn realm_push_manifest(
 ) -> CmdResult<i32> {
     let (manifest, overrides) =
         snapshot_of_instance(&root, &instance_id, &mc_version, &loader, loader_version).await?;
-    let version = client.push_realm_manifest(&realm_id, &manifest).await.map_err(err)?;
+    let version = client
+        .push_realm_manifest(&realm_id, &manifest)
+        .await
+        .map_err(err)?;
     if let Some(zip) = overrides {
         client.upload_overrides(&realm_id, zip).await.map_err(err)?;
     }
@@ -2060,7 +2210,10 @@ pub async fn realm_plan_sync(
     instance_id: String,
 ) -> CmdResult<SyncPlan> {
     let manifest = client.realm_manifest(&realm_id).await.map_err(err)?;
-    Ok(mc_core::realm::plan_sync(&instance_of(&root, &instance_id), &manifest))
+    Ok(mc_core::realm::plan_sync(
+        &instance_of(&root, &instance_id),
+        &manifest,
+    ))
 }
 
 /// Reconcile `instance_id` to the realm manifest: download missing/changed mods,
@@ -2083,7 +2236,9 @@ pub async fn realm_sync(
 
     let dl = make_downloader()?;
     let tx = progress_channel(app, "realm://sync-progress", "同步领域");
-    let report = mc_core::realm::apply_sync(&inst, &dl, &plan, remove_extras, Some(tx)).await.map_err(err)?;
+    let report = mc_core::realm::apply_sync(&inst, &dl, &plan, remove_extras, Some(tx))
+        .await
+        .map_err(err)?;
 
     // Extract the overrides blob (config/scripts/icon/non-CDN content), if any.
     apply_overrides_if_any(&client, &realm_id, &inst, &manifest).await;
@@ -2104,7 +2259,10 @@ pub async fn realm_set_role(
     user_id: String,
     role: String,
 ) -> CmdResult<()> {
-    client.set_member_role(&realm_id, &user_id, &role).await.map_err(err)
+    client
+        .set_member_role(&realm_id, &user_id, &role)
+        .await
+        .map_err(err)
 }
 
 /// Owner removes another member (their own client clears its binding locally).
@@ -2140,7 +2298,10 @@ pub async fn realm_leave(
     root: String,
     instance_id: String,
 ) -> CmdResult<()> {
-    client.remove_member(&realm_id, &user_id).await.map_err(err)?;
+    client
+        .remove_member(&realm_id, &user_id)
+        .await
+        .map_err(err)?;
     let paths = root_paths(&root);
     let _ = mc_core::instance::lifecycle::set_instance_realm(&paths, &instance_id, None);
     Ok(())
@@ -2251,7 +2412,10 @@ pub async fn presence_heartbeat(
     client: State<'_, mc_core::server::ServerClient>,
     activity: Option<String>,
 ) -> CmdResult<()> {
-    client.presence_heartbeat(activity.as_deref()).await.map_err(err)
+    client
+        .presence_heartbeat(activity.as_deref())
+        .await
+        .map_err(err)
 }
 
 // --- notifications (typed inbox: friend requests/accepts + realm invites) -----
@@ -2286,7 +2450,10 @@ pub async fn account_link_microsoft(
     account_id: String,
     username: Option<String>,
 ) -> CmdResult<()> {
-    client.link_microsoft(account_id.trim(), username).await.map_err(err)
+    client
+        .link_microsoft(account_id.trim(), username)
+        .await
+        .map_err(err)
 }
 
 /// List the current kobeMC user's linked identities.
@@ -2327,6 +2494,29 @@ pub struct ImportOutcomeDto {
     pub skipped_optional: Vec<String>,
 }
 
+async fn refresh_wiki_cache_for_instance(paths: &paths::GamePaths, id: &str) -> CmdResult<()> {
+    let id = id.trim();
+    if id.is_empty() {
+        return Ok(());
+    }
+    let inst = Instance::new(id, paths.root().to_path_buf());
+    let modpack_id = inst
+        .load_config()
+        .ok()
+        .and_then(|cfg| cfg.source.map(|src| src.project_id))
+        .filter(|project_id| !project_id.trim().is_empty())
+        .unwrap_or_else(|| id.to_string());
+    refresh_wiki_corpus_cache(modpack_id, Some(id.to_string()), &inst.game_dir())
+        .await
+        .map_err(err)
+}
+
+async fn best_effort_refresh_wiki_cache(paths: &paths::GamePaths, id: &str) {
+    if let Err(e) = refresh_wiki_cache_for_instance(paths, id).await {
+        tracing::warn!(instance_id = %id, error = %e, "failed to rebuild wiki corpus cache");
+    }
+}
+
 /// 导入一个整合包(`.mrpack` / CurseForge zip / MultiMC / MCBBS,自动识别格式),
 /// 建好实例并返回其 id。`path` 可为归档文件,**或**未解压的 MultiMC/Prism 实例目录。
 /// `blocked` 列出需用户手动下载的 CurseForge 文件。
@@ -2353,20 +2543,9 @@ pub async fn import_modpack(
         .await
         .map_err(err)?;
 
-    Ok(ImportOutcomeDto {
-        instance_id: outcome.instance_id,
-        blocked: outcome
-            .blocked
-            .into_iter()
-            .map(|b| BlockedFileDto {
-                name: b.name,
-                website_url: b.website_url,
-                target_dir: b.target_dir,
-                required: b.required,
-            })
-            .collect(),
-        skipped_optional: outcome.skipped_optional,
-    })
+    let dto = ImportOutcomeDto::from(outcome);
+    best_effort_refresh_wiki_cache(&paths, &dto.instance_id).await;
+    Ok(dto)
 }
 
 /// 把字符串解析成 loader 家族(导出时把 loader 依赖写进索引)。
@@ -2465,7 +2644,10 @@ pub async fn install_modrinth_modpack(
 
     // 1) 取最新版本的 .mrpack 下载地址。
     let api = ModrinthApi::new();
-    let versions = api.get_versions(&project_id, None, None).await.map_err(err)?;
+    let versions = api
+        .get_versions(&project_id, None, None)
+        .await
+        .map_err(err)?;
     let version = versions
         .into_iter()
         .next()
@@ -2498,20 +2680,9 @@ pub async fn install_modrinth_modpack(
         .await
         .map_err(err)?;
 
-    Ok(ImportOutcomeDto {
-        instance_id: outcome.instance_id,
-        blocked: outcome
-            .blocked
-            .into_iter()
-            .map(|b| BlockedFileDto {
-                name: b.name,
-                website_url: b.website_url,
-                target_dir: b.target_dir,
-                required: b.required,
-            })
-            .collect(),
-        skipped_optional: outcome.skipped_optional,
-    })
+    let dto = ImportOutcomeDto::from(outcome);
+    best_effort_refresh_wiki_cache(&paths, &dto.instance_id).await;
+    Ok(dto)
 }
 
 impl From<mc_core::modpack::import::ImportOutcome> for ImportOutcomeDto {
@@ -2544,12 +2715,16 @@ pub async fn modrinth_versions(
 ) -> CmdResult<Vec<mc_core::modplatform::modrinth::VersionDetail>> {
     use mc_core::modplatform::modrinth::VersionDetail;
     match parse_provider(provider.as_deref())? {
-        mc_core::modplatform::ProviderId::Modrinth => {
-            ModrinthApi::new().version_details(&project_id).await.map_err(err)
-        }
+        mc_core::modplatform::ProviderId::Modrinth => ModrinthApi::new()
+            .version_details(&project_id)
+            .await
+            .map_err(err),
         id @ mc_core::modplatform::ProviderId::CurseForge => {
             let p = provider_or_err(&make_registry(), id)?;
-            let versions = p.list_versions(&project_id, None, None).await.map_err(err)?;
+            let versions = p
+                .list_versions(&project_id, None, None)
+                .await
+                .map_err(err)?;
             Ok(versions
                 .into_iter()
                 .map(|v| {
@@ -2595,8 +2770,14 @@ pub async fn check_modpack_updates(
     if src.provider != "modrinth" {
         return Ok(Vec::new());
     }
-    let all = ModrinthApi::new().version_details(&src.project_id).await.map_err(err)?;
-    Ok(mc_core::modpack::update::newer_versions(all, src.version_id.as_deref()))
+    let all = ModrinthApi::new()
+        .version_details(&src.project_id)
+        .await
+        .map_err(err)?;
+    Ok(mc_core::modpack::update::newer_versions(
+        all,
+        src.version_id.as_deref(),
+    ))
 }
 
 /// 一次性检查 `root` 下所有实例的可用更新(每实例:mod 更新数 + 整合包是否有新版)。
@@ -2604,7 +2785,9 @@ pub async fn check_modpack_updates(
 /// 只返回**至少有一项更新**的实例,前端据此点亮卡片角标。
 #[tauri::command]
 #[specta::specta]
-pub async fn check_all_updates(root: String) -> CmdResult<Vec<mc_core::instance::InstanceUpdateInfo>> {
+pub async fn check_all_updates(
+    root: String,
+) -> CmdResult<Vec<mc_core::instance::InstanceUpdateInfo>> {
     let paths = root_paths(&root);
     let api = ModrinthApi::new();
     Ok(mc_core::instance::check_all_updates(&api, &paths).await)
@@ -2677,6 +2860,7 @@ pub async fn apply_modpack_update(
     .await
     .map_err(err)?;
 
+    best_effort_refresh_wiki_cache(&paths, &outcome.instance_id).await;
     Ok(ModpackUpdateDto {
         instance_id: outcome.instance_id,
         removed: outcome.removed,
@@ -2749,7 +2933,9 @@ pub async fn install_modpack_url(
         .import_with_progress(ImportSource::Url(url), opts, Some(tx))
         .await
         .map_err(err)?;
-    Ok(outcome.into())
+    let dto = ImportOutcomeDto::from(outcome);
+    best_effort_refresh_wiki_cache(&paths, &dto.instance_id).await;
+    Ok(dto)
 }
 
 /// 浏览安装整合包(provider 感知,详情页「安装此版本」用):给定 `(provider, project, version_id)`,
@@ -2810,7 +2996,12 @@ pub async fn install_modpack(
             if resolved.file.url.trim().is_empty() {
                 return Ok(ImportOutcomeDto {
                     instance_id: String::new(),
-                    blocked: vec![cf_blocked_dto(&project, &version_id, &resolved.file.filename, ".")],
+                    blocked: vec![cf_blocked_dto(
+                        &project,
+                        &version_id,
+                        &resolved.file.filename,
+                        ".",
+                    )],
                     skipped_optional: Vec::new(),
                 });
             }
@@ -2826,8 +3017,16 @@ pub async fn install_modpack(
     let icon_path = match icon_url.filter(|u| !u.trim().is_empty()) {
         Some(u) => match dl.get_bytes(&u).await {
             Ok(bytes) => {
-                let safe: String = project.chars().filter(|c| c.is_ascii_alphanumeric()).take(24).collect();
-                let tmp = std::env::temp_dir().join(format!("mc-modpack-icon-{}-{}.img", std::process::id(), safe));
+                let safe: String = project
+                    .chars()
+                    .filter(|c| c.is_ascii_alphanumeric())
+                    .take(24)
+                    .collect();
+                let tmp = std::env::temp_dir().join(format!(
+                    "mc-modpack-icon-{}-{}.img",
+                    std::process::id(),
+                    safe
+                ));
                 std::fs::write(&tmp, &bytes).ok().map(|_| tmp)
             }
             Err(_) => None,
@@ -2848,7 +3047,9 @@ pub async fn install_modpack(
         .import_with_progress(ImportSource::Url(url), opts, Some(tx))
         .await
         .map_err(err)?;
-    Ok(outcome.into())
+    let dto = ImportOutcomeDto::from(outcome);
+    best_effort_refresh_wiki_cache(&paths, &dto.instance_id).await;
+    Ok(dto)
 }
 
 /// 读取全局设置(下载源/并发/默认内存/Java 路径/语言…)。缺失/损坏回退默认。
@@ -2907,7 +3108,10 @@ impl LobbyProc {
             LobbyProc::DetachedPid { pid, pidfile } => {
                 let script =
                     format!("do shell script \"kill {pid}\" with administrator privileges");
-                let _ = std::process::Command::new("osascript").arg("-e").arg(&script).output();
+                let _ = std::process::Command::new("osascript")
+                    .arg("-e")
+                    .arg(&script)
+                    .output();
                 let _ = std::fs::remove_file(&pidfile);
             }
         }
@@ -2924,7 +3128,11 @@ pub struct LobbyState {
 /// 或同级 `easytier/` 子目录(及 macOS `.app` 的 Resources);② `PATH`;③ 常见安装目录(GUI
 /// 启动的应用常只继承精简 PATH,Homebrew/`/usr/local/bin` 可能不在内)。找不到 → `None`。
 fn easytier_bin(name: &str) -> Option<PathBuf> {
-    let file = if cfg!(windows) { format!("{name}.exe") } else { name.to_string() };
+    let file = if cfg!(windows) {
+        format!("{name}.exe")
+    } else {
+        name.to_string()
+    };
     let mut roots: Vec<PathBuf> = vec![exe_dir(), exe_dir().join("easytier")];
     #[cfg(target_os = "macos")]
     roots.push(exe_dir().join("../Resources/easytier"));
@@ -2933,11 +3141,19 @@ fn easytier_bin(name: &str) -> Option<PathBuf> {
     }
     #[cfg(unix)]
     roots.extend(
-        ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/usr/local/sbin"]
-            .iter()
-            .map(PathBuf::from),
+        [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/usr/bin",
+            "/usr/local/sbin",
+        ]
+        .iter()
+        .map(PathBuf::from),
     );
-    roots.into_iter().map(|d| d.join(&file)).find(|p| p.is_file())
+    roots
+        .into_iter()
+        .map(|d| d.join(&file))
+        .find(|p| p.is_file())
 }
 
 /// EasyTier 缺失时给用户的清晰指引(后端错误串沿用项目既有的中文文案约定)。
@@ -2986,7 +3202,10 @@ fn spawn_elevated(
         .ok()
         .and_then(|s| s.trim().parse::<u32>().ok())
         .ok_or_else(|| "无法确定 easytier-core 进程 pid".to_string())?;
-    Ok(LobbyProc::DetachedPid { pid, pidfile: pidfile.to_path_buf() })
+    Ok(LobbyProc::DetachedPid {
+        pid,
+        pidfile: pidfile.to_path_buf(),
+    })
 }
 
 /// Linux:Polkit(`pkexec`)提权,直接持有子进程。
@@ -3081,9 +3300,17 @@ pub fn lobby_stop(lobby: State<'_, LobbyState>) -> CmdResult<()> {
 pub fn lobby_status(lobby: State<'_, LobbyState>) -> CmdResult<mc_core::lobby::LobbyStatus> {
     let running = lobby.inner.lock().unwrap().is_some();
     if !running {
-        return Ok(mc_core::lobby::LobbyStatus { running: false, virtual_ip: None, peers: vec![] });
+        return Ok(mc_core::lobby::LobbyStatus {
+            running: false,
+            virtual_ip: None,
+            peers: vec![],
+        });
     }
-    let empty = || mc_core::lobby::LobbyStatus { running: true, virtual_ip: None, peers: vec![] };
+    let empty = || mc_core::lobby::LobbyStatus {
+        running: true,
+        virtual_ip: None,
+        peers: vec![],
+    };
     let Some(cli) = status_cli() else {
         return Ok(empty());
     };
@@ -3162,7 +3389,11 @@ fn spawn_privileged_direct(core: &Path, args: &[String], logfile: &Path) -> CmdR
 }
 
 #[cfg(not(unix))]
-fn spawn_privileged_direct(_core: &Path, _args: &[String], _logfile: &Path) -> CmdResult<LobbyProc> {
+fn spawn_privileged_direct(
+    _core: &Path,
+    _args: &[String],
+    _logfile: &Path,
+) -> CmdResult<LobbyProc> {
     Err("当前系统不支持免密直拉。".to_string())
 }
 
@@ -3173,11 +3404,19 @@ fn privileged_install_script(core: &Path, cli: Option<&Path>) -> String {
     let core_dst = format!("{dir}/easytier-core");
     let mut parts = vec![
         format!("mkdir -p {}", sh_quote(dir)),
-        format!("cp {} {}", sh_quote(&core.to_string_lossy()), sh_quote(&core_dst)),
+        format!(
+            "cp {} {}",
+            sh_quote(&core.to_string_lossy()),
+            sh_quote(&core_dst)
+        ),
     ];
     if let Some(cli) = cli {
         let cli_dst = format!("{dir}/easytier-cli");
-        parts.push(format!("cp {} {}", sh_quote(&cli.to_string_lossy()), sh_quote(&cli_dst)));
+        parts.push(format!(
+            "cp {} {}",
+            sh_quote(&cli.to_string_lossy()),
+            sh_quote(&cli_dst)
+        ));
         parts.push(format!("chown {} {}", ROOT_OWNER, sh_quote(&cli_dst)));
         parts.push(format!("chmod 0755 {}", sh_quote(&cli_dst)));
     }
@@ -3194,8 +3433,11 @@ fn setup_privileged_impl() -> CmdResult<bool> {
     let shell = privileged_install_script(&core, cli.as_deref());
     let esc = shell.replace('\\', "\\\\").replace('"', "\\\"");
     let script = format!("do shell script \"{esc}\" with administrator privileges");
-    let out =
-        std::process::Command::new("osascript").arg("-e").arg(&script).output().map_err(err)?;
+    let out = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .output()
+        .map_err(err)?;
     if !out.status.success() {
         return Err("已取消授权或免密设置失败:需要管理员权限。".to_string());
     }
@@ -3274,7 +3516,9 @@ pub async fn agent_tool_search_base_modpacks(
     state: State<'_, AgentToolsState>,
     args: SearchBaseModpacksArgs,
 ) -> CmdResult<SearchBaseModpacksOutput> {
-    tool_search_base_modpacks(&state.ctx(), args).await.map_err(err)
+    tool_search_base_modpacks(&state.ctx(), args)
+        .await
+        .map_err(err)
 }
 
 /// Inspect a base modpack: its bundled mods and the feature areas it covers.
@@ -3284,7 +3528,9 @@ pub async fn agent_tool_inspect_base_modpack(
     state: State<'_, AgentToolsState>,
     args: InspectBaseModpackArgs,
 ) -> CmdResult<InspectBaseModpackOutput> {
-    tool_inspect_base_modpack(&state.ctx(), args).await.map_err(err)
+    tool_inspect_base_modpack(&state.ctx(), args)
+        .await
+        .map_err(err)
 }
 
 /// Search all registered providers for individual mods.
@@ -3342,9 +3588,11 @@ pub async fn agent_tool_install_modpack(
     let dl = make_downloader()?;
     let engine = ImportEngine::with_defaults(dl, make_registry());
     let paths = root_paths(&root);
-    tool_install_modpack(&state.ctx(), &engine, paths.root(), args)
+    let out = tool_install_modpack(&state.ctx(), &engine, paths.root(), args)
         .await
-        .map_err(err)
+        .map_err(err)?;
+    best_effort_refresh_wiki_cache(&paths, &out.instance_id).await;
+    Ok(out)
 }
 
 /// Read-only lean instance list for the agent (id / name / mc_version / loader).
@@ -3389,6 +3637,14 @@ pub async fn agent_tool_wiki_search(
 pub async fn agent_tool_wiki_open(root: String, args: WikiOpenArgs) -> CmdResult<WikiOpenOutput> {
     validate_agent_wiki_source_paths(&root, &args.source_paths)?;
     tool_wiki_open(args).await.map_err(err)
+}
+
+/// Rebuild the local wiki corpus cache for an installed instance on demand.
+#[tauri::command]
+#[specta::specta]
+pub async fn rebuild_instance_wiki_index(root: String, id: String) -> CmdResult<()> {
+    let paths = root_paths(&root);
+    refresh_wiki_cache_for_instance(&paths, &id).await
 }
 
 /// The local OpenRouter config (key / model / base_url) resolved from env + the
@@ -3485,19 +3741,27 @@ pub fn agent_host_start(app: AppHandle, state: State<'_, AgentHostState>) -> Cmd
     let app_out = app.clone();
     std::thread::spawn(move || {
         use std::io::BufRead;
-        for line in std::io::BufReader::new(stdout).lines().map_while(|l| l.ok()) {
+        for line in std::io::BufReader::new(stdout)
+            .lines()
+            .map_while(|l| l.ok())
+        {
             let _ = app_out.emit("agent-host://event", AgentHostEvent { line });
         }
         let _ = app_out.emit(
             "agent-host://event",
-            AgentHostEvent { line: "{\"type\":\"host_exit\"}".to_string() },
+            AgentHostEvent {
+                line: "{\"type\":\"host_exit\"}".to_string(),
+            },
         );
     });
     // stderr → daemon log (host diagnostics; harness bridge noise).
     let stderr = child.stderr.take().ok_or("agent host stderr unavailable")?;
     std::thread::spawn(move || {
         use std::io::BufRead;
-        for line in std::io::BufReader::new(stderr).lines().map_while(|l| l.ok()) {
+        for line in std::io::BufReader::new(stderr)
+            .lines()
+            .map_while(|l| l.ok())
+        {
             tracing::info!(target: "daemon", "agent-host: {line}");
         }
     });
