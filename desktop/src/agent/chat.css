@@ -303,39 +303,21 @@
   flex: 0 0 auto;
 }
 
-.mc-recipe-arrow span,
-.mc-recipe-arrow span::before,
-.mc-recipe-arrow span::after {
+.mc-recipe-arrow::before {
   position: absolute;
+  top: 2px;
+  left: 1px;
   display: block;
-  background: #7a7a7a;
+  width: 32px;
+  height: 20px;
+  background:
+    linear-gradient(#7a7a7a 0 0) 20px 0 / 4px 4px no-repeat,
+    linear-gradient(#7a7a7a 0 0) 24px 4px / 4px 4px no-repeat,
+    linear-gradient(#7a7a7a 0 0) 0 8px / 32px 4px no-repeat,
+    linear-gradient(#7a7a7a 0 0) 24px 12px / 4px 4px no-repeat,
+    linear-gradient(#7a7a7a 0 0) 20px 16px / 4px 4px no-repeat;
   content: "";
-}
-
-.mc-recipe-arrow span {
-  top: 10px;
-  left: 2px;
-  width: 26px;
-  height: 4px;
-  box-shadow: 1px 1px 0 #ffffff;
-}
-
-.mc-recipe-arrow span::before {
-  top: -6px;
-  right: -2px;
-  width: 10px;
-  height: 4px;
-  transform: rotate(45deg);
-  transform-origin: right center;
-}
-
-.mc-recipe-arrow span::after {
-  right: -2px;
-  bottom: -6px;
-  width: 10px;
-  height: 4px;
-  transform: rotate(-45deg);
-  transform-origin: right center;
+  filter: drop-shadow(1px 1px 0 #ffffff);
 }
 
 .mc-recipe-source {
