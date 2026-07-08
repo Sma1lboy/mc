@@ -308,13 +308,23 @@ fn read_archive_texture<R: Read + Seek>(
 
 fn model_texture_ref(text: &str) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(text).ok()?;
-    value
-        .get("textures")
-        .and_then(|v| v.get("layer0").or_else(|| v.get("all")))
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty() && !s.starts_with('#'))
-        .map(ToOwned::to_owned)
+    let textures = value.get("textures")?.as_object()?;
+    for key in [
+        "layer0", "all", "particle", "north", "south", "east", "west", "up", "down",
+    ] {
+        if let Some(texture) = resolve_model_texture_key(textures, key, 0) {
+            return Some(texture);
+        }
+    }
+    for value in textures.values() {
+        let Some(raw) = value.as_str() else {
+            continue;
+        };
+        if let Some(texture) = resolve_model_texture_value(textures, raw, 0) {
+            return Some(texture);
+        }
+    }
+    None
 }
 
 fn model_parent_ref(text: &str) -> Option<String> {
@@ -325,6 +335,33 @@ fn model_parent_ref(text: &str) -> Option<String> {
         .map(str::trim)
         .filter(|s| !s.is_empty() && !s.starts_with('#'))
         .map(ToOwned::to_owned)
+}
+
+fn resolve_model_texture_key(
+    textures: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+    depth: usize,
+) -> Option<String> {
+    let raw = textures.get(key)?.as_str()?;
+    resolve_model_texture_value(textures, raw, depth)
+}
+
+fn resolve_model_texture_value(
+    textures: &serde_json::Map<String, serde_json::Value>,
+    raw: &str,
+    depth: usize,
+) -> Option<String> {
+    if depth > 16 {
+        return None;
+    }
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    if let Some(key) = raw.strip_prefix('#') {
+        return resolve_model_texture_key(textures, key, depth + 1);
+    }
+    Some(raw.to_string())
 }
 
 fn parse_model_ref(raw: &str, default_namespace: &str) -> Option<(String, String)> {
@@ -602,5 +639,80 @@ mod tests {
             format!("data:image/png;base64,{}", base64_encode(PNG))
         );
         assert!(icon.source.ends_with("1.19.2.jar"));
+    }
+
+    #[test]
+    fn resolves_block_item_icon_from_particle_texture() {
+        let temp = TempRoot::new("block-item-particle");
+        let inst = Instance::new("pack", temp.path.clone());
+        let paths = inst.paths();
+        fs::create_dir_all(paths.version_dir("pack")).unwrap();
+        fs::create_dir_all(paths.version_dir("1.19.2")).unwrap();
+        fs::write(
+            paths.version_json("pack"),
+            r#"{"id":"pack","inheritsFrom":"1.19.2"}"#,
+        )
+        .unwrap();
+        fs::write(paths.version_json("1.19.2"), r#"{"id":"1.19.2"}"#).unwrap();
+        write_zip(
+            &paths.version_jar("1.19.2"),
+            &[
+                (
+                    "assets/minecraft/models/item/crafting_table.json",
+                    br#"{"parent":"minecraft:block/crafting_table"}"#,
+                ),
+                (
+                    "assets/minecraft/models/block/crafting_table.json",
+                    br#"{"parent":"minecraft:block/cube","textures":{"particle":"minecraft:block/crafting_table_front","north":"minecraft:block/crafting_table_front"}}"#,
+                ),
+                (
+                    "assets/minecraft/textures/block/crafting_table_front.png",
+                    PNG,
+                ),
+            ],
+        );
+
+        let icon = resolve_item_icon(&inst, "minecraft:crafting_table")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(icon.item_id, "minecraft:crafting_table");
+        assert_eq!(
+            icon.data_url,
+            format!("data:image/png;base64,{}", base64_encode(PNG))
+        );
+        assert!(icon.source.ends_with("1.19.2.jar"));
+    }
+
+    #[test]
+    fn resolves_mod_block_item_icon_from_particle_texture() {
+        let temp = TempRoot::new("mod-block-item-particle");
+        let inst = Instance::new("pack", temp.path.clone());
+        fs::create_dir_all(inst.mods_dir()).unwrap();
+        write_zip(
+            &inst.mods_dir().join("create.jar"),
+            &[
+                (
+                    "assets/create/models/item/mechanical_crafter.json",
+                    br#"{"parent":"create:block/mechanical_crafter/item"}"#,
+                ),
+                (
+                    "assets/create/models/block/mechanical_crafter/item.json",
+                    br#"{"parent":"block/block","textures":{"particle":"create:block/brass_casing","4":"create:block/crafter_side"}}"#,
+                ),
+                ("assets/create/textures/block/brass_casing.png", PNG),
+            ],
+        );
+
+        let icon = resolve_item_icon(&inst, "create:mechanical_crafter")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(icon.item_id, "create:mechanical_crafter");
+        assert_eq!(
+            icon.data_url,
+            format!("data:image/png;base64,{}", base64_encode(PNG))
+        );
+        assert!(icon.source.ends_with("create.jar"));
     }
 }

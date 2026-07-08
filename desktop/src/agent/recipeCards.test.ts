@@ -129,4 +129,25 @@ describe("parseRecipeCardBlocks", () => {
       "create:andesite_alloy\u0001minecraft:iron_nugget\u0001minecraft:andesite",
     );
   });
+
+  it("uses representative item icons for quartz and redstone recipe tags", () => {
+    const parts = parseRecipeCardBlocks([
+      "```recipe_card",
+      JSON.stringify({
+        version: 1,
+        type: "crafting_shapeless",
+        result: { id: "create:rose_quartz", label: "玫瑰石英" },
+        ingredients: [
+          { id: "#forge:gems/quartz", label: "下界石英" },
+          { id: "#forge:dusts/redstone", label: "红石粉", count: 8 },
+        ],
+      }),
+      "```",
+    ].join("\n"));
+    if (parts[0].type !== "recipe_card") throw new Error("expected recipe card");
+
+    expect(recipeCardIconIdsKey(parts[0].card)).toBe(
+      "create:rose_quartz\u0001minecraft:quartz\u0001minecraft:redstone",
+    );
+  });
 });
