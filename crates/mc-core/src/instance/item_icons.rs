@@ -189,7 +189,7 @@ fn resolve_tag_icon_inner(
         return Ok(None);
     }
 
-    if let Some(icon) = resolve_preferred_tag_icon(inst, tag_id, display_item_id)? {
+    if let Some(icon) = resolve_vanilla_tag_icon(inst, tag_id, display_item_id, visited, depth)? {
         return Ok(Some(icon));
     }
 
@@ -221,27 +221,40 @@ fn resolve_tag_icon_inner(
     Ok(None)
 }
 
-fn resolve_preferred_tag_icon(
+fn resolve_vanilla_tag_icon(
     inst: &Instance,
     tag_id: &str,
     display_item_id: &str,
+    visited: &mut HashSet<String>,
+    depth: usize,
 ) -> Result<Option<ItemIcon>> {
-    let Some(item_id) = preferred_tag_representative(tag_id) else {
+    let Some((namespace, _)) = parse_tag_id(tag_id) else {
         return Ok(None);
     };
-    resolve_item_icon_id(inst, item_id, display_item_id)
-}
-
-fn preferred_tag_representative(tag_id: &str) -> Option<&'static str> {
-    match tag_id {
-        "#minecraft:logs" => Some("minecraft:oak_log"),
-        "#minecraft:planks" => Some("minecraft:oak_planks"),
-        "#minecraft:saplings" => Some("minecraft:oak_sapling"),
-        "#minecraft:stone_crafting_materials" => Some("minecraft:cobblestone"),
-        "#minecraft:wooden_slabs" => Some("minecraft:oak_slab"),
-        "#minecraft:wool" => Some("minecraft:white_wool"),
-        _ => None,
+    if namespace != "minecraft" {
+        return Ok(None);
     }
+    for value in read_vanilla_item_tag_values(inst, tag_id)? {
+        match value {
+            TagValue::Item(item_id) => {
+                if let Some(icon) = resolve_item_icon_id(inst, &item_id, display_item_id)? {
+                    return Ok(Some(icon));
+                }
+            }
+            TagValue::Tag(child_tag_id) => {
+                if let Some(icon) = resolve_tag_icon_inner(
+                    inst,
+                    &child_tag_id,
+                    display_item_id,
+                    visited,
+                    depth + 1,
+                )? {
+                    return Ok(Some(icon));
+                }
+            }
+        }
+    }
+    Ok(None)
 }
 
 fn read_item_tag_values(inst: &Instance, tag_id: &str) -> Result<Vec<TagValue>> {
@@ -287,6 +300,29 @@ fn read_item_tag_values(inst: &Instance, tag_id: &str) -> Result<Vec<TagValue>> 
             }
         }
     }
+    for jar in version_asset_roots(inst) {
+        if let Some(tag) = read_tag_file_from_archive(&jar, &query)? {
+            let replace = tag.replace;
+            append_tag_file_values(&mut out, tag);
+            if replace {
+                return Ok(out);
+            }
+        }
+    }
+
+    Ok(out)
+}
+
+fn read_vanilla_item_tag_values(inst: &Instance, tag_id: &str) -> Result<Vec<TagValue>> {
+    let Some((namespace, path)) = parse_tag_id(tag_id) else {
+        return Ok(Vec::new());
+    };
+    if namespace != "minecraft" {
+        return Ok(Vec::new());
+    }
+    let query = TagQuery { namespace, path };
+    let mut out = Vec::new();
+
     for jar in version_asset_roots(inst) {
         if let Some(tag) = read_tag_file_from_archive(&jar, &query)? {
             let replace = tag.replace;
