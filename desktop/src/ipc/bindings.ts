@@ -1752,6 +1752,10 @@ export type WikiSearchArgs = {
 	source_paths?: string[],
 	query: string,
 	top_k?: number | null,
+	kind?: string | null,
+	target_id?: string | null,
+	ingredient_id?: string | null,
+	include_structured?: boolean | null,
 };
 
 export type WikiSearchHit = WikiSearchHit_Serialize | WikiSearchHit_Deserialize;

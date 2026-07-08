@@ -103,6 +103,10 @@ function wikiSearchArgs(args: unknown, context: AgentToolContext | null): never 
     query,
   };
   if (typeof input.top_k === "number") out.top_k = input.top_k;
+  if (typeof input.kind === "string") out.kind = input.kind;
+  if (typeof input.target_id === "string") out.target_id = input.target_id;
+  if (typeof input.ingredient_id === "string") out.ingredient_id = input.ingredient_id;
+  if (typeof input.include_structured === "boolean") out.include_structured = input.include_structured;
   return out as never;
 }
 

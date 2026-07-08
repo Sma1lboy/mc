@@ -73,6 +73,15 @@ describe("runTurn", () => {
     ).toBe(true);
     // wiki tools expose only model-owned fields; host-owned paths/ids are injected by the launcher.
     expect(toolSchemas.wiki_search.safeParse({ query: "aether quest", top_k: 3 }).success).toBe(true);
+    expect(
+      toolSchemas.wiki_search.safeParse({
+        query: "andesite alloy",
+        kind: "recipe",
+        target_id: "create:andesite_alloy",
+        ingredient_id: "#forge:nuggets/iron",
+        include_structured: true,
+      }).success,
+    ).toBe(true);
     expect(toolSchemas.wiki_search.safeParse({ top_k: 3 }).success).toBe(false);
     expect(toolSchemas.wiki_search.safeParse({ query: "x", source_paths: ["/tmp"] }).success).toBe(false);
     expect(toolSchemas.wiki_open.safeParse({ chunk_id: "chunk:doc:0:content" }).success).toBe(true);
@@ -102,6 +111,9 @@ describe("runTurn", () => {
     const prompt = promptForMode("wiki");
     expect(prompt).toContain("wiki_search");
     expect(prompt).toContain("wiki_open");
+    expect(prompt).toContain('kind: "recipe"');
+    expect(prompt).toContain("recipe_override");
+    expect(prompt).toContain("Do not fill gaps with vanilla/Create/default knowledge");
     expect(prompt).not.toContain("build_modpack");
     expect(prompt).not.toContain("search_base_modpacks");
   });

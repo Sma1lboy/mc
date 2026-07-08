@@ -431,6 +431,10 @@ async fn wiki_search_reads_local_text_sources_and_opens_chunks() {
         source_paths: vec![dir.to_string_lossy().to_string()],
         query: "aether portal".to_string(),
         top_k: Some(5),
+        kind: None,
+        target_id: None,
+        ingredient_id: None,
+        include_structured: None,
     })
     .await
     .unwrap();
@@ -498,6 +502,10 @@ async fn wiki_search_includes_generated_instance_data() {
         source_paths: vec![dir.to_string_lossy().to_string()],
         query: "sodium".to_string(),
         top_k: Some(5),
+        kind: None,
+        target_id: None,
+        ingredient_id: None,
+        include_structured: None,
     })
     .await
     .unwrap();
@@ -556,6 +564,10 @@ async fn wiki_search_reads_complete_ftb_quest_sources() {
         source_paths: vec![dir.to_string_lossy().to_string()],
         query: "crushing wheel".to_string(),
         top_k: Some(5),
+        kind: None,
+        target_id: None,
+        ingredient_id: None,
+        include_structured: None,
     })
     .await
     .unwrap();
@@ -631,6 +643,10 @@ async fn wiki_search_builds_structured_ftb_quest_chunks_and_matches_typos() {
         source_paths: vec![dir.to_string_lossy().to_string()],
         query: "crushng whl".to_string(),
         top_k: Some(5),
+        kind: None,
+        target_id: None,
+        ingredient_id: None,
+        include_structured: None,
     })
     .await
     .unwrap();
@@ -699,6 +715,10 @@ async fn wiki_search_extracts_structured_recipe_documents_from_mod_jars() {
         source_paths: vec![dir.to_string_lossy().to_string()],
         query: "andesite casing recipe".to_string(),
         top_k: Some(5),
+        kind: None,
+        target_id: None,
+        ingredient_id: None,
+        include_structured: None,
     })
     .await
     .unwrap();
@@ -737,6 +757,257 @@ async fn wiki_search_extracts_structured_recipe_documents_from_mod_jars() {
             .and_then(|value| value.pointer("/result/label"))
             .and_then(|value| value.as_str()),
         Some("Andesite Casing")
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn wiki_search_filters_structured_recipes_by_target_and_ingredient() {
+    let dir = temp_dir("wiki-recipe-structured-filters");
+    let mods_dir = dir.join("mods");
+    std::fs::create_dir_all(&mods_dir).unwrap();
+    std::fs::write(
+        mods_dir.join("create.jar"),
+        zip_bytes(&[
+            (
+                "assets/create/lang/en_us.json",
+                br#"{
+                    "item.create.andesite_alloy": "Andesite Alloy",
+                    "block.create.andesite_casing": "Andesite Casing"
+                }"#,
+            ),
+            (
+                "data/create/recipes/materials/andesite_alloy.json",
+                br#"{
+                    "type": "minecraft:crafting_shaped",
+                    "pattern": ["AB", "BA"],
+                    "key": {
+                        "A": { "item": "minecraft:andesite" },
+                        "B": { "tag": "forge:nuggets/iron" }
+                    },
+                    "result": { "item": "create:andesite_alloy" }
+                }"#,
+            ),
+            (
+                "data/create/recipes/crafting/andesite_casing.json",
+                br#"{
+                    "type": "minecraft:crafting_shaped",
+                    "pattern": ["PPP", "PAP", "PPP"],
+                    "key": {
+                        "P": { "tag": "minecraft:planks" },
+                        "A": { "item": "create:andesite_alloy" }
+                    },
+                    "result": { "item": "create:andesite_casing" }
+                }"#,
+            ),
+        ]),
+    )
+    .unwrap();
+
+    let out = tool_wiki_search(WikiSearchArgs {
+        modpack_id: "create-pack".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        query: "recipe".to_string(),
+        top_k: Some(5),
+        kind: Some("recipe".to_string()),
+        target_id: Some("create:andesite_casing".to_string()),
+        ingredient_id: Some("create:andesite_alloy".to_string()),
+        include_structured: Some(false),
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(out.hits.len(), 1);
+    assert_eq!(out.hits[0].kind.as_deref(), Some("recipe"));
+    assert!(out.hits[0].title.contains("Andesite Casing"));
+    assert!(
+        out.hits[0].structured.is_none(),
+        "include_structured=false should strip structured payloads from hits"
+    );
+
+    let exact_out = tool_wiki_search(WikiSearchArgs {
+        modpack_id: "create-pack".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        query: " ".to_string(),
+        top_k: Some(5),
+        kind: Some("recipe".to_string()),
+        target_id: Some("create:andesite_casing".to_string()),
+        ingredient_id: None,
+        include_structured: Some(true),
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(exact_out.hits.len(), 1);
+    assert_eq!(
+        exact_out.hits[0]
+            .structured
+            .as_ref()
+            .and_then(|value| value.pointer("/result/id"))
+            .and_then(|value| value.as_str()),
+        Some("create:andesite_casing")
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn wiki_search_indexes_kubejs_recipe_overrides_ahead_of_mod_recipes() {
+    let dir = temp_dir("wiki-kubejs-recipe-overrides");
+    let mods_dir = dir.join("mods");
+    let scripts_dir = dir.join("kubejs").join("server_scripts");
+    std::fs::create_dir_all(&mods_dir).unwrap();
+    std::fs::create_dir_all(&scripts_dir).unwrap();
+    std::fs::write(
+        mods_dir.join("create.jar"),
+        zip_bytes(&[(
+            "data/create/recipes/materials/andesite_alloy.json",
+            br#"{
+                "type": "minecraft:crafting_shaped",
+                "pattern": ["AB", "BA"],
+                "key": {
+                    "A": { "item": "minecraft:andesite" },
+                    "B": { "tag": "forge:nuggets/iron" }
+                },
+                "result": { "item": "create:andesite_alloy" }
+            }"#,
+        )]),
+    )
+    .unwrap();
+    std::fs::write(
+        scripts_dir.join("recipes.js"),
+        r#"ServerEvents.recipes(event => {
+            event.remove({ output: 'create:andesite_alloy' })
+            event.custom({
+                "type": "minecraft:crafting_shapeless",
+                "ingredients": [{ "item": "minecraft:andesite" }, { "item": "minecraft:iron_nugget" }],
+                "result": { "item": "create:andesite_alloy", "count": 2 }
+            })
+        })"#,
+    )
+    .unwrap();
+
+    let override_hits = tool_wiki_search(WikiSearchArgs {
+        modpack_id: "create-pack".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        query: "andesite alloy".to_string(),
+        top_k: Some(5),
+        kind: Some("recipe_override".to_string()),
+        target_id: Some("create:andesite_alloy".to_string()),
+        ingredient_id: None,
+        include_structured: Some(true),
+    })
+    .await
+    .unwrap();
+
+    let override_hit = override_hits
+        .hits
+        .first()
+        .expect("KubeJS remove should be indexed as a recipe override");
+    assert_eq!(override_hit.kind.as_deref(), Some("recipe_override"));
+    assert_eq!(
+        override_hit
+            .structured
+            .as_ref()
+            .and_then(|value| value.pointer("/action"))
+            .and_then(|value| value.as_str()),
+        Some("remove")
+    );
+
+    let recipe_hits = tool_wiki_search(WikiSearchArgs {
+        modpack_id: "create-pack".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        query: "andesite alloy".to_string(),
+        top_k: Some(5),
+        kind: Some("recipe".to_string()),
+        target_id: Some("create:andesite_alloy".to_string()),
+        ingredient_id: None,
+        include_structured: Some(true),
+    })
+    .await
+    .unwrap();
+
+    let first_recipe = recipe_hits
+        .hits
+        .first()
+        .expect("KubeJS custom recipe should be indexed as a recipe");
+    assert_eq!(
+        first_recipe
+            .structured
+            .as_ref()
+            .and_then(|value| value.pointer("/source/type"))
+            .and_then(|value| value.as_str()),
+        Some("kubejs")
+    );
+    assert_eq!(
+        first_recipe
+            .structured
+            .as_ref()
+            .and_then(|value| value.pointer("/result/count"))
+            .and_then(|value| value.as_u64()),
+        Some(2)
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn wiki_search_indexes_kubejs_custom_recipes_with_js_object_syntax() {
+    let dir = temp_dir("wiki-kubejs-js-object-recipes");
+    let scripts_dir = dir.join("kubejs").join("server_scripts");
+    std::fs::create_dir_all(&scripts_dir).unwrap();
+    std::fs::write(
+        scripts_dir.join("mixing.js"),
+        r#"ServerEvents.recipes(event => {
+            event.custom({
+                type: 'create:mixing',
+                ingredients: [
+                    { item: 'minecraft:andesite' },
+                    { tag: 'forge:nuggets/iron' }
+                ],
+                results: [{ item: 'create:andesite_alloy', count: 4 }]
+            })
+        })"#,
+    )
+    .unwrap();
+
+    let out = tool_wiki_search(WikiSearchArgs {
+        modpack_id: "create-pack".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        query: "andesite alloy".to_string(),
+        top_k: Some(5),
+        kind: Some("recipe".to_string()),
+        target_id: Some("create:andesite_alloy".to_string()),
+        ingredient_id: Some("#forge:nuggets/iron".to_string()),
+        include_structured: Some(true),
+    })
+    .await
+    .unwrap();
+
+    let hit = out
+        .hits
+        .first()
+        .expect("KubeJS custom recipe object syntax should be indexed");
+    assert_eq!(hit.kind.as_deref(), Some("recipe"));
+    assert_eq!(
+        hit.structured
+            .as_ref()
+            .and_then(|value| value.pointer("/source/type"))
+            .and_then(|value| value.as_str()),
+        Some("kubejs")
+    );
+    assert_eq!(
+        hit.structured
+            .as_ref()
+            .and_then(|value| value.pointer("/result/count"))
+            .and_then(|value| value.as_u64()),
+        Some(4)
     );
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -785,6 +1056,10 @@ async fn wiki_search_does_not_let_large_lang_files_hide_mod_jar_recipes() {
         source_paths: vec![dir.to_string_lossy().to_string()],
         query: "andesite alloy recipe".to_string(),
         top_k: Some(5),
+        kind: None,
+        target_id: None,
+        ingredient_id: None,
+        include_structured: None,
     })
     .await
     .unwrap();
@@ -832,6 +1107,10 @@ async fn wiki_search_keeps_large_tags_searchable_without_huge_structured_payload
         source_paths: vec![dir.to_string_lossy().to_string()],
         query: "example:item_299".to_string(),
         top_k: Some(5),
+        kind: None,
+        target_id: None,
+        ingredient_id: None,
+        include_structured: None,
     })
     .await
     .unwrap();
@@ -912,6 +1191,10 @@ async fn wiki_search_includes_cached_modpack_project_details() {
         source_paths: vec![dir.to_string_lossy().to_string()],
         query: "kinetic progression".to_string(),
         top_k: Some(5),
+        kind: None,
+        target_id: None,
+        ingredient_id: None,
+        include_structured: None,
     })
     .await
     .unwrap();
@@ -969,6 +1252,10 @@ async fn wiki_search_and_open_use_valid_corpus_cache() {
         source_paths: vec![dir.to_string_lossy().to_string()],
         query: "sentinel".to_string(),
         top_k: Some(5),
+        kind: None,
+        target_id: None,
+        ingredient_id: None,
+        include_structured: None,
     })
     .await
     .unwrap();
@@ -1009,6 +1296,10 @@ async fn wiki_refresh_rebuilds_stale_corpus_cache_in_instance_dir() {
         source_paths: vec![dir.to_string_lossy().to_string()],
         query: "sapphire".to_string(),
         top_k: Some(5),
+        kind: None,
+        target_id: None,
+        ingredient_id: None,
+        include_structured: None,
     })
     .await
     .unwrap();
@@ -1020,6 +1311,10 @@ async fn wiki_refresh_rebuilds_stale_corpus_cache_in_instance_dir() {
         source_paths: vec![dir.to_string_lossy().to_string()],
         query: "stale sentinel".to_string(),
         top_k: Some(5),
+        kind: None,
+        target_id: None,
+        ingredient_id: None,
+        include_structured: None,
     })
     .await
     .unwrap();
@@ -1079,6 +1374,10 @@ async fn wiki_fingerprint_ignores_runtime_dirs_and_uses_cache() {
         source_paths: vec![dir.to_string_lossy().to_string()],
         query: "sentinel".to_string(),
         top_k: Some(5),
+        kind: None,
+        target_id: None,
+        ingredient_id: None,
+        include_structured: None,
     })
     .await
     .unwrap();
@@ -1094,6 +1393,10 @@ async fn wiki_fingerprint_ignores_runtime_dirs_and_uses_cache() {
         source_paths: vec![dir.to_string_lossy().to_string()],
         query: "volatile".to_string(),
         top_k: Some(5),
+        kind: None,
+        target_id: None,
+        ingredient_id: None,
+        include_structured: None,
     })
     .await
     .unwrap();
@@ -1114,6 +1417,10 @@ async fn wiki_open_chunk_id_survives_corpus_reordering() {
         source_paths: vec![dir.to_string_lossy().to_string()],
         query: "citrine".to_string(),
         top_k: Some(5),
+        kind: None,
+        target_id: None,
+        ingredient_id: None,
+        include_structured: None,
     })
     .await
     .unwrap();
@@ -1154,6 +1461,10 @@ async fn wiki_search_skips_symlinks() {
         source_paths: vec![dir.to_string_lossy().to_string()],
         query: "secret sentinel".to_string(),
         top_k: Some(5),
+        kind: None,
+        target_id: None,
+        ingredient_id: None,
+        include_structured: None,
     })
     .await
     .unwrap();
@@ -1168,6 +1479,10 @@ async fn wiki_search_skips_symlinks() {
         source_paths: vec![dir.to_string_lossy().to_string()],
         query: "obsidian".to_string(),
         top_k: Some(5),
+        kind: None,
+        target_id: None,
+        ingredient_id: None,
+        include_structured: None,
     })
     .await
     .unwrap();
@@ -1203,6 +1518,10 @@ async fn wiki_search_applies_archive_total_budget() {
         source_paths: vec![archive.to_string_lossy().to_string()],
         query: "forbidden sentinel".to_string(),
         top_k: Some(5),
+        kind: None,
+        target_id: None,
+        ingredient_id: None,
+        include_structured: None,
     })
     .await
     .unwrap();
