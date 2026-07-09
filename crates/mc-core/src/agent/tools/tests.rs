@@ -768,6 +768,88 @@ async fn wiki_search_extracts_structured_recipe_documents_from_mod_jars() {
 }
 
 #[tokio::test]
+async fn wiki_search_indexes_non_crafting_recipe_json_inputs() {
+    let dir = temp_dir("wiki-non-crafting-recipes");
+    let mods_dir = dir.join("mods");
+    std::fs::create_dir_all(&mods_dir).unwrap();
+    std::fs::write(
+        mods_dir.join("minecraft.jar"),
+        zip_bytes(&[
+            (
+                "data/minecraft/recipes/smelting/iron_nugget.json",
+                br#"{
+                    "type": "minecraft:smelting",
+                    "ingredient": { "item": "minecraft:iron_ore" },
+                    "result": "minecraft:iron_nugget",
+                    "experience": 0.1,
+                    "cookingtime": 200
+                }"#,
+            ),
+            (
+                "data/minecraft/recipes/stonecutting/stone_button.json",
+                br#"{
+                    "type": "minecraft:stonecutting",
+                    "ingredient": { "tag": "minecraft:stone_tool_materials" },
+                    "result": { "id": "minecraft:stone_button", "count": 1 }
+                }"#,
+            ),
+            (
+                "data/minecraft/recipes/smithing/netherite_sword.json",
+                br#"{
+                    "type": "minecraft:smithing_transform",
+                    "template": { "item": "minecraft:netherite_upgrade_smithing_template" },
+                    "base": { "item": "minecraft:diamond_sword" },
+                    "addition": { "item": "minecraft:netherite_ingot" },
+                    "result": { "id": "minecraft:netherite_sword" }
+                }"#,
+            ),
+        ]),
+    )
+    .unwrap();
+
+    for (target_id, ingredient_id) in [
+        ("minecraft:iron_nugget", "minecraft:iron_ore"),
+        ("minecraft:stone_button", "#minecraft:stone_tool_materials"),
+        ("minecraft:netherite_sword", "minecraft:diamond_sword"),
+        (
+            "minecraft:netherite_sword",
+            "minecraft:netherite_upgrade_smithing_template",
+        ),
+        ("minecraft:netherite_sword", "minecraft:netherite_ingot"),
+    ] {
+        let out = tool_wiki_search(WikiSearchArgs {
+            modpack_id: "recipe-pack".to_string(),
+            instance_id: Some("local-instance".to_string()),
+            source_paths: vec![dir.to_string_lossy().to_string()],
+            query: " ".to_string(),
+            top_k: Some(5),
+            kind: Some("recipe".to_string()),
+            target_id: Some(target_id.to_string()),
+            ingredient_id: Some(ingredient_id.to_string()),
+            include_structured: Some(true),
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(
+            out.hits.len(),
+            1,
+            "expected {target_id} recipe to be searchable by input {ingredient_id}"
+        );
+        assert_eq!(
+            out.hits[0]
+                .structured
+                .as_ref()
+                .and_then(|value| value.pointer("/result/id"))
+                .and_then(|value| value.as_str()),
+            Some(target_id)
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
 async fn wiki_search_filters_structured_recipes_by_target_and_ingredient() {
     let dir = temp_dir("wiki-recipe-structured-filters");
     let mods_dir = dir.join("mods");
@@ -1014,6 +1096,78 @@ async fn wiki_search_indexes_kubejs_custom_recipes_with_js_object_syntax() {
             .and_then(|value| value.as_u64()),
         Some(4)
     );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn wiki_search_indexes_kubejs_helper_recipes() {
+    let dir = temp_dir("wiki-kubejs-helper-recipes");
+    let scripts_dir = dir.join("kubejs").join("server_scripts");
+    std::fs::create_dir_all(&scripts_dir).unwrap();
+    std::fs::write(
+        scripts_dir.join("recipes.js"),
+        r#"ServerEvents.recipes(event => {
+            event.shaped('create:andesite_casing', [
+                'PPP',
+                'PAP',
+                'PPP'
+            ], {
+                P: '#minecraft:planks',
+                A: 'create:andesite_alloy'
+            })
+            event.shapeless(Item.of('create:andesite_alloy', 2), [
+                'minecraft:andesite',
+                '#forge:nuggets/iron'
+            ])
+            event.smelting('minecraft:iron_nugget', 'minecraft:iron_ore')
+        })"#,
+    )
+    .unwrap();
+
+    for (target_id, ingredient_id, count) in [
+        ("create:andesite_casing", "create:andesite_alloy", 1),
+        ("create:andesite_casing", "#minecraft:planks", 1),
+        ("create:andesite_alloy", "minecraft:andesite", 2),
+        ("create:andesite_alloy", "#forge:nuggets/iron", 2),
+        ("minecraft:iron_nugget", "minecraft:iron_ore", 1),
+    ] {
+        let out = tool_wiki_search(WikiSearchArgs {
+            modpack_id: "create-pack".to_string(),
+            instance_id: Some("local-instance".to_string()),
+            source_paths: vec![dir.to_string_lossy().to_string()],
+            query: " ".to_string(),
+            top_k: Some(5),
+            kind: Some("recipe".to_string()),
+            target_id: Some(target_id.to_string()),
+            ingredient_id: Some(ingredient_id.to_string()),
+            include_structured: Some(true),
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(
+            out.hits.len(),
+            1,
+            "expected KubeJS helper recipe {target_id} to be searchable by {ingredient_id}"
+        );
+        assert_eq!(
+            out.hits[0]
+                .structured
+                .as_ref()
+                .and_then(|value| value.pointer("/source/type"))
+                .and_then(|value| value.as_str()),
+            Some("kubejs")
+        );
+        assert_eq!(
+            out.hits[0]
+                .structured
+                .as_ref()
+                .and_then(|value| value.pointer("/result/count"))
+                .and_then(|value| value.as_u64()),
+            Some(count)
+        );
+    }
 
     let _ = std::fs::remove_dir_all(&dir);
 }
