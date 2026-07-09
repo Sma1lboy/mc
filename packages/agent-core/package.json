@@ -11,6 +11,7 @@
     "mc-agent": "./bin/mc-agent.mjs"
   },
   "scripts": {
+    "eval:wiki": "node ../../scripts/wiki-agent-eval.mjs",
     "test": "vitest run"
   },
   "dependencies": {
