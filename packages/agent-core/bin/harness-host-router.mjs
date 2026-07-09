@@ -38,13 +38,14 @@ export function createHarnessHostRouter({ send, createAgent, model }) {
     return VALID_MODES.get(value) ?? "build";
   }
 
-  function sendDone(providerSessionId, conversationId, runId, error) {
+  function sendDone(providerSessionId, conversationId, runId, error, promptVersion) {
     send({
       type: "done",
       providerSessionId,
       conversationId,
       runId,
       ...(error ? { error } : {}),
+      ...(promptVersion ? { promptVersion } : {}),
     });
   }
 
@@ -158,7 +159,7 @@ export function createHarnessHostRouter({ send, createAgent, model }) {
         session.abort.signal,
       );
       session.history = result.messages;
-      sendDone(providerSessionId, conversationId, runId, result.error);
+      sendDone(providerSessionId, conversationId, runId, result.error, result.promptVersion);
     } catch (error) {
       sendDone(
         providerSessionId,

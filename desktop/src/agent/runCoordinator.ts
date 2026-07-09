@@ -1,7 +1,9 @@
 import type { UIMessage } from "ai";
 
 export interface AgentProviderSession {
-  run(request: AgentProviderRunRequest): Promise<{ messages: UIMessage[]; error?: string }>;
+  run(
+    request: AgentProviderRunRequest,
+  ): Promise<{ messages: UIMessage[]; error?: string; promptVersion?: string }>;
 }
 
 export interface AgentRunBinding {

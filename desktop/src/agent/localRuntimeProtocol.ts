@@ -42,13 +42,20 @@ export type LocalRuntimeInboundMessage =
       name: string;
       args: unknown;
     }
-  | { type: "done"; providerSessionId: string; conversationId: string; runId: string; error?: string }
+  | {
+      type: "done";
+      providerSessionId: string;
+      conversationId: string;
+      runId: string;
+      error?: string;
+      promptVersion?: string;
+    }
   | { type: "host_exit" };
 
 interface ActiveTurn {
   request: AgentProviderRunRequest;
   assistant?: UIMessage;
-  finish: (error?: string) => void;
+  finish: (done: { error?: string; promptVersion?: string }) => void;
   removeAbortListener: () => void;
 }
 
@@ -81,7 +88,7 @@ export function createLocalRuntimeProtocol(options: LocalRuntimeProtocolOptions)
     request: AgentProviderRunRequest,
     mode: AgentMode,
     providerSessionId: string,
-  ): Promise<{ messages: UIMessage[]; error?: string }> {
+  ): Promise<{ messages: UIMessage[]; error?: string; promptVersion?: string }> {
     const { conversationId, runId } = request.binding;
     const activeKey = key(providerSessionId, conversationId, runId);
     if (active.has(activeKey)) {
@@ -94,12 +101,13 @@ export function createLocalRuntimeProtocol(options: LocalRuntimeProtocolOptions)
       request.signal.addEventListener("abort", abort, { once: true });
       const turn: ActiveTurn = {
         request,
-        finish: (error) => {
+        finish: (done) => {
           if (!active.delete(activeKey)) return;
           turn.removeAbortListener();
           resolve({
             messages: turn.assistant ? [...request.history, turn.assistant] : request.history,
-            error: request.signal.aborted ? undefined : error,
+            error: request.signal.aborted ? undefined : done.error,
+            ...(done.promptVersion ? { promptVersion: done.promptVersion } : {}),
           });
         },
         removeAbortListener: () => request.signal.removeEventListener("abort", abort),
@@ -114,7 +122,9 @@ export function createLocalRuntimeProtocol(options: LocalRuntimeProtocolOptions)
           text: newestUserText(request.history),
           mode,
         }),
-      ).catch((error) => turn.finish(error instanceof Error ? error.message : String(error)));
+      ).catch((error) =>
+        turn.finish({ error: error instanceof Error ? error.message : String(error) }),
+      );
     });
   }
 
@@ -154,7 +164,7 @@ export function createLocalRuntimeProtocol(options: LocalRuntimeProtocolOptions)
 
   function handle(message: LocalRuntimeInboundMessage): void {
     if (message.type === "host_exit") {
-      for (const turn of active.values()) turn.finish("local agent host exited");
+      for (const turn of active.values()) turn.finish({ error: "local agent host exited" });
       return;
     }
     const turn = active.get(key(message.providerSessionId, message.conversationId, message.runId));
@@ -168,7 +178,7 @@ export function createLocalRuntimeProtocol(options: LocalRuntimeProtocolOptions)
         handleToolCall(message);
         break;
       case "done":
-        turn.finish(message.error);
+        turn.finish({ error: message.error, promptVersion: message.promptVersion });
         break;
     }
   }

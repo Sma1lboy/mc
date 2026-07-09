@@ -5,6 +5,7 @@ import {
   buildTools,
   createModpackAgent,
   promptForMode,
+  promptVersionForMode,
   toolSchemas,
   toolSchemasForMode,
 } from "../src/index";
@@ -23,9 +24,12 @@ describe("runTurn", () => {
     try {
       const agent = createModpackAgent(settings(mock.url));
       const updates: UIMessage[] = [];
-      const { messages, error } = await agent.run([userMsg("hi")], (m) => updates.push(m));
+      const { messages, error, promptVersion } = await agent.run([userMsg("hi")], (m) =>
+        updates.push(m),
+      );
 
       expect(error).toBeUndefined();
+      expect(promptVersion).toBe(promptVersionForMode("build"));
       expect(updates.length).toBeGreaterThan(0); // streamed incrementally
       // history = the user message + the streamed assistant message.
       expect(messages.length).toBeGreaterThanOrEqual(2);
@@ -200,6 +204,8 @@ describe("runTurn", () => {
     expect(prompt).toContain("recipe_override");
     expect(prompt).toContain("Do not fill gaps with vanilla/Create/default knowledge");
     expect(prompt).toContain("source_document_ids");
+    expect(prompt).toContain("```recipe_card");
+    expect(prompt).toContain("Never use XML-style");
     expect(prompt).not.toContain("source_chunk_ids");
     expect(prompt).not.toContain("general knowledge as background");
     expect(prompt).not.toContain("Cite the document ids");
@@ -223,6 +229,8 @@ describe("runTurn", () => {
     expect(Object.keys(buildTools("wiki")).sort()).toEqual(Object.keys(buildTools("instance")).sort());
     expect(promptForMode("wiki")).toBe(promptForMode("instance"));
     expect(promptForMode("modpack")).toBe(promptForMode("build"));
+    expect(promptVersionForMode("wiki")).toBe(promptVersionForMode("instance"));
+    expect(promptVersionForMode("modpack")).toBe(promptVersionForMode("build"));
   });
 
   it("(j) presents a concrete instance remediation card without asking to show it", () => {
@@ -239,5 +247,12 @@ describe("runTurn", () => {
     expect(build).not.toHaveProperty("build_modpack");
     expect(instance).toHaveProperty("confirm_deep_diagnosis");
     expect(instance).not.toHaveProperty("start_deep_diagnosis");
+  });
+
+  it("(l) exposes stable prompt versions for each agent mode", () => {
+    expect(promptVersionForMode()).toMatch(/^build-agent-\d{4}-\d{2}-\d{2}(-r\d+)?$/);
+    expect(promptVersionForMode("build")).toBe(promptVersionForMode());
+    expect(promptVersionForMode("instance")).toMatch(/^instance-agent-\d{4}-\d{2}-\d{2}(-r\d+)?$/);
+    expect(promptVersionForMode("instance")).not.toBe(promptVersionForMode("build"));
   });
 });

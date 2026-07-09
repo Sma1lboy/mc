@@ -27,10 +27,11 @@ test/            vitest coverage for the agent loop and schemas
 Both engines expose the same launcher contract:
 
 ```ts
-agent.run(history, onUpdate, signal) -> Promise<{ messages, error? }>
+agent.run(history, onUpdate, signal) -> Promise<{ messages, error?, promptVersion? }>
 ```
 
-The UI only stores and renders AI SDK `UIMessage[]`. OpenRouter
+The UI only stores and renders AI SDK `UIMessage[]`. `promptVersion` is
+run metadata for traces/evals, not model-visible content. OpenRouter
 `ToolLoopAgent` and the Claude Code `HarnessAgent` differ only in who owns the
 model loop:
 
