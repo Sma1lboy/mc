@@ -29,7 +29,12 @@ import { readUIMessageStream } from "ai-v7";
 import type { UIMessage } from "ai";
 
 import { promptForMode } from "../prompt";
-import { buildTools, ASK_USER_TOOL, SHOW_MODPACK_TOOL } from "../tools";
+import {
+  buildTools,
+  ASK_USER_TOOL,
+  SHOW_INSTANCE_CHANGES_TOOL,
+  SHOW_MODPACK_TOOL,
+} from "../tools";
 import type { AgentMode, ClientToolHandlers } from "../types";
 import { runUiMessageTurn, type ModpackAgent, type TurnResult } from "../agent";
 import { createLocalSandbox } from "./local-sandbox";
@@ -39,12 +44,13 @@ export { createLocalSandbox } from "./local-sandbox";
 const TEXT_FALLBACK_NOTE = `
 
 ## Local-runtime mode override
-The interactive tools \`ask_user_question\` and \`show_modpack\` are NOT available in this session — never call them. Instead:
+The interactive confirmation tools are NOT available in this session — never call \`ask_user_question\`, \`show_modpack\`, or \`show_instance_changes\`. Instead:
 - To ask the user a choice, ask in plain text with a short numbered list of options.
-- To present the final pack, describe it in concise markdown (title, mc version, loader, and the built file's output_path if you ran build_modpack) and tell the user to install it from the launcher.`;
+- To present the final pack, describe it in concise markdown (title, mc version, loader, and the built file's output_path if you ran build_modpack) and tell the user to install it from the launcher.
+- To propose instance changes, describe the exact operations in concise markdown and ask the user to perform or approve them in the launcher.`;
 
 /** The two tools that require explicit user interaction in the launcher UI. */
-const CLIENT_TOOLS = [ASK_USER_TOOL, SHOW_MODPACK_TOOL] as const;
+const CLIENT_TOOLS = [ASK_USER_TOOL, SHOW_MODPACK_TOOL, SHOW_INSTANCE_CHANGES_TOOL] as const;
 
 /** Options for the local Claude Code engine. */
 export interface ClaudeCodeEngineOptions {
@@ -63,7 +69,7 @@ export function createClaudeCodeModpackAgent(
   handlers: ClientToolHandlers = {},
   options: ClaudeCodeEngineOptions = {},
 ): ModpackAgent & { dispose: () => Promise<void> } {
-  const mode = options.mode ?? "modpack";
+  const mode = options.mode ?? "build";
   const toolSet = buildTools(mode);
   for (const [name, impl] of Object.entries(handlers)) {
     if (toolSet[name]) toolSet[name] = { ...toolSet[name], execute: (args: unknown) => impl(args) } as never;

@@ -5,70 +5,82 @@
 import type { ToolSet } from "ai";
 import type { z } from "zod";
 
-import { searchBaseModpacks } from "./search-base-modpacks";
+import type { AgentMode } from "../types";
+import { askUserQuestion } from "./ask-user-question";
+import { buildModpack } from "./build-modpack";
+import { diagnoseInstance } from "./diagnose-instance";
 import { inspectBaseModpack } from "./inspect-base-modpack";
-import { searchMods } from "./search-mods";
+import { listInstances } from "./list-instances";
 import { modGetDetail } from "./mod-get-detail";
 import { resolveMods } from "./resolve-mods";
-import { buildModpack } from "./build-modpack";
+import { searchBaseModpacks } from "./search-base-modpacks";
+import { searchMods } from "./search-mods";
+import { showInstanceChanges } from "./show-instance-changes";
 import { showModpack } from "./show-modpack";
-import { listInstances } from "./list-instances";
-import { askUserQuestion } from "./ask-user-question";
-import { wikiSearch } from "./wiki-search";
+import { validateModpackPlan } from "./validate-modpack-plan";
 import { wikiOpen } from "./wiki-open";
-import type { AgentMode } from "../types";
+import { wikiSearch } from "./wiki-search";
 
 export { ASK_USER_TOOL } from "./ask-user-question";
+export { SHOW_INSTANCE_CHANGES_TOOL } from "./show-instance-changes";
 export { SHOW_MODPACK_TOOL } from "./show-modpack";
 
-const TOOL_BUILDERS = {
+const BUILD_TOOL_BUILDERS = {
   search_base_modpacks: searchBaseModpacks,
   inspect_base_modpack: inspectBaseModpack,
-  search_mods: searchMods,
-  mod_get_detail: modGetDetail,
-  resolve_mods: resolveMods,
+  search_mods: () => searchMods(false),
+  mod_get_detail: () => modGetDetail(false),
+  resolve_mods: () => resolveMods(false),
+  validate_modpack_plan: validateModpackPlan,
   build_modpack: buildModpack,
   show_modpack: showModpack,
   list_instances: listInstances,
-  wiki_search: wikiSearch,
-  wiki_open: wikiOpen,
   ask_user_question: askUserQuestion,
 } as const;
 
-export const MODPACK_TOOL_NAMES = [
-  "search_base_modpacks",
-  "inspect_base_modpack",
-  "search_mods",
-  "mod_get_detail",
-  "resolve_mods",
-  "build_modpack",
-  "show_modpack",
-  "list_instances",
-  "ask_user_question",
-] as const;
+const INSTANCE_TOOL_BUILDERS = {
+  wiki_search: wikiSearch,
+  wiki_open: wikiOpen,
+  diagnose_instance: diagnoseInstance,
+  search_mods: () => searchMods(true),
+  mod_get_detail: () => modGetDetail(true),
+  resolve_mods: () => resolveMods(true),
+  show_instance_changes: showInstanceChanges,
+  ask_user_question: askUserQuestion,
+} as const;
 
-export const WIKI_TOOL_NAMES = ["wiki_search", "wiki_open"] as const;
+export const BUILD_TOOL_NAMES = Object.keys(BUILD_TOOL_BUILDERS);
+export const INSTANCE_TOOL_NAMES = Object.keys(INSTANCE_TOOL_BUILDERS);
 
-function buildAllTools(): ToolSet {
+function buildFrom(builders: Record<string, () => unknown>): ToolSet {
   return Object.fromEntries(
-    Object.entries(TOOL_BUILDERS).map(([name, build]) => [name, build()]),
+    Object.entries(builders).map(([name, build]) => [name, build()]),
   ) as ToolSet;
 }
 
-/**
- * Build the AI SDK `ToolSet` for one turn. Listed explicitly so each tool keeps
- * its concrete input type for SDK inference.
- */
-export function buildTools(mode: AgentMode = "modpack"): ToolSet {
-  const names = mode === "wiki" ? WIKI_TOOL_NAMES : MODPACK_TOOL_NAMES;
-  return Object.fromEntries(names.map((name) => [name, TOOL_BUILDERS[name]()])) as ToolSet;
+export function buildTools(mode: AgentMode = "build"): ToolSet {
+  return mode === "instance"
+    ? buildFrom(INSTANCE_TOOL_BUILDERS)
+    : buildFrom(BUILD_TOOL_BUILDERS);
+}
+
+export function toolSchemasForMode(mode: AgentMode): Record<string, z.ZodType> {
+  return Object.fromEntries(
+    Object.entries(buildTools(mode)).map(([name, value]) => [
+      name,
+      value.inputSchema as z.ZodType,
+    ]),
+  );
 }
 
 /**
- * Each tool's zod input schema, keyed by name — for validating a raw tool-call
- * payload (and unit tests). Derived from the built tools so every schema stays
- * single-sourced inside its own tool file; building never invokes `execute`.
+ * Backward-compatible aggregate for callers that validate individual schemas
+ * without a mode. Shared names use the build-profile schema; mode-aware hosts
+ * should call `toolSchemasForMode`.
  */
 export const toolSchemas: Record<string, z.ZodType> = Object.fromEntries(
-  Object.entries(buildAllTools()).map(([name, t]) => [name, t.inputSchema as z.ZodType]),
+  Object.entries({ ...buildTools("instance"), ...buildTools("build") }).map(([name, value]) => [
+    name,
+    value.inputSchema as z.ZodType,
+  ]),
 );

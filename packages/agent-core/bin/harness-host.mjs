@@ -63,7 +63,7 @@ const toolHandlers = Object.fromEntries(TOOL_NAMES.map((n) => [n, (args) => call
 // --- engine + turn loop ---------------------------------------------------
 
 const model = process.env.MC_AGENT_CLAUDE_MODEL || undefined;
-const VALID_MODES = new Set(["modpack", "wiki"]);
+const VALID_MODES = new Set(["build", "instance"]);
 
 let history = [];
 let agent = null;
@@ -73,7 +73,7 @@ let running = false;
 let uid = 0;
 
 function modeFrom(value) {
-  return VALID_MODES.has(value) ? value : "modpack";
+  return VALID_MODES.has(value) ? value : "build";
 }
 
 async function ensureAgent(mode) {

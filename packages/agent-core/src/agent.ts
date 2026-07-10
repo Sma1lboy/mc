@@ -121,7 +121,7 @@ export function createModpackAgent(
   settings: AgentLlmSettings,
   options: AgentRuntimeOptions = {},
 ): ModpackAgent {
-  const mode = options.mode ?? "modpack";
+  const mode = options.mode ?? "build";
   const provider = createOpenRouter({ apiKey: settings.apiKey, baseURL: settings.baseUrl });
   const toolSet = buildTools(mode);
   const agent = new ToolLoopAgent({
