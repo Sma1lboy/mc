@@ -12,6 +12,7 @@
 //! anything the model passed in.
 
 mod build_modpack;
+mod diagnose_instance;
 mod inspect_base_modpack;
 mod install_modpack;
 mod list_instances;
@@ -27,6 +28,11 @@ mod fake_provider;
 mod tests;
 
 pub use build_modpack::*;
+#[cfg(test)]
+pub(crate) use diagnose_instance::diagnose_instance_with_total_memory;
+pub use diagnose_instance::{
+    tool_diagnose_instance, DiagnoseInstanceArgs, DiagnoseInstanceOutput, InstanceDiagnosticSummary,
+};
 pub use inspect_base_modpack::*;
 pub use install_modpack::*;
 pub use list_instances::*;

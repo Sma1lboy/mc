@@ -5,19 +5,24 @@
 
 use std::collections::HashMap;
 
+use crate::agent::compatibility::{
+    CompatibilityIssue, CompatibilityReport, CompatibilityStatus, IssueSeverity,
+};
 use crate::modplatform::Dependency;
+use crate::paths::GamePaths;
 
 use super::fake_provider::{
     bytes_server, cdn_file, ctx_of, hit, registry_of, temp_dir, version, zip_index,
     FakeChatProvider,
 };
 use super::{
-    prebuild_wiki_corpus_cache, refresh_wiki_corpus_cache, tool_build_modpack,
-    tool_inspect_base_modpack, tool_mod_get_detail, tool_resolve_mods, tool_search_base_modpacks,
-    tool_search_mods, tool_wiki_open, tool_wiki_search, wiki_corpus_cache_path, BuildModRef,
-    BuildModpackArgs, BuildTarget, ChatToolsCtx, InspectBaseModpackArgs, LocalPathWikiSource,
-    ModGetDetailArgs, ResolveModsArgs, SearchBaseModpacksArgs, SearchModsArgs, WikiCorpus,
-    WikiOpenArgs, WikiScope, WikiSearchArgs,
+    diagnose_instance_with_total_memory, prebuild_wiki_corpus_cache, refresh_wiki_corpus_cache,
+    tool_build_modpack, tool_inspect_base_modpack, tool_mod_get_detail, tool_resolve_mods,
+    tool_search_base_modpacks, tool_search_mods, tool_wiki_open, tool_wiki_search,
+    wiki_corpus_cache_path, BuildModRef, BuildModpackArgs, BuildTarget, ChatToolsCtx,
+    DiagnoseInstanceArgs, InspectBaseModpackArgs, LocalPathWikiSource, ModGetDetailArgs,
+    ResolveModsArgs, SearchBaseModpacksArgs, SearchModsArgs, WikiCorpus, WikiOpenArgs, WikiScope,
+    WikiSearchArgs,
 };
 
 // ---------------------------------------------------------------------------
@@ -38,6 +43,130 @@ fn zip_bytes(files: &[(&str, &[u8])]) -> Vec<u8> {
         zip.finish().unwrap();
     }
     cursor.into_inner()
+}
+
+#[test]
+fn compatibility_report_status_follows_highest_severity() {
+    let report = CompatibilityReport::from_issues(vec![
+        CompatibilityIssue::new(
+            "memory_below_recommendation",
+            IssueSeverity::Warning,
+            "Memory is below the recommendation",
+        ),
+        CompatibilityIssue::new(
+            "duplicate_mod_id",
+            IssueSeverity::Blocking,
+            "Duplicate mod id detected",
+        ),
+    ]);
+
+    assert_eq!(report.status, CompatibilityStatus::Blocked);
+    assert_eq!(report.issues.len(), 2);
+    assert_eq!(report.issues[0].code, "memory_below_recommendation");
+}
+
+fn write_diagnostic_instance(root: &std::path::Path) -> GamePaths {
+    let paths = GamePaths::new(root);
+    let base_dir = paths.version_dir("1.20.1");
+    let instance_dir = paths.version_dir("forge-pack");
+    std::fs::create_dir_all(instance_dir.join("mods")).unwrap();
+    std::fs::create_dir_all(instance_dir.join("logs")).unwrap();
+    std::fs::create_dir_all(&base_dir).unwrap();
+    std::fs::write(paths.version_json("1.20.1"), r#"{"id":"1.20.1"}"#).unwrap();
+    std::fs::write(
+        paths.version_json("forge-pack"),
+        r#"{"id":"forge-pack","inheritsFrom":"1.20.1"}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        instance_dir.join("instance.json"),
+        r#"{"name":"Forge Pack","memory_mb":2048}"#,
+    )
+    .unwrap();
+
+    let first = br#"{"schemaVersion":1,"id":"duplicate","version":"1.0.0","name":"Duplicate One"}"#;
+    let second =
+        br#"{"schemaVersion":1,"id":"duplicate","version":"2.0.0","name":"Duplicate Two"}"#;
+    std::fs::write(
+        instance_dir.join("mods/duplicate-one.jar"),
+        zip_bytes(&[("fabric.mod.json", first)]),
+    )
+    .unwrap();
+    std::fs::write(
+        instance_dir.join("mods/duplicate-two.jar"),
+        zip_bytes(&[("fabric.mod.json", second)]),
+    )
+    .unwrap();
+    std::fs::write(
+        instance_dir.join("logs/latest.log"),
+        "Exception in thread main java.lang.OutOfMemoryError: Java heap space",
+    )
+    .unwrap();
+    paths
+}
+
+#[test]
+fn diagnose_instance_reports_structural_and_log_issues() {
+    let root = temp_dir("diagnose-instance");
+    let paths = write_diagnostic_instance(&root);
+
+    let output = diagnose_instance_with_total_memory(
+        &paths,
+        "forge-pack",
+        DiagnoseInstanceArgs {
+            include_log_tail: true,
+        },
+        16_384,
+    )
+    .unwrap();
+
+    assert_eq!(output.instance.name, "Forge Pack");
+    assert_eq!(output.instance.mc_version, "1.20.1");
+    assert_eq!(output.instance.loader, "forge");
+    assert_eq!(output.instance.mod_count, 2);
+    assert_eq!(output.report.status, CompatibilityStatus::Blocked);
+    let codes: Vec<_> = output
+        .report
+        .issues
+        .iter()
+        .map(|issue| issue.code.as_str())
+        .collect();
+    assert!(codes.contains(&"duplicate_mod_id"));
+    assert!(codes.contains(&"mod_loader_mismatch"));
+    assert!(codes.contains(&"memory_below_recommendation"));
+    assert!(codes.contains(&"last_launch_crash"));
+    assert!(output
+        .log_tail
+        .as_deref()
+        .unwrap()
+        .contains("OutOfMemoryError"));
+
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn diagnose_instance_uses_logs_without_exposing_tail_by_default() {
+    let root = temp_dir("diagnose-instance-hidden-log");
+    let paths = write_diagnostic_instance(&root);
+
+    let output = diagnose_instance_with_total_memory(
+        &paths,
+        "forge-pack",
+        DiagnoseInstanceArgs {
+            include_log_tail: false,
+        },
+        16_384,
+    )
+    .unwrap();
+
+    assert!(output.log_tail.is_none());
+    assert!(output
+        .report
+        .issues
+        .iter()
+        .any(|issue| issue.code == "last_launch_crash"));
+
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 fn rewrite_first_cached_wiki_chunk(dir: &std::path::Path, content: &str) {
