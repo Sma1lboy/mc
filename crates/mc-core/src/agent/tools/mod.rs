@@ -20,6 +20,7 @@ mod mod_get_detail;
 mod resolve_mods;
 mod search_base_modpacks;
 mod search_mods;
+mod validate_modpack_plan;
 mod wiki;
 
 #[cfg(test)]
@@ -40,6 +41,7 @@ pub use mod_get_detail::*;
 pub use resolve_mods::*;
 pub use search_base_modpacks::*;
 pub use search_mods::*;
+pub use validate_modpack_plan::*;
 pub use wiki::*;
 
 use std::path::PathBuf;

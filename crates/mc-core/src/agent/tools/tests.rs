@@ -18,11 +18,11 @@ use super::fake_provider::{
 use super::{
     diagnose_instance_with_total_memory, prebuild_wiki_corpus_cache, refresh_wiki_corpus_cache,
     tool_build_modpack, tool_inspect_base_modpack, tool_mod_get_detail, tool_resolve_mods,
-    tool_search_base_modpacks, tool_search_mods, tool_wiki_open, tool_wiki_search,
-    wiki_corpus_cache_path, BuildModRef, BuildModpackArgs, BuildTarget, ChatToolsCtx,
-    DiagnoseInstanceArgs, InspectBaseModpackArgs, LocalPathWikiSource, ModGetDetailArgs,
-    ResolveModsArgs, SearchBaseModpacksArgs, SearchModsArgs, WikiCorpus, WikiOpenArgs, WikiScope,
-    WikiSearchArgs,
+    tool_search_base_modpacks, tool_search_mods, tool_validate_modpack_plan, tool_wiki_open,
+    tool_wiki_search, wiki_corpus_cache_path, BuildBasePack, BuildModRef, BuildModpackArgs,
+    BuildTarget, ChatToolsCtx, DiagnoseInstanceArgs, InspectBaseModpackArgs, LocalPathWikiSource,
+    ModGetDetailArgs, ResolveModsArgs, SearchBaseModpacksArgs, SearchModsArgs,
+    ValidateModpackPlanArgs, WikiCorpus, WikiOpenArgs, WikiScope, WikiSearchArgs,
 };
 
 // ---------------------------------------------------------------------------
@@ -507,6 +507,206 @@ async fn build_modpack_from_scratch_writes_verified_mrpack() {
     );
     assert!(path.exists(), "mrpack should be on disk");
     let _ = std::fs::remove_dir_all(&out_dir);
+}
+
+#[tokio::test]
+async fn validate_modpack_plan_blocks_incompatible_versions_and_missing_dependencies() {
+    let mut root = version(
+        "root-v1",
+        cdn_file("root"),
+        vec![Dependency {
+            project_id: Some("required-dep".to_string()),
+            version_id: None,
+            dependency_type: "required".to_string(),
+        }],
+    );
+    root.name = "Root Mod".to_string();
+    let mut incompatible = version("bad-v1", cdn_file("bad"), Vec::new());
+    incompatible.game_versions = vec!["1.19.4".to_string()];
+
+    let mut versions = HashMap::new();
+    versions.insert("root".to_string(), vec![root]);
+    versions.insert("bad".to_string(), vec![incompatible]);
+    let ctx = ctx_of(FakeChatProvider {
+        versions,
+        ..Default::default()
+    });
+
+    let output = tool_validate_modpack_plan(
+        &ctx,
+        ValidateModpackPlanArgs {
+            target: BuildTarget {
+                mc_version: "1.20.1".to_string(),
+                loader: "fabric".to_string(),
+            },
+            base_pack: None,
+            extra_mods: vec![
+                BuildModRef {
+                    provider: Some("modrinth".to_string()),
+                    project_id: "root".to_string(),
+                    version_id: "root-v1".to_string(),
+                    title: None,
+                },
+                BuildModRef {
+                    provider: Some("modrinth".to_string()),
+                    project_id: "bad".to_string(),
+                    version_id: "bad-v1".to_string(),
+                    title: None,
+                },
+            ],
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(output.report.status, CompatibilityStatus::Blocked);
+    let codes: Vec<_> = output
+        .report
+        .issues
+        .iter()
+        .map(|issue| issue.code.as_str())
+        .collect();
+    assert!(codes.contains(&"selected_version_incompatible"));
+    assert!(codes.contains(&"missing_required_dependency"));
+}
+
+#[tokio::test]
+async fn validate_modpack_plan_reports_duplicates_and_declared_conflicts() {
+    let root = version(
+        "root-v1",
+        cdn_file("root"),
+        vec![Dependency {
+            project_id: Some("bad".to_string()),
+            version_id: None,
+            dependency_type: "incompatible".to_string(),
+        }],
+    );
+    let bad = version("bad-v1", cdn_file("bad"), Vec::new());
+    let mut versions = HashMap::new();
+    versions.insert("root".to_string(), vec![root]);
+    versions.insert("bad".to_string(), vec![bad]);
+    let ctx = ctx_of(FakeChatProvider {
+        versions,
+        ..Default::default()
+    });
+
+    let bad_ref = BuildModRef {
+        provider: Some("modrinth".to_string()),
+        project_id: "bad".to_string(),
+        version_id: "bad-v1".to_string(),
+        title: None,
+    };
+    let output = tool_validate_modpack_plan(
+        &ctx,
+        ValidateModpackPlanArgs {
+            target: BuildTarget {
+                mc_version: "1.20.1".to_string(),
+                loader: "fabric".to_string(),
+            },
+            base_pack: None,
+            extra_mods: vec![
+                BuildModRef {
+                    provider: Some("modrinth".to_string()),
+                    project_id: "root".to_string(),
+                    version_id: "root-v1".to_string(),
+                    title: None,
+                },
+                bad_ref.clone(),
+                bad_ref,
+            ],
+        },
+    )
+    .await
+    .unwrap();
+
+    let codes: Vec<_> = output
+        .report
+        .issues
+        .iter()
+        .map(|issue| issue.code.as_str())
+        .collect();
+    assert!(codes.contains(&"duplicate_project"));
+    assert!(codes.contains(&"declared_mod_conflict"));
+}
+
+#[tokio::test]
+async fn validate_modpack_plan_does_not_download_an_incompatible_base_pack() {
+    let mut base = version("base-v1", cdn_file("base"), Vec::new());
+    base.game_versions = vec!["1.19.4".to_string()];
+    let mut versions = HashMap::new();
+    versions.insert("base".to_string(), vec![base]);
+    let ctx = ctx_of(FakeChatProvider {
+        versions,
+        ..Default::default()
+    });
+
+    let output = tool_validate_modpack_plan(
+        &ctx,
+        ValidateModpackPlanArgs {
+            target: BuildTarget {
+                mc_version: "1.20.1".to_string(),
+                loader: "fabric".to_string(),
+            },
+            base_pack: Some(BuildBasePack {
+                project_id: "base".to_string(),
+                version_id: "base-v1".to_string(),
+                title: None,
+                slug: None,
+            }),
+            extra_mods: Vec::new(),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(output.report.status, CompatibilityStatus::Blocked);
+    assert_eq!(
+        output.report.issues[0].code,
+        "selected_version_incompatible"
+    );
+}
+
+#[tokio::test]
+async fn build_modpack_hard_gate_blocks_before_creating_output_directory() {
+    let mut incompatible = version("bad-v1", cdn_file("bad"), Vec::new());
+    incompatible.loaders = vec!["forge".to_string()];
+    let mut versions = HashMap::new();
+    versions.insert("bad".to_string(), vec![incompatible]);
+    let out_dir = temp_dir("blocked-build");
+    let ctx = ChatToolsCtx::new(
+        registry_of(FakeChatProvider {
+            versions,
+            ..Default::default()
+        }),
+        out_dir.clone(),
+    );
+
+    let output = tool_build_modpack(
+        &ctx,
+        BuildModpackArgs {
+            target: BuildTarget {
+                mc_version: "1.20.1".to_string(),
+                loader: "fabric".to_string(),
+            },
+            base_pack: None,
+            extra_mods: vec![BuildModRef {
+                provider: Some("modrinth".to_string()),
+                project_id: "bad".to_string(),
+                version_id: "bad-v1".to_string(),
+                title: None,
+            }],
+            output_filename: "blocked.mrpack".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(output.status, "blocked");
+    assert!(output.output_path.is_none());
+    assert!(
+        !out_dir.exists(),
+        "hard gate must run before filesystem writes"
+    );
 }
 
 #[tokio::test]

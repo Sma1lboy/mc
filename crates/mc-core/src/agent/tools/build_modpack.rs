@@ -120,6 +120,20 @@ pub async fn tool_build_modpack(
     ctx: &ChatToolsCtx,
     args: BuildModpackArgs,
 ) -> Result<BuildModpackOutput, ChatToolError> {
+    let validation =
+        tool_validate_modpack_plan(ctx, ValidateModpackPlanArgs::from(&args)).await?;
+    if validation.report.is_blocked() {
+        return Ok(BuildModpackOutput {
+            status: "blocked".to_string(),
+            output_path: None,
+            output_size: None,
+            manifest: serde_json::json!({
+                "status": "blocked",
+                "compatibility": validation.report,
+            }),
+        });
+    }
+
     // Base pack: re-resolve the archive file from the provider so its url and
     // hashes are trusted, not model-supplied.
     let (base_pack_json, base_pack_ref, recipe_kind) = match &args.base_pack {
@@ -242,4 +256,3 @@ fn safe_output_filename(raw: &str) -> String {
     }
     name
 }
-
