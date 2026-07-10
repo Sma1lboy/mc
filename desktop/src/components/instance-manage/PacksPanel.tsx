@@ -17,7 +17,8 @@ import { activeRoot } from "../../store";
 import { useAsync } from "../../util/useAsync";
 import { t } from "../../i18n";
 import type { InstanceSummary, PackKind, PackInfo, ProjectKind, WorldInfo } from "../../ipc/types";
-import { LABEL, DEL_BTN, OPEN_BTN, fmtSize } from "./shared";
+import { LABEL, DEL_BTN, OPEN_BTN } from "./shared";
+import { fmtSize } from "../../util/format";
 
 /**
  * PacksPanel —— 资源包 / 光影的统一面板:Modrinth 搜索安装 + 本地启停/删除。

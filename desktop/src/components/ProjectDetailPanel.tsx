@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { fmtDate } from "../util/format";
 import clsx from "clsx";
 import { api } from "../ipc/api";
 import { cached } from "../ipc/cache";
@@ -99,11 +100,6 @@ export function ProjectDetailPanel(props: {
     } finally {
       setInstalling(null);
     }
-  }
-
-  function fmtDate(iso: string): string {
-    // 仅取日期部分,避免引入时区/本地化复杂度。
-    return iso.slice(0, 10);
   }
 
   return (

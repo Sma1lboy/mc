@@ -3,15 +3,11 @@ use super::*;
 #[tauri::command]
 #[specta::specta]
 pub fn list_accounts() -> CmdResult<Vec<AccountSummary>> {
-    let store = AccountStore::load(data_dir().join("accounts.json")).map_err(err)?;
+    let store = AccountStore::load(accounts_path()).map_err(err)?;
     Ok(store.list())
 }
 
 // --- accounts: Microsoft login + management ------------------------------
-
-fn accounts_path() -> PathBuf {
-    data_dir().join("accounts.json")
-}
 
 /// Persist a freshly built account, make it the selected one, and return its
 /// summary. Shared by Microsoft and offline login.

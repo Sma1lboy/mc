@@ -39,7 +39,7 @@ pub(crate) async fn cmd_launch(
 ) -> Result<()> {
     let paths = resolve_root(&cli.dir);
     let dl = downloader(cli.mirror)?;
-    let accounts_path = data_dir().join("accounts.json");
+    let accounts_path = accounts_path();
 
     // 选中的账号在启动前续期,镜像桌面端行为,避免 >24h 的旧 session 静默掉线:
     // 微软走 refresh_token 免浏览器续期;外置(Yggdrasil)走 validate/refresh。续期失败
@@ -191,7 +191,7 @@ pub(crate) async fn cmd_login() -> Result<()> {
     let token = client.poll_token(&code.device_code, code.interval).await?;
     let session = client.authenticate(&token.access_token).await?;
 
-    let mut store = AccountStore::load(data_dir().join("accounts.json"))?;
+    let mut store = AccountStore::load(accounts_path())?;
     store.add_and_select(StoredAccount::from_microsoft(&session, token.refresh_token.clone()))?;
     println!("\n✓ 登录成功:{} ({})", session.username, session.uuid);
     Ok(())
@@ -204,7 +204,7 @@ pub(crate) fn cmd_login_offline(name: &str) -> Result<()> {
         anyhow::bail!("用户名不能为空");
     }
     let session = offline_session(name);
-    let mut store = AccountStore::load(data_dir().join("accounts.json"))?;
+    let mut store = AccountStore::load(accounts_path())?;
     store.add_and_select(StoredAccount::from_offline(&session))?;
     println!("✓ 已添加离线账号:{} ({})", session.username, session.uuid);
     Ok(())
@@ -220,14 +220,14 @@ pub(crate) async fn cmd_login_yggdrasil(base: &str, username: &str, password: &s
     let client = YggdrasilClient::new(base);
     println!("在 {} 外置登录 {} …", client.base(), username.trim());
     let session = client.authenticate(username.trim(), password).await?;
-    let mut store = AccountStore::load(data_dir().join("accounts.json"))?;
+    let mut store = AccountStore::load(accounts_path())?;
     store.add_and_select(StoredAccount::from_yggdrasil(&session, client.base().to_string()))?;
     println!("\n✓ 外置登录成功:{} ({})", session.username, session.uuid);
     Ok(())
 }
 
 pub(crate) fn cmd_accounts() -> Result<()> {
-    let store = AccountStore::load(data_dir().join("accounts.json"))?;
+    let store = AccountStore::load(accounts_path())?;
     let accounts = store.list();
     if accounts.is_empty() {
         println!("没有已保存的账号。运行 `mc login` 添加微软账号。");

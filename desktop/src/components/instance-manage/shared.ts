@@ -38,19 +38,6 @@ export const TABS = (): { key: InstanceManageTab; label: string }[] => [
 export const isPackTab = (tab: InstanceManageTab): tab is PackKind =>
   tab === "resource_pack" || tab === "shader" || tab === "datapack";
 
-/** 人类可读的字节大小;0 / 缺省返回空串。 */
-export function fmtSize(bytes: number): string {
-  if (!bytes) return "";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let n = bytes;
-  let i = 0;
-  while (n >= 1024 && i < units.length - 1) {
-    n /= 1024;
-    i += 1;
-  }
-  return `${n.toFixed(i > 0 && n < 10 ? 1 : 0)} ${units[i]}`;
-}
-
 export const INSTALL_BTN = ACCENT_BTN_COMPACT;
 export const DEL_BTN =
   "shrink-0 text-[12px] text-danger-text px-[8px] py-[4px] rounded-none cursor-pointer hover:bg-danger-soft";

@@ -113,7 +113,7 @@ pub async fn launch_instance(
 
     // 选中的微软账号若(接近)过期,先用 refresh_token 免浏览器续期(best-effort:
     // 失败就用现有 token 继续启动,不阻断游戏)。
-    let accounts_path = data_dir().join("accounts.json");
+    let accounts_path = accounts_path();
     if let Ok(mut store) = AccountStore::load(&accounts_path) {
         let _ = auth::refresh_selected_microsoft(&mut store, &msa_client(), 600).await;
         // 外置登录账号:启动前校验 token,失效则用 client_token 免密续期并写回

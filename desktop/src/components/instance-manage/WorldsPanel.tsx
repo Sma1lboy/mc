@@ -11,7 +11,8 @@ import { activeRoot } from "../../store";
 import { useAsync } from "../../util/useAsync";
 import { t } from "../../i18n";
 import type { InstanceSummary, WorldInfo } from "../../ipc/types";
-import { LABEL, FIELD, DEL_BTN, OPEN_BTN, fmtSize } from "./shared";
+import { LABEL, FIELD, DEL_BTN, OPEN_BTN } from "./shared";
+import { fmtSize } from "../../util/format";
 
 /**
  * WorldsPanel —— 存档世界列表 + 备份(导出 zip)/ 重命名(改显示名)/ 删除(走回收站)。

@@ -239,25 +239,16 @@ enum SettingsAction {
     },
 }
 
-fn exe_dir() -> PathBuf {
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-        .unwrap_or_else(|| PathBuf::from("."))
-}
+use mc_core::paths::{exe_dir, local_data_dir as data_dir};
 
-fn data_dir() -> PathBuf {
-    paths::resolve_data_dir(&exe_dir())
+/// 账号库路径(单一 owner:`paths::accounts_path`)。
+fn accounts_path() -> PathBuf {
+    paths::accounts_path(&data_dir())
 }
 
 /// 用户在设置里添加的自定义游戏根目录(让 `custom_roots` 设置参与发现)。
 fn custom_roots() -> Vec<PathBuf> {
-    GlobalSettings::load(&data_dir())
-        .unwrap_or_default()
-        .custom_roots
-        .iter()
-        .map(PathBuf::from)
-        .collect()
+    GlobalSettings::load(&data_dir()).unwrap_or_default().custom_root_paths()
 }
 
 /// Resolve the game root to operate on.

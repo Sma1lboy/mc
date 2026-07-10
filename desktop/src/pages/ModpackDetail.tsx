@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { fmtSize, fmtDate } from "../util/format";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { BlockedFilesDialog, Spinner, toast, Lightbox, Panel, Chip, Tag, Heading, PixelLabel, type ModpackHit, type LightboxImage } from "../components";
 import { ACCENT_BTN } from "../components/styles";
@@ -27,14 +28,6 @@ const loaderLabel = (l: string) =>
     string,
     string
   >)[l] ?? l;
-
-const fmtSize = (n: number | null) =>
-  !n ? "" : n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : `${Math.ceil(n / 1024)} KB`;
-
-const fmtDate = (s: string) => {
-  const d = new Date(s);
-  return isNaN(d.getTime()) ? s : d.toLocaleDateString();
-};
 
 type Tab = "about" | "gallery" | "versions";
 

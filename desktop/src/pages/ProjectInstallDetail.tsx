@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { fmtSize, fmtDate } from "../util/format";
 import clsx from "clsx";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { Spinner } from "../components/Spinner";
@@ -38,16 +39,6 @@ const loaderLabel = (loader: string) =>
 
 const typeLabel = (type: string) =>
   ({ release: t("discover.typeRelease"), beta: t("discover.typeBeta"), alpha: t("discover.typeAlpha") } as Record<string, string>)[type] ?? type;
-
-function fmtDate(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString();
-}
-
-function fmtSize(size: number | null): string {
-  if (!size) return "";
-  return size >= 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(size / 1024)} KB`;
-}
 
 function versionMatches(version: ModrinthVersion, inst: InstanceSummary, kind: InstallableKind): boolean {
   if (!version.game_versions.includes(inst.mc_version)) return false;

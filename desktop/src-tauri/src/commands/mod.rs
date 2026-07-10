@@ -66,16 +66,7 @@ fn err<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
 }
 
-fn exe_dir() -> PathBuf {
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(Path::to_path_buf))
-        .unwrap_or_else(|| PathBuf::from("."))
-}
-
-fn data_dir() -> PathBuf {
-    paths::resolve_data_dir(&exe_dir())
-}
+use mc_core::paths::{exe_dir, local_data_dir as data_dir};
 
 fn default_root() -> PathBuf {
     let roots = paths::discover_roots(&exe_dir(), &data_dir(), &custom_roots());
@@ -99,6 +90,11 @@ fn parse_loader_kind(s: &str) -> Option<mc_core::types::LoaderKind> {
     mc_core::types::LoaderKind::from_family(s)
 }
 
+/// 账号库路径(单一 owner:`paths::accounts_path`)。
+fn accounts_path() -> PathBuf {
+    paths::accounts_path(&data_dir())
+}
+
 /// Resolve an instance from a game root + id.
 fn instance_of(root: &str, id: &str) -> Instance {
     Instance::new(id, root_paths(root).root().to_path_buf())
@@ -111,7 +107,7 @@ fn settings_global() -> mc_core::settings::GlobalSettings {
 
 /// 用户在设置里添加的自定义游戏根目录(让 `custom_roots` 设置真正参与发现)。
 fn custom_roots() -> Vec<PathBuf> {
-    settings_global().custom_roots.iter().map(PathBuf::from).collect()
+    settings_global().custom_root_paths()
 }
 
 /// 按用户设置/环境构造 Provider 注册表:总有 Modrinth;解析出 CurseForge key 才注册 CurseForge。
