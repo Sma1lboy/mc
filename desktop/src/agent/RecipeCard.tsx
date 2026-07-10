@@ -17,7 +17,7 @@ type SpectaResult<T> = { status: "ok"; data: T } | { status: "error"; error: str
 type IconMap = Record<string, string>;
 
 export function RecipeCard({ card }: { card: RecipeCardData }) {
-  const wiki = useChatStore((s) => s.toolContext?.wiki ?? null);
+  const wiki = useChatStore((s) => s.toolContext?.instance ?? s.toolContext?.wiki ?? null);
   const iconIdsKey = useMemo(() => recipeCardIconIdsKey(card), [card]);
   const ids = useMemo(() => recipeCardIconIdsFromKey(iconIdsKey), [iconIdsKey]);
   const [icons, setIcons] = useState<IconMap>({});

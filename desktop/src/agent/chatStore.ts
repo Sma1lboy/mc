@@ -158,13 +158,20 @@ export interface AgentWikiContext {
   sourcePaths: string[];
 }
 
+export interface AgentInstanceContext extends AgentWikiContext {
+  mcVersion: string;
+  loader: string;
+}
+
 export interface AgentToolContext {
   mode?: AgentMode;
+  instance?: AgentInstanceContext;
+  /** Legacy persisted wiki-only context. New instance entrypoints use `instance`. */
   wiki?: AgentWikiContext;
 }
 
 function agentModeFromContext(context: AgentToolContext | null): AgentMode {
-  return context?.mode ?? (context?.wiki ? "wiki" : "modpack");
+  return context?.mode ?? (context?.instance || context?.wiki ? "instance" : "build");
 }
 
 const CONV_KEY = "mc-launcher.agentConversations";

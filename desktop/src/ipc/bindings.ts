@@ -480,6 +480,8 @@ export const commands = {
 	agentToolModGetDetail: (args: ModGetDetailArgs) => typedError<ModGetDetailOutput, string>(__TAURI_INVOKE("agent_tool_mod_get_detail", { args })),
 	/**  Resolve project ids into concrete, download-ready files (walks dependencies). */
 	agentToolResolveMods: (args: ResolveModsArgs) => typedError<ResolveModsOutput, string>(__TAURI_INVOKE("agent_tool_resolve_mods", { args })),
+	/**  Validate the exact selected versions and dependency/conflict graph without writing. */
+	agentToolValidateModpackPlan: (args: ValidateModpackPlanArgs) => typedError<ValidateModpackPlanOutput_Serialize, string>(__TAURI_INVOKE("agent_tool_validate_modpack_plan", { args })),
 	/**
 	 *  Deterministically build + verify a `.mrpack` from a base pack (or scratch) plus
 	 *  extra mods. Writes to disk; the TS loop must gate this behind user confirmation.
@@ -493,6 +495,8 @@ export const commands = {
 	agentToolInstallModpack: (root: string, args: InstallModpackArgs) => typedError<InstallModpackOutput, string>(__TAURI_INVOKE("agent_tool_install_modpack", { root, args })),
 	/**  Read-only lean instance list for the agent (id / name / mc_version / loader). */
 	agentToolListInstances: (root: string) => typedError<ListInstancesOutput, string>(__TAURI_INVOKE("agent_tool_list_instances", { root })),
+	/**  Diagnose one host-bound installed instance. The model never supplies root/id. */
+	agentToolDiagnoseInstance: (root: string, id: string, args: DiagnoseInstanceArgs) => typedError<DiagnoseInstanceOutput_Serialize, string>(__TAURI_INVOKE("agent_tool_diagnose_instance", { root, id, args })),
 	/**  Search the host-injected local wiki corpus for the current installed instance. */
 	agentToolWikiSearch: (root: string, args: WikiSearchArgs) => typedError<WikiSearchOutput_Serialize, string>(__TAURI_INVOKE("agent_tool_wiki_search", { root, args })),
 	/**  Open one wiki chunk returned by `agent_tool_wiki_search`. */
@@ -683,6 +687,40 @@ export type CategoryTag = {
 	project_type: string,
 };
 
+export type CompatibilityIssue = CompatibilityIssue_Serialize | CompatibilityIssue_Deserialize;
+
+export type CompatibilityIssue_Deserialize = {
+	code: string,
+	severity: IssueSeverity,
+	summary: string,
+	subjects?: string[],
+	evidence?: string[],
+	suggested_actions?: SuggestedAction_Deserialize[],
+};
+
+export type CompatibilityIssue_Serialize = {
+	code: string,
+	severity: IssueSeverity,
+	summary: string,
+	subjects?: string[],
+	evidence?: string[],
+	suggested_actions?: SuggestedAction_Serialize[],
+};
+
+export type CompatibilityReport = CompatibilityReport_Serialize | CompatibilityReport_Deserialize;
+
+export type CompatibilityReport_Deserialize = {
+	status: CompatibilityStatus,
+	issues: CompatibilityIssue_Deserialize[],
+};
+
+export type CompatibilityReport_Serialize = {
+	status: CompatibilityStatus,
+	issues: CompatibilityIssue_Serialize[],
+};
+
+export type CompatibilityStatus = "healthy" | "warning" | "blocked";
+
 /**
  *  The device-code prompt shown to the user. `device_code` is the opaque handle
  *  passed back to [`msa_login_poll`]; everything else is for display.
@@ -693,6 +731,24 @@ export type DeviceCodeDto = {
 	device_code: string,
 	interval: number,
 	expires_in: number,
+};
+
+export type DiagnoseInstanceArgs = {
+	include_log_tail?: boolean,
+};
+
+export type DiagnoseInstanceOutput = DiagnoseInstanceOutput_Serialize | DiagnoseInstanceOutput_Deserialize;
+
+export type DiagnoseInstanceOutput_Deserialize = {
+	instance: InstanceDiagnosticSummary,
+	report: CompatibilityReport_Deserialize,
+	log_tail?: string | null,
+};
+
+export type DiagnoseInstanceOutput_Serialize = {
+	instance: InstanceDiagnosticSummary,
+	report: CompatibilityReport_Serialize,
+	log_tail?: string | null,
 };
 
 /**
@@ -966,6 +1022,16 @@ export type InstanceConfig_Serialize = {
 	tags?: string[],
 };
 
+export type InstanceDiagnosticSummary = {
+	id: string,
+	name: string,
+	mc_version: string,
+	loader: string,
+	memory_mb: number,
+	recommended_memory_mb: number,
+	mod_count: number,
+};
+
 /**  实例的整合包来源溯源:它从哪个平台的哪个项目/版本安装而来。 */
 export type InstanceSource = {
 	/**  平台标识(如 `"modrinth"`)。 */
@@ -1015,6 +1081,8 @@ export type InstanceUpdateInfo = {
 	/**  该实例(由整合包安装)是否有比当前来源版本更新的整合包版本(仅 Modrinth 来源可判定)。 */
 	modpack_update: boolean,
 };
+
+export type IssueSeverity = "info" | "warning" | "blocking";
 
 export type ItemIcon = {
 	item_id: string,
@@ -1579,6 +1647,20 @@ export type SkinInfo = {
 	state?: string,
 };
 
+export type SuggestedAction = SuggestedAction_Serialize | SuggestedAction_Deserialize;
+
+export type SuggestedAction_Deserialize = {
+	kind: string,
+	target?: string | null,
+	value?: string | null,
+};
+
+export type SuggestedAction_Serialize = {
+	kind: string,
+	target?: string | null,
+	value?: string | null,
+};
+
 /**  What a sync to a manifest *would* change, computed without touching disk. */
 export type SyncPlan = {
 	/**  Files in the manifest that are missing locally or fail their hash. */
@@ -1648,6 +1730,24 @@ export type UserBrief = {
 	username?: string | null,
 	online?: boolean,
 	activity?: string | null,
+};
+
+export type ValidateModpackPlanArgs = {
+	target: BuildTarget,
+	base_pack?: BuildBasePack | null,
+	extra_mods?: BuildModRef[],
+};
+
+export type ValidateModpackPlanOutput = ValidateModpackPlanOutput_Serialize | ValidateModpackPlanOutput_Deserialize;
+
+export type ValidateModpackPlanOutput_Deserialize = {
+	report: CompatibilityReport_Deserialize,
+	checked_projects: number,
+};
+
+export type ValidateModpackPlanOutput_Serialize = {
+	report: CompatibilityReport_Serialize,
+	checked_projects: number,
 };
 
 /**

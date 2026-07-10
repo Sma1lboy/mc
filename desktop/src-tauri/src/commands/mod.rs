@@ -38,12 +38,14 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use mc_core::agent::tools::{
-    refresh_wiki_corpus_cache, tool_build_modpack, tool_inspect_base_modpack, tool_install_modpack,
-    tool_list_instances, tool_mod_get_detail, tool_resolve_mods, tool_search_base_modpacks,
-    tool_search_mods, tool_wiki_open, tool_wiki_search, BuildModpackArgs, BuildModpackOutput,
-    InspectBaseModpackArgs, InspectBaseModpackOutput, InstallModpackArgs, InstallModpackOutput,
-    ListInstancesOutput, ModGetDetailArgs, ModGetDetailOutput, ResolveModsArgs, ResolveModsOutput,
-    SearchBaseModpacksArgs, SearchBaseModpacksOutput, SearchModsArgs, SearchModsOutput,
+    refresh_wiki_corpus_cache, tool_build_modpack, tool_diagnose_instance,
+    tool_inspect_base_modpack, tool_install_modpack, tool_list_instances, tool_mod_get_detail,
+    tool_resolve_mods, tool_search_base_modpacks, tool_search_mods, tool_validate_modpack_plan,
+    tool_wiki_open, tool_wiki_search, BuildModpackArgs, BuildModpackOutput, DiagnoseInstanceArgs,
+    DiagnoseInstanceOutput, InspectBaseModpackArgs, InspectBaseModpackOutput, InstallModpackArgs,
+    InstallModpackOutput, ListInstancesOutput, ModGetDetailArgs, ModGetDetailOutput,
+    ResolveModsArgs, ResolveModsOutput, SearchBaseModpacksArgs, SearchBaseModpacksOutput,
+    SearchModsArgs, SearchModsOutput, ValidateModpackPlanArgs, ValidateModpackPlanOutput,
     WikiOpenArgs, WikiOpenOutput, WikiSearchArgs, WikiSearchOutput,
 };
 use mc_core::agent::ChatToolsCtx;

@@ -146,6 +146,18 @@ pub async fn agent_tool_resolve_mods(
     tool_resolve_mods(&state.ctx(), args).await.map_err(err)
 }
 
+/// Validate the exact selected versions and dependency/conflict graph without writing.
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_tool_validate_modpack_plan(
+    state: State<'_, AgentToolsState>,
+    args: ValidateModpackPlanArgs,
+) -> CmdResult<ValidateModpackPlanOutput> {
+    tool_validate_modpack_plan(&state.ctx(), args)
+        .await
+        .map_err(err)
+}
+
 /// Deterministically build + verify a `.mrpack` from a base pack (or scratch) plus
 /// extra mods. Writes to disk; the TS loop must gate this behind user confirmation.
 #[tauri::command]
@@ -183,6 +195,19 @@ pub async fn agent_tool_install_modpack(
 #[specta::specta]
 pub async fn agent_tool_list_instances(root: String) -> CmdResult<ListInstancesOutput> {
     tool_list_instances(&root_paths(&root)).map_err(err)
+}
+
+/// Diagnose one host-bound installed instance. The model never supplies root/id.
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_tool_diagnose_instance(
+    root: String,
+    id: String,
+    args: DiagnoseInstanceArgs,
+) -> CmdResult<DiagnoseInstanceOutput> {
+    tool_diagnose_instance(&root_paths(&root), &id, args)
+        .await
+        .map_err(err)
 }
 
 /// Agent wiki tool: full-text search over the instance's local wiki corpus.
