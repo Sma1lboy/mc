@@ -35,7 +35,11 @@ import {
   SHOW_INSTANCE_CHANGES_TOOL,
   SHOW_MODPACK_TOOL,
 } from "../tools";
-import type { AgentMode, ClientToolHandlers } from "../types";
+import {
+  normalizeAgentMode,
+  type AgentModeInput,
+  type ClientToolHandlers,
+} from "../types";
 import { runUiMessageTurn, type ModpackAgent, type TurnResult } from "../agent";
 import { createLocalSandbox } from "./local-sandbox";
 
@@ -57,7 +61,7 @@ export interface ClaudeCodeEngineOptions {
   /** Anthropic model id for the runtime (defaults to the CLI's own default). */
   model?: string;
   /** Entry-specific prompt/tool surface. Defaults to the modpack builder. */
-  mode?: AgentMode;
+  mode?: AgentModeInput;
 }
 
 /**
@@ -69,7 +73,7 @@ export function createClaudeCodeModpackAgent(
   handlers: ClientToolHandlers = {},
   options: ClaudeCodeEngineOptions = {},
 ): ModpackAgent & { dispose: () => Promise<void> } {
-  const mode = options.mode ?? "build";
+  const mode = normalizeAgentMode(options.mode);
   const toolSet = buildTools(mode);
   for (const [name, impl] of Object.entries(handlers)) {
     if (toolSet[name]) toolSet[name] = { ...toolSet[name], execute: (args: unknown) => impl(args) } as never;

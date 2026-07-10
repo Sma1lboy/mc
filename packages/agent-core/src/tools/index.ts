@@ -5,7 +5,7 @@
 import type { ToolSet } from "ai";
 import type { z } from "zod";
 
-import type { AgentMode } from "../types";
+import { normalizeAgentMode, type AgentModeInput } from "../types";
 import { askUserQuestion } from "./ask-user-question";
 import { buildModpack } from "./build-modpack";
 import { diagnoseInstance } from "./diagnose-instance";
@@ -58,13 +58,13 @@ function buildFrom(builders: Record<string, () => unknown>): ToolSet {
   ) as ToolSet;
 }
 
-export function buildTools(mode: AgentMode = "build"): ToolSet {
-  return mode === "instance"
+export function buildTools(mode: AgentModeInput = "build"): ToolSet {
+  return normalizeAgentMode(mode) === "instance"
     ? buildFrom(INSTANCE_TOOL_BUILDERS)
     : buildFrom(BUILD_TOOL_BUILDERS);
 }
 
-export function toolSchemasForMode(mode: AgentMode): Record<string, z.ZodType> {
+export function toolSchemasForMode(mode: AgentModeInput): Record<string, z.ZodType> {
   return Object.fromEntries(
     Object.entries(buildTools(mode)).map(([name, value]) => [
       name,

@@ -13,20 +13,18 @@ import {
 import { t } from "../i18n";
 import { commands } from "../ipc/bindings";
 import { resolveClientTool, useChatStore, type AgentInstanceContext } from "./chatStore";
+import {
+  normalizeInstanceChangeOperations,
+  type InstanceChangeOperation as Operation,
+} from "./instanceChangePlan";
 
 export const SHOW_INSTANCE_CHANGES_TOOL_TYPE = "tool-show_instance_changes";
 
 type ToolPart = Extract<UIMessage["parts"][number], { toolCallId: string }>;
 
-type Operation =
-  | { type: "set_memory"; memory_mb: number }
-  | { type: "set_mod_enabled"; file_name: string; enabled: boolean }
-  | { type: "delete_mod"; file_name: string }
-  | { type: "install_mod"; provider: "modrinth" | "curseforge"; project_id: string; title?: string };
-
 interface ShowChangesInput {
   summary?: string;
-  operations?: Operation[];
+  operations?: unknown;
 }
 
 interface OperationResult {
@@ -53,7 +51,8 @@ export function InstanceChangesCard(props: {
   const pendingLocal = useChatStore((state) => state.pendingLocalTool);
   const input = (part.input ?? {}) as ShowChangesInput;
   const summary = typeof input.summary === "string" ? input.summary.trim() : "";
-  const operations = Array.isArray(input.operations) ? input.operations.filter(isOperation) : [];
+  const normalizedPlan = normalizeInstanceChangeOperations(input.operations);
+  const operations = normalizedPlan.operations;
   const done = part.state === "output-available";
   const output = (done ? part.output : null) as ShowChangesOutput | null;
   const live =
@@ -61,6 +60,7 @@ export function InstanceChangesCard(props: {
     (!globalStreaming || pendingLocal === "show_instance_changes") &&
     !busy &&
     context !== null &&
+    normalizedPlan.error === undefined &&
     operations.length > 0;
   const resultByIndex = output?.results ?? progress;
 
@@ -75,6 +75,8 @@ export function InstanceChangesCard(props: {
         results.push({ type: operation.type, status: "completed" });
       } catch (error) {
         results.push({ type: operation.type, status: "failed", error: String(error) });
+        setProgress([...results]);
+        break;
       }
       setProgress([...results]);
     }
@@ -93,7 +95,7 @@ export function InstanceChangesCard(props: {
     resolveClientTool(props.msgId, part.toolCallId, { applied: false, results: [] });
   };
 
-  if (!done && !summary && operations.length === 0) {
+  if (part.state === "input-streaming" && !summary && operations.length === 0) {
     return (
       <div
         className="my-[6px] h-[92px] rounded-none border border-titlebar bg-panel-2 shadow-input animate-pulse"
@@ -148,6 +150,12 @@ export function InstanceChangesCard(props: {
           );
         })}
       </div>
+
+      {normalizedPlan.error && (
+        <div className="px-[13px] py-[8px] border-t border-titlebar text-[12px] leading-[1.5] text-danger-text">
+          {t("agent.changesInvalidPlan")}
+        </div>
+      )}
 
       <div className="flex items-center gap-[8px] px-[13px] py-[9px] border-t border-titlebar">
         {done ? (
@@ -233,26 +241,6 @@ async function unwrapCommand<T>(
   const result = await promise;
   if (result.status === "error") throw new Error(result.error);
   return result.data;
-}
-
-function isOperation(value: unknown): value is Operation {
-  if (!value || typeof value !== "object") return false;
-  const operation = value as Record<string, unknown>;
-  switch (operation.type) {
-    case "set_memory":
-      return typeof operation.memory_mb === "number" && Number.isInteger(operation.memory_mb);
-    case "set_mod_enabled":
-      return typeof operation.file_name === "string" && typeof operation.enabled === "boolean";
-    case "delete_mod":
-      return typeof operation.file_name === "string";
-    case "install_mod":
-      return (
-        (operation.provider === "modrinth" || operation.provider === "curseforge") &&
-        typeof operation.project_id === "string"
-      );
-    default:
-      return false;
-  }
 }
 
 function operationIcon(operation: Operation) {

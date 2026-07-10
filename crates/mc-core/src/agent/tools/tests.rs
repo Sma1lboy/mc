@@ -454,6 +454,7 @@ async fn inspect_base_modpack_parses_modlist_and_enriches() {
     assert_eq!(out.mods[0].title, "Sodium");
     assert_eq!(out.covered_features, vec!["optimization".to_string()]);
     assert_eq!(out.mc_version.as_deref(), Some("1.20.1"));
+    assert_eq!(out.version_id, "basepack-v1");
 }
 
 #[tokio::test]

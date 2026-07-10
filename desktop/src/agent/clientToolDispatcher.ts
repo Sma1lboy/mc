@@ -99,7 +99,7 @@ export function runLauncherClientTool(
 }
 
 function assertToolAllowed(name: string, context: AgentToolContext | null): void {
-  const mode = context?.mode ?? (context?.instance || context?.wiki ? "instance" : "build");
+  const mode = contextMode(context);
   if (!MODE_TOOL_NAMES[mode].has(name)) {
     throw new Error(`${name} is not available in ${mode} agent mode`);
   }
@@ -128,7 +128,13 @@ function instanceContext(context: AgentToolContext | null): AgentInstanceContext
 }
 
 function isInstanceMode(context: AgentToolContext | null): boolean {
-  return (context?.mode ?? (context?.instance || context?.wiki ? "instance" : "build")) === "instance";
+  return contextMode(context) === "instance";
+}
+
+function contextMode(context: AgentToolContext | null): AgentMode {
+  if (context?.mode === "instance" || context?.mode === "wiki") return "instance";
+  if (context?.mode === "build" || context?.mode === "modpack") return "build";
+  return context?.instance || context?.wiki ? "instance" : "build";
 }
 
 function targetedSearchArgs(args: unknown, context: AgentToolContext | null): never {

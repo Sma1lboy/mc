@@ -4,7 +4,7 @@
 // real provider data plus the hard rule gating \`build_modpack\` behind explicit
 // user confirmation.
 
-import type { AgentMode } from "./types";
+import { normalizeAgentMode, type AgentModeInput } from "./types";
 
 export const BUILD_AGENT_SYSTEM_PROMPT = `You are kobeMC's modpack-building assistant. You help a user assemble a Minecraft \`.mrpack\` modpack by chatting with them and calling deterministic tools that return REAL data from mod providers (Modrinth / CurseForge).
 
@@ -109,6 +109,8 @@ Recipe card schema:
 - Keep replies concise and specific to the current instance.
 `;
 
-export function promptForMode(mode: AgentMode = "build"): string {
-  return mode === "instance" ? INSTANCE_AGENT_SYSTEM_PROMPT : BUILD_AGENT_SYSTEM_PROMPT;
+export function promptForMode(mode: AgentModeInput = "build"): string {
+  return normalizeAgentMode(mode) === "instance"
+    ? INSTANCE_AGENT_SYSTEM_PROMPT
+    : BUILD_AGENT_SYSTEM_PROMPT;
 }

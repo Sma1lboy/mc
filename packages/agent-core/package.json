@@ -12,7 +12,8 @@
   },
   "scripts": {
     "eval:wiki": "node ../../scripts/wiki-agent-eval.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "eval:instance": "tsx ../../scripts/instance-agent-eval.mjs"
   },
   "dependencies": {
     "@ai-sdk/harness": "^1.0.17",

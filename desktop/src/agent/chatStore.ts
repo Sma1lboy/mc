@@ -15,7 +15,7 @@ import { create } from "zustand";
 import type { UIMessage } from "ai";
 // Type-only import: erased at build, so the host-agnostic brain (and its `ai`
 // dependency) stays out of the main bundle — the TS path is dynamic-imported below.
-import type { AgentMode, ModpackAgent } from "@kobemc/agent-core";
+import type { AgentMode, AgentModeInput, ModpackAgent } from "@kobemc/agent-core";
 import { setCurrentPage, kobeUser, useAppStore } from "../store";
 import { commands } from "../ipc/bindings";
 import { t } from "../i18n";
@@ -164,14 +164,17 @@ export interface AgentInstanceContext extends AgentWikiContext {
 }
 
 export interface AgentToolContext {
-  mode?: AgentMode;
+  mode?: AgentModeInput;
   instance?: AgentInstanceContext;
   /** Legacy persisted wiki-only context. New instance entrypoints use `instance`. */
   wiki?: AgentWikiContext;
 }
 
 function agentModeFromContext(context: AgentToolContext | null): AgentMode {
-  return context?.mode ?? (context?.instance || context?.wiki ? "instance" : "build");
+  const mode = context?.mode;
+  if (mode === "instance" || mode === "wiki") return "instance";
+  if (mode === "build" || mode === "modpack") return "build";
+  return context?.instance || context?.wiki ? "instance" : "build";
 }
 
 const CONV_KEY = "mc-launcher.agentConversations";

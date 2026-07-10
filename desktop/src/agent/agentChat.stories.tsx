@@ -251,7 +251,6 @@ export const InstanceChangesPartial: Story = () => (
           { type: "set_memory", status: "completed" },
           { type: "set_mod_enabled", status: "completed" },
           { type: "install_mod", status: "failed", error: "目标版本没有兼容文件" },
-          { type: "delete_mod", status: "completed" },
         ],
       },
     })}

@@ -38,6 +38,8 @@ pub struct InspectedMod {
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct InspectBaseModpackOutput {
     pub title: String,
+    /// Exact provider version selected for this target; pass through unchanged.
+    pub version_id: String,
     pub mc_version: Option<String>,
     pub loader: Option<String>,
     pub mod_count: usize,
@@ -127,6 +129,7 @@ pub async fn tool_inspect_base_modpack(
 
     Ok(InspectBaseModpackOutput {
         title: version.name,
+        version_id: version.id,
         mc_version,
         loader,
         mod_count: refs.len(),
@@ -134,4 +137,3 @@ pub async fn tool_inspect_base_modpack(
         covered_features,
     })
 }
-

@@ -889,6 +889,8 @@ export type InspectBaseModpackArgs = {
 
 export type InspectBaseModpackOutput = {
 	title: string,
+	/**  Exact provider version selected for this target; pass through unchanged. */
+	version_id: string,
 	mc_version: string | null,
 	loader: string | null,
 	mod_count: number,

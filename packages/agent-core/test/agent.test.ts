@@ -177,4 +177,11 @@ describe("runTurn", () => {
     expect(prompt).not.toContain("show_instance_changes");
     expect(prompt).not.toContain("activate_tools");
   });
+
+  it("(i) maps persisted legacy mode names to canonical profiles", () => {
+    expect(Object.keys(buildTools("modpack")).sort()).toEqual(Object.keys(buildTools("build")).sort());
+    expect(Object.keys(buildTools("wiki")).sort()).toEqual(Object.keys(buildTools("instance")).sort());
+    expect(promptForMode("wiki")).toBe(promptForMode("instance"));
+    expect(promptForMode("modpack")).toBe(promptForMode("build"));
+  });
 });
