@@ -12,6 +12,16 @@
 // ------------------------------------------------------------------
 
 import { create } from "zustand";
+import {
+  loadConversations,
+  persistConversations,
+  firstUserText,
+  currentChatSessionId,
+  setConversationId,
+  rotateConversationId,
+  type ConversationRecord,
+} from "./conversationLog";
+export { currentChatSessionId, type ConversationRecord } from "./conversationLog";
 import type { UIMessage } from "ai";
 // Type-only import: erased at build, so the host-agnostic brain (and its `ai`
 // dependency) stays out of the main bundle — the TS path is dynamic-imported below.
@@ -117,71 +127,20 @@ export function resetAgent(): void {
 let seq = 0;
 const nextId = (): string => `${Date.now().toString(36)}-${(seq++).toString(36)}`;
 
-// 会话 id:一次「对话」一个,newChat 时轮换。
-const mintConvId = (): string =>
-  `chat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-let currentConvId = mintConvId();
-
-/** 当前会话 id。dev 调试面板复制它,或按 id 回溯整轮 flow。 */
-export function currentChatSessionId(): string {
-  return currentConvId;
-}
-
 /* ——— 会话记录 ———
  * 每轮结束把当前对话存到 localStorage(离线缓存),登录 kobeMC 账号后同时同步到
  * mc-server 数据库(按 updatedAt 新者胜,跨设备保留);DebugTools 据此列出、切换。
  * 记录就是 UIMessage[](既渲染又能喂模型),切换会话即无缝续聊。 */
-export interface ConversationRecord {
-  id: string;
-  createdAt: number;
-  updatedAt: number;
-  /** 首条用户消息(截断),用作列表标题。 */
-  title: string;
-  messages: UIMessage[];
-}
-
-const CONV_KEY = "mc-launcher.agentConversations";
-const CONV_LIMIT = 50;
-
-function loadConversations(): ConversationRecord[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(CONV_KEY);
-    const list = raw ? (JSON.parse(raw) as ConversationRecord[]) : [];
-    return Array.isArray(list) ? list : [];
-  } catch {
-    return [];
-  }
-}
-
-function persistConversations(list: ConversationRecord[]): void {
-  try {
-    window.localStorage.setItem(CONV_KEY, JSON.stringify(list.slice(0, CONV_LIMIT)));
-  } catch {
-    /* WebView 里 localStorage 可能不可用 */
-  }
-}
-
-/** 首条用户消息的纯文本(会话标题用)。 */
-function firstUserText(messages: UIMessage[]): string {
-  const first = messages.find((m) => m.role === "user");
-  if (!first) return "";
-  return first.parts
-    .map((p) => (p.type === "text" ? p.text : ""))
-    .join("")
-    .trim();
-}
-
 // 把当前对话 upsert 进记录列表(每轮结束调用)。空对话不存。
 function saveCurrentConversation(): void {
   const messages = useChatStore.getState().messages;
   if (messages.length === 0) return;
   const now = Date.now();
   const list = useChatStore.getState().conversations.slice();
-  const i = list.findIndex((c) => c.id === currentConvId);
+  const i = list.findIndex((c) => c.id === currentChatSessionId());
   const createdAt = i >= 0 ? list[i].createdAt : now;
   const rec: ConversationRecord = {
-    id: currentConvId,
+    id: currentChatSessionId(),
     createdAt,
     updatedAt: now,
     title: firstUserText(messages).slice(0, 60),
@@ -257,7 +216,7 @@ export function loadConversation(id: string): void {
   if (useChatStore.getState().streaming) return;
   const rec = useChatStore.getState().conversations.find((c) => c.id === id);
   if (!rec) return;
-  currentConvId = id;
+  setConversationId(id);
   useChatStore.setState({ messages: rec.messages, error: null });
 }
 
@@ -495,7 +454,7 @@ function isToolPart(p: UIMessage["parts"][number]): p is Extract<
 export function newChat(): void {
   if (useChatStore.getState().streaming) return;
   saveCurrentConversation(); // 开新对话前把当前的存档,别丢
-  currentConvId = mintConvId();
+  rotateConversationId();
   useChatStore.setState({ messages: [], error: null, queued: [] });
 }
 

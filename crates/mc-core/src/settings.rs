@@ -121,6 +121,12 @@ impl Default for GlobalSettings {
 }
 
 impl GlobalSettings {
+    /// 自定义游戏根目录(`custom_roots` 设置)映射成路径列表——发现逻辑的统一入口。
+    pub fn custom_root_paths(&self) -> Vec<std::path::PathBuf> {
+        self.custom_roots.iter().map(std::path::PathBuf::from).collect()
+    }
+
+
     /// `data_dir` 下设置文件的完整路径。
     pub fn path(data_dir: &Path) -> PathBuf {
         data_dir.join(SETTINGS_FILE)

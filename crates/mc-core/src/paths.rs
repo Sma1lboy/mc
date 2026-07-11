@@ -31,6 +31,26 @@ pub fn logs_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("logs")
 }
 
+/// 可执行文件所在目录(取不到时回退当前目录)。数据目录/游戏根发现的输入,
+/// 桌面端与 CLI 此前各有一份相同实现,收拢到这里。
+pub fn exe_dir() -> PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(Path::to_path_buf))
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// 本进程的启动器数据目录:`resolve_data_dir(&exe_dir())` 的便捷入口。
+pub fn local_data_dir() -> PathBuf {
+    resolve_data_dir(&exe_dir())
+}
+
+/// 账号库文件:`<data_dir>/accounts.json`。桌面端与 CLI 共用同一份账号存储,
+/// 路径拼法只在这里出现一次。
+pub fn accounts_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("accounts.json")
+}
+
 /// The OS's official Minecraft directory, if the platform has a conventional one.
 pub fn official_minecraft_dir() -> Option<PathBuf> {
     #[cfg(target_os = "windows")]

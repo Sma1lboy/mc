@@ -130,6 +130,16 @@ mod tests {
 
     #[test]
     fn reads_openrouter_values_from_dotenv_file() {
+        // env_value 的取值优先级是「进程环境 > .env 文件」;开发机 shell 里往往
+        // export 了真实的 OPENROUTER_*,先清掉才能断言文件回退路径。
+        for name in [
+            OPENROUTER_KEY_ENV,
+            OPENROUTER_BASE_URL_ENV,
+            OPENROUTER_MODEL_ENV,
+            MC_AGENT_OPENROUTER_MODEL_ENV,
+        ] {
+            std::env::remove_var(name);
+        }
         let dir = temp_data_dir();
         std::fs::create_dir_all(&dir).unwrap();
         let env_file = dir.join(".env");
