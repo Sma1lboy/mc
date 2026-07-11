@@ -95,7 +95,7 @@ export function NewInstanceDialog(props: {
   function askAgent() {
     props.onClose();
     openAgentChat(instancePrompt(mcVersion || null, loader !== "vanilla" ? loader : null), {
-      mode: "modpack",
+      mode: "build",
     });
   }
 

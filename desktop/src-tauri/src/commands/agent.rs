@@ -1,4 +1,7 @@
 use super::*;
+use crate::agent_history::AgentHistoryStore;
+
+const MAX_CLOUD_HISTORY_RECORD_BYTES: usize = 1_048_576;
 
 /// A published agent chat transcript: its short id + the public fetch URL.
 #[derive(serde::Serialize, specta::Type)]
@@ -27,46 +30,99 @@ pub async fn agent_share_conversation(
 // Thin wrappers over `ServerClient::agent_history_*`. Records travel as JSON
 // strings (same reason as `agent_share_conversation`: no recursive Value in specta).
 
-/// List the signed-in user's archived conversations (heads only, newest first).
-#[tauri::command]
-#[specta::specta]
-pub async fn agent_history_list(
-    client: tauri::State<'_, mc_core::server::ServerClient>,
-) -> CmdResult<Vec<mc_core::server::AgentConversationHead>> {
-    client.agent_history_list().await.map_err(err)
+fn agent_local_history_store() -> CmdResult<AgentHistoryStore> {
+    let store = AgentHistoryStore::open(data_dir().join("agent").join("history.sqlite3"))?;
+    store.import_legacy_webkit_once()?;
+    Ok(store)
 }
 
-/// Fetch one archived conversation's full record, as a JSON string.
+pub fn initialize_agent_local_history() {
+    if let Err(error) = agent_local_history_store() {
+        tracing::warn!(target: "agent_history", "初始化本地聊天历史失败: {error}");
+    }
+}
+
+async fn load_agent_history_records() -> CmdResult<Vec<String>> {
+    tokio::task::spawn_blocking(|| agent_local_history_store()?.load_all())
+        .await
+        .map_err(err)?
+}
+
+async fn save_agent_history_record(id: String, record_json: String) -> CmdResult<()> {
+    tokio::task::spawn_blocking(move || agent_local_history_store()?.upsert(&id, &record_json))
+        .await
+        .map_err(err)?
+}
+
+fn agent_history_metadata(raw: &str) -> Option<(String, i64, serde_json::Value)> {
+    let record: serde_json::Value = serde_json::from_str(raw).ok()?;
+    let id = record.get("id")?.as_str()?.to_string();
+    if id.is_empty() || !record.get("messages")?.is_array() {
+        return None;
+    }
+    let updated_at_ms = record
+        .get("updatedAt")
+        .and_then(serde_json::Value::as_i64)
+        .unwrap_or_default();
+    Some((id, updated_at_ms, record))
+}
+
 #[tauri::command]
 #[specta::specta]
-pub async fn agent_history_get(
+pub async fn agent_history_hydrate() -> CmdResult<String> {
+    serde_json::to_string(&load_agent_history_records().await?).map_err(err)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_history_sync(
     client: tauri::State<'_, mc_core::server::ServerClient>,
-    id: String,
 ) -> CmdResult<String> {
-    let record = client.agent_history_get(&id).await.map_err(err)?;
-    serde_json::to_string(&record).map_err(err)
+    let local = load_agent_history_records().await?;
+    let remote_heads = match client.agent_history_list().await {
+        Ok(heads) => heads,
+        Err(_) => return serde_json::to_string(&local).map_err(err),
+    };
+    let local_updated: HashMap<String, i64> = local.iter().filter_map(|raw| {
+        agent_history_metadata(raw).map(|(id, updated, _)| (id, updated))
+    }).collect();
+    for head in &remote_heads {
+        if local_updated.get(&head.id).is_some_and(|updated| *updated >= head.updated_at_ms) {
+            continue;
+        }
+        let Ok(record) = client.agent_history_get(&head.id).await else { continue };
+        let raw = serde_json::to_string(&record).map_err(err)?;
+        if let Some((id, _, _)) = agent_history_metadata(&raw) {
+            save_agent_history_record(id, raw).await?;
+        }
+    }
+    let merged = load_agent_history_records().await?;
+    let remote_updated: HashMap<&str, i64> = remote_heads.iter()
+        .map(|head| (head.id.as_str(), head.updated_at_ms)).collect();
+    for raw in &merged {
+        let Some((id, updated, record)) = agent_history_metadata(raw) else { continue };
+        if raw.len() > MAX_CLOUD_HISTORY_RECORD_BYTES { continue; }
+        if remote_updated.get(id.as_str()).is_none_or(|remote| updated > *remote) {
+            let _ = client.agent_history_put(&id, &record).await;
+        }
+    }
+    serde_json::to_string(&merged).map_err(err)
 }
 
-/// Upsert one conversation record (JSON string) into the user's cloud history.
 #[tauri::command]
 #[specta::specta]
-pub async fn agent_history_put(
+pub async fn agent_history_save(
     client: tauri::State<'_, mc_core::server::ServerClient>,
     id: String,
     record_json: String,
 ) -> CmdResult<()> {
     let record: serde_json::Value = serde_json::from_str(&record_json).map_err(err)?;
-    client.agent_history_put(&id, &record).await.map_err(err)
-}
-
-/// Delete one archived conversation from the user's cloud history.
-#[tauri::command]
-#[specta::specta]
-pub async fn agent_history_delete(
-    client: tauri::State<'_, mc_core::server::ServerClient>,
-    id: String,
-) -> CmdResult<()> {
-    client.agent_history_delete(&id).await.map_err(err)
+    let record_bytes = record_json.len();
+    save_agent_history_record(id.clone(), record_json).await?;
+    if record_bytes <= MAX_CLOUD_HISTORY_RECORD_BYTES {
+        let _ = client.agent_history_put(&id, &record).await;
+    }
+    Ok(())
 }
 
 // --- agent deterministic tools (for a TS-side agent loop) -----------------
@@ -94,6 +150,90 @@ impl AgentToolsState {
             })
             .clone()
     }
+}
+
+const DEEP_DIAGNOSIS_MAX_SESSIONS: usize = 3;
+const DEEP_DIAGNOSIS_MAX_TRIALS: u32 = 3;
+const DEEP_DIAGNOSIS_LAUNCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+#[derive(Debug, Clone, Serialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum DiagnosticTrialOutcome { Stable, Crashed, LaunchError }
+
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct DiagnosticTrialAnalysis { pub category: String, pub reason: String, pub matched: Option<String>, pub suggestions: Vec<String> }
+
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct DiagnosticTrialResult {
+    pub trial_number: u32, pub outcome: DiagnosticTrialOutcome, pub exit_code: Option<i32>,
+    pub elapsed_ms: u64, pub operations: Vec<DiagnosticTrialOperation>, pub log_tail: String,
+    pub analysis: Option<DiagnosticTrialAnalysis>,
+}
+
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct StartDeepDiagnosisOutput { pub session_id: String, pub baseline: DiagnosticTrialResult, pub max_trials: u32, pub sandbox_scope: String }
+#[derive(Debug, Clone, Deserialize, specta::Type)]
+pub struct RunDiagnosticTrialArgs { pub session_id: String, pub operations: Vec<DiagnosticTrialOperation> }
+#[derive(Debug, Clone, Deserialize, specta::Type)]
+pub struct FinishDeepDiagnosisArgs { pub session_id: String }
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct FinishDeepDiagnosisOutput { pub session_id: String, pub trials: Vec<DiagnosticTrialResult>, pub cleaned: bool }
+
+struct DiagnosticSession { source_root: PathBuf, instance_id: String, session_root: PathBuf, baseline: DiagnosticSandboxSnapshot, next_trial: u32, running: bool, results: Vec<DiagnosticTrialResult> }
+#[derive(Default)]
+struct DiagnosticSessionBook { sessions: HashMap<String, DiagnosticSession> }
+
+impl DiagnosticSessionBook {
+    fn insert(&mut self, id: String, source_root: PathBuf, instance_id: String, session_root: PathBuf, baseline: DiagnosticSandboxSnapshot) -> CmdResult<()> {
+        if self.sessions.len() >= DEEP_DIAGNOSIS_MAX_SESSIONS { return Err("too many active deep-diagnosis sessions; finish an existing session first".into()); }
+        self.sessions.insert(id, DiagnosticSession { source_root, instance_id, session_root, baseline, next_trial: 0, running: true, results: Vec::new() });
+        Ok(())
+    }
+    fn reserve_trial(&mut self, session_id: &str, source_root: &Path, instance_id: &str) -> CmdResult<(u32, DiagnosticSandboxSnapshot, PathBuf)> {
+        let session = self.sessions.get_mut(session_id).ok_or("unknown or expired deep-diagnosis session")?;
+        if session.source_root != source_root || session.instance_id != instance_id { return Err("deep-diagnosis session is bound to a different instance".into()); }
+        if session.running { return Err("a diagnostic trial is already running for this session".into()); }
+        if session.next_trial >= DEEP_DIAGNOSIS_MAX_TRIALS { return Err(format!("deep-diagnosis session allows at most {DEEP_DIAGNOSIS_MAX_TRIALS} hypothesis trials")); }
+        session.next_trial += 1; session.running = true;
+        Ok((session.next_trial, session.baseline.clone(), session.session_root.clone()))
+    }
+    fn complete_trial(&mut self, id: &str, result: DiagnosticTrialResult) -> CmdResult<()> {
+        let session = self.sessions.get_mut(id).ok_or("unknown or expired deep-diagnosis session")?;
+        session.running = false; session.results.push(result); Ok(())
+    }
+    fn abort_trial(&mut self, id: &str) { if let Some(session) = self.sessions.get_mut(id) { session.running = false; } }
+    fn finish(&mut self, id: &str, source_root: &Path, instance_id: &str) -> CmdResult<DiagnosticSession> {
+        let session = self.sessions.get(id).ok_or("unknown or expired deep-diagnosis session")?;
+        if session.source_root != source_root || session.instance_id != instance_id { return Err("deep-diagnosis session is bound to a different instance".into()); }
+        if session.running { return Err("cannot finish a deep-diagnosis session while a trial is running".into()); }
+        Ok(self.sessions.remove(id).expect("checked above"))
+    }
+}
+
+#[derive(Default)]
+pub struct DeepDiagnosisState(Mutex<DiagnosticSessionBook>);
+
+fn canonical_bound_root(root: &str) -> CmdResult<(paths::GamePaths, PathBuf)> {
+    let paths = root_paths(root); let canonical = paths.root().canonicalize().map_err(err)?; Ok((paths, canonical))
+}
+fn next_diagnostic_session_id() -> String { format!("diag-{:x}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos()) }
+
+fn diagnostic_error(trial_number: u32, operations: Vec<DiagnosticTrialOperation>, started: std::time::Instant, message: String) -> DiagnosticTrialResult {
+    DiagnosticTrialResult { trial_number, outcome: DiagnosticTrialOutcome::LaunchError, exit_code: None, elapsed_ms: started.elapsed().as_millis() as u64, operations, log_tail: message, analysis: None }
+}
+
+async fn run_deep_diagnostic_launch(source_paths: &paths::GamePaths, snapshot: &DiagnosticSandboxSnapshot, trial_number: u32, operations: Vec<DiagnosticTrialOperation>) -> DiagnosticTrialResult {
+    let started = std::time::Instant::now();
+    let game_dir = snapshot.paths.version_dir(&snapshot.instance_id);
+    let home = game_dir.join(".diagnostic-home"); let temp = game_dir.join(".diagnostic-tmp"); let natives = game_dir.join(".diagnostic-natives");
+    let _ = std::fs::create_dir_all(&home); let _ = std::fs::create_dir_all(&temp);
+    let dl = match make_downloader() { Ok(dl) => dl, Err(message) => return diagnostic_error(trial_number, operations, started, message) };
+    let spec = LaunchSpec { instance: Instance::new(&snapshot.instance_id, source_paths.root()), session: auth::offline_session("kobeMC-Diagnostic"), java_path: None, launcher_name: format!("{LAUNCHER_NAME}-diagnostic"), launcher_version: LAUNCHER_VERSION.to_string(), online: false, runtimes_dir: None, global_java_path: settings_global().java_path.filter(|path| !path.is_empty()).map(PathBuf::from), extra_jvm_args: vec![format!("-Duser.home={}", home.to_string_lossy()), format!("-Djava.io.tmpdir={}", temp.to_string_lossy()), "-Dkobemc.diagnostic=true".into()], server_override: None, game_dir_override: Some(game_dir), natives_dir_override: Some(natives) };
+    let mut child = match launch::launch(spec, &dl, None).await { Ok(child) => child, Err(error) => return diagnostic_error(trial_number, operations, started, error.to_string()) };
+    let status = tokio::time::timeout(DEEP_DIAGNOSIS_LAUNCH_TIMEOUT, child.wait()).await;
+    let (outcome, exit_code, log_tail) = match status { Ok(Ok(status)) => (DiagnosticTrialOutcome::Crashed, status.code(), String::new()), Ok(Err(error)) => (DiagnosticTrialOutcome::LaunchError, None, error.to_string()), Err(_) => { let _ = child.kill().await; (DiagnosticTrialOutcome::Stable, None, String::new()) } };
+    let analysis = if matches!(outcome, DiagnosticTrialOutcome::Crashed) { mc_core::diagnostics::analyze_exit(exit_code.unwrap_or(-1), &log_tail).map(|analysis| DiagnosticTrialAnalysis { category: analysis.category.slug().to_string(), reason: analysis.reason, matched: analysis.matched, suggestions: analysis.suggestions }) } else { None };
+    DiagnosticTrialResult { trial_number, outcome, exit_code, elapsed_ms: started.elapsed().as_millis() as u64, operations, log_tail, analysis }
 }
 
 /// Search Modrinth for modpacks usable as a base pack.
@@ -146,6 +286,18 @@ pub async fn agent_tool_resolve_mods(
     tool_resolve_mods(&state.ctx(), args).await.map_err(err)
 }
 
+/// Validate the exact selected versions and dependency/conflict graph without writing.
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_tool_validate_modpack_plan(
+    state: State<'_, AgentToolsState>,
+    args: ValidateModpackPlanArgs,
+) -> CmdResult<ValidateModpackPlanOutput> {
+    tool_validate_modpack_plan(&state.ctx(), args)
+        .await
+        .map_err(err)
+}
+
 /// Deterministically build + verify a `.mrpack` from a base pack (or scratch) plus
 /// extra mods. Writes to disk; the TS loop must gate this behind user confirmation.
 #[tauri::command]
@@ -183,6 +335,54 @@ pub async fn agent_tool_install_modpack(
 #[specta::specta]
 pub async fn agent_tool_list_instances(root: String) -> CmdResult<ListInstancesOutput> {
     tool_list_instances(&root_paths(&root)).map_err(err)
+}
+
+/// Diagnose one host-bound installed instance. The model never supplies root/id.
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_tool_diagnose_instance(
+    root: String,
+    id: String,
+    args: DiagnoseInstanceArgs,
+) -> CmdResult<DiagnoseInstanceOutput> {
+    tool_diagnose_instance(&root_paths(&root), &id, args)
+        .await
+        .map_err(err)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_tool_start_deep_diagnosis(state: State<'_, DeepDiagnosisState>, running: State<'_, RunningGames>, root: String, id: String) -> CmdResult<StartDeepDiagnosisOutput> {
+    if running.is_running(&id) { return Err("stop the installed instance before starting deep diagnosis".into()); }
+    let (source_paths, canonical_root) = canonical_bound_root(&root)?;
+    let session_id = next_diagnostic_session_id(); let session_root = data_dir().join("agent").join("diagnostics").join(&session_id);
+    let baseline = create_diagnostic_snapshot(&source_paths, &id, &session_root.join("baseline")).map_err(err)?;
+    let baseline_trial = clone_diagnostic_snapshot(&baseline, &session_root.join("trials").join("trial-0")).map_err(err)?;
+    state.0.lock().map_err(err)?.insert(session_id.clone(), canonical_root, id, session_root, baseline)?;
+    let result = run_deep_diagnostic_launch(&source_paths, &baseline_trial, 0, Vec::new()).await;
+    state.0.lock().map_err(err)?.complete_trial(&session_id, result.clone())?;
+    Ok(StartDeepDiagnosisOutput { session_id, baseline: result, max_trials: DEEP_DIAGNOSIS_MAX_TRIALS, sandbox_scope: "temporary instance filesystem; not OS or network isolation".into() })
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_tool_run_diagnostic_trial(state: State<'_, DeepDiagnosisState>, running: State<'_, RunningGames>, root: String, id: String, args: RunDiagnosticTrialArgs) -> CmdResult<DiagnosticTrialResult> {
+    if args.operations.is_empty() { return Err("diagnostic hypothesis trial requires at least one operation".into()); }
+    if running.is_running(&id) { return Err("stop the installed instance before running a diagnostic trial".into()); }
+    let (source_paths, canonical_root) = canonical_bound_root(&root)?;
+    let (trial_number, baseline, session_root) = state.0.lock().map_err(err)?.reserve_trial(&args.session_id, &canonical_root, &id)?;
+    let trial = match (|| { let trial = clone_diagnostic_snapshot(&baseline, &session_root.join("trials").join(format!("trial-{trial_number}")))?; apply_diagnostic_operations(&trial.paths, &trial.instance_id, &args.operations)?; Ok::<_, mc_core::agent::tools::ChatToolError>(trial) })() { Ok(trial) => trial, Err(error) => { state.0.lock().map_err(err)?.abort_trial(&args.session_id); return Err(error.to_string()); } };
+    let result = run_deep_diagnostic_launch(&source_paths, &trial, trial_number, args.operations).await;
+    state.0.lock().map_err(err)?.complete_trial(&args.session_id, result.clone())?; Ok(result)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn agent_tool_finish_deep_diagnosis(state: State<'_, DeepDiagnosisState>, root: String, id: String, args: FinishDeepDiagnosisArgs) -> CmdResult<FinishDeepDiagnosisOutput> {
+    let (_, canonical_root) = canonical_bound_root(&root)?;
+    let session = state.0.lock().map_err(err)?.finish(&args.session_id, &canonical_root, &id)?;
+    cleanup_diagnostic_session(&session.session_root).map_err(err)?;
+    Ok(FinishDeepDiagnosisOutput { session_id: args.session_id, trials: session.results, cleaned: true })
 }
 
 /// Agent wiki tool: full-text search over the instance's local wiki corpus.

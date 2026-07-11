@@ -23,7 +23,7 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 
 import { promptForMode } from "./prompt";
 import { buildTools } from "./tools";
-import type { AgentLlmSettings, AgentMode } from "./types";
+import { normalizeAgentMode, type AgentLlmSettings, type AgentModeInput } from "./types";
 
 /** Max tool round-trips per turn. */
 const MAX_STEPS = 16;
@@ -59,7 +59,7 @@ export interface ModpackAgent {
 }
 
 export interface AgentRuntimeOptions {
-  mode?: AgentMode;
+  mode?: AgentModeInput;
 }
 
 interface UIStreamResult<TStream> {
@@ -121,7 +121,7 @@ export function createModpackAgent(
   settings: AgentLlmSettings,
   options: AgentRuntimeOptions = {},
 ): ModpackAgent {
-  const mode = options.mode ?? "modpack";
+  const mode = normalizeAgentMode(options.mode);
   const provider = createOpenRouter({ apiKey: settings.apiKey, baseURL: settings.baseUrl });
   const toolSet = buildTools(mode);
   const agent = new ToolLoopAgent({

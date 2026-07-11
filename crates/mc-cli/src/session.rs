@@ -83,6 +83,8 @@ pub(crate) async fn cmd_launch(
             .map(std::path::PathBuf::from),
         extra_jvm_args,
         server_override: None,
+        game_dir_override: None,
+        natives_dir_override: None,
     };
 
     let (tx, mut rx) = tokio::sync::watch::channel(mc_core::types::Progress::new("准备"));

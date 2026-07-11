@@ -2,6 +2,10 @@ import type { UIMessage } from "ai";
 import { Panel, Spinner } from "../components";
 import { t } from "../i18n";
 import { AskUserOptions, ASK_USER_TOOL_TYPE } from "./AskUserOptions";
+import {
+  InstanceChangesCard,
+  SHOW_INSTANCE_CHANGES_TOOL_TYPE,
+} from "./InstanceChangesCard";
 import { ModpackCard, SHOW_MODPACK_TOOL_TYPE } from "./ModpackCard";
 import { AssistantText, ActivityGroup, isActivity, isTool } from "./ChatParts";
 import { chatMessageKeys, chatPartKeys } from "./renderKeys";
@@ -63,6 +67,15 @@ export function MessageRow({
       nodes.push(<AskUserOptions key={partKeys[i]} msgId={msg.id} part={part} globalStreaming={streaming} />);
     } else if (isTool(part) && part.type === SHOW_MODPACK_TOOL_TYPE) {
       nodes.push(<ModpackCard key={partKeys[i]} msgId={msg.id} part={part} globalStreaming={streaming} />);
+    } else if (isTool(part) && part.type === SHOW_INSTANCE_CHANGES_TOOL_TYPE) {
+      nodes.push(
+        <InstanceChangesCard
+          key={partKeys[i]}
+          msgId={msg.id}
+          part={part}
+          globalStreaming={streaming}
+        />,
+      );
     }
   }
 

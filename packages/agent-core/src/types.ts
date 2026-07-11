@@ -23,7 +23,13 @@ export type ClientToolHandler = (args: unknown) => Promise<unknown>;
 export type ClientToolHandlers = Partial<Record<string, ClientToolHandler>>;
 
 /** Entry-specific agent surface. Each mode gets its own prompt and tool list. */
-export type AgentMode = "modpack" | "wiki";
+export type AgentMode = "build" | "instance";
+export type LegacyAgentMode = "modpack" | "wiki";
+export type AgentModeInput = AgentMode | LegacyAgentMode;
+
+export function normalizeAgentMode(mode: AgentModeInput | null | undefined): AgentMode {
+  return mode === "instance" || mode === "wiki" ? "instance" : "build";
+}
 
 /**
  * LLM endpoint config. Mirrors mc-core `AgentLlmConfig` (`api_key`/`model`/

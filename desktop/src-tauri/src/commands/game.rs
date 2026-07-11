@@ -75,7 +75,7 @@ impl RunningGames {
     fn unregister(&self, id: &str) {
         self.inner.lock().unwrap().remove(id);
     }
-    fn is_running(&self, id: &str) -> bool {
+    pub(super) fn is_running(&self, id: &str) -> bool {
         self.inner.lock().unwrap().contains_key(id)
     }
     /// 取出并移除某实例的停止信号(若在运行)。
@@ -158,6 +158,8 @@ pub async fn launch_instance(
         global_java_path: settings_global().java_path.filter(|p| !p.is_empty()).map(PathBuf::from),
         extra_jvm_args,
         server_override: server,
+        game_dir_override: None,
+        natives_dir_override: None,
     };
 
     let tx = progress_channel(app.clone(), "launch://progress", "准备");
@@ -313,4 +315,3 @@ pub struct GameExit {
     /// 异常退出时保留的日志尾部(最近若干行,换行连接),供折叠查看与「复制诊断」;正常退出为空。
     log_tail: String,
 }
-

@@ -35,7 +35,7 @@ interface ActiveTurn {
   finish: (error?: string) => void;
 }
 
-export async function createLocalRuntimeAgent(mode: AgentMode = "modpack"): Promise<ModpackAgent> {
+export async function createLocalRuntimeAgent(mode: AgentMode = "build"): Promise<ModpackAgent> {
   await unwrap(commands.agentHostStart());
 
   let active: ActiveTurn | null = null;
@@ -48,7 +48,9 @@ export async function createLocalRuntimeAgent(mode: AgentMode = "modpack"): Prom
     switch (msg.type) {
       case "tool_call": {
         const run =
-          msg.name === "ask_user_question" || msg.name === "show_modpack"
+          msg.name === "ask_user_question" ||
+          msg.name === "show_modpack" ||
+          msg.name === "show_instance_changes"
             ? new Promise((resolve) => registerLocalClientTool(msg.name, resolve))
             : runLauncherClientTool(msg.name, msg.args, useChatStore.getState().toolContext);
         void run.then(

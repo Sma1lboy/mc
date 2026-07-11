@@ -14,7 +14,7 @@ src/
   agent.ts       createModpackAgent(settings) -> ModpackAgent
   harness/       Claude Code local-runtime engine, same ModpackAgent contract
   tools/         AI SDK client-tool schemas, one file per tool
-  prompt.ts      CHAT_AGENT_SYSTEM_PROMPT
+  prompt.ts      BUILD_AGENT_SYSTEM_PROMPT / INSTANCE_AGENT_SYSTEM_PROMPT
   types.ts       shared schema/types
 bin/
   mc-agent.mjs   headless debug CLI
@@ -38,7 +38,15 @@ model loop:
 - `createClaudeCodeModpackAgent(handlers, options?)` runs the local Claude Code
   subscription runtime through a Node harness host.
 
-## Tools
+## Profiles And Tools
+
+The launcher selects one explicit profile before a conversation starts. Each
+profile injects its own prompt and complete relevant tool set; the model chooses
+among those tools normally, without a separate activation step.
+
+- `build`: global modpack discovery, exact plan validation, build, and install-card flow.
+- `instance`: one host-bound installed instance, combining local wiki, diagnosis,
+  compatible mod discovery, and user-confirmed maintenance changes.
 
 All modpack tools are AI SDK client-side tools: they have schemas, descriptions,
 and no `execute` in the OpenRouter/webview path.
@@ -56,14 +64,17 @@ resolution, build, install, and local instance state:
 - `search_mods`
 - `mod_get_detail`
 - `resolve_mods`
+- `validate_modpack_plan`
 - `build_modpack`
 - `list_instances`
+- `diagnose_instance`
 - `ask_user_question`
 - `show_modpack`
+- `show_instance_changes`
 
 The desktop dispatcher lives in `desktop/src/agent/clientToolDispatcher.ts`.
-Interactive tools (`ask_user_question`, `show_modpack`) are resolved by UI
-components; automatic tools are resolved by IPC commands such as
+Interactive tools (`ask_user_question`, `show_modpack`,
+`show_instance_changes`) are resolved by UI components; automatic tools are resolved by IPC commands such as
 `agent_tool_search_mods`.
 
 The local Claude Code runtime cannot call Tauri IPC directly, so
@@ -84,4 +95,14 @@ Endpoint settings come from `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, and
 
 ```
 node packages/agent-core/bin/mc-agent.mjs chat "a chill 1.20.1 fabric pack"
+```
+
+## Deterministic Eval
+
+The lightweight profile gate checks tool boundaries, prompt routing, host-owned
+field isolation, and the absence of progressive tool activation. It does not
+call an external model:
+
+```sh
+npm run eval:instance --workspace @kobemc/agent-core -- --json
 ```

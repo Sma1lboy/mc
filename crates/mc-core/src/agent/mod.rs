@@ -6,6 +6,7 @@
 //! Tauri commands; `build` is the trusted `.mrpack` executor behind them.
 
 mod build;
+pub mod compatibility;
 pub mod llm;
 pub mod runtime;
 pub mod tools;

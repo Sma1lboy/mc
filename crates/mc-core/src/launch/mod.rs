@@ -46,6 +46,35 @@ pub struct LaunchSpec {
     /// Used by the saved-servers "quick join" so joining doesn't permanently rewrite
     /// the instance config.
     pub server_override: Option<String>,
+    /// Redirect the writable game directory while continuing to read version
+    /// metadata, assets, libraries, and client jars from the installed root.
+    /// Diagnostic launches use this to keep all Mod/config/log writes in a copy.
+    pub game_dir_override: Option<PathBuf>,
+    /// Redirect native extraction away from the installed version directory.
+    pub natives_dir_override: Option<PathBuf>,
+}
+
+struct LaunchDirectories {
+    game_dir: PathBuf,
+    config_path: PathBuf,
+    natives_dir: PathBuf,
+}
+
+fn launch_directories(spec: &LaunchSpec, profile_id: &str) -> LaunchDirectories {
+    let game_dir = spec
+        .game_dir_override
+        .clone()
+        .unwrap_or_else(|| spec.instance.dir());
+    let config_path = game_dir.join("instance.json");
+    let natives_dir = spec
+        .natives_dir_override
+        .clone()
+        .unwrap_or_else(|| spec.instance.paths().natives_dir(profile_id));
+    LaunchDirectories {
+        game_dir,
+        config_path,
+        natives_dir,
+    }
 }
 
 /// A loader closure that reads `versions/<id>/<id>.json` from disk for the
@@ -85,8 +114,16 @@ pub fn build_classpath(profile: &LaunchProfile, paths: &GamePaths, ctx: &Runtime
 
 /// Extract every applicable native jar into the per-version natives directory.
 pub fn extract_natives(profile: &LaunchProfile, paths: &GamePaths, ctx: &RuntimeContext) -> Result<()> {
-    let natives_dir = paths.natives_dir(&profile.id);
-    ensure_dir(&natives_dir)?;
+    extract_natives_to(profile, paths, ctx, &paths.natives_dir(&profile.id))
+}
+
+fn extract_natives_to(
+    profile: &LaunchProfile,
+    paths: &GamePaths,
+    ctx: &RuntimeContext,
+    natives_dir: &Path,
+) -> Result<()> {
+    ensure_dir(natives_dir)?;
 
     // Old-style (pre-1.19): native carried by a regular library via its `natives` map.
     for lib in &profile.libraries {
@@ -96,7 +133,7 @@ pub fn extract_natives(profile: &LaunchProfile, paths: &GamePaths, ctx: &Runtime
         if let Some(native) = lib.native_file(ctx) {
             let jar_path = paths.libraries_dir().join(&native.path);
             if jar_path.exists() {
-                extract_native_jar(&jar_path, &natives_dir, &native.extract_exclude)?;
+                extract_native_jar(&jar_path, natives_dir, &native.extract_exclude)?;
             }
         }
     }
@@ -107,7 +144,7 @@ pub fn extract_natives(profile: &LaunchProfile, paths: &GamePaths, ctx: &Runtime
         let jar_path = paths.libraries_dir().join(&file.path);
         if jar_path.exists() {
             let exclude = lib.extract.as_ref().map(|e| e.exclude.clone()).unwrap_or_default();
-            extract_native_jar(&jar_path, &natives_dir, &exclude)?;
+            extract_native_jar(&jar_path, natives_dir, &exclude)?;
         }
     }
     Ok(())
@@ -276,7 +313,8 @@ pub async fn launch(
     // 1. resolve merged profile
     let profile = resolve_disk_profile(&paths, &version_id)?;
     let mc_version = profile.assets_id.clone().unwrap_or_else(|| version_id.clone());
-    let mut config = spec.instance.load_config()?;
+    let directories = launch_directories(&spec, &profile.id);
+    let mut config = InstanceConfig::load(&directories.config_path)?;
     // 一次性服务器覆盖(快速进入某存档服务器):只影响本次启动,不改写实例配置。
     if let Some(server) = spec.server_override.as_ref().filter(|s| !s.trim().is_empty()) {
         config.server = Some(server.clone());
@@ -291,17 +329,17 @@ pub async fn launch(
     let java_path = resolve_java(&spec, &config, &profile, &mc_version, dl, progress.as_ref()).await?;
 
     // 4. natives
-    extract_natives(&profile, &paths, &ctx)?;
+    extract_natives_to(&profile, &paths, &ctx, &directories.natives_dir)?;
 
     // 5. command line
-    let game_dir = spec.instance.dir();
+    let game_dir = directories.game_dir;
     ensure_dir(&game_dir)?;
     let classpath = join_classpath(&build_classpath(&profile, &paths, &ctx));
     let vars = LaunchVars {
         game_dir: command::path_str(&game_dir),
         assets_root: command::path_str(&paths.assets_dir()),
         assets_index: profile.assets_id.clone().unwrap_or_else(|| "legacy".into()),
-        natives_dir: command::path_str(&paths.natives_dir(&profile.id)),
+        natives_dir: command::path_str(&directories.natives_dir),
         libraries_dir: command::path_str(&paths.libraries_dir()),
         classpath,
         launcher_name: spec.launcher_name.clone(),
@@ -325,4 +363,33 @@ pub async fn launch(
         .map_err(|e| CoreError::Launch(format!("无法启动 Java 进程 {}: {e}", java_path.display())))?;
 
     Ok(child)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn diagnostic_launch_directories_redirect_all_runtime_writes() {
+        let spec = LaunchSpec {
+            instance: Instance::new("pack", "/installed"),
+            session: crate::auth::offline_session("Diagnostic"),
+            java_path: None,
+            launcher_name: "test".into(),
+            launcher_version: "1".into(),
+            online: false,
+            runtimes_dir: None,
+            global_java_path: None,
+            extra_jvm_args: vec![],
+            server_override: None,
+            game_dir_override: Some(PathBuf::from("/sandbox/game")),
+            natives_dir_override: Some(PathBuf::from("/sandbox/natives")),
+        };
+
+        let directories = launch_directories(&spec, "fabric-loader");
+
+        assert_eq!(directories.game_dir, PathBuf::from("/sandbox/game"));
+        assert_eq!(directories.config_path, PathBuf::from("/sandbox/game/instance.json"));
+        assert_eq!(directories.natives_dir, PathBuf::from("/sandbox/natives"));
+    }
 }
