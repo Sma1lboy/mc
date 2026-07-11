@@ -30,3 +30,25 @@ export function loaderLabel(loader: string): string {
   if (!l) return "";
   return LOADER_NAMES()[l] ?? l.charAt(0).toUpperCase() + l.slice(1);
 }
+
+import type { InstanceSummary, ModrinthVersion, ProjectKind } from "../ipc/types";
+
+/** 可装进实例的内容类型(整合包走单独的安装流程)。 */
+export type InstallableKind = Exclude<ProjectKind, "modpack">;
+
+/** 一个平台版本是否兼容实例(游戏版本必须命中;mod 还要求 loader 兼容)。 */
+export function versionMatches(version: ModrinthVersion, inst: InstanceSummary, kind: InstallableKind): boolean {
+  if (!version.game_versions.includes(inst.mc_version)) return false;
+  if (kind !== "mod") return true;
+  if (inst.loader === "vanilla") return false;
+  // Quilt 实例也接受 fabric 版本。
+  return acceptedLoaders(inst.loader).some((l) => version.loaders.includes(l));
+}
+
+export function compatibleVersionsFor(
+  versions: ModrinthVersion[],
+  inst: InstanceSummary,
+  kind: InstallableKind,
+): ModrinthVersion[] {
+  return versions.filter((version) => versionMatches(version, inst, kind));
+}

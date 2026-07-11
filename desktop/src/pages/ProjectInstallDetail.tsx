@@ -15,12 +15,11 @@ import { cached } from "../ipc/cache";
 import { useAsync } from "../util/useAsync";
 import { useAppStore, activeRoot } from "../store";
 import { t, useLang } from "../i18n";
-import type { InstanceSummary, ModrinthProject, ModrinthVersion, PackKind, ProjectKind } from "../ipc/types";
+import type { InstanceSummary, ModrinthProject, ModrinthVersion, PackKind } from "../ipc/types";
 import { renderMarkdown } from "../util/markdown";
-import { acceptedLoaders } from "../util/loaders";
+import { compatibleVersionsFor, versionMatches, type InstallableKind } from "../util/loaders";
 import "./ModpackDetail.css";
 
-type InstallableKind = Exclude<ProjectKind, "modpack">;
 
 const KIND_META = (): Record<
   InstallableKind,
@@ -39,22 +38,6 @@ const loaderLabel = (loader: string) =>
 
 const typeLabel = (type: string) =>
   ({ release: t("discover.typeRelease"), beta: t("discover.typeBeta"), alpha: t("discover.typeAlpha") } as Record<string, string>)[type] ?? type;
-
-function versionMatches(version: ModrinthVersion, inst: InstanceSummary, kind: InstallableKind): boolean {
-  if (!version.game_versions.includes(inst.mc_version)) return false;
-  if (kind !== "mod") return true;
-  if (inst.loader === "vanilla") return false;
-  // Quilt 实例也接受 fabric 版本。
-  return acceptedLoaders(inst.loader).some((l) => version.loaders.includes(l));
-}
-
-function compatibleVersionsFor(
-  versions: ModrinthVersion[],
-  inst: InstanceSummary,
-  kind: InstallableKind,
-): ModrinthVersion[] {
-  return versions.filter((version) => versionMatches(version, inst, kind));
-}
 
 interface ProjectInstallDetailProps {
   hit: ModpackHit;
