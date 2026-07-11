@@ -180,6 +180,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::agent_host_stop,
             commands::agent_runtime_detect,
             commands::agent_history_hydrate,
+            commands::agent_history_sync,
             commands::agent_history_save,
             gallery::gallery_enabled,
             gallery::gallery_capture,

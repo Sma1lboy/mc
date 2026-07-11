@@ -29,6 +29,16 @@ export const conversationRepository = {
     }
   },
 
+  async sync(): Promise<ConversationRecord[]> {
+    try {
+      const result = await commands.agentHistorySync();
+      if (result.status !== "ok") return [];
+      return parseSerializedConversationRecords<ConversationRecord>(result.data);
+    } catch {
+      return [];
+    }
+  },
+
   save(record: ConversationRecord): void {
     void commands.agentHistorySave(record.id, JSON.stringify(record));
   },

@@ -9,7 +9,6 @@ use std::path::{Path, PathBuf};
 use rusqlite::{params, Connection, OptionalExtension};
 
 const CONVERSATION_LIMIT: usize = 50;
-const MAX_RECORD_BYTES: usize = 1_048_576;
 const LEGACY_WEBKIT_MIGRATION: &str = "legacy-webkit-localstorage-v1";
 
 #[derive(Debug, Clone)]
@@ -45,11 +44,6 @@ impl AgentHistoryStore {
     }
 
     pub fn upsert(&self, id: &str, record_json: &str) -> Result<(), String> {
-        if record_json.len() > MAX_RECORD_BYTES {
-            return Err(format!(
-                "agent conversation exceeds {MAX_RECORD_BYTES} bytes"
-            ));
-        }
         let record: serde_json::Value =
             serde_json::from_str(record_json).map_err(|error| error.to_string())?;
         let record_id = record

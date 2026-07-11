@@ -220,18 +220,17 @@ function saveCurrentConversation(): void {
 }
 
 /* ——— 云端同步 ———
- * 登录后每次存档都 fire-and-forget 推到 mc-server(agent_conversations 表,按账号);
- * syncConversations() 双向合并:两侧都以记录自带的 updatedAt(客户端时钟)新者胜。
- * 未登录 / 离线 / 服务端出错一律静默跳过 —— launcher 本地存储始终是离线缓存。 */
+ * 登录后每次存档由 launcher host 异步镜像到 mc-server；syncConversations()
+ * 也在 host 内双向合并，WebKit 始终只消费 launcher-owned state。 */
 
 let syncing = false;
 
-/** 拉取云端会话列表并与本地双向合并(登录时自动触发;可重入保护)。 */
+/** 登录时请求 host 合并云端会话(可重入保护)。 */
 export async function syncConversations(): Promise<void> {
   if (syncing) return;
   syncing = true;
   try {
-    const records = await conversationRepository.hydrate();
+    const records = await conversationRepository.sync();
     useChatStore.setState({
       conversations: mergeConversationRecords(useChatStore.getState().conversations, records),
     });

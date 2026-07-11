@@ -524,11 +524,13 @@ export const commands = {
 	agentHostStop: () => typedError<null, string>(__TAURI_INVOKE("agent_host_stop")),
 	/**  Detect the locally-installed Claude Code runtime prerequisites (settings UI). */
 	agentRuntimeDetect: () => typedError<LocalRuntimeStatusDto, string>(__TAURI_INVOKE("agent_runtime_detect")),
-	/**
-	 *  Return the launcher-owned history state. SQLite is authoritative offline;
-	 *  cloud records merge here before WebKit sees them when a kobeMC session exists.
-	 */
+	/**  Return the launcher-owned local history state without waiting on the network. */
 	agentHistoryHydrate: () => typedError<string, string>(__TAURI_INVOKE("agent_history_hydrate")),
+	/**
+	 *  Merge the signed-in account's cloud history into the launcher-owned state.
+	 *  The local records are returned on any cloud failure so WebKit has one source.
+	 */
+	agentHistorySync: () => typedError<string, string>(__TAURI_INVOKE("agent_history_sync")),
 	/**  Persist one record into the launcher-owned state, then best-effort mirror it. */
 	agentHistorySave: (id: string, recordJson: string) => typedError<null, string>(__TAURI_INVOKE("agent_history_save", { id, recordJson })),
 	/**  是否处于画廊模式(环境变量 `MC_GALLERY` 非空且非 "0")。前端据此决定是否自动跑截图流程。 */

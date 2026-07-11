@@ -91,3 +91,18 @@ fn imports_legacy_webkit_localstorage_without_modifying_the_source() {
 
     let _ = std::fs::remove_dir_all(path.parent().unwrap());
 }
+
+#[test]
+fn persists_records_larger_than_the_cloud_payload_limit() {
+    let path = temp_db_path("large-record");
+    let record = format!(
+        r#"{{"id":"chat-large","title":"diagnostic","createdAt":1,"updatedAt":2,"messages":[{{"role":"assistant","parts":[{{"type":"text","text":"{}"}}]}}]}}"#,
+        "x".repeat(1_048_576),
+    );
+    let store = AgentHistoryStore::open(&path).unwrap();
+
+    store.upsert("chat-large", &record).unwrap();
+    assert_eq!(store.load_all().unwrap(), vec![record]);
+
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+}
