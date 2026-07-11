@@ -497,16 +497,10 @@ export const commands = {
 	agentToolListInstances: (root: string) => typedError<ListInstancesOutput, string>(__TAURI_INVOKE("agent_tool_list_instances", { root })),
 	/**  Diagnose one host-bound installed instance. The model never supplies root/id. */
 	agentToolDiagnoseInstance: (root: string, id: string, args: DiagnoseInstanceArgs) => typedError<DiagnoseInstanceOutput_Serialize, string>(__TAURI_INVOKE("agent_tool_diagnose_instance", { root, id, args })),
-	/**
-	 *  Create an instance-filesystem sandbox and run an unchanged offline baseline.
-	 *  This executes the installed Mods, so it is not an OS security boundary.
-	 */
 	agentToolStartDeepDiagnosis: (root: string, id: string) => typedError<StartDeepDiagnosisOutput, string>(__TAURI_INVOKE("agent_tool_start_deep_diagnosis", { root, id })),
-	/**  Run one independent allowlisted hypothesis against a fresh baseline copy. */
 	agentToolRunDiagnosticTrial: (root: string, id: string, args: RunDiagnosticTrialArgs) => typedError<DiagnosticTrialResult, string>(__TAURI_INVOKE("agent_tool_run_diagnostic_trial", { root, id, args })),
-	/**  Return recorded trial outcomes and remove all temporary session files. */
 	agentToolFinishDeepDiagnosis: (root: string, id: string, args: FinishDeepDiagnosisArgs) => typedError<FinishDeepDiagnosisOutput, string>(__TAURI_INVOKE("agent_tool_finish_deep_diagnosis", { root, id, args })),
-	/**  Search the host-injected local wiki corpus for the current installed instance. */
+	/**  Agent wiki tool: full-text search over the instance's local wiki corpus. */
 	agentToolWikiSearch: (root: string, args: WikiSearchArgs) => typedError<WikiSearchOutput_Serialize, string>(__TAURI_INVOKE("agent_tool_wiki_search", { root, args })),
 	/**  Open one wiki chunk returned by `agent_tool_wiki_search`. */
 	agentToolWikiOpen: (root: string, args: WikiOpenArgs) => typedError<WikiOpenOutput_Serialize, string>(__TAURI_INVOKE("agent_tool_wiki_open", { root, args })),
@@ -524,14 +518,8 @@ export const commands = {
 	agentHostStop: () => typedError<null, string>(__TAURI_INVOKE("agent_host_stop")),
 	/**  Detect the locally-installed Claude Code runtime prerequisites (settings UI). */
 	agentRuntimeDetect: () => typedError<LocalRuntimeStatusDto, string>(__TAURI_INVOKE("agent_runtime_detect")),
-	/**  Return the launcher-owned local history state without waiting on the network. */
 	agentHistoryHydrate: () => typedError<string, string>(__TAURI_INVOKE("agent_history_hydrate")),
-	/**
-	 *  Merge the signed-in account's cloud history into the launcher-owned state.
-	 *  The local records are returned on any cloud failure so WebKit has one source.
-	 */
 	agentHistorySync: () => typedError<string, string>(__TAURI_INVOKE("agent_history_sync")),
-	/**  Persist one record into the launcher-owned state, then best-effort mirror it. */
 	agentHistorySave: (id: string, recordJson: string) => typedError<null, string>(__TAURI_INVOKE("agent_history_save", { id, recordJson })),
 	/**  是否处于画廊模式(环境变量 `MC_GALLERY` 非空且非 "0")。前端据此决定是否自动跑截图流程。 */
 	galleryEnabled: () => typedError<boolean, string>(__TAURI_INVOKE("gallery_enabled")),
