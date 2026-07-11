@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { BookOpen } from "lucide-react";
 import { InstanceManageDialog, InstanceIcon, Dialog, ExportModpackDialog, toast, Button, Chip, Heading, PixelLabel, Tag, type InstanceRowData } from "../components";
 import { PlayButton } from "../components/PlayButton";
 import { RealmPanel } from "../components/RealmPanel";
@@ -12,6 +13,7 @@ import { loaderLabel as fmtLoader } from "../util/loaders";
 import { useAppStore, activeRoot, isRunning, playInstance, closeInstance, openInstance, refreshInstances } from "../store";
 import { renderMarkdown } from "../util/markdown";
 import { t, useLang } from "../i18n";
+import { openAgentChat } from "../agent/chatStore";
 import "./ModpackDetail.css"; // .md 样式(整合包更新日志渲染)
 
 /**
@@ -124,6 +126,7 @@ export default function InstanceDetail() {
   const [confirmDel, setConfirmDel] = useState(false);
   // 导出整合包:选格式弹窗(非空 = 打开)。
   const [exportRow, setExportRow] = useState<InstanceRowData | null>(null);
+  const [wikiReindexing, setWikiReindexing] = useState(false);
 
   // ===== 标签编辑 =====
   // 新标签输入框内容;实例的现有标签直接读 inst().tags(后端单一真相)。
@@ -218,12 +221,55 @@ export default function InstanceDetail() {
     }
   }
 
+  async function askWikiAgent() {
+    const i = inst();
+    if (!i) return;
+    try {
+      const root = activeRoot();
+      const dir = await api.instanceDir(root, i.id);
+      const source = cfg()?.source;
+      openAgentChat(
+        t("agent.wikiPrompt", {
+          name: i.name || i.id,
+          version: i.mc_version,
+          loader: fmtLoader(i.loader) || t("instance.noLoader"),
+        }),
+        {
+          mode: "wiki",
+          wiki: {
+            root,
+            modpackId: source?.project_id || i.id,
+            instanceId: i.id,
+            sourcePaths: [dir],
+          },
+        },
+      );
+    } catch (e) {
+      toast({ type: "error", message: t("instance.askWikiFailed", { err: String(e) }) });
+    }
+  }
+
+  async function rebuildWikiIndex() {
+    const i = inst();
+    if (!i || wikiReindexing) return;
+    setWikiReindexing(true);
+    try {
+      await api.rebuildInstanceWikiIndex(activeRoot(), i.id);
+      toast({ type: "success", message: t("instance.wikiReindexSuccess") });
+    } catch (e) {
+      toast({ type: "error", message: t("instance.wikiReindexFailed", { err: String(e) }) });
+    } finally {
+      setWikiReindexing(false);
+    }
+  }
+
   async function onMenuAction(value: string) {
     const i = inst();
     const row = toRowData();
     if (!i || !row) return;
     if (value === "open") void openInstanceDir(activeRoot(), i.id);
     else if (value === "copy") await copyCurrent();
+    else if (value === "rebuildWiki") await rebuildWikiIndex();
     else if (value === "export") setExportRow(row);
     else if (value === "delete") setConfirmDel(true);
   }
@@ -352,6 +398,15 @@ export default function InstanceDetail() {
                   disabled={launching.has(i.id) || !i.installed}
                   onClick={() => void playInstance(i.id)}
                 />
+                <Button
+                  variant="ghost"
+                  className="!h-[38px] !px-[12px] !text-[12px] shrink-0"
+                  title={t("instance.askWiki")}
+                  onClick={() => void askWikiAgent()}
+                >
+                  <BookOpen className="w-[15px] h-[15px]" aria-hidden="true" />
+                  {t("instance.askWiki")}
+                </Button>
                 <Menu.Root positioning={{ placement: "bottom-end" }} onSelect={(d: { value: string }) => void onMenuAction(d.value)}>
                   <Menu.Trigger
                     className="inline-flex items-center justify-center w-[38px] h-[38px] border-none bg-panel-3 text-sub rounded-none shadow-raised cursor-pointer transition-[filter,color] duration-[var(--dur)] ease-app hover:brightness-110 hover:text-fg active:shadow-pressed data-[state=open]:shadow-pressed data-[state=open]:text-fg"
@@ -366,6 +421,9 @@ export default function InstanceDetail() {
                   <Menu.Content>
                     <Menu.Item value="open">{t("instance.openGameDir")}</Menu.Item>
                     <Menu.Item value="copy">{t("instance.copyInstanceItem")}</Menu.Item>
+                    <Menu.Item value="rebuildWiki">
+                      {wikiReindexing ? t("instance.wikiReindexing") : t("instance.rebuildWikiIndex")}
+                    </Menu.Item>
                     <Menu.Item value="export">{t("instance.exportModpack")}</Menu.Item>
                     <Menu.Separator />
                     <Menu.Item value="delete" danger>

@@ -22,6 +22,9 @@ export type AskUserOption = z.infer<typeof askUserOptionSchema>;
 export type ClientToolHandler = (args: unknown) => Promise<unknown>;
 export type ClientToolHandlers = Partial<Record<string, ClientToolHandler>>;
 
+/** Entry-specific agent surface. Each mode gets its own prompt and tool list. */
+export type AgentMode = "modpack" | "wiki";
+
 /**
  * LLM endpoint config. Mirrors mc-core `AgentLlmConfig` (`api_key`/`model`/
  * `base_url`), camelCased for TS. Any OpenAI-compatible base URL works, so the

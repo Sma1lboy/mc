@@ -97,6 +97,7 @@ pub async fn apply_modpack_update(
     .await
     .map_err(err)?;
 
+    best_effort_refresh_wiki_cache(&paths, &outcome.instance_id).await;
     Ok(ModpackUpdateDto {
         instance_id: outcome.instance_id,
         removed: outcome.removed,
@@ -169,7 +170,9 @@ pub async fn install_modpack_url(
         .import_with_progress(ImportSource::Url(url), opts, Some(tx))
         .await
         .map_err(err)?;
-    Ok(outcome.into())
+    let dto = ImportOutcomeDto::from(outcome);
+    best_effort_refresh_wiki_cache(&paths, &dto.instance_id).await;
+    Ok(dto)
 }
 
 /// 浏览安装整合包(provider 感知,详情页「安装此版本」用):给定 `(provider, project, version_id)`,
@@ -268,6 +271,8 @@ pub async fn install_modpack(
         .import_with_progress(ImportSource::Url(url), opts, Some(tx))
         .await
         .map_err(err)?;
-    Ok(outcome.into())
+    let dto = ImportOutcomeDto::from(outcome);
+    best_effort_refresh_wiki_cache(&paths, &dto.instance_id).await;
+    Ok(dto)
 }
 

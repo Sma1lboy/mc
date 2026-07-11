@@ -12,20 +12,10 @@
 // ------------------------------------------------------------------
 
 import { create } from "zustand";
-import {
-  loadConversations,
-  persistConversations,
-  firstUserText,
-  currentChatSessionId,
-  setConversationId,
-  rotateConversationId,
-  type ConversationRecord,
-} from "./conversationLog";
-export { currentChatSessionId, type ConversationRecord } from "./conversationLog";
 import type { UIMessage } from "ai";
 // Type-only import: erased at build, so the host-agnostic brain (and its `ai`
 // dependency) stays out of the main bundle — the TS path is dynamic-imported below.
-import type { ModpackAgent } from "@kobemc/agent-core";
+import type { AgentMode, ModpackAgent } from "@kobemc/agent-core";
 import { setCurrentPage, kobeUser, useAppStore } from "../store";
 import { commands } from "../ipc/bindings";
 import { t } from "../i18n";
@@ -53,6 +43,8 @@ interface ChatState {
   draft: string | null;
   /** 历史对话记录(dev 调试选择器用;localStorage 持久)。 */
   conversations: ConversationRecord[];
+  /** Host-owned deterministic tool context, never supplied by the model. */
+  toolContext: AgentToolContext | null;
   /**
    * 本地引擎(claude-code)模式下「正在等用户作答」的交互 client tool 名
    * (ask_user_question / show_modpack),无则 null。此时 turn 仍在流式,
@@ -68,6 +60,7 @@ export const useChatStore = create<ChatState>(() => ({
   error: null,
   draft: null,
   conversations: loadConversations(),
+  toolContext: null,
   pendingLocalTool: null,
 }));
 
@@ -93,25 +86,31 @@ export function clearLocalClientTools(): void {
 // 引擎按设置选择:默认 OpenRouter API(webview 内 TS 大脑);`claude-code` =
 // 本机 Claude Code 订阅(Node 宿主进程,经 localRuntimeAdapter)。
 let tsAgent: Promise<ModpackAgent> | null = null;
+let tsAgentKey: string | null = null;
 
 async function getAgent(): Promise<ModpackAgent> {
-  if (!tsAgent)
+  const mode = agentModeFromContext(useChatStore.getState().toolContext);
+  const settings = await commands.getSettings();
+  const provider =
+    settings.status === "ok" ? (settings.data.agent_provider ?? "openrouter") : "openrouter";
+  const key = `${provider}:${mode}`;
+  if (!tsAgent || tsAgentKey !== key) {
+    if (tsAgentKey?.startsWith("claude-code:")) await commands.agentHostStop().catch(() => {});
+    tsAgentKey = key;
     tsAgent = (async () => {
-      const { commands } = await import("../ipc/bindings");
-      const settings = await commands.getSettings();
-      const provider =
-        settings.status === "ok" ? (settings.data.agent_provider ?? "openrouter") : "openrouter";
       if (provider === "claude-code") {
         const m = await import("./localRuntimeAdapter");
-        return m.createLocalRuntimeAgent();
+        return m.createLocalRuntimeAgent(mode);
       }
       const m = await import("./desktopAdapter");
-      return m.createDesktopAgent();
+      return m.createDesktopAgent(mode);
     })();
+  }
   try {
     return await tsAgent;
   } catch (e) {
     tsAgent = null; // 拉起失败(缺 key / import)→ 下次重试重新初始化
+    tsAgentKey = null;
     throw e;
   }
 }
@@ -120,6 +119,7 @@ async function getAgent(): Promise<ModpackAgent> {
  *  顺手停掉可能在跑的本地 Node 宿主 —— 无论切到哪个引擎都安全,下轮会按需重启。 */
 export function resetAgent(): void {
   tsAgent = null;
+  tsAgentKey = null;
   void import("../ipc/bindings").then((m) => m.commands.agentHostStop()).catch(() => {});
 }
 
@@ -127,24 +127,94 @@ export function resetAgent(): void {
 let seq = 0;
 const nextId = (): string => `${Date.now().toString(36)}-${(seq++).toString(36)}`;
 
+// 会话 id:一次「对话」一个,newChat 时轮换。
+const mintConvId = (): string =>
+  `chat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+let currentConvId = mintConvId();
+
+/** 当前会话 id。dev 调试面板复制它,或按 id 回溯整轮 flow。 */
+export function currentChatSessionId(): string {
+  return currentConvId;
+}
+
 /* ——— 会话记录 ———
  * 每轮结束把当前对话存到 localStorage(离线缓存),登录 kobeMC 账号后同时同步到
  * mc-server 数据库(按 updatedAt 新者胜,跨设备保留);DebugTools 据此列出、切换。
  * 记录就是 UIMessage[](既渲染又能喂模型),切换会话即无缝续聊。 */
+export interface ConversationRecord {
+  id: string;
+  createdAt: number;
+  updatedAt: number;
+  /** 首条用户消息(截断),用作列表标题。 */
+  title: string;
+  messages: UIMessage[];
+  toolContext?: AgentToolContext | null;
+}
+
+export interface AgentWikiContext {
+  root: string;
+  modpackId: string;
+  instanceId: string;
+  sourcePaths: string[];
+}
+
+export interface AgentToolContext {
+  mode?: AgentMode;
+  wiki?: AgentWikiContext;
+}
+
+function agentModeFromContext(context: AgentToolContext | null): AgentMode {
+  return context?.mode ?? (context?.wiki ? "wiki" : "modpack");
+}
+
+const CONV_KEY = "mc-launcher.agentConversations";
+const CONV_LIMIT = 50;
+
+function loadConversations(): ConversationRecord[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(CONV_KEY);
+    const list = raw ? (JSON.parse(raw) as ConversationRecord[]) : [];
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistConversations(list: ConversationRecord[]): void {
+  try {
+    window.localStorage.setItem(CONV_KEY, JSON.stringify(list.slice(0, CONV_LIMIT)));
+  } catch {
+    /* WebView 里 localStorage 可能不可用 */
+  }
+}
+
+/** 首条用户消息的纯文本(会话标题用)。 */
+function firstUserText(messages: UIMessage[]): string {
+  const first = messages.find((m) => m.role === "user");
+  if (!first) return "";
+  return first.parts
+    .map((p) => (p.type === "text" ? p.text : ""))
+    .join("")
+    .trim();
+}
+
 // 把当前对话 upsert 进记录列表(每轮结束调用)。空对话不存。
 function saveCurrentConversation(): void {
-  const messages = useChatStore.getState().messages;
+  const state = useChatStore.getState();
+  const messages = state.messages;
   if (messages.length === 0) return;
   const now = Date.now();
-  const list = useChatStore.getState().conversations.slice();
-  const i = list.findIndex((c) => c.id === currentChatSessionId());
+  const list = state.conversations.slice();
+  const i = list.findIndex((c) => c.id === currentConvId);
   const createdAt = i >= 0 ? list[i].createdAt : now;
   const rec: ConversationRecord = {
-    id: currentChatSessionId(),
+    id: currentConvId,
     createdAt,
     updatedAt: now,
     title: firstUserText(messages).slice(0, 60),
     messages,
+    toolContext: state.toolContext,
   };
   if (i >= 0) list[i] = rec;
   else list.unshift(rec);
@@ -216,8 +286,8 @@ export function loadConversation(id: string): void {
   if (useChatStore.getState().streaming) return;
   const rec = useChatStore.getState().conversations.find((c) => c.id === id);
   if (!rec) return;
-  setConversationId(id);
-  useChatStore.setState({ messages: rec.messages, error: null });
+  currentConvId = id;
+  useChatStore.setState({ messages: rec.messages, error: null, toolContext: rec.toolContext ?? null });
 }
 
 /**
@@ -270,9 +340,10 @@ async function resolveAutomaticClientTools(
   if (pending.length === 0) return null;
 
   let next = messages;
+  const toolContext = useChatStore.getState().toolContext;
   for (const call of pending) {
     try {
-      const output = await runLauncherClientTool(call.name, call.part.input);
+      const output = await runLauncherClientTool(call.name, call.part.input, toolContext);
       next = withToolOutput(next, call.msgId, call.part.toolCallId, output);
     } catch (e) {
       next = withToolError(next, call.msgId, call.part.toolCallId, e instanceof Error ? e.message : String(e));
@@ -454,17 +525,30 @@ function isToolPart(p: UIMessage["parts"][number]): p is Extract<
 export function newChat(): void {
   if (useChatStore.getState().streaming) return;
   saveCurrentConversation(); // 开新对话前把当前的存档,别丢
-  rotateConversationId();
-  useChatStore.setState({ messages: [], error: null, queued: [] });
+  currentConvId = mintConvId();
+  useChatStore.setState({ messages: [], error: null, queued: [], toolContext: null });
 }
 
 /**
  * 从其它页面(发现 / 新建实例)带一句上下文提示打开助手:预填输入框草稿并切到助手页。
  * 不自动发送——ChatPage 取草稿后填进输入框、聚焦,由用户审阅 / 编辑再发。
  */
-export function openAgentChat(prompt: string): void {
-  useChatStore.setState({ draft: prompt });
+export function openAgentChat(prompt: string, toolContext: AgentToolContext | null = null): void {
+  const current = useChatStore.getState();
+  if (
+    current.messages.length > 0 &&
+    !sameAgentToolContext(current.toolContext, toolContext)
+  ) {
+    saveCurrentConversation();
+    currentConvId = mintConvId();
+    useChatStore.setState({ messages: [], error: null, queued: [] });
+  }
+  useChatStore.setState({ draft: prompt, toolContext });
   setCurrentPage("agent");
+}
+
+function sameAgentToolContext(a: AgentToolContext | null, b: AgentToolContext | null): boolean {
+  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 }
 
 /** ChatPage 取用一次性草稿后清空(避免重渲染 / 重挂载再次注入)。 */

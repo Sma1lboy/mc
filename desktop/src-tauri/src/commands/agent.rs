@@ -171,9 +171,11 @@ pub async fn agent_tool_install_modpack(
     let dl = make_downloader()?;
     let engine = ImportEngine::with_defaults(dl, make_registry());
     let paths = root_paths(&root);
-    tool_install_modpack(&state.ctx(), &engine, paths.root(), args)
+    let out = tool_install_modpack(&state.ctx(), &engine, paths.root(), args)
         .await
-        .map_err(err)
+        .map_err(err)?;
+    best_effort_refresh_wiki_cache(&paths, &out.instance_id).await;
+    Ok(out)
 }
 
 /// Read-only lean instance list for the agent (id / name / mc_version / loader).
@@ -181,6 +183,33 @@ pub async fn agent_tool_install_modpack(
 #[specta::specta]
 pub async fn agent_tool_list_instances(root: String) -> CmdResult<ListInstancesOutput> {
     tool_list_instances(&root_paths(&root)).map_err(err)
+}
+
+/// Agent wiki tool: full-text search over the instance's local wiki corpus.
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_tool_wiki_search(
+    root: String,
+    args: WikiSearchArgs,
+) -> CmdResult<WikiSearchOutput> {
+    validate_agent_wiki_source_paths(&root, &args.source_paths)?;
+    tool_wiki_search(args).await.map_err(err)
+}
+
+/// Open one wiki chunk returned by `agent_tool_wiki_search`.
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_tool_wiki_open(root: String, args: WikiOpenArgs) -> CmdResult<WikiOpenOutput> {
+    validate_agent_wiki_source_paths(&root, &args.source_paths)?;
+    tool_wiki_open(args).await.map_err(err)
+}
+
+/// Rebuild the local wiki corpus cache for an installed instance on demand.
+#[tauri::command]
+#[specta::specta]
+pub async fn rebuild_instance_wiki_index(root: String, id: String) -> CmdResult<()> {
+    let paths = root_paths(&root);
+    refresh_wiki_cache_for_instance(&paths, &id).await
 }
 
 /// The local OpenRouter config (key / model / base_url) resolved from env + the

@@ -12,6 +12,7 @@
 
 pub mod config;
 pub mod install_mod;
+pub mod item_icons;
 pub mod lifecycle;
 pub mod mods;
 pub mod packs;
@@ -24,6 +25,7 @@ pub use config::{InstanceConfig, InstanceSource};
 pub use install_mod::{
     install_mod, install_mod_version, install_mod_version_with_deps, InstallReport,
 };
+pub use item_icons::{resolve_item_icon, ItemIcon};
 pub use mods::{list_mods, ModInfo};
 pub use packs::{install_pack, list_packs, PackInfo, PackKind};
 pub use screenshots::{list_screenshots, read_screenshot, ScreenshotInfo};

@@ -28,6 +28,20 @@ pub fn instance_dir(root: String, id: String) -> CmdResult<String> {
     Ok(dir.to_string_lossy().to_string())
 }
 
+/// Resolve one item id (for example `create:andesite_casing`) to a local data URL
+/// icon for this installed instance. Missing icons are not errors: the chat UI
+/// falls back to text labels in recipe cards.
+#[tauri::command]
+#[specta::specta]
+pub fn resolve_item_icon(
+    root: String,
+    id: String,
+    item_id: String,
+) -> CmdResult<Option<mc_core::instance::ItemIcon>> {
+    let inst = instance_of(&root, &id);
+    mc_core::instance::resolve_item_icon(&inst, &item_id).map_err(err)
+}
+
 /// 用系统文件管理器打开一个路径(目录/文件)。直接调 OS,绕开 shell 插件只放行 URL 的作用域。
 #[tauri::command]
 #[specta::specta]

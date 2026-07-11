@@ -9,6 +9,16 @@ export const commands = {
 	/**  取实例的游戏目录绝对路径(供「打开游戏目录」用前端 shell.open 打开)。 */
 	instanceDir: (root: string, id: string) => typedError<string, string>(__TAURI_INVOKE("instance_dir", { root, id })),
 	/**
+	 *  Resolve one item id (for example `create:andesite_casing`) to a local data URL
+	 *  icon for this installed instance. Missing icons are not errors: the chat UI
+	 *  falls back to text labels in recipe cards.
+	 */
+	resolveItemIcon: (root: string, id: string, itemId: string) => typedError<{
+	item_id: string,
+	data_url: string,
+	source: string,
+} | null, string>(__TAURI_INVOKE("resolve_item_icon", { root, id, itemId })),
+	/**
 	 *  取实例某个子目录的绝对路径并确保其存在(供「打开目录」用前端 shell.open 打开)。
 	 *  sub = "mods" / "resourcepacks" / "shaderpacks" / "datapacks" / "saves" / "screenshots" / "config"。
 	 */
@@ -483,6 +493,12 @@ export const commands = {
 	agentToolInstallModpack: (root: string, args: InstallModpackArgs) => typedError<InstallModpackOutput, string>(__TAURI_INVOKE("agent_tool_install_modpack", { root, args })),
 	/**  Read-only lean instance list for the agent (id / name / mc_version / loader). */
 	agentToolListInstances: (root: string) => typedError<ListInstancesOutput, string>(__TAURI_INVOKE("agent_tool_list_instances", { root })),
+	/**  Search the host-injected local wiki corpus for the current installed instance. */
+	agentToolWikiSearch: (root: string, args: WikiSearchArgs) => typedError<WikiSearchOutput_Serialize, string>(__TAURI_INVOKE("agent_tool_wiki_search", { root, args })),
+	/**  Open one wiki chunk returned by `agent_tool_wiki_search`. */
+	agentToolWikiOpen: (root: string, args: WikiOpenArgs) => typedError<WikiOpenOutput_Serialize, string>(__TAURI_INVOKE("agent_tool_wiki_open", { root, args })),
+	/**  Rebuild the local wiki corpus cache for an installed instance on demand. */
+	rebuildInstanceWikiIndex: (root: string, id: string) => typedError<null, string>(__TAURI_INVOKE("rebuild_instance_wiki_index", { root, id })),
 	agentLlmConfig: () => typedError<AgentLlmConfigDto, string>(__TAURI_INVOKE("agent_llm_config")),
 	/**  Start (or reuse) the Node agent host. Idempotent: a live child is kept. */
 	agentHostStart: () => typedError<null, string>(__TAURI_INVOKE("agent_host_start")),
@@ -998,6 +1014,12 @@ export type InstanceUpdateInfo = {
 	mod_updates: number,
 	/**  该实例(由整合包安装)是否有比当前来源版本更新的整合包版本(仅 Modrinth 来源可判定)。 */
 	modpack_update: boolean,
+};
+
+export type ItemIcon = {
+	item_id: string,
+	data_url: string,
+	source: string,
 };
 
 /**
@@ -1663,6 +1685,117 @@ export type VersionInstallReport = {
 	incompatible?: string[],
 	/**  CurseForge 作者禁第三方分发时需用户手动下载的文件;非空时前端弹 BlockedFilesDialog。 */
 	blocked?: BlockedFileDto[],
+};
+
+export type WikiChunk = WikiChunk_Serialize | WikiChunk_Deserialize;
+
+export type WikiChunk_Deserialize = {
+	chunk_id: string,
+	document_id: string,
+	title: string,
+	source_label: string,
+	location: string,
+	content: string,
+	kind?: string | null,
+	structured?: JsonValue | null,
+};
+
+export type WikiChunk_Serialize = {
+	chunk_id: string,
+	document_id: string,
+	title: string,
+	source_label: string,
+	location: string,
+	content: string,
+	kind?: string | null,
+	structured?: JsonValue | null,
+};
+
+export type WikiOpenArgs = {
+	modpack_id: string,
+	instance_id?: string | null,
+	/**  Same host-injected source list used for `wiki_search`. */
+	source_paths?: string[],
+	chunk_id: string,
+};
+
+export type WikiOpenOutput = WikiOpenOutput_Serialize | WikiOpenOutput_Deserialize;
+
+export type WikiOpenOutput_Deserialize = {
+	scope: WikiScope_Deserialize,
+	chunk: WikiChunk_Deserialize,
+};
+
+export type WikiOpenOutput_Serialize = {
+	scope: WikiScope_Serialize,
+	chunk: WikiChunk_Serialize,
+};
+
+export type WikiScope = WikiScope_Serialize | WikiScope_Deserialize;
+
+export type WikiScope_Deserialize = {
+	modpack_id: string,
+	instance_id?: string | null,
+	corpus_id: string,
+};
+
+export type WikiScope_Serialize = {
+	modpack_id: string,
+	instance_id?: string | null,
+	corpus_id: string,
+};
+
+export type WikiSearchArgs = {
+	modpack_id: string,
+	instance_id?: string | null,
+	/**  Local files, directories, `.mrpack`, or `.zip` archives selected by the host. */
+	source_paths?: string[],
+	query: string,
+	top_k?: number | null,
+	kind?: string | null,
+	target_id?: string | null,
+	ingredient_id?: string | null,
+	include_structured?: boolean | null,
+};
+
+export type WikiSearchHit = WikiSearchHit_Serialize | WikiSearchHit_Deserialize;
+
+export type WikiSearchHit_Deserialize = {
+	chunk_id: string,
+	document_id: string,
+	title: string,
+	snippet: string,
+	source_label: string,
+	location: string,
+	score: number | null,
+	kind?: string | null,
+	structured?: JsonValue | null,
+};
+
+export type WikiSearchHit_Serialize = {
+	chunk_id: string,
+	document_id: string,
+	title: string,
+	snippet: string,
+	source_label: string,
+	location: string,
+	score: number | null,
+	kind?: string | null,
+	structured?: JsonValue | null,
+};
+
+export type WikiSearchOutput = WikiSearchOutput_Serialize | WikiSearchOutput_Deserialize;
+
+export type WikiSearchOutput_Deserialize = {
+	scope: WikiScope_Deserialize,
+	source_count: number,
+	hits: WikiSearchHit_Deserialize[],
+};
+
+export type WikiSearchOutput_Serialize = {
+	scope: WikiScope_Serialize,
+	source_count: number,
+	hits: WikiSearchHit_Serialize[],
 };
 
 /**

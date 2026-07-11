@@ -1,6 +1,7 @@
 import { toast } from "../components";
 import { t } from "../i18n";
 import { useChatStore, currentChatSessionId, loadConversation } from "./chatStore";
+import { uniqueSiblingKeys } from "./renderKeys";
 
 /* ============================================================================
  * DebugTools —— agent 对话页的 dev 调试工具条(仅 import.meta.env.DEV 出现)。
@@ -82,6 +83,7 @@ function ConversationPicker(): React.ReactElement {
   const others = conversations
     .filter((c) => c.id !== current)
     .sort((a, b) => b.updatedAt - a.updatedAt);
+  const optionKeys = uniqueSiblingKeys(others, (c) => `conversation:${c.id}`);
 
   return (
     <div className="relative inline-flex items-center">
@@ -97,8 +99,8 @@ function ConversationPicker(): React.ReactElement {
         {t("agent.debugCurrentConversation")}
         {currentTitle ? ` · ${currentTitle}` : ""}
       </option>
-      {others.map((c) => (
-        <option key={c.id} value={c.id}>
+      {others.map((c, i) => (
+        <option key={optionKeys[i]} value={c.id}>
           {`${time(c.updatedAt)} · ${c.title || t("agent.debugUntitledConversation")}`}
         </option>
       ))}

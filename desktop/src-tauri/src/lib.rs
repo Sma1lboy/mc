@@ -33,6 +33,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::list_roots,
             commands::list_instances,
             commands::instance_dir,
+            commands::resolve_item_icon,
             commands::instance_subdir,
             commands::reveal_path,
             commands::delete_instance,
@@ -164,6 +165,9 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::agent_tool_build_modpack,
             commands::agent_tool_install_modpack,
             commands::agent_tool_list_instances,
+            commands::agent_tool_wiki_search,
+            commands::agent_tool_wiki_open,
+            commands::rebuild_instance_wiki_index,
             commands::agent_llm_config,
             commands::agent_host_start,
             commands::agent_host_send,
@@ -208,7 +212,9 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             {
                 use tauri::Manager;
-                use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+                use window_vibrancy::{
+                    apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState,
+                };
                 if let Some(win) = app.get_webview_window("main") {
                     let _ = apply_vibrancy(
                         &win,

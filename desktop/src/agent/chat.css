@@ -178,3 +178,153 @@
 .chat-md [data-streamdown="table-body"] [data-streamdown="table-row"]:last-child [data-streamdown="table-cell"] {
   border-bottom: none;
 }
+
+/* Minecraft-style recipe card. Kept outside Tailwind utilities because the
+ * slot bevels need exact layered shadows to read like the in-game inventory UI. */
+.mc-recipe-card {
+  display: inline-flex;
+  min-width: 318px;
+  max-width: 100%;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  color: #2c2c2c;
+  background: #c6c6c6;
+  border: 2px solid #373737;
+  box-shadow:
+    inset 2px 2px 0 #ffffff,
+    inset -2px -2px 0 #555555,
+    0 2px 0 rgba(0, 0, 0, 0.32);
+}
+
+.mc-recipe-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 0 2px;
+}
+
+.mc-recipe-name {
+  min-width: 0;
+  overflow: hidden;
+  color: #303030;
+  font-family: var(--font-display, inherit);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mc-recipe-workbench {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+
+.mc-recipe-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 38px);
+  grid-template-rows: repeat(3, 38px);
+  gap: 2px;
+}
+
+.mc-recipe-ingredients {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px;
+}
+
+.mc-recipe-slot {
+  position: relative;
+  display: flex;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #8b8b8b;
+  box-shadow:
+    inset 2px 2px 0 #373737,
+    inset -2px -2px 0 #ffffff;
+}
+
+.mc-recipe-slot-result {
+  width: 46px;
+  height: 46px;
+}
+
+.mc-recipe-icon {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.mc-recipe-slot-result .mc-recipe-icon {
+  width: 34px;
+  height: 34px;
+}
+
+.mc-recipe-fallback {
+  max-width: 34px;
+  padding: 0 3px;
+  overflow: hidden;
+  color: #f7f7f7;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1.05;
+  text-align: center;
+  text-shadow: 1px 1px 0 #303030;
+  text-wrap: balance;
+}
+
+.mc-recipe-count {
+  position: absolute;
+  right: 3px;
+  bottom: 2px;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  text-shadow:
+    1px 1px 0 #1f1f1f,
+    0 1px 0 #1f1f1f;
+}
+
+.mc-recipe-arrow {
+  position: relative;
+  width: 34px;
+  height: 24px;
+  flex: 0 0 auto;
+}
+
+.mc-recipe-arrow::before {
+  position: absolute;
+  top: 2px;
+  left: 1px;
+  display: block;
+  width: 32px;
+  height: 20px;
+  background:
+    linear-gradient(#7a7a7a 0 0) 20px 0 / 4px 4px no-repeat,
+    linear-gradient(#7a7a7a 0 0) 24px 4px / 4px 4px no-repeat,
+    linear-gradient(#7a7a7a 0 0) 0 8px / 32px 4px no-repeat,
+    linear-gradient(#7a7a7a 0 0) 24px 12px / 4px 4px no-repeat,
+    linear-gradient(#7a7a7a 0 0) 20px 16px / 4px 4px no-repeat;
+  content: "";
+  filter: drop-shadow(1px 1px 0 #ffffff);
+}
+
+.mc-recipe-source {
+  padding-top: 6px;
+  overflow-wrap: anywhere;
+  border-top: 1px solid #8a8a8a;
+  color: #555555;
+  font-size: 10px;
+  line-height: 1.35;
+}

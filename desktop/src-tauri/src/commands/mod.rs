@@ -38,12 +38,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use mc_core::agent::tools::{
-    tool_build_modpack, tool_inspect_base_modpack, tool_install_modpack, tool_list_instances,
-    tool_mod_get_detail, tool_resolve_mods, tool_search_base_modpacks, tool_search_mods,
-    BuildModpackArgs, BuildModpackOutput, InspectBaseModpackArgs, InspectBaseModpackOutput,
-    InstallModpackArgs, InstallModpackOutput, ListInstancesOutput, ModGetDetailArgs,
-    ModGetDetailOutput, ResolveModsArgs, ResolveModsOutput, SearchBaseModpacksArgs,
-    SearchBaseModpacksOutput, SearchModsArgs, SearchModsOutput,
+    refresh_wiki_corpus_cache, tool_build_modpack, tool_inspect_base_modpack, tool_install_modpack,
+    tool_list_instances, tool_mod_get_detail, tool_resolve_mods, tool_search_base_modpacks,
+    tool_search_mods, tool_wiki_open, tool_wiki_search, BuildModpackArgs, BuildModpackOutput,
+    InspectBaseModpackArgs, InspectBaseModpackOutput, InstallModpackArgs, InstallModpackOutput,
+    ListInstancesOutput, ModGetDetailArgs, ModGetDetailOutput, ResolveModsArgs, ResolveModsOutput,
+    SearchBaseModpacksArgs, SearchBaseModpacksOutput, SearchModsArgs, SearchModsOutput,
+    WikiOpenArgs, WikiOpenOutput, WikiSearchArgs, WikiSearchOutput,
 };
 use mc_core::agent::ChatToolsCtx;
 use mc_core::auth::{AccountStore, MsaClient, StoredAccount};
@@ -155,6 +156,54 @@ fn cf_blocked_dto(project_id: &str, file_id: &str, file_name: &str, target_dir: 
 /// 实际构造逻辑由 [`GlobalSettings::downloader`] 单一 owner 持有,与 CLI 共用。
 fn make_downloader() -> CmdResult<Downloader> {
     settings_global().downloader().map_err(err)
+}
+
+/// Refresh the local wiki corpus cache for one installed instance (used by modpack
+/// install/import to warm the agent's wiki tools). Falls back to the instance id
+/// when the config carries no modpack source project id.
+async fn refresh_wiki_cache_for_instance(paths: &paths::GamePaths, id: &str) -> CmdResult<()> {
+    let id = id.trim();
+    if id.is_empty() {
+        return Ok(());
+    }
+    let inst = Instance::new(id, paths.root().to_path_buf());
+    let modpack_id = inst
+        .load_config()
+        .ok()
+        .and_then(|cfg| cfg.source.map(|src| src.project_id))
+        .filter(|project_id| !project_id.trim().is_empty())
+        .unwrap_or_else(|| id.to_string());
+    refresh_wiki_corpus_cache(modpack_id, Some(id.to_string()), &inst.game_dir())
+        .await
+        .map_err(err)
+}
+
+/// Best-effort wiki cache warm after an install/import: log and swallow errors so a
+/// cache miss never fails the install itself.
+async fn best_effort_refresh_wiki_cache(paths: &paths::GamePaths, id: &str) {
+    if let Err(e) = refresh_wiki_cache_for_instance(paths, id).await {
+        tracing::warn!(instance_id = %id, error = %e, "failed to rebuild wiki corpus cache");
+    }
+}
+
+/// Ensure every agent wiki `source_paths` entry resolves inside the active game root
+/// (the agent wiki tools read arbitrary paths; this is the trust-boundary check).
+fn validate_agent_wiki_source_paths(root: &str, source_paths: &[String]) -> CmdResult<()> {
+    if source_paths.is_empty() {
+        return Err("wiki source paths are required".into());
+    }
+    let game_root = root_paths(root).root().canonicalize().map_err(err)?;
+    for raw in source_paths {
+        let path = PathBuf::from(raw);
+        let canonical = path.canonicalize().map_err(err)?;
+        if !canonical.starts_with(&game_root) {
+            return Err(format!(
+                "wiki source path must be inside the active game root: {}",
+                path.display()
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Build the Microsoft auth client.

@@ -45,20 +45,9 @@ pub async fn import_modpack(
         .await
         .map_err(err)?;
 
-    Ok(ImportOutcomeDto {
-        instance_id: outcome.instance_id,
-        blocked: outcome
-            .blocked
-            .into_iter()
-            .map(|b| BlockedFileDto {
-                name: b.name,
-                website_url: b.website_url,
-                target_dir: b.target_dir,
-                required: b.required,
-            })
-            .collect(),
-        skipped_optional: outcome.skipped_optional,
-    })
+    let dto = ImportOutcomeDto::from(outcome);
+    best_effort_refresh_wiki_cache(&paths, &dto.instance_id).await;
+    Ok(dto)
 }
 
 /// 把实例导出为整合包。`target` ∈ `modrinth` | `curseforge` | `modlist`
@@ -184,20 +173,9 @@ pub async fn install_modrinth_modpack(
         .await
         .map_err(err)?;
 
-    Ok(ImportOutcomeDto {
-        instance_id: outcome.instance_id,
-        blocked: outcome
-            .blocked
-            .into_iter()
-            .map(|b| BlockedFileDto {
-                name: b.name,
-                website_url: b.website_url,
-                target_dir: b.target_dir,
-                required: b.required,
-            })
-            .collect(),
-        skipped_optional: outcome.skipped_optional,
-    })
+    let dto = ImportOutcomeDto::from(outcome);
+    best_effort_refresh_wiki_cache(&paths, &dto.instance_id).await;
+    Ok(dto)
 }
 
 impl From<mc_core::modpack::import::ImportOutcome> for ImportOutcomeDto {

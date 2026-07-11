@@ -21,9 +21,9 @@
 import { ToolLoopAgent, stepCountIs, convertToModelMessages, readUIMessageStream, type UIMessage } from "ai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 
-import { CHAT_AGENT_SYSTEM_PROMPT } from "./prompt";
+import { promptForMode } from "./prompt";
 import { buildTools } from "./tools";
-import type { AgentLlmSettings } from "./types";
+import type { AgentLlmSettings, AgentMode } from "./types";
 
 /** Max tool round-trips per turn. */
 const MAX_STEPS = 16;
@@ -56,6 +56,10 @@ export interface ModpackAgent {
     onUpdate: (assistant: UIMessage) => void,
     signal?: AbortSignal,
   ): Promise<TurnResult>;
+}
+
+export interface AgentRuntimeOptions {
+  mode?: AgentMode;
 }
 
 interface UIStreamResult<TStream> {
@@ -113,12 +117,16 @@ export async function runUiMessageTurn<TStream, TMessage>({
  * Create a modpack agent bound to an LLM endpoint.
  * The provider is an OpenAI-compatible client over `settings.baseUrl`.
  */
-export function createModpackAgent(settings: AgentLlmSettings): ModpackAgent {
+export function createModpackAgent(
+  settings: AgentLlmSettings,
+  options: AgentRuntimeOptions = {},
+): ModpackAgent {
+  const mode = options.mode ?? "modpack";
   const provider = createOpenRouter({ apiKey: settings.apiKey, baseURL: settings.baseUrl });
-  const toolSet = buildTools();
+  const toolSet = buildTools(mode);
   const agent = new ToolLoopAgent({
     model: provider.chat(settings.model),
-    instructions: CHAT_AGENT_SYSTEM_PROMPT,
+    instructions: promptForMode(mode),
     tools: toolSet,
     temperature: TEMPERATURE,
     maxOutputTokens: MAX_OUTPUT_TOKENS,
