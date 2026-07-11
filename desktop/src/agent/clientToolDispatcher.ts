@@ -31,6 +31,9 @@ const AUTO_TOOL_NAMES = new Set([
   "build_modpack",
   "list_instances",
   "diagnose_instance",
+  "start_deep_diagnosis",
+  "run_diagnostic_trial",
+  "finish_deep_diagnosis",
   "wiki_search",
   "wiki_open",
 ]);
@@ -50,6 +53,9 @@ const MODE_TOOL_NAMES: Record<AgentMode, Set<string>> = {
     "wiki_search",
     "wiki_open",
     "diagnose_instance",
+    "start_deep_diagnosis",
+    "run_diagnostic_trial",
+    "finish_deep_diagnosis",
     "search_mods",
     "mod_get_detail",
     "resolve_mods",
@@ -86,6 +92,35 @@ export function runLauncherClientTool(
           instance.root || activeRoot(),
           instance.instanceId,
           diagnoseArgs(args),
+        ),
+      );
+    }
+    case "start_deep_diagnosis": {
+      const instance = instanceContext(context);
+      return unwrap(
+        commands.agentToolStartDeepDiagnosis(
+          instance.root || activeRoot(),
+          instance.instanceId,
+        ),
+      );
+    }
+    case "run_diagnostic_trial": {
+      const instance = instanceContext(context);
+      return unwrap(
+        commands.agentToolRunDiagnosticTrial(
+          instance.root || activeRoot(),
+          instance.instanceId,
+          args as never,
+        ),
+      );
+    }
+    case "finish_deep_diagnosis": {
+      const instance = instanceContext(context);
+      return unwrap(
+        commands.agentToolFinishDeepDiagnosis(
+          instance.root || activeRoot(),
+          instance.instanceId,
+          args as never,
         ),
       );
     }

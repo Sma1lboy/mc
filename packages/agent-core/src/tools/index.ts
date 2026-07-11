@@ -8,6 +8,7 @@ import type { z } from "zod";
 import { normalizeAgentMode, type AgentModeInput } from "../types";
 import { askUserQuestion } from "./ask-user-question";
 import { buildModpack } from "./build-modpack";
+import { finishDeepDiagnosis, runDiagnosticTrial, startDeepDiagnosis } from "./deep-diagnosis";
 import { diagnoseInstance } from "./diagnose-instance";
 import { inspectBaseModpack } from "./inspect-base-modpack";
 import { listInstances } from "./list-instances";
@@ -42,6 +43,9 @@ const INSTANCE_TOOL_BUILDERS = {
   wiki_search: wikiSearch,
   wiki_open: wikiOpen,
   diagnose_instance: diagnoseInstance,
+  start_deep_diagnosis: startDeepDiagnosis,
+  run_diagnostic_trial: runDiagnosticTrial,
+  finish_deep_diagnosis: finishDeepDiagnosis,
   search_mods: () => searchMods(true),
   mod_get_detail: () => modGetDetail(true),
   resolve_mods: () => resolveMods(true),

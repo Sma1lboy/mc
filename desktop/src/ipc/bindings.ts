@@ -497,6 +497,15 @@ export const commands = {
 	agentToolListInstances: (root: string) => typedError<ListInstancesOutput, string>(__TAURI_INVOKE("agent_tool_list_instances", { root })),
 	/**  Diagnose one host-bound installed instance. The model never supplies root/id. */
 	agentToolDiagnoseInstance: (root: string, id: string, args: DiagnoseInstanceArgs) => typedError<DiagnoseInstanceOutput_Serialize, string>(__TAURI_INVOKE("agent_tool_diagnose_instance", { root, id, args })),
+	/**
+	 *  Create an instance-filesystem sandbox and run an unchanged offline baseline.
+	 *  This executes the installed Mods, so it is not an OS security boundary.
+	 */
+	agentToolStartDeepDiagnosis: (root: string, id: string) => typedError<StartDeepDiagnosisOutput, string>(__TAURI_INVOKE("agent_tool_start_deep_diagnosis", { root, id })),
+	/**  Run one independent allowlisted hypothesis against a fresh baseline copy. */
+	agentToolRunDiagnosticTrial: (root: string, id: string, args: RunDiagnosticTrialArgs) => typedError<DiagnosticTrialResult, string>(__TAURI_INVOKE("agent_tool_run_diagnostic_trial", { root, id, args })),
+	/**  Return recorded trial outcomes and remove all temporary session files. */
+	agentToolFinishDeepDiagnosis: (root: string, id: string, args: FinishDeepDiagnosisArgs) => typedError<FinishDeepDiagnosisOutput, string>(__TAURI_INVOKE("agent_tool_finish_deep_diagnosis", { root, id, args })),
 	/**  Search the host-injected local wiki corpus for the current installed instance. */
 	agentToolWikiSearch: (root: string, args: WikiSearchArgs) => typedError<WikiSearchOutput_Serialize, string>(__TAURI_INVOKE("agent_tool_wiki_search", { root, args })),
 	/**  Open one wiki chunk returned by `agent_tool_wiki_search`. */
@@ -515,14 +524,13 @@ export const commands = {
 	agentHostStop: () => typedError<null, string>(__TAURI_INVOKE("agent_host_stop")),
 	/**  Detect the locally-installed Claude Code runtime prerequisites (settings UI). */
 	agentRuntimeDetect: () => typedError<LocalRuntimeStatusDto, string>(__TAURI_INVOKE("agent_runtime_detect")),
-	/**  List the signed-in user's archived conversations (heads only, newest first). */
-	agentHistoryList: () => typedError<AgentConversationHead[], string>(__TAURI_INVOKE("agent_history_list")),
-	/**  Fetch one archived conversation's full record, as a JSON string. */
-	agentHistoryGet: (id: string) => typedError<string, string>(__TAURI_INVOKE("agent_history_get", { id })),
-	/**  Upsert one conversation record (JSON string) into the user's cloud history. */
-	agentHistoryPut: (id: string, recordJson: string) => typedError<null, string>(__TAURI_INVOKE("agent_history_put", { id, recordJson })),
-	/**  Delete one archived conversation from the user's cloud history. */
-	agentHistoryDelete: (id: string) => typedError<null, string>(__TAURI_INVOKE("agent_history_delete", { id })),
+	/**
+	 *  Return the launcher-owned history state. SQLite is authoritative offline;
+	 *  cloud records merge here before WebKit sees them when a kobeMC session exists.
+	 */
+	agentHistoryHydrate: () => typedError<string, string>(__TAURI_INVOKE("agent_history_hydrate")),
+	/**  Persist one record into the launcher-owned state, then best-effort mirror it. */
+	agentHistorySave: (id: string, recordJson: string) => typedError<null, string>(__TAURI_INVOKE("agent_history_save", { id, recordJson })),
 	/**  是否处于画廊模式(环境变量 `MC_GALLERY` 非空且非 "0")。前端据此决定是否自动跑截图流程。 */
 	galleryEnabled: () => typedError<boolean, string>(__TAURI_INVOKE("gallery_enabled")),
 	/**  抓「main」窗口当前画面到 `<data_dir>/gallery/<name>.png`,返回文件绝对路径。 */
@@ -544,16 +552,6 @@ export type AccountSummary = {
 	selected?: boolean,
 	/**  Whether the account owns Minecraft (Microsoft accounts only). */
 	owns_game?: boolean,
-};
-
-/**
- *  One conversation head in the user's cloud agent history. `updated_at_ms` is
- *  the client's own clock (from the record), used for newest-wins merging.
- */
-export type AgentConversationHead = {
-	id: string,
-	title: string,
-	updated_at_ms: number,
 };
 
 /**
@@ -751,6 +749,27 @@ export type DiagnoseInstanceOutput_Serialize = {
 	log_tail?: string | null,
 };
 
+export type DiagnosticTrialAnalysis = {
+	category: string,
+	reason: string,
+	matched: string | null,
+	suggestions: string[],
+};
+
+export type DiagnosticTrialOperation = { type: "set_memory"; memory_mb: number } | { type: "set_mod_enabled"; file_name: string; enabled: boolean } | { type: "delete_mod"; file_name: string };
+
+export type DiagnosticTrialOutcome = "stable" | "crashed" | "launch_error";
+
+export type DiagnosticTrialResult = {
+	trial_number: number,
+	outcome: DiagnosticTrialOutcome,
+	exit_code: number | null,
+	elapsed_ms: number,
+	operations: DiagnosticTrialOperation[],
+	log_tail: string,
+	analysis: DiagnosticTrialAnalysis | null,
+};
+
 /**
  *  Modrinth 的 facet 分类法:内容分类 / loader / 游戏版本。前端据此渲染过滤面板。
  *  注意:这些是平台动态数据(分类名直接来自 Modrinth),**不**走 i18n,原样展示。
@@ -759,6 +778,16 @@ export type FacetTagsDto = {
 	categories: CategoryTag[],
 	loaders: LoaderTag[],
 	game_versions: GameVersionTag[],
+};
+
+export type FinishDeepDiagnosisArgs = {
+	session_id: string,
+};
+
+export type FinishDeepDiagnosisOutput = {
+	session_id: string,
+	trials: DiagnosticTrialResult[],
+	cleaned: boolean,
 };
 
 /**  项目画廊里的一张图。 */
@@ -1536,6 +1565,11 @@ export type RootKind =
 /**  Auto-created fallback under the launcher data directory. */
 "default";
 
+export type RunDiagnosticTrialArgs = {
+	session_id: string,
+	operations: DiagnosticTrialOperation[],
+};
+
 /**  一条已保存的多人服务器记录(展示 + 快速进入用)。 */
 export type SavedServer = {
 	/**  显示名(可空 —— UI 用地址兜底)。 */
@@ -1647,6 +1681,13 @@ export type SkinInfo = {
 	variant?: string,
 	/**  `ACTIVE` / `INACTIVE`。 */
 	state?: string,
+};
+
+export type StartDeepDiagnosisOutput = {
+	session_id: string,
+	baseline: DiagnosticTrialResult,
+	max_trials: number,
+	sandbox_scope: string,
 };
 
 export type SuggestedAction = SuggestedAction_Serialize | SuggestedAction_Deserialize;

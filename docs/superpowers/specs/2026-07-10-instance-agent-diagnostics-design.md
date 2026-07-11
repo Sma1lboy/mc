@@ -50,6 +50,11 @@ The instance prompt covers gameplay questions, diagnosis, and maintenance. It
 must use Wiki evidence for pack content and diagnostic/provider evidence for
 compatibility claims.
 
+For failures that static diagnosis cannot isolate, the instance entry also
+offers an explicit deep-diagnosis workflow. It launches only host-created
+temporary instance copies and never promotes a trial mutation directly to the
+installed instance.
+
 ## Shared Compatibility Report
 
 Rust owns a serializable report contract:
@@ -187,6 +192,54 @@ Safety rules:
 - Delete continues to use the existing trash-first implementation.
 - User confirmation is mandatory for every change card.
 
+## Deep Diagnostic Sandbox
+
+Deep diagnosis is a bounded runtime experiment, not a code-editing agent. The
+workflow has three stateful tools:
+
+- `start_deep_diagnosis` creates a private session snapshot and runs an
+  unchanged baseline launch.
+- `run_diagnostic_trial` creates a fresh copy of that baseline, applies one
+  complete allowlisted operation set, and performs a time-bounded launch.
+- `finish_deep_diagnosis` returns the recorded outcomes and removes the
+  temporary session.
+
+The host injects the source root and instance id. The model can reference only
+the opaque session id returned by the host. Each trial starts from the clean
+baseline so a result is attributable to the supplied operation set.
+
+Trial operations are deliberately narrower than real-instance changes:
+
+```ts
+type DiagnosticTrialOperation =
+  | { type: "set_memory"; memory_mb: number }
+  | { type: "set_mod_enabled"; file_name: string; enabled: boolean }
+  | { type: "delete_mod"; file_name: string };
+```
+
+There is no install operation in a diagnostic trial and no arbitrary path,
+file content, JVM argument, command, source, script, or JAR input. File names
+must identify direct children of the copied `mods` directory.
+
+The snapshot copies the selected instance runtime directory, skips symlinks,
+and excludes saves, backups, screenshots, logs, crash reports, native output,
+and other user/runtime output. Version metadata, assets, libraries, and client
+JARs remain read-only inputs from the installed root; game-directory writes and
+native extraction are redirected into the snapshot. The launch uses a
+synthetic offline identity, clears configured auto-join state, captures a
+bounded log tail, and is killed and reaped after the host timeout. Sessions
+have host-owned trial and lifetime limits and are cleaned on finish or expiry.
+
+This is an instance-filesystem isolation boundary, not a security container for
+untrusted Mods: the local JVM still executes the installed Mod code with the
+user's OS permissions. The tools and UI must call it a diagnostic sandbox, not
+claim OS, network, or hostile-code isolation.
+
+A stable trial result becomes evidence for a proposed remediation only. To
+change the installed instance, the model must translate the successful trial
+operations into `show_instance_changes`; the user must then confirm the card.
+The deep-diagnosis tools never write back to the source instance.
+
 ## Prompt Changes
 
 The build prompt requires this sequence for customized builds:
@@ -202,6 +255,10 @@ The instance prompt requires:
 - Crash, launch, compatibility, or performance questions: diagnose first.
 - Requested changes: diagnose or inspect, search/resolve when needed, then
   `show_instance_changes`.
+- Deep diagnosis: use static diagnosis first; start a sandbox only after the
+  user explicitly asks for or approves a test launch. Run bounded, independent
+  allowlisted trials, finish the session, then propose any real remediation
+  through `show_instance_changes`.
 - Never treat a proposed or skipped change as applied.
 
 Both prompts keep real provider IDs, version IDs, paths, and outcomes grounded
@@ -250,7 +307,11 @@ Lightweight fixture evals cover:
 
 - No progressive tool disclosure or `activate_tools` layer.
 - No arbitrary shell or filesystem tools.
-- No automatic sandbox clone/test/promote loop yet.
+- No source, script, config-text, Mod/JAR-content, or arbitrary JVM-argument
+  modification.
+- No automatic promotion from a diagnostic sandbox to the installed instance.
+- No claim that the instance sandbox isolates hostile code from the host OS or
+  network.
 - No exhaustive static compatibility proof for undocumented runtime conflicts.
 - No automatic mutation without a user-confirmed card.
 
@@ -261,4 +322,7 @@ Lightweight fixture evals cover:
 - A bound instance can be diagnosed without model-supplied paths.
 - Customized builds cannot proceed past known blocking dependency conflicts.
 - Instance changes reuse existing commands and require a user click.
+- Runtime trials mutate only fresh temporary instance copies, are bounded and
+  cleaned, and can affect the installed instance only through the existing
+  confirmation card.
 - Existing build and Wiki workflows continue to pass their regression tests.

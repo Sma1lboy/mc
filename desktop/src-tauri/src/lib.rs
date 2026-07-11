@@ -4,6 +4,7 @@
 //! 命令与 DTO 经 **tauri-specta** 导出为 `desktop/src/ipc/bindings.ts`(debug 构建时刷新),
 //! 前端类型/调用签名从此由 Rust 单一真相生成,杜绝手写 TS 与后端漂移。
 
+pub mod agent_history;
 mod commands;
 mod gallery;
 mod logging;
@@ -167,6 +168,9 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::agent_tool_install_modpack,
             commands::agent_tool_list_instances,
             commands::agent_tool_diagnose_instance,
+            commands::agent_tool_start_deep_diagnosis,
+            commands::agent_tool_run_diagnostic_trial,
+            commands::agent_tool_finish_deep_diagnosis,
             commands::agent_tool_wiki_search,
             commands::agent_tool_wiki_open,
             commands::rebuild_instance_wiki_index,
@@ -175,10 +179,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::agent_host_send,
             commands::agent_host_stop,
             commands::agent_runtime_detect,
-            commands::agent_history_list,
-            commands::agent_history_get,
-            commands::agent_history_put,
-            commands::agent_history_delete,
+            commands::agent_history_hydrate,
+            commands::agent_history_save,
             gallery::gallery_enabled,
             gallery::gallery_capture,
             gallery::gallery_build,
@@ -211,6 +213,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .setup(|app| {
+            commands::initialize_agent_local_history();
             #[cfg(target_os = "macos")]
             {
                 use tauri::Manager;
@@ -242,6 +245,8 @@ pub fn run() {
         // 流式聊天 agent 的每会话 transcript(rig 原始 transcript 不过 Tauri 边界)。
         // Shared tool context for the `agent_tool_*` commands (a TS-side agent loop).
         .manage(commands::AgentToolsState::default())
+        // Host-owned bounded runtime-diagnostic sessions and temporary snapshots.
+        .manage(commands::DeepDiagnosisState::default())
         // 本地 agent runtime 的 Node 宿主子进程(claude-code 引擎;同一时刻最多一个)。
         .manage(commands::AgentHostState::default())
         // EasyTier 联机会话状态(同一时刻最多一个会话)。

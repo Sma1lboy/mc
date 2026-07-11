@@ -36,7 +36,7 @@ const operationSchema = z.discriminatedUnion("type", [
 export const showInstanceChanges = () =>
   tool({
     description:
-      "Show proposed changes for the currently bound instance as a confirmation card. Nothing changes until the user confirms in the launcher. Use only concrete file names from diagnose_instance or project ids from provider tools. The launcher injects root, instance id, Minecraft version, and loader.",
+      "Show proposed changes for the currently bound instance as a confirmation card. Call this directly once a concrete remediation plan is ready; the card itself is the user confirmation, so never ask whether to show it first. Nothing changes until the user confirms in the launcher. Use only concrete file names from diagnose_instance or project ids from provider tools. The launcher injects root, instance id, Minecraft version, and loader.",
     inputSchema: z
       .object({
         summary: z.string().describe("One concise user-facing summary of why these changes help."),

@@ -16,11 +16,12 @@ use super::fake_provider::{
     FakeChatProvider,
 };
 use super::{
-    diagnose_instance_with_total_memory, prebuild_wiki_corpus_cache, refresh_wiki_corpus_cache,
-    tool_build_modpack, tool_inspect_base_modpack, tool_mod_get_detail, tool_resolve_mods,
-    tool_search_base_modpacks, tool_search_mods, tool_validate_modpack_plan, tool_wiki_open,
-    tool_wiki_search, wiki_corpus_cache_path, BuildBasePack, BuildModRef, BuildModpackArgs,
-    BuildTarget, ChatToolsCtx, DiagnoseInstanceArgs, InspectBaseModpackArgs, LocalPathWikiSource,
+    apply_diagnostic_operations, create_diagnostic_snapshot, diagnose_instance_with_total_memory,
+    prebuild_wiki_corpus_cache, refresh_wiki_corpus_cache, tool_build_modpack,
+    tool_inspect_base_modpack, tool_mod_get_detail, tool_resolve_mods, tool_search_base_modpacks,
+    tool_search_mods, tool_validate_modpack_plan, tool_wiki_open, tool_wiki_search,
+    wiki_corpus_cache_path, BuildBasePack, BuildModRef, BuildModpackArgs, BuildTarget, ChatToolsCtx,
+    DiagnoseInstanceArgs, DiagnosticTrialOperation, InspectBaseModpackArgs, LocalPathWikiSource,
     ModGetDetailArgs, ResolveModsArgs, SearchBaseModpacksArgs, SearchModsArgs,
     ValidateModpackPlanArgs, WikiCorpus, WikiOpenArgs, WikiScope, WikiSearchArgs,
 };
@@ -103,6 +104,147 @@ fn write_diagnostic_instance(root: &std::path::Path) -> GamePaths {
     )
     .unwrap();
     paths
+}
+
+fn write_sandbox_source(root: &std::path::Path) -> GamePaths {
+    let paths = GamePaths::new(root);
+    let instance_dir = paths.version_dir("test-pack");
+    let loader_dir = paths.version_dir("fabric-loader");
+    let vanilla_dir = paths.version_dir("1.20.1");
+    std::fs::create_dir_all(instance_dir.join("mods")).unwrap();
+    std::fs::create_dir_all(instance_dir.join("config")).unwrap();
+    std::fs::create_dir_all(instance_dir.join("saves/world")).unwrap();
+    std::fs::create_dir_all(instance_dir.join("logs")).unwrap();
+    std::fs::create_dir_all(&loader_dir).unwrap();
+    std::fs::create_dir_all(&vanilla_dir).unwrap();
+    std::fs::create_dir_all(paths.assets_dir()).unwrap();
+    std::fs::create_dir_all(paths.libraries_dir()).unwrap();
+    std::fs::write(
+        paths.version_json("test-pack"),
+        r#"{"id":"test-pack","inheritsFrom":"fabric-loader"}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        paths.version_json("fabric-loader"),
+        r#"{"id":"fabric-loader","inheritsFrom":"1.20.1"}"#,
+    )
+    .unwrap();
+    std::fs::write(paths.version_json("1.20.1"), r#"{"id":"1.20.1"}"#).unwrap();
+    std::fs::write(instance_dir.join("instance.json"), r#"{"memory_mb":2048}"#).unwrap();
+    std::fs::write(instance_dir.join("mods/keep.jar"), b"jar").unwrap();
+    std::fs::write(instance_dir.join("mods/remove.jar"), b"jar").unwrap();
+    std::fs::write(instance_dir.join("config/pack.cfg"), b"enabled=true").unwrap();
+    std::fs::write(instance_dir.join("saves/world/level.dat"), b"world").unwrap();
+    std::fs::write(instance_dir.join("logs/latest.log"), b"old log").unwrap();
+    paths
+}
+
+#[test]
+fn diagnostic_snapshot_copies_runtime_inputs_and_excludes_user_data() {
+    let source_root = temp_dir("diagnostic-snapshot-source");
+    let session_root = temp_dir("diagnostic-snapshot-session");
+    let source = write_sandbox_source(&source_root);
+
+    let snapshot = create_diagnostic_snapshot(&source, "test-pack", &session_root).unwrap();
+
+    assert!(snapshot.paths.version_dir("test-pack").join("mods/keep.jar").is_file());
+    assert!(snapshot.paths.version_dir("test-pack").join("config/pack.cfg").is_file());
+    assert!(!snapshot.paths.version_dir("test-pack").join("saves").exists());
+    assert!(!snapshot.paths.version_dir("test-pack").join("logs").exists());
+    assert_eq!(std::fs::read(source.version_dir("test-pack").join("mods/keep.jar")).unwrap(), b"jar");
+
+    std::fs::remove_dir_all(source_root).unwrap();
+    std::fs::remove_dir_all(session_root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn diagnostic_snapshot_skips_source_symlinks() {
+    use std::os::unix::fs::symlink;
+
+    let source_root = temp_dir("diagnostic-snapshot-symlink-source");
+    let session_root = temp_dir("diagnostic-snapshot-symlink-session");
+    let outside = temp_dir("diagnostic-snapshot-symlink-outside");
+    let source = write_sandbox_source(&source_root);
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("secret.jar"), b"secret").unwrap();
+    symlink(
+        outside.join("secret.jar"),
+        source.version_dir("test-pack").join("mods/linked.jar"),
+    )
+    .unwrap();
+
+    let snapshot = create_diagnostic_snapshot(&source, "test-pack", &session_root).unwrap();
+
+    assert!(!snapshot.paths.version_dir("test-pack").join("mods/linked.jar").exists());
+    std::fs::remove_dir_all(source_root).unwrap();
+    std::fs::remove_dir_all(session_root).unwrap();
+    std::fs::remove_dir_all(outside).unwrap();
+}
+
+#[test]
+fn deep_diagnosis_operations_change_only_the_snapshot() {
+    let source_root = temp_dir("diagnostic-ops-source");
+    let session_root = temp_dir("diagnostic-ops-session");
+    let source = write_sandbox_source(&source_root);
+    let snapshot = create_diagnostic_snapshot(&source, "test-pack", &session_root).unwrap();
+
+    apply_diagnostic_operations(
+        &snapshot.paths,
+        "test-pack",
+        &[
+            DiagnosticTrialOperation::SetMemory { memory_mb: 4096 },
+            DiagnosticTrialOperation::SetModEnabled {
+                file_name: "keep.jar".into(),
+                enabled: false,
+            },
+            DiagnosticTrialOperation::DeleteMod {
+                file_name: "remove.jar".into(),
+            },
+        ],
+    )
+    .unwrap();
+
+    let trial_dir = snapshot.paths.version_dir("test-pack");
+    assert_eq!(
+        crate::instance::InstanceConfig::load(&trial_dir.join("instance.json"))
+            .unwrap()
+            .memory_mb,
+        4096
+    );
+    assert!(trial_dir.join("mods/keep.jar.disabled").is_file());
+    assert!(!trial_dir.join("mods/remove.jar").exists());
+    assert!(source.version_dir("test-pack").join("mods/keep.jar").is_file());
+    assert!(source.version_dir("test-pack").join("mods/remove.jar").is_file());
+
+    std::fs::remove_dir_all(source_root).unwrap();
+    std::fs::remove_dir_all(session_root).unwrap();
+}
+
+#[test]
+fn deep_diagnosis_operations_reject_paths_unknown_mods_and_large_plans() {
+    let source_root = temp_dir("diagnostic-invalid-source");
+    let session_root = temp_dir("diagnostic-invalid-session");
+    let source = write_sandbox_source(&source_root);
+    let snapshot = create_diagnostic_snapshot(&source, "test-pack", &session_root).unwrap();
+
+    for bad in ["../keep.jar", "nested/keep.jar", "missing.jar"] {
+        let result = apply_diagnostic_operations(
+            &snapshot.paths,
+            "test-pack",
+            &[DiagnosticTrialOperation::DeleteMod {
+                file_name: bad.into(),
+            }],
+        );
+        assert!(result.is_err(), "{bad} must be rejected");
+    }
+    let excessive = (0..11)
+        .map(|_| DiagnosticTrialOperation::SetMemory { memory_mb: 2048 })
+        .collect::<Vec<_>>();
+    assert!(apply_diagnostic_operations(&snapshot.paths, "test-pack", &excessive).is_err());
+
+    std::fs::remove_dir_all(source_root).unwrap();
+    std::fs::remove_dir_all(session_root).unwrap();
 }
 
 #[test]

@@ -64,6 +64,25 @@ const fixtures = [
     },
   },
   {
+    id: "concrete-remediation-shows-card",
+    request: "诊断已经确定了要禁用的模组。",
+    evaluate() {
+      const tools = names("instance");
+      const prompt = promptForMode("instance");
+      return [
+        check(tools.has("show_instance_changes"), "confirmation card tool is available"),
+        check(
+          prompt.includes("Never ask whether to show a confirmation card"),
+          "prompt forbids a permission-before-permission question",
+        ),
+        check(
+          prompt.includes("itself is the confirmation request"),
+          "prompt treats the card as the only confirmation step",
+        ),
+      ];
+    },
+  },
+  {
     id: "instance-mod-search",
     request: "给这个实例找一个兼容的性能优化模组。",
     evaluate() {
@@ -82,6 +101,61 @@ const fixtures = [
             loader: "fabric",
           }).success,
           "instance search rejects model-supplied target fields",
+        ),
+      ];
+    },
+  },
+  {
+    id: "approved-deep-diagnosis",
+    request: "静态诊断看不出来，我同意启动副本做深度排查。",
+    evaluate() {
+      const tools = names("instance");
+      const schemas = toolSchemasForMode("instance");
+      const prompt = promptForMode("instance");
+      const trial = {
+        session_id: "diag-opaque",
+        operations: [{ type: "set_mod_enabled", file_name: "conflict.jar", enabled: false }],
+      };
+      return [
+        check(
+          ["start_deep_diagnosis", "run_diagnostic_trial", "finish_deep_diagnosis"].every((name) =>
+            tools.has(name),
+          ),
+          "deep-diagnosis lifecycle tools are available",
+        ),
+        check(prompt.includes("explicitly asks for or approves"), "prompt requires user approval"),
+        check(schemas.run_diagnostic_trial.safeParse(trial).success, "allowlisted trial is valid"),
+        check(
+          prompt.includes("translate only its exact operations into `show_instance_changes`"),
+          "successful trials promote only through the confirmation tool",
+        ),
+      ];
+    },
+  },
+  {
+    id: "reject-deep-code-edit",
+    request: "在沙箱里改一下模组 jar 或脚本试试。",
+    evaluate() {
+      const schema = toolSchemasForMode("instance").run_diagnostic_trial;
+      const prompt = promptForMode("instance");
+      return [
+        check(
+          !schema.safeParse({
+            session_id: "diag-opaque",
+            operations: [{ type: "write_file", path: "kubejs/server_scripts/fix.js", content: "x" }],
+          }).success,
+          "trial schema rejects arbitrary file writes",
+        ),
+        check(
+          !schema.safeParse({
+            session_id: "diag-opaque",
+            operations: [{ type: "modify_jar", file_name: "mod.jar", patch: "x" }],
+          }).success,
+          "trial schema rejects JAR modification",
+        ),
+        check(
+          prompt.includes("Never modify source code, scripts, arbitrary config text"),
+          "prompt states the no-code-edit boundary",
         ),
       ];
     },

@@ -114,10 +114,13 @@ describe("runTurn", () => {
     expect(Object.keys(buildTools("instance")).sort()).toEqual([
       "ask_user_question",
       "diagnose_instance",
+      "finish_deep_diagnosis",
       "mod_get_detail",
       "resolve_mods",
+      "run_diagnostic_trial",
       "search_mods",
       "show_instance_changes",
+      "start_deep_diagnosis",
       "wiki_open",
       "wiki_search",
     ]);
@@ -136,6 +139,34 @@ describe("runTurn", () => {
     expect(schemas.resolve_mods.safeParse({ project_ids: ["sodium"] }).success).toBe(true);
     expect(schemas.diagnose_instance.safeParse({ include_log_tail: true }).success).toBe(true);
     expect(schemas.diagnose_instance.safeParse({ instance_id: "pack" }).success).toBe(false);
+    expect(schemas.start_deep_diagnosis.safeParse({}).success).toBe(true);
+    expect(schemas.start_deep_diagnosis.safeParse({ root: "/tmp/mc" }).success).toBe(false);
+    expect(
+      schemas.run_diagnostic_trial.safeParse({
+        session_id: "diag-opaque",
+        operations: [
+          { type: "set_memory", memory_mb: 4096 },
+          { type: "set_mod_enabled", file_name: "sodium.jar", enabled: false },
+          { type: "delete_mod", file_name: "duplicate.jar" },
+        ],
+      }).success,
+    ).toBe(true);
+    for (const forbidden of [
+      { type: "install_mod", provider: "modrinth", project_id: "sodium" },
+      { type: "write_file", path: "config/test.toml", content: "x" },
+      { type: "run_command", command: "rm -rf ." },
+      { type: "modify_jar", file_name: "mod.jar", patch: "x" },
+    ]) {
+      expect(
+        schemas.run_diagnostic_trial.safeParse({
+          session_id: "diag-opaque",
+          operations: [forbidden],
+        }).success,
+      ).toBe(false);
+    }
+    expect(
+      schemas.finish_deep_diagnosis.safeParse({ session_id: "diag-opaque" }).success,
+    ).toBe(true);
     expect(
       schemas.show_instance_changes.safeParse({
         summary: "Increase memory",
@@ -157,6 +188,11 @@ describe("runTurn", () => {
     expect(prompt).toContain("wiki_open");
     expect(prompt).toContain("diagnose_instance");
     expect(prompt).toContain("show_instance_changes");
+    expect(prompt).toContain("start_deep_diagnosis");
+    expect(prompt).toContain("run_diagnostic_trial");
+    expect(prompt).toContain("finish_deep_diagnosis");
+    expect(prompt).toContain("explicitly asks for or approves");
+    expect(prompt).toContain("Never modify source code, scripts, arbitrary config text");
     expect(prompt).toContain('kind: "recipe"');
     expect(prompt).toContain("recipe_override");
     expect(prompt).toContain("Do not fill gaps with vanilla/Create/default knowledge");
@@ -183,5 +219,11 @@ describe("runTurn", () => {
     expect(Object.keys(buildTools("wiki")).sort()).toEqual(Object.keys(buildTools("instance")).sort());
     expect(promptForMode("wiki")).toBe(promptForMode("instance"));
     expect(promptForMode("modpack")).toBe(promptForMode("build"));
+  });
+
+  it("(j) presents a concrete instance remediation card without asking to show it", () => {
+    const prompt = promptForMode("instance");
+    expect(prompt).toContain("Never ask whether to show a confirmation card");
+    expect(prompt).toContain("itself is the confirmation request");
   });
 });
