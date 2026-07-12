@@ -56,7 +56,7 @@ function EngineSelect({ streaming }: { streaming: boolean }) {
           .getSettings()
           .then((s) => api.setSettings({ ...s, agent_provider: v === "openrouter" ? null : v }))
           .catch(() => {});
-        resetAgent();
+        resetAgent(v);
       }}
       options={[
         { value: "openrouter", label: t("agent.engineOpenrouter") },
@@ -153,7 +153,7 @@ export default function ChatPage() {
           </div>
           <EngineSelect streaming={streaming} />
           <ShareButton />
-          <Button variant="ghost" disabled={streaming} onClick={() => newChat()} className="shrink-0">
+          <Button variant="ghost" onClick={() => newChat()} className="shrink-0">
             {t("agent.newChat")}
           </Button>
         </div>

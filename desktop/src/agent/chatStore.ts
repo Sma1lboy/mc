@@ -15,8 +15,7 @@ import { create } from "zustand";
 import type { UIMessage } from "ai";
 // Type-only import: erased at build, so the host-agnostic brain (and its `ai`
 // dependency) stays out of the main bundle — the TS path is dynamic-imported below.
-import type { AgentMode, AgentModeInput, ModpackAgent } from "@kobemc/agent-core";
-import { setCurrentPage, useAppStore } from "../store";
+import { setCurrentPage, useAppStore, activeRoot } from "../store";
 import { commands } from "../ipc/bindings";
 import { t } from "../i18n";
 import {
@@ -24,9 +23,26 @@ import {
   isAutomaticClientTool,
   runLauncherClientTool,
 } from "./clientToolDispatcher";
+import {
+  agentModeFromContext,
+  type AgentToolContext,
+} from "./agentContext";
+import {
+  AgentRunCoordinator,
+  type AgentProviderSession,
+  type ConversationRunState,
+} from "./runCoordinator";
 import { conversationRepository, mergeConversationRecords } from "./conversationRepository";
 
+export type {
+  AgentInstanceContext,
+  AgentToolContext,
+  AgentWikiContext,
+} from "./agentContext";
+
 interface ChatState {
+  /** 当前 UI 投影对应的对话；异步动作必须捕获并显式回传此 id。 */
+  conversationId: string;
   /** 会话消息(AI SDK 原生 UIMessage:含 text / reasoning / tool parts)。 */
   messages: UIMessage[];
   /** 是否正在流式(显示指示器)。同一会话同一时刻只允许一轮。 */
@@ -47,14 +63,15 @@ interface ChatState {
   /** Host-owned deterministic tool context, never supplied by the model. */
   toolContext: AgentToolContext | null;
   /**
-   * 本地引擎(claude-code)模式下「正在等用户作答」的交互 client tool 名
-   * (ask_user_question / show_modpack),无则 null。此时 turn 仍在流式,
+   * 本地引擎(claude-code)模式下正在等用户作答的交互 toolCallId 集合。
+   * 此时 turn 仍在流式,
    * 但对应组件必须可交互 —— 见 AskUserOptions / ModpackCard 的 live 判定。
    */
-  pendingLocalTool: string | null;
+  pendingLocalToolCallIds: string[];
 }
 
 export const useChatStore = create<ChatState>(() => ({
+  conversationId: "",
   messages: [],
   streaming: false,
   queued: [],
@@ -62,70 +79,35 @@ export const useChatStore = create<ChatState>(() => ({
   draft: null,
   conversations: [],
   toolContext: null,
-  pendingLocalTool: null,
+  pendingLocalToolCallIds: [],
 }));
 
-/* ——— 本地引擎的 client-tool 暂停通道 ———
- * localRuntimeAdapter 把 ask_user_question / show_modpack 的 tool_call 注册到这里,
- * turn 保持打开;用户在 UI 作答后 resolveClientTool 取出 resolver、把结果发回宿主,
- * 同一轮继续。单槽(同一时刻至多一个 client tool 在等)。 */
-const pendingLocalResolvers = new Map<string, (output: unknown) => void>();
+let providerOverride: "openrouter" | "claude-code" | null = null;
 
-/** (localRuntimeAdapter 专用)登记一个等待用户作答的 client tool。 */
-export function registerLocalClientTool(name: string, resolve: (output: unknown) => void): void {
-  pendingLocalResolvers.set(name, resolve);
-  useChatStore.setState({ pendingLocalTool: name });
-}
-
-/** (localRuntimeAdapter 专用)清空所有待答 client tool(turn 结束 / 宿主退出)。 */
-export function clearLocalClientTools(): void {
-  pendingLocalResolvers.clear();
-  useChatStore.setState({ pendingLocalTool: null });
-}
-
-// 惰性拉起大脑(动态 import → 独立 chunk,`ai` 及 provider 不进主包)。
-// 引擎按设置选择:默认 OpenRouter API(webview 内 TS 大脑);`claude-code` =
-// 本机 Claude Code 订阅(Node 宿主进程,经 localRuntimeAdapter)。
-let tsAgent: Promise<ModpackAgent> | null = null;
-let tsAgentKey: string | null = null;
-
-async function getAgent(): Promise<ModpackAgent> {
-  const mode = agentModeFromContext(useChatStore.getState().toolContext);
+async function createProviderSession(input: {
+  conversationId: string;
+  toolContext: unknown;
+}): Promise<AgentProviderSession> {
+  const toolContext = input.toolContext as AgentToolContext | null;
+  const mode = agentModeFromContext(toolContext);
   const settings = await commands.getSettings();
-  const provider =
-    settings.status === "ok" ? (settings.data.agent_provider ?? "openrouter") : "openrouter";
-  const key = `${provider}:${mode}`;
-  if (!tsAgent || tsAgentKey !== key) {
-    if (tsAgentKey?.startsWith("claude-code:")) await commands.agentHostStop().catch(() => {});
-    tsAgentKey = key;
-    tsAgent = (async () => {
-      if (provider === "claude-code") {
-        const m = await import("./localRuntimeAdapter");
-        return m.createLocalRuntimeAgent(mode);
-      }
-      const m = await import("./desktopAdapter");
-      return m.createDesktopAgent(mode);
-    })();
+  const provider = providerOverride ??
+    (settings.status === "ok" ? (settings.data.agent_provider ?? "openrouter") : "openrouter");
+  if (provider === "claude-code") {
+    const providerSessionId = `claude-${input.conversationId}-${Date.now().toString(36)}-${(providerSeq++).toString(36)}`;
+    const m = await import("./localRuntimeAdapter");
+    return m.createLocalRuntimeAgent(mode, {
+      waitForInteractiveTool: (binding, name, toolCallId) =>
+        coordinator.waitForInteractiveTool(binding, name, toolCallId),
+    }, providerSessionId);
   }
-  try {
-    return await tsAgent;
-  } catch (e) {
-    tsAgent = null; // 拉起失败(缺 key / import)→ 下次重试重新初始化
-    tsAgentKey = null;
-    throw e;
-  }
-}
-
-/** 丢弃缓存的大脑实例(设置页切换引擎后调用;下轮消息按新设置重新拉起)。
- *  顺手停掉可能在跑的本地 Node 宿主 —— 无论切到哪个引擎都安全,下轮会按需重启。 */
-export function resetAgent(): void {
-  tsAgent = null;
-  tsAgentKey = null;
-  void import("../ipc/bindings").then((m) => m.commands.agentHostStop()).catch(() => {});
+  const m = await import("./desktopAdapter");
+  return m.createDesktopAgent(mode);
 }
 
 // 稳定的自增 id(仅前端展示 key;convertToModelMessages 会丢弃 UIMessage.id)。
 let seq = 0;
+let providerSeq = 0;
 const nextId = (): string => `${Date.now().toString(36)}-${(seq++).toString(36)}`;
 
 // 会话 id:一次「对话」一个,newChat 时轮换。
@@ -152,32 +134,6 @@ export interface ConversationRecord {
   toolContext?: AgentToolContext | null;
 }
 
-export interface AgentWikiContext {
-  root: string;
-  modpackId: string;
-  instanceId: string;
-  sourcePaths: string[];
-}
-
-export interface AgentInstanceContext extends AgentWikiContext {
-  mcVersion: string;
-  loader: string;
-}
-
-export interface AgentToolContext {
-  mode?: AgentModeInput;
-  instance?: AgentInstanceContext;
-  /** Legacy persisted wiki-only context. New instance entrypoints use `instance`. */
-  wiki?: AgentWikiContext;
-}
-
-function agentModeFromContext(context: AgentToolContext | null): AgentMode {
-  const mode = context?.mode;
-  if (mode === "instance" || mode === "wiki") return "instance";
-  if (mode === "build" || mode === "modpack") return "build";
-  return context?.instance || context?.wiki ? "instance" : "build";
-}
-
 const CONV_LIMIT = 50;
 
 async function hydrateConversations(): Promise<void> {
@@ -196,22 +152,69 @@ function firstUserText(messages: UIMessage[]): string {
     .trim();
 }
 
-// 把当前对话 upsert 进记录列表(每轮结束调用)。空对话不存。
-function saveCurrentConversation(): void {
-  const state = useChatStore.getState();
-  const messages = state.messages;
+function projectConversation(state: ConversationRunState): void {
+  useChatStore.setState({
+    conversationId: state.id,
+    messages: state.messages,
+    streaming: state.streaming,
+    queued: state.queued,
+    error: state.error,
+    toolContext: state.toolContext as AgentToolContext | null,
+    pendingLocalToolCallIds: state.pendingInteractiveToolCallIds,
+  });
+}
+
+let runSeq = 0;
+const coordinator = new AgentRunCoordinator({
+  createProviderSession,
+  isAutomaticTool: isAutomaticClientTool,
+  isInteractiveTool: (name) => INTERACTIVE_CLIENT_TOOLS.has(name),
+  runAutomaticTool: (name, input, context) =>
+    runLauncherClientTool(name, input, context as AgentToolContext | null),
+  onChange: (state) => {
+    if (state.id === currentConvId) projectConversation(state);
+  },
+  onSelectedChange: projectConversation,
+  makeRunId: () => `run-${Date.now().toString(36)}-${(runSeq++).toString(36)}`,
+  makeMessageId: nextId,
+});
+
+function contextWithRoot(context: AgentToolContext | null): AgentToolContext {
+  return {
+    ...(context ?? {}),
+    root: context?.root ?? context?.instance?.root ?? context?.wiki?.root ?? activeRoot(),
+  };
+}
+
+coordinator.openConversation(currentConvId, {
+  messages: [],
+  toolContext: contextWithRoot(null),
+});
+coordinator.selectConversation(currentConvId);
+
+/** Invalidate sessions used by future runs without touching already-bound runs. */
+export function resetAgent(provider?: string): void {
+  providerOverride =
+    provider === "openrouter" || provider === "claude-code" ? provider : null;
+  coordinator.clearProviderSessions();
+}
+
+// 把指定对话 upsert 进记录列表。空对话不存。
+function saveConversation(conversationId: string): void {
+  const runtime = coordinator.getConversation(conversationId);
+  const messages = runtime.messages;
   if (messages.length === 0) return;
   const now = Date.now();
-  const list = state.conversations.slice();
-  const i = list.findIndex((c) => c.id === currentConvId);
+  const list = useChatStore.getState().conversations.slice();
+  const i = list.findIndex((c) => c.id === conversationId);
   const createdAt = i >= 0 ? list[i].createdAt : now;
   const rec: ConversationRecord = {
-    id: currentConvId,
+    id: conversationId,
     createdAt,
     updatedAt: now,
     title: firstUserText(messages).slice(0, 60),
     messages,
-    toolContext: state.toolContext,
+    toolContext: runtime.toolContext as AgentToolContext | null,
   };
   if (i >= 0) list[i] = rec;
   else list.unshift(rec);
@@ -251,115 +254,27 @@ useAppStore.subscribe(
   { fireImmediately: true },
 );
 
-/** 载入一条历史对话(dev):恢复 messages(即上下文),可无缝续聊。流式中忽略。 */
+/** 载入一条历史对话；仅切换 UI 投影，不影响任何在飞运行。 */
 export function loadConversation(id: string): void {
-  if (useChatStore.getState().streaming) return;
+  if (id === currentConvId) return;
+  saveConversation(currentConvId);
   const rec = useChatStore.getState().conversations.find((c) => c.id === id);
   if (!rec) return;
-  currentConvId = id;
-  useChatStore.setState({ messages: rec.messages, error: null, toolContext: rec.toolContext ?? null });
-}
-
-/**
- * 跑一轮:把给定的 UIMessage[] 历史交给大脑,流式期间把「生长中的助手消息」替换到列表尾。
- * 结束落最终 messages;失败落 error。空文本 / 拉起失败均安全兜底。
- */
-// 当前在飞的一轮的中断句柄(stopTurn 用);仅活动轮期间非空。
-let currentAbort: AbortController | null = null;
-
-async function drive(history: UIMessage[]): Promise<void> {
-  const abort = new AbortController();
-  currentAbort = abort;
-  useChatStore.setState({ streaming: true, error: null });
   try {
-    const agent = await getAgent();
-    const { messages, error } = await agent.run(
-      history,
-      (assistant) => {
-        useChatStore.setState({ messages: [...history, assistant] });
-      },
-      abort.signal,
-    );
-    useChatStore.setState({ messages, streaming: false, error: error ?? null });
-    if (!abort.signal.aborted && !error) {
-      const resolved = await resolveAutomaticClientTools(messages);
-      if (resolved?.shouldResume) {
-        await drive(resolved.messages);
-        return;
-      }
-    }
-  } catch (e) {
-    useChatStore.setState({ streaming: false, error: String(e) });
+    coordinator.getConversation(id);
+  } catch {
+    coordinator.openConversation(id, {
+      messages: rec.messages,
+      toolContext: contextWithRoot(rec.toolContext ?? null),
+    });
   }
-  if (currentAbort === abort) currentAbort = null;
-  saveCurrentConversation(); // 每轮结束存档,供 dev 会话选择器按时间列出
-  // 本轮结束(正常完成或被中断),若有排队消息则取队首各自成一轮(递归排空,FIFO)。
-  // 于是「打断当前 + 发下一条」= 打字入队 → stopTurn 中断 → 队列在此自动放行下一条。
-  const queued = useChatStore.getState().queued;
-  if (queued.length > 0) {
-    const [next, ...rest] = queued;
-    useChatStore.setState({ queued: rest });
-    await sendOne(next);
-  }
-}
-
-async function resolveAutomaticClientTools(
-  messages: UIMessage[],
-): Promise<{ messages: UIMessage[]; shouldResume: boolean } | null> {
-  const pending = pendingAutomaticToolParts(messages);
-  if (pending.length === 0) return null;
-
-  let next = messages;
-  const toolContext = useChatStore.getState().toolContext;
-  for (const call of pending) {
-    try {
-      const output = await runLauncherClientTool(call.name, call.part.input, toolContext);
-      next = withToolOutput(next, call.msgId, call.part.toolCallId, output);
-    } catch (e) {
-      next = withToolError(next, call.msgId, call.part.toolCallId, e instanceof Error ? e.message : String(e));
-    }
-    useChatStore.setState({ messages: next });
-  }
-
-  return {
-    messages: next,
-    shouldResume: !hasPendingInteractiveTool(next),
-  };
-}
-
-function pendingAutomaticToolParts(messages: UIMessage[]): Array<{
-  msgId: string;
-  name: string;
-  part: Extract<UIMessage["parts"][number], { toolCallId: string }> & { input?: unknown };
-}> {
-  const msg = [...messages].reverse().find((m) => m.role === "assistant");
-  if (!msg) return [];
-  return msg.parts
-    .filter(isToolPart)
-    .filter((p) => p.state === "input-available")
-    .map((part) => ({ msgId: msg.id, name: toolNameFromPart(part), part }))
-    .filter((call) => isAutomaticClientTool(call.name));
-}
-
-function hasPendingInteractiveTool(messages: UIMessage[]): boolean {
-  const msg = [...messages].reverse().find((m) => m.role === "assistant");
-  if (!msg) return false;
-  return msg.parts
-    .filter(isToolPart)
-    .some((p) => p.state === "input-available" && INTERACTIVE_CLIENT_TOOLS.has(toolNameFromPart(p)));
+  currentConvId = id;
+  coordinator.selectConversation(id);
 }
 
 /** 中断当前流式轮(用户按停止 / Esc)。已保留到目前为止流式出的部分助手消息。 */
 export function stopTurn(): void {
-  currentAbort?.abort();
-}
-
-/** 追加一条用户消息到会话尾并跑一轮。 */
-async function sendOne(text: string): Promise<void> {
-  const userMsg: UIMessage = { id: nextId(), role: "user", parts: [{ type: "text", text }] };
-  const history = [...useChatStore.getState().messages, userMsg];
-  useChatStore.setState({ messages: history });
-  await drive(history);
+  coordinator.cancelConversation(currentConvId);
 }
 
 /**
@@ -368,23 +283,19 @@ async function sendOne(text: string): Promise<void> {
 export async function sendMessage(raw: string): Promise<void> {
   const text = raw.trim();
   if (!text) return;
-  if (useChatStore.getState().streaming) {
-    enqueueMessage(text);
-    return;
-  }
-  await sendOne(text);
+  const conversationId = currentConvId;
+  await coordinator.sendMessage(conversationId, text);
+  saveConversation(conversationId);
 }
 
 /** 把一条消息压入待发队列(流式期间的发送落点)。空白忽略。 */
 export function enqueueMessage(raw: string): void {
-  const text = raw.trim();
-  if (!text) return;
-  useChatStore.setState((s) => ({ queued: [...s.queued, text] }));
+  coordinator.enqueueMessage(currentConvId, raw);
 }
 
 /** 取消一条排队中的消息(用户点 × 撤回)。 */
 export function dequeueQueued(index: number): void {
-  useChatStore.setState((s) => ({ queued: s.queued.filter((_, i) => i !== index) }));
+  coordinator.dequeueMessage(currentConvId, index);
 }
 
 /**
@@ -393,110 +304,52 @@ export function dequeueQueued(index: number): void {
  * convertToModelMessages 会据此把结果作为 tool result 喂回模型,续跑同一会话。流式中忽略。
  */
 export function resolveClientTool(
+  conversationId: string,
   msgId: string,
   toolCallId: string,
   output: unknown,
   echoText?: string,
 ): void {
-  // 本地引擎路径:turn 还开着,工具在等这里的结果。把 resolver 唤醒(结果经宿主回给
-  // runtime,同一轮继续流式),本地只乐观翻转该 part 的状态(下一个快照会带权威状态)。
-  // 不追加回显气泡 —— 结果已作为 tool result 喂给模型,后续回答在同一条助手消息里。
-  const toolName = findToolPartName(msgId, toolCallId);
-  const local = toolName ? pendingLocalResolvers.get(toolName) : undefined;
-  if (local && toolName) {
-    pendingLocalResolvers.delete(toolName);
-    useChatStore.setState({
-      messages: withToolOutput(useChatStore.getState().messages, msgId, toolCallId, output),
-      pendingLocalTool: pendingLocalResolvers.size ? [...pendingLocalResolvers.keys()][0] : null,
-    });
-    local(output);
+  const resolution = coordinator.resolveClientToolOutput(
+    conversationId,
+    msgId,
+    toolCallId,
+    output,
+  );
+  if (resolution === "local" || resolution === "ignored") return;
+  if (resolution === "waiting") {
+    saveConversation(conversationId);
     return;
   }
-
-  if (useChatStore.getState().streaming) return;
-  const answered = withToolOutput(useChatStore.getState().messages, msgId, toolCallId, output);
+  const runtime = coordinator.getConversation(conversationId);
   const history = echoText
-    ? [...answered, { id: nextId(), role: "user", parts: [{ type: "text", text: echoText }] } as UIMessage]
-    : answered;
-  useChatStore.setState({ messages: history });
-  void drive(history);
-}
-
-/** 把某条消息里指定工具 part 置为 output-available(带结果)。 */
-function withToolOutput(
-  messages: UIMessage[],
-  msgId: string,
-  toolCallId: string,
-  output: unknown,
-): UIMessage[] {
-  return messages.map((m) => {
-    if (m.id !== msgId) return m;
-    return {
-      ...m,
-      parts: m.parts.map((p) =>
-        isToolPart(p) && p.toolCallId === toolCallId
-          ? { ...p, state: "output-available", output }
-          : p,
-      ),
-    } as UIMessage;
+    ? [...runtime.messages, { id: nextId(), role: "user", parts: [{ type: "text", text: echoText }] } as UIMessage]
+    : runtime.messages;
+  void coordinator.continueConversation(conversationId, history).then(() => {
+    saveConversation(conversationId);
   });
-}
-
-function withToolError(
-  messages: UIMessage[],
-  msgId: string,
-  toolCallId: string,
-  errorText: string,
-): UIMessage[] {
-  return messages.map((m) => {
-    if (m.id !== msgId) return m;
-    return {
-      ...m,
-      parts: m.parts.map((p) =>
-        isToolPart(p) && p.toolCallId === toolCallId
-          ? { ...p, state: "output-error", errorText }
-          : p,
-      ),
-    } as UIMessage;
-  });
-}
-
-/** 按 msgId + toolCallId 找到工具 part 的工具名("tool-xxx" → "xxx"),找不到 → null。 */
-function findToolPartName(msgId: string, toolCallId: string): string | null {
-  const msg = useChatStore.getState().messages.find((m) => m.id === msgId);
-  if (!msg) return null;
-  for (const part of msg.parts) {
-    if (isToolPart(part) && part.toolCallId === toolCallId) return toolNameFromPart(part);
-  }
-  return null;
-}
-
-function toolNameFromPart(part: Extract<UIMessage["parts"][number], { toolCallId: string }>): string {
-  return typeof part.type === "string" && part.type.startsWith("tool-")
-    ? part.type.slice("tool-".length)
-    : "";
 }
 
 /** 提交一次 ask_user 选择:结果 = 所选项,回显一条用户气泡。空选择忽略。 */
-export function submitAskUserAnswer(msgId: string, toolCallId: string, selected: string[]): void {
+export function submitAskUserAnswer(
+  conversationId: string,
+  msgId: string,
+  toolCallId: string,
+  selected: string[],
+): void {
   if (selected.length === 0) return;
-  resolveClientTool(msgId, toolCallId, { selected }, selected.join("、"));
+  resolveClientTool(conversationId, msgId, toolCallId, { selected }, selected.join("、"));
 }
 
-/** 是否为工具 part(UIMessage 里工具 part 的 type 形如 "tool-<name>",带 toolCallId)。 */
-function isToolPart(p: UIMessage["parts"][number]): p is Extract<
-  UIMessage["parts"][number],
-  { toolCallId: string }
-> {
-  return typeof (p as { toolCallId?: unknown }).toolCallId === "string";
-}
-
-/** 新对话:归档当前对话,轮换会话 id,清空消息(流式中忽略)。 */
+/** 新对话:归档当前投影并切换；原对话若在运行则继续留在后台。 */
 export function newChat(): void {
-  if (useChatStore.getState().streaming) return;
-  saveCurrentConversation(); // 开新对话前把当前的存档,别丢
+  saveConversation(currentConvId);
   currentConvId = mintConvId();
-  useChatStore.setState({ messages: [], error: null, queued: [], toolContext: null });
+  coordinator.openConversation(currentConvId, {
+    messages: [],
+    toolContext: contextWithRoot(null),
+  });
+  coordinator.selectConversation(currentConvId);
 }
 
 /**
@@ -504,16 +357,20 @@ export function newChat(): void {
  * 不自动发送——ChatPage 取草稿后填进输入框、聚焦,由用户审阅 / 编辑再发。
  */
 export function openAgentChat(prompt: string, toolContext: AgentToolContext | null = null): void {
-  const current = useChatStore.getState();
+  const current = coordinator.getConversation(currentConvId);
+  const nextContext = contextWithRoot(toolContext);
   if (
     current.messages.length > 0 &&
-    !sameAgentToolContext(current.toolContext, toolContext)
+    !sameAgentToolContext(current.toolContext as AgentToolContext, nextContext)
   ) {
-    saveCurrentConversation();
+    saveConversation(currentConvId);
     currentConvId = mintConvId();
-    useChatStore.setState({ messages: [], error: null, queued: [] });
+    coordinator.openConversation(currentConvId, { messages: [], toolContext: nextContext });
+    coordinator.selectConversation(currentConvId);
+  } else {
+    coordinator.setToolContext(currentConvId, nextContext);
   }
-  useChatStore.setState({ draft: prompt, toolContext });
+  useChatStore.setState({ draft: prompt });
   setCurrentPage("agent");
 }
 

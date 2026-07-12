@@ -10,6 +10,7 @@ import { commands } from "../ipc/bindings";
 import { createModpackAgent, type ModpackAgent } from "@kobemc/agent-core";
 import type { AgentLlmSettings, AgentMode } from "@kobemc/agent-core";
 import { unwrap } from "./clientToolDispatcher";
+import type { AgentProviderSession } from "./runCoordinator";
 
 async function loadSettings(): Promise<AgentLlmSettings> {
   const dto = await unwrap(commands.agentLlmConfig());
@@ -17,7 +18,10 @@ async function loadSettings(): Promise<AgentLlmSettings> {
 }
 
 /** Create a desktop-hosted modpack agent (LLM config + Tauri tool backend). */
-export async function createDesktopAgent(mode: AgentMode = "build"): Promise<ModpackAgent> {
+export async function createDesktopAgent(mode: AgentMode = "build"): Promise<AgentProviderSession> {
   const settings = await loadSettings();
-  return createModpackAgent(settings, { mode });
+  const agent: ModpackAgent = createModpackAgent(settings, { mode });
+  return {
+    run: ({ history, onUpdate, signal }) => agent.run(history, onUpdate, signal),
+  };
 }

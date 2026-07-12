@@ -55,9 +55,11 @@ export function AskUserOptions(props: {
       : [],
   );
   // 本地引擎(claude-code)下 turn 暂停等答时 streaming 仍为 true —— 以待答标记放行。
-  const pendingLocal = useChatStore((s) => s.pendingLocalTool);
+  const pendingLocalToolCallIds = useChatStore((s) => s.pendingLocalToolCallIds);
+  const conversationId = useChatStore((s) => s.conversationId);
   const live =
-    part.state === "input-available" && (!globalStreaming || pendingLocal === "ask_user_question");
+    part.state === "input-available" &&
+    (!globalStreaming || pendingLocalToolCallIds.includes(part.toolCallId));
   const skeleton = options.length === 0 && !answered;
   const optionKeys = askOptionKeys(options);
 
@@ -82,7 +84,7 @@ export function AskUserOptions(props: {
       .map((i) => options[i]?.label)
       .filter((l): l is string => !!l);
     if (customText) labels.push(customText);
-    submitAskUserAnswer(props.msgId, part.toolCallId, labels);
+    submitAskUserAnswer(conversationId, props.msgId, part.toolCallId, labels);
   };
 
   return (

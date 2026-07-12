@@ -47,8 +47,9 @@ export function InstanceChangesCard(props: {
   const [busy, setBusy] = useState(false);
   const [runningIndex, setRunningIndex] = useState<number | null>(null);
   const [progress, setProgress] = useState<OperationResult[]>([]);
+  const conversationId = useChatStore((state) => state.conversationId);
   const context = useChatStore((state) => state.toolContext?.instance ?? null);
-  const pendingLocal = useChatStore((state) => state.pendingLocalTool);
+  const pendingLocalToolCallIds = useChatStore((state) => state.pendingLocalToolCallIds);
   const input = (part.input ?? {}) as ShowChangesInput;
   const summary = typeof input.summary === "string" ? input.summary.trim() : "";
   const normalizedPlan = normalizeInstanceChangeOperations(input.operations);
@@ -57,7 +58,7 @@ export function InstanceChangesCard(props: {
   const output = (done ? part.output : null) as ShowChangesOutput | null;
   const live =
     part.state === "input-available" &&
-    (!globalStreaming || pendingLocal === "show_instance_changes") &&
+    (!globalStreaming || pendingLocalToolCallIds.includes(part.toolCallId)) &&
     !busy &&
     context !== null &&
     normalizedPlan.error === undefined &&
@@ -84,7 +85,7 @@ export function InstanceChangesCard(props: {
     if (results.some((result) => result.status === "completed")) {
       void commands.rebuildInstanceWikiIndex(context.root, context.instanceId);
     }
-    resolveClientTool(props.msgId, part.toolCallId, {
+    resolveClientTool(conversationId, props.msgId, part.toolCallId, {
       applied: results.every((result) => result.status === "completed"),
       results,
     });
@@ -92,7 +93,10 @@ export function InstanceChangesCard(props: {
 
   const cancel = (): void => {
     if (!live) return;
-    resolveClientTool(props.msgId, part.toolCallId, { applied: false, results: [] });
+    resolveClientTool(conversationId, props.msgId, part.toolCallId, {
+      applied: false,
+      results: [],
+    });
   };
 
   if (part.state === "input-streaming" && !summary && operations.length === 0) {

@@ -3,6 +3,7 @@ import type { UIMessage } from "ai";
 import { t } from "../i18n";
 import { commands } from "../ipc/bindings";
 import { activeRoot } from "../store";
+import { rootFromAgentContext } from "./agentContext";
 import { resolveClientTool, useChatStore } from "./chatStore";
 
 /* ============================================================================
@@ -60,10 +61,12 @@ export function ModpackCard(props: {
   const done = part.state === "output-available";
   const output = (done ? part.output : null) as ShowOutput | null;
   // 本地引擎(claude-code)下 turn 暂停等答时 streaming 仍为 true —— 以待答标记放行。
-  const pendingLocal = useChatStore((s) => s.pendingLocalTool);
+  const pendingLocalToolCallIds = useChatStore((s) => s.pendingLocalToolCallIds);
+  const conversationId = useChatStore((s) => s.conversationId);
+  const toolContext = useChatStore((s) => s.toolContext);
   const live =
     part.state === "input-available" &&
-    (!globalStreaming || pendingLocal === "show_modpack") &&
+    (!globalStreaming || pendingLocalToolCallIds.includes(part.toolCallId)) &&
     !busy;
   const skeleton = !done && !title;
 
@@ -71,10 +74,11 @@ export function ModpackCard(props: {
     if (!live) return;
     setBusy(true);
     setError(null);
+    const root = rootFromAgentContext(toolContext, activeRoot);
     const res = mrpack
-      ? await commands.agentToolInstallModpack(activeRoot(), { path: mrpack.path! })
+      ? await commands.agentToolInstallModpack(root, { path: mrpack.path! })
       : await commands.installModpack(
-          activeRoot(),
+          root,
           base?.provider ?? "modrinth",
           base?.project_id ?? "",
           base?.version_id ?? "",
@@ -82,7 +86,7 @@ export function ModpackCard(props: {
           null,
         );
     if (res.status === "ok") {
-      resolveClientTool(props.msgId, part.toolCallId, {
+      resolveClientTool(conversationId, props.msgId, part.toolCallId, {
         installed: true,
         instance_id: res.data.instance_id,
       });
@@ -94,7 +98,7 @@ export function ModpackCard(props: {
 
   const skip = (): void => {
     if (!live) return;
-    resolveClientTool(props.msgId, part.toolCallId, { installed: false });
+    resolveClientTool(conversationId, props.msgId, part.toolCallId, { installed: false });
   };
 
   if (skeleton) {
