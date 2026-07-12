@@ -7,8 +7,8 @@ import type { z } from "zod";
 
 import { normalizeAgentMode, type AgentModeInput } from "../types";
 import { askUserQuestion } from "./ask-user-question";
-import { buildModpack } from "./build-modpack";
-import { finishDeepDiagnosis, runDiagnosticTrial, startDeepDiagnosis } from "./deep-diagnosis";
+import { confirmModpackBuild } from "./confirm-modpack-build";
+import { confirmDeepDiagnosis, finishDeepDiagnosis, runDiagnosticTrial } from "./deep-diagnosis";
 import { diagnoseInstance } from "./diagnose-instance";
 import { inspectBaseModpack } from "./inspect-base-modpack";
 import { listInstances } from "./list-instances";
@@ -23,6 +23,8 @@ import { wikiOpen } from "./wiki-open";
 import { wikiSearch } from "./wiki-search";
 
 export { ASK_USER_TOOL } from "./ask-user-question";
+export { CONFIRM_MODPACK_BUILD_TOOL } from "./confirm-modpack-build";
+export { CONFIRM_DEEP_DIAGNOSIS_TOOL } from "./deep-diagnosis";
 export { SHOW_INSTANCE_CHANGES_TOOL } from "./show-instance-changes";
 export { SHOW_MODPACK_TOOL } from "./show-modpack";
 
@@ -33,7 +35,7 @@ const BUILD_TOOL_BUILDERS = {
   mod_get_detail: () => modGetDetail(false),
   resolve_mods: () => resolveMods(false),
   validate_modpack_plan: validateModpackPlan,
-  build_modpack: buildModpack,
+  confirm_modpack_build: confirmModpackBuild,
   show_modpack: showModpack,
   list_instances: listInstances,
   ask_user_question: askUserQuestion,
@@ -43,7 +45,7 @@ const INSTANCE_TOOL_BUILDERS = {
   wiki_search: wikiSearch,
   wiki_open: wikiOpen,
   diagnose_instance: diagnoseInstance,
-  start_deep_diagnosis: startDeepDiagnosis,
+  confirm_deep_diagnosis: confirmDeepDiagnosis,
   run_diagnostic_trial: runDiagnosticTrial,
   finish_deep_diagnosis: finishDeepDiagnosis,
   search_mods: () => searchMods(true),

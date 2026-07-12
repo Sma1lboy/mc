@@ -2,9 +2,7 @@ import { lazy, Suspense, useState } from "react";
 import type { UIMessage } from "ai";
 import { Spinner } from "../components";
 import { t } from "../i18n";
-import { ASK_USER_TOOL_TYPE } from "./AskUserOptions";
-import { SHOW_INSTANCE_CHANGES_TOOL_TYPE } from "./InstanceChangesCard";
-import { SHOW_MODPACK_TOOL_TYPE } from "./ModpackCard";
+import { isActivityPart } from "./messagePartLayout";
 import { RecipeCard } from "./RecipeCard";
 import { parseRecipeCardBlocks } from "./recipeCards";
 import { chatPartKeys, uniqueSiblingKeys } from "./renderKeys";
@@ -30,12 +28,7 @@ export const toolName = (p: ToolPart): string =>
   typeof p.type === "string" && p.type.startsWith("tool-") ? p.type.slice(5) : "tool";
 
 /** 一段活动是否算「聚合活动」:连续的思考 + 非交互(ask_user / show_modpack 卡片)工具调用。 */
-export const isActivity = (p: Part): boolean =>
-  p.type === "reasoning" ||
-  (isTool(p) &&
-    p.type !== ASK_USER_TOOL_TYPE &&
-    p.type !== SHOW_MODPACK_TOOL_TYPE &&
-    p.type !== SHOW_INSTANCE_CHANGES_TOOL_TYPE);
+export const isActivity = (p: Part): boolean => isActivityPart(p);
 
 /** 助手文本 part:整段交给 Streamdown;live 时尾部显示光标。 */
 export function AssistantText({ text, live }: { text: string; live: boolean }) {

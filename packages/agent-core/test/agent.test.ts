@@ -98,7 +98,7 @@ describe("runTurn", () => {
   it("(d) exposes the complete build tool profile by default", () => {
     expect(Object.keys(buildTools()).sort()).toEqual([
       "ask_user_question",
-      "build_modpack",
+      "confirm_modpack_build",
       "inspect_base_modpack",
       "list_instances",
       "mod_get_detail",
@@ -113,6 +113,7 @@ describe("runTurn", () => {
   it("(e) exposes the complete bound-instance tool profile", () => {
     expect(Object.keys(buildTools("instance")).sort()).toEqual([
       "ask_user_question",
+      "confirm_deep_diagnosis",
       "diagnose_instance",
       "finish_deep_diagnosis",
       "mod_get_detail",
@@ -120,7 +121,6 @@ describe("runTurn", () => {
       "run_diagnostic_trial",
       "search_mods",
       "show_instance_changes",
-      "start_deep_diagnosis",
       "wiki_open",
       "wiki_search",
     ]);
@@ -139,8 +139,11 @@ describe("runTurn", () => {
     expect(schemas.resolve_mods.safeParse({ project_ids: ["sodium"] }).success).toBe(true);
     expect(schemas.diagnose_instance.safeParse({ include_log_tail: true }).success).toBe(true);
     expect(schemas.diagnose_instance.safeParse({ instance_id: "pack" }).success).toBe(false);
-    expect(schemas.start_deep_diagnosis.safeParse({}).success).toBe(true);
-    expect(schemas.start_deep_diagnosis.safeParse({ root: "/tmp/mc" }).success).toBe(false);
+    expect(
+      schemas.confirm_deep_diagnosis.safeParse({ reason: "Static diagnosis was inconclusive" })
+        .success,
+    ).toBe(true);
+    expect(schemas).not.toHaveProperty("start_deep_diagnosis");
     expect(
       schemas.run_diagnostic_trial.safeParse({
         session_id: "diag-opaque",
@@ -188,10 +191,10 @@ describe("runTurn", () => {
     expect(prompt).toContain("wiki_open");
     expect(prompt).toContain("diagnose_instance");
     expect(prompt).toContain("show_instance_changes");
-    expect(prompt).toContain("start_deep_diagnosis");
+    expect(prompt).toContain("confirm_deep_diagnosis");
     expect(prompt).toContain("run_diagnostic_trial");
     expect(prompt).toContain("finish_deep_diagnosis");
-    expect(prompt).toContain("explicitly asks for or approves");
+    expect(prompt).toContain("card is the approval request");
     expect(prompt).toContain("Never modify source code, scripts, arbitrary config text");
     expect(prompt).toContain('kind: "recipe"');
     expect(prompt).toContain("recipe_override");
@@ -200,7 +203,7 @@ describe("runTurn", () => {
     expect(prompt).not.toContain("source_chunk_ids");
     expect(prompt).not.toContain("general knowledge as background");
     expect(prompt).not.toContain("Cite the document ids");
-    expect(prompt).not.toContain("build_modpack");
+    expect(prompt).not.toContain("confirm_modpack_build");
     expect(prompt).not.toContain("search_base_modpacks");
     expect(prompt).not.toContain("activate_tools");
   });
@@ -208,7 +211,8 @@ describe("runTurn", () => {
   it("(h) tells the build agent to validate before writing", () => {
     const prompt = promptForMode("build");
     expect(prompt).toContain("validate_modpack_plan");
-    expect(prompt).toContain("build_modpack");
+    expect(prompt).toContain("confirm_modpack_build");
+    expect(prompt).not.toContain("call `build_modpack`");
     expect(prompt).not.toContain("diagnose_instance");
     expect(prompt).not.toContain("show_instance_changes");
     expect(prompt).not.toContain("activate_tools");
@@ -225,5 +229,15 @@ describe("runTurn", () => {
     const prompt = promptForMode("instance");
     expect(prompt).toContain("Never ask whether to show a confirmation card");
     expect(prompt).toContain("itself is the confirmation request");
+  });
+
+  it("(k) keeps privileged execution tools out of the model-facing profiles", () => {
+    const build = buildTools("build");
+    const instance = buildTools("instance");
+
+    expect(build).toHaveProperty("confirm_modpack_build");
+    expect(build).not.toHaveProperty("build_modpack");
+    expect(instance).toHaveProperty("confirm_deep_diagnosis");
+    expect(instance).not.toHaveProperty("start_deep_diagnosis");
   });
 });

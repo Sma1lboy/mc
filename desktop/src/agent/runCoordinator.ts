@@ -64,6 +64,8 @@ export class AgentRunCoordinator {
   private readonly providerSessions = new Map<string, Promise<AgentProviderSession>>();
   private readonly latestRuns = new Map<string, RunRecord>();
   private readonly interactiveResolvers = new Map<string, InteractiveResolver>();
+  private readonly interactiveRunOwners = new Map<string, string>();
+  private readonly interactiveMessageOwners = new Map<string, string>();
   private selectedId: string | null = null;
 
   constructor(private readonly options: CoordinatorOptions) {}
@@ -163,6 +165,11 @@ export class AgentRunCoordinator {
       return Promise.reject(new Error(`interactive tool already pending: ${toolCallId}`));
     }
     const state = this.requireConversation(binding.conversationId);
+    this.interactiveRunOwners.set(
+      interactiveOwnerKey(binding.conversationId, toolCallId),
+      binding.runId,
+    );
+    this.bindInteractiveMessageOwners(binding.conversationId, binding.runId, toolCallId);
     state.pendingInteractiveToolCallIds.push(toolCallId);
     this.emit(state);
     return new Promise((resolve, reject) => {
@@ -186,6 +193,19 @@ export class AgentRunCoordinator {
     const pending = this.interactiveResolvers.get(key);
     if (!pending) return false;
     this.interactiveResolvers.delete(key);
+    const ownerKey = interactiveOwnerKey(conversationId, toolCallId);
+    if (this.interactiveRunOwners.get(ownerKey) === runId) {
+      this.interactiveRunOwners.delete(ownerKey);
+    }
+    for (const [messageOwnerKey, ownerRunId] of this.interactiveMessageOwners) {
+      if (
+        ownerRunId === runId &&
+        messageOwnerKey.startsWith(`${conversationId}\u0000`) &&
+        messageOwnerKey.endsWith(`\u0000${toolCallId}`)
+      ) {
+        this.interactiveMessageOwners.delete(messageOwnerKey);
+      }
+    }
     const state = this.requireConversation(conversationId);
     state.pendingInteractiveToolCallIds = state.pendingInteractiveToolCallIds.filter(
       (id) => id !== toolCallId,
@@ -195,15 +215,29 @@ export class AgentRunCoordinator {
     return true;
   }
 
+  interactiveToolRunId(
+    conversationId: string,
+    messageId: string,
+    toolCallId: string,
+  ): string | undefined {
+    return this.interactiveMessageOwners.get(
+      interactiveMessageOwnerKey(conversationId, messageId, toolCallId),
+    );
+  }
+
   resolveClientToolOutput(
     conversationId: string,
     messageId: string,
     toolCallId: string,
     output: unknown,
+    expectedRunId?: string,
   ): "local" | "waiting" | "resume" | "ignored" {
-    const pending = [...this.interactiveResolvers.values()].find(
-      (entry) => entry.conversationId === conversationId && entry.toolCallId === toolCallId,
-    );
+    const pending = expectedRunId
+      ? this.interactiveResolvers.get(interactiveKey(conversationId, expectedRunId, toolCallId))
+      : [...this.interactiveResolvers.values()].find(
+          (entry) => entry.conversationId === conversationId && entry.toolCallId === toolCallId,
+        );
+    if (expectedRunId && !pending) return "ignored";
     const state = this.requireConversation(conversationId);
     if (!hasToolCall(state.messages, messageId, toolCallId)) return "ignored";
     state.messages = setToolOutput(state.messages, messageId, toolCallId, output);
@@ -287,6 +321,7 @@ export class AgentRunCoordinator {
           onUpdate: (assistant) => {
             if (!canRouteEvent(activeRun.status)) return;
             state.messages = [...inputHistory, assistant];
+            this.bindInteractiveMessageOwnersFromMessage(activeRun, assistant);
             this.emit(state);
           },
         });
@@ -381,6 +416,45 @@ export class AgentRunCoordinator {
     state.pendingInteractiveToolCallIds = [];
   }
 
+  private bindInteractiveMessageOwners(
+    conversationId: string,
+    runId: string,
+    toolCallId: string,
+  ): void {
+    const state = this.requireConversation(conversationId);
+    for (const message of [...state.messages].reverse()) {
+      if (
+        message.parts.some(
+          (part) => isToolPart(part) && part.toolCallId === toolCallId,
+        )
+      ) {
+        this.interactiveMessageOwners.set(
+          interactiveMessageOwnerKey(conversationId, message.id, toolCallId),
+          runId,
+        );
+        break;
+      }
+    }
+  }
+
+  private bindInteractiveMessageOwnersFromMessage(run: RunRecord, message: UIMessage): void {
+    for (const part of message.parts) {
+      if (!isToolPart(part)) continue;
+      const owner = this.interactiveRunOwners.get(
+        interactiveOwnerKey(run.binding.conversationId, part.toolCallId),
+      );
+      if (owner !== run.binding.runId) continue;
+      this.interactiveMessageOwners.set(
+        interactiveMessageOwnerKey(
+          run.binding.conversationId,
+          message.id,
+          part.toolCallId,
+        ),
+        run.binding.runId,
+      );
+    }
+  }
+
   private requireConversation(id: string): ConversationRunState {
     const state = this.conversations.get(id);
     if (!state) throw new Error(`unknown conversation: ${id}`);
@@ -403,6 +477,18 @@ export class AgentRunCoordinator {
 
 function interactiveKey(conversationId: string, runId: string, toolCallId: string): string {
   return `${conversationId}\u0000${runId}\u0000${toolCallId}`;
+}
+
+function interactiveOwnerKey(conversationId: string, toolCallId: string): string {
+  return `${conversationId}\u0000${toolCallId}`;
+}
+
+function interactiveMessageOwnerKey(
+  conversationId: string,
+  messageId: string,
+  toolCallId: string,
+): string {
+  return `${conversationId}\u0000${messageId}\u0000${toolCallId}`;
 }
 
 function canRouteEvent(status: RunStatus): boolean {
