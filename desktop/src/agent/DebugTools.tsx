@@ -65,7 +65,6 @@ const CopyGlyph = (): React.ReactElement => (
 function ConversationPicker(): React.ReactElement {
   const conversations = useChatStore((s) => s.conversations);
   const messages = useChatStore((s) => s.messages);
-  const streaming = useChatStore((s) => s.streaming);
   const current = currentChatSessionId();
 
   const time = (ms: number): string =>
@@ -89,10 +88,9 @@ function ConversationPicker(): React.ReactElement {
     <div className="relative inline-flex items-center">
       <select
         value={current}
-        disabled={streaming}
         onChange={(e) => loadConversation(e.currentTarget.value)}
         title={t("agent.debugConversations")}
-        className="appearance-none h-[22px] max-w-[200px] pl-[8px] pr-[22px] rounded-none border border-titlebar bg-panel-2 text-[11px] text-sub cursor-pointer disabled:opacity-60 hover:enabled:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent transition-colors duration-[var(--dur)] ease-app"
+        className="appearance-none h-[22px] max-w-[200px] pl-[8px] pr-[22px] rounded-none border border-titlebar bg-panel-2 text-[11px] text-sub cursor-pointer hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent transition-colors duration-[var(--dur)] ease-app"
       >
       {/* 当前对话恒在最上,始终可见(即便还没发过消息 / 还没存档)。 */}
       <option value={current}>

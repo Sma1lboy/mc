@@ -1,6 +1,10 @@
 import { commands } from "../ipc/bindings";
 import { activeRoot } from "../store";
-import type { AgentToolContext, AgentWikiContext } from "./chatStore";
+import {
+  rootFromAgentContext,
+  type AgentToolContext,
+  type AgentWikiContext,
+} from "./agentContext";
 import type { AgentMode } from "@kobemc/agent-core";
 
 type SpectaResult<T> = { status: "ok"; data: T } | { status: "error"; error: string };
@@ -62,7 +66,7 @@ export function runLauncherClientTool(
     case "build_modpack":
       return unwrap(commands.agentToolBuildModpack(args as never));
     case "list_instances":
-      return unwrap(commands.agentToolListInstances(activeRoot()));
+      return unwrap(commands.agentToolListInstances(rootFromAgentContext(context, activeRoot)));
     case "wiki_search":
       return unwrap(commands.agentToolWikiSearch(wikiRoot(context), wikiSearchArgs(args, context)));
     case "wiki_open":
@@ -88,7 +92,8 @@ function wikiContext(context: AgentToolContext | null): AgentWikiContext {
 }
 
 function wikiRoot(context: AgentToolContext | null): string {
-  return wikiContext(context).root || activeRoot();
+  wikiContext(context);
+  return rootFromAgentContext(context, activeRoot);
 }
 
 function wikiSearchArgs(args: unknown, context: AgentToolContext | null): never {

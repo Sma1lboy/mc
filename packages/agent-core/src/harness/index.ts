@@ -30,7 +30,12 @@ import type { UIMessage } from "ai";
 
 import { promptForMode } from "../prompt";
 import { buildTools, ASK_USER_TOOL, SHOW_MODPACK_TOOL } from "../tools";
-import type { AgentMode, ClientToolHandlers } from "../types";
+import type {
+  AgentMode,
+  ClientToolCallOptions,
+  ClientToolHandler,
+  ClientToolHandlers,
+} from "../types";
 import { runUiMessageTurn, type ModpackAgent, type TurnResult } from "../agent";
 import { createLocalSandbox } from "./local-sandbox";
 
@@ -54,6 +59,12 @@ export interface ClaudeCodeEngineOptions {
   mode?: AgentMode;
 }
 
+/** Preserve the model-issued identity when proxying a local-runtime tool. */
+export function forwardClientToolCall(handler: ClientToolHandler) {
+  return (args: unknown, options: ClientToolCallOptions): Promise<unknown> =>
+    handler(args, { toolCallId: options.toolCallId });
+}
+
 /**
  * Create a modpack agent whose turns run on the locally-installed Claude Code
  * runtime (subscription login, no API key). Same `ModpackAgent` contract as
@@ -66,7 +77,9 @@ export function createClaudeCodeModpackAgent(
   const mode = options.mode ?? "modpack";
   const toolSet = buildTools(mode);
   for (const [name, impl] of Object.entries(handlers)) {
-    if (toolSet[name]) toolSet[name] = { ...toolSet[name], execute: (args: unknown) => impl(args) } as never;
+    if (toolSet[name]) {
+      toolSet[name] = { ...toolSet[name], execute: forwardClientToolCall(impl) } as never;
+    }
   }
 
   // Interactive UI tools must be removed when a headless host cannot handle

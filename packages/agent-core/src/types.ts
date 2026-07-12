@@ -18,8 +18,15 @@ export const askUserOptionSchema = z.object({
 });
 export type AskUserOption = z.infer<typeof askUserOptionSchema>;
 
+export interface ClientToolCallOptions {
+  toolCallId: string;
+}
+
 /** Client-provided tool handler used by hosts that bridge a local runtime. */
-export type ClientToolHandler = (args: unknown) => Promise<unknown>;
+export type ClientToolHandler = (
+  args: unknown,
+  options: ClientToolCallOptions,
+) => Promise<unknown>;
 export type ClientToolHandlers = Partial<Record<string, ClientToolHandler>>;
 
 /** Entry-specific agent surface. Each mode gets its own prompt and tool list. */
