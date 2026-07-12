@@ -56,7 +56,7 @@ function EngineSelect({ streaming }: { streaming: boolean }) {
           .getSettings()
           .then((s) => api.setSettings({ ...s, agent_provider: v === "openrouter" ? null : v }))
           .catch(() => {});
-        resetAgent();
+        resetAgent(v);
       }}
       options={[
         { value: "openrouter", label: t("agent.engineOpenrouter") },

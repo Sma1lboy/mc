@@ -16,27 +16,30 @@ const VALID_MODES = new Set(["modpack", "wiki"]);
 
 /**
  * Pure session router for the line-delimited Claude host protocol.
- * Process IO is intentionally injected so concurrency and identity routing are
- * deterministic under test.
+ * Provider session ids are epochs: returning to Claude after another provider
+ * must create fresh Claude history for that conversation.
  */
 export function createHarnessHostRouter({ send, createAgent, model }) {
-  const sessions = new Map();
+  const sessions = new Map(); // providerSessionId -> session
+  const busyConversations = new Set();
 
   function modeFrom(value) {
     return VALID_MODES.has(value) ? value : "modpack";
   }
 
-  function sendDone(conversationId, runId, error) {
+  function sendDone(providerSessionId, conversationId, runId, error) {
     send({
       type: "done",
+      providerSessionId,
       conversationId,
       runId,
       ...(error ? { error } : {}),
     });
   }
 
-  function createSession(conversationId, mode) {
+  function createSession(providerSessionId, conversationId, mode) {
     const session = {
+      providerSessionId,
       conversationId,
       mode,
       history: [],
@@ -57,16 +60,28 @@ export function createHarnessHostRouter({ send, createAgent, model }) {
       handlers,
       { ...(model ? { model } : {}), mode },
       conversationId,
+      providerSessionId,
     );
-    sessions.set(conversationId, session);
+    sessions.set(providerSessionId, session);
     return session;
   }
 
-  async function sessionFor(conversationId, mode) {
-    const current = sessions.get(conversationId);
-    if (!current || current.mode === mode) return current ?? createSession(conversationId, mode);
-    await current.agent.dispose();
-    return createSession(conversationId, mode);
+  async function sessionFor(providerSessionId, conversationId, mode) {
+    const current = sessions.get(providerSessionId);
+    if (current && current.conversationId !== conversationId) {
+      throw new Error("provider session belongs to another conversation");
+    }
+    if (current?.mode === mode) return current;
+    if (current) {
+      await current.agent.dispose();
+      sessions.delete(providerSessionId);
+    }
+    for (const [id, other] of sessions) {
+      if (other.conversationId !== conversationId || other.running) continue;
+      await other.agent.dispose();
+      sessions.delete(id);
+    }
+    return createSession(providerSessionId, conversationId, mode);
   }
 
   function callTool(session, name, args, toolCallId) {
@@ -85,6 +100,7 @@ export function createHarnessHostRouter({ send, createAgent, model }) {
       session.pendingTools.set(key, { resolve, reject });
       send({
         type: "tool_call",
+        providerSessionId: session.providerSessionId,
         conversationId: session.conversationId,
         runId,
         toolCallId,
@@ -95,59 +111,69 @@ export function createHarnessHostRouter({ send, createAgent, model }) {
   }
 
   async function runTurn(message) {
+    const providerSessionId = String(message.providerSessionId ?? "");
     const conversationId = String(message.conversationId ?? "");
     const runId = String(message.runId ?? "");
-    if (!conversationId || !runId) return;
-    const mode = modeFrom(message.mode);
-    const existing = sessions.get(conversationId);
-    if (existing?.running) {
-      sendDone(conversationId, runId, "turn already running");
+    if (!providerSessionId || !conversationId || !runId) return;
+    if (busyConversations.has(conversationId)) {
+      sendDone(providerSessionId, conversationId, runId, "turn already running");
       return;
     }
-    const session = await sessionFor(conversationId, mode);
-    if (session.running) {
-      sendDone(conversationId, runId, "turn already running");
-      return;
-    }
-
-    session.running = true;
-    session.activeRunId = runId;
-    session.abort = new AbortController();
-    session.history = [
-      ...session.history,
-      {
-        id: `u${++session.uid}`,
-        role: "user",
-        parts: [{ type: "text", text: String(message.text ?? "") }],
-      },
-    ];
+    busyConversations.add(conversationId);
+    let session;
     try {
+      session = await sessionFor(providerSessionId, conversationId, modeFrom(message.mode));
+      session.running = true;
+      session.activeRunId = runId;
+      session.abort = new AbortController();
+      session.history = [
+        ...session.history,
+        {
+          id: `u${++session.uid}`,
+          role: "user",
+          parts: [{ type: "text", text: String(message.text ?? "") }],
+        },
+      ];
       const result = await session.agent.run(
         session.history,
         (assistant) =>
-          send({ type: "update", conversationId, runId, message: assistant }),
+          send({
+            type: "update",
+            providerSessionId,
+            conversationId,
+            runId,
+            message: assistant,
+          }),
         session.abort.signal,
       );
       session.history = result.messages;
-      sendDone(conversationId, runId, result.error);
+      sendDone(providerSessionId, conversationId, runId, result.error);
     } catch (error) {
-      sendDone(conversationId, runId, error instanceof Error ? error.message : String(error));
+      sendDone(
+        providerSessionId,
+        conversationId,
+        runId,
+        error instanceof Error ? error.message : String(error),
+      );
     } finally {
-      if (session.activeRunId === runId) {
+      if (session?.activeRunId === runId) {
         session.running = false;
         session.activeRunId = null;
         session.abort = null;
       }
+      busyConversations.delete(conversationId);
     }
   }
 
   function resolveTool(message) {
+    const providerSessionId = String(message.providerSessionId ?? "");
     const conversationId = String(message.conversationId ?? "");
     const runId = String(message.runId ?? "");
     const toolCallId = String(message.toolCallId ?? "");
-    const session = sessions.get(conversationId);
+    const session = sessions.get(providerSessionId);
+    if (session?.conversationId !== conversationId) return;
     const key = `${runId}\u0000${toolCallId}`;
-    const pending = session?.pendingTools.get(key);
+    const pending = session.pendingTools.get(key);
     if (!pending) return;
     session.pendingTools.delete(key);
     if (message.ok) pending.resolve(message.result);
@@ -155,8 +181,13 @@ export function createHarnessHostRouter({ send, createAgent, model }) {
   }
 
   function abortTurn(message) {
-    const session = sessions.get(String(message.conversationId ?? ""));
-    if (session?.activeRunId === String(message.runId ?? "")) session.abort?.abort();
+    const session = sessions.get(String(message.providerSessionId ?? ""));
+    if (
+      session?.conversationId === String(message.conversationId ?? "") &&
+      session.activeRunId === String(message.runId ?? "")
+    ) {
+      session.abort?.abort();
+    }
   }
 
   function handle(message) {
@@ -176,6 +207,7 @@ export function createHarnessHostRouter({ send, createAgent, model }) {
   async function dispose() {
     await Promise.all([...sessions.values()].map((session) => session.agent.dispose()));
     sessions.clear();
+    busyConversations.clear();
   }
 
   return { handle, dispose };

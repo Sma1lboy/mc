@@ -77,6 +77,8 @@ export const useChatStore = create<ChatState>(() => ({
   pendingLocalToolCallIds: [],
 }));
 
+let providerOverride: "openrouter" | "claude-code" | null = null;
+
 async function createProviderSession(input: {
   conversationId: string;
   toolContext: unknown;
@@ -84,14 +86,15 @@ async function createProviderSession(input: {
   const toolContext = input.toolContext as AgentToolContext | null;
   const mode = agentModeFromContext(toolContext);
   const settings = await commands.getSettings();
-  const provider =
-    settings.status === "ok" ? (settings.data.agent_provider ?? "openrouter") : "openrouter";
+  const provider = providerOverride ??
+    (settings.status === "ok" ? (settings.data.agent_provider ?? "openrouter") : "openrouter");
   if (provider === "claude-code") {
+    const providerSessionId = `claude-${input.conversationId}-${Date.now().toString(36)}-${(providerSeq++).toString(36)}`;
     const m = await import("./localRuntimeAdapter");
     return m.createLocalRuntimeAgent(mode, {
       waitForInteractiveTool: (binding, name, toolCallId) =>
         coordinator.waitForInteractiveTool(binding, name, toolCallId),
-    });
+    }, providerSessionId);
   }
   const m = await import("./desktopAdapter");
   return m.createDesktopAgent(mode);
@@ -99,6 +102,7 @@ async function createProviderSession(input: {
 
 // 稳定的自增 id(仅前端展示 key;convertToModelMessages 会丢弃 UIMessage.id)。
 let seq = 0;
+let providerSeq = 0;
 const nextId = (): string => `${Date.now().toString(36)}-${(seq++).toString(36)}`;
 
 // 会话 id:一次「对话」一个,newChat 时轮换。
@@ -195,7 +199,9 @@ coordinator.openConversation(currentConvId, {
 coordinator.selectConversation(currentConvId);
 
 /** Invalidate sessions used by future runs without touching already-bound runs. */
-export function resetAgent(): void {
+export function resetAgent(provider?: string): void {
+  providerOverride =
+    provider === "openrouter" || provider === "claude-code" ? provider : null;
   coordinator.clearProviderSessions();
 }
 
@@ -337,43 +343,23 @@ export function resolveClientTool(
   output: unknown,
   echoText?: string,
 ): void {
-  if (
-    coordinator.resolveInteractiveToolForConversation(
-      conversationId,
-      msgId,
-      toolCallId,
-      output,
-    )
-  ) return;
-
+  const resolution = coordinator.resolveClientToolOutput(
+    conversationId,
+    msgId,
+    toolCallId,
+    output,
+  );
+  if (resolution === "local" || resolution === "ignored") return;
+  if (resolution === "waiting") {
+    saveConversation(conversationId);
+    return;
+  }
   const runtime = coordinator.getConversation(conversationId);
-  if (runtime.streaming) return;
-  const answered = withToolOutput(runtime.messages, msgId, toolCallId, output);
   const history = echoText
-    ? [...answered, { id: nextId(), role: "user", parts: [{ type: "text", text: echoText }] } as UIMessage]
-    : answered;
+    ? [...runtime.messages, { id: nextId(), role: "user", parts: [{ type: "text", text: echoText }] } as UIMessage]
+    : runtime.messages;
   void coordinator.continueConversation(conversationId, history).then(() => {
     saveConversation(conversationId);
-  });
-}
-
-/** 把某条消息里指定工具 part 置为 output-available(带结果)。 */
-function withToolOutput(
-  messages: UIMessage[],
-  msgId: string,
-  toolCallId: string,
-  output: unknown,
-): UIMessage[] {
-  return messages.map((m) => {
-    if (m.id !== msgId) return m;
-    return {
-      ...m,
-      parts: m.parts.map((p) =>
-        isToolPart(p) && p.toolCallId === toolCallId
-          ? { ...p, state: "output-available", output }
-          : p,
-      ),
-    } as UIMessage;
   });
 }
 
@@ -386,14 +372,6 @@ export function submitAskUserAnswer(
 ): void {
   if (selected.length === 0) return;
   resolveClientTool(conversationId, msgId, toolCallId, { selected }, selected.join("、"));
-}
-
-/** 是否为工具 part(UIMessage 里工具 part 的 type 形如 "tool-<name>",带 toolCallId)。 */
-function isToolPart(p: UIMessage["parts"][number]): p is Extract<
-  UIMessage["parts"][number],
-  { toolCallId: string }
-> {
-  return typeof (p as { toolCallId?: unknown }).toolCallId === "string";
 }
 
 /** 新对话:归档当前投影并切换；原对话若在运行则继续留在后台。 */

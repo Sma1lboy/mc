@@ -60,9 +60,10 @@ function sharedProtocol(hooks: LocalRuntimeHooks): Promise<Protocol> {
 export async function createLocalRuntimeAgent(
   mode: AgentMode = "modpack",
   hooks: LocalRuntimeHooks,
+  providerSessionId: string,
 ): Promise<AgentProviderSession> {
   const protocol = await sharedProtocol(hooks);
   return {
-    run: (request) => protocol.run(request, mode),
+    run: (request) => protocol.run(request, mode, providerSessionId),
   };
 }

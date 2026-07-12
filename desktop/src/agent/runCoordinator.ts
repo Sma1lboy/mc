@@ -25,6 +25,7 @@ export interface ConversationRunState {
   queued: string[];
   error: string | null;
   streaming: boolean;
+  waitingInteractive: boolean;
   toolContext: unknown;
   pendingInteractiveToolCallIds: string[];
 }
@@ -79,6 +80,7 @@ export class AgentRunCoordinator {
       queued: [],
       error: null,
       streaming: false,
+      waitingInteractive: hasPendingInteractiveTool(seed.messages, this.options.isInteractiveTool),
       toolContext: seed.toolContext,
       pendingInteractiveToolCallIds: [],
     };
@@ -115,7 +117,7 @@ export class AgentRunCoordinator {
     const text = raw.trim();
     if (!text) return;
     const state = this.requireConversation(conversationId);
-    if (state.streaming) {
+    if (state.streaming || state.waitingInteractive) {
       state.queued.push(text);
       this.emit(state);
       return;
@@ -193,35 +195,50 @@ export class AgentRunCoordinator {
     return true;
   }
 
-  resolveInteractiveToolForConversation(
+  resolveClientToolOutput(
     conversationId: string,
     messageId: string,
     toolCallId: string,
     output: unknown,
-  ): boolean {
+  ): "local" | "waiting" | "resume" | "ignored" {
     const pending = [...this.interactiveResolvers.values()].find(
       (entry) => entry.conversationId === conversationId && entry.toolCallId === toolCallId,
     );
-    if (!pending) return false;
     const state = this.requireConversation(conversationId);
+    if (!hasToolCall(state.messages, messageId, toolCallId)) return "ignored";
     state.messages = setToolOutput(state.messages, messageId, toolCallId, output);
-    return this.resolveInteractiveTool(conversationId, pending.runId, toolCallId, output);
+    if (pending) {
+      this.resolveInteractiveTool(conversationId, pending.runId, toolCallId, output);
+      return "local";
+    }
+    state.waitingInteractive = hasPendingInteractiveTool(
+      state.messages,
+      this.options.isInteractiveTool,
+    );
+    this.emit(state);
+    return state.waitingInteractive ? "waiting" : "resume";
   }
 
   async continueConversation(conversationId: string, messages: UIMessage[]): Promise<void> {
     const state = this.requireConversation(conversationId);
     if (state.streaming) return;
+    state.waitingInteractive = false;
     state.messages = messages.slice();
     await this.runHistory(conversationId, state.messages);
+    await this.drainQueuedTurns(conversationId);
   }
 
   private async runQueuedTurns(conversationId: string, firstText: string): Promise<void> {
-    let text: string | undefined = firstText;
-    while (text) {
-      await this.runOneTurn(conversationId, text);
-      const state = this.requireConversation(conversationId);
-      text = state.queued.shift();
-      if (text) this.emit(state);
+    await this.runOneTurn(conversationId, firstText);
+    await this.drainQueuedTurns(conversationId);
+  }
+
+  private async drainQueuedTurns(conversationId: string): Promise<void> {
+    const state = this.requireConversation(conversationId);
+    while (!state.streaming && !state.waitingInteractive && state.queued.length > 0) {
+      const text = state.queued.shift();
+      this.emit(state);
+      if (text) await this.runOneTurn(conversationId, text);
     }
   }
 
@@ -241,6 +258,7 @@ export class AgentRunCoordinator {
     let history = initialHistory;
     state.messages = history;
     state.streaming = true;
+    state.waitingInteractive = false;
     state.error = null;
     this.emit(state);
 
@@ -278,12 +296,13 @@ export class AgentRunCoordinator {
         state.error = result.error ?? null;
         this.emit(state);
         if (result.error) break;
-        const resolved = await this.resolveAutomaticTools(activeRun, history);
-        if (!resolved) break;
-        history = resolved.messages;
+        const processed = await this.processClientTools(activeRun, history);
+        history = processed.messages;
         state.messages = history;
         this.emit(state);
-        if (!resolved.shouldResume) break;
+        if (processed.action === "resume") continue;
+        if (processed.action === "wait") state.waitingInteractive = true;
+        break;
       }
     } catch (error) {
       if (!run || run.status === "active") {
@@ -299,22 +318,20 @@ export class AgentRunCoordinator {
     }
   }
 
-  private async resolveAutomaticTools(
+  private async processClientTools(
     run: RunRecord,
     messages: UIMessage[],
-  ): Promise<{ messages: UIMessage[]; shouldResume: boolean } | null> {
+  ): Promise<{ messages: UIMessage[]; action: "done" | "resume" | "wait" }> {
     const assistant = [...messages].reverse().find((entry) => entry.role === "assistant");
-    if (!assistant) return null;
+    if (!assistant) return { messages, action: "done" };
     const pending = assistant.parts
       .filter(isToolPart)
       .filter((part) => part.state === "input-available")
       .map((part) => ({ part, name: toolName(part) }))
       .filter(({ name }) => this.options.isAutomaticTool(name));
-    if (pending.length === 0) return null;
-
     let next = messages;
     for (const { part, name } of pending) {
-      if (run.status !== "active") return null;
+      if (run.status !== "active") return { messages: next, action: "done" };
       try {
         const output = await this.options.runAutomaticTool(
           name,
@@ -331,13 +348,10 @@ export class AgentRunCoordinator {
         );
       }
     }
-    const pendingInteractive = assistant.parts
-      .filter(isToolPart)
-      .some(
-        (part) =>
-          part.state === "input-available" && this.options.isInteractiveTool(toolName(part)),
-      );
-    return { messages: next, shouldResume: !pendingInteractive };
+    if (hasPendingInteractiveTool(next, this.options.isInteractiveTool)) {
+      return { messages: next, action: "wait" };
+    }
+    return { messages: next, action: pending.length > 0 ? "resume" : "done" };
   }
 
   private providerSession(
@@ -415,6 +429,28 @@ function isToolPart(
 
 function toolName(part: { type: string }): string {
   return part.type.startsWith("tool-") ? part.type.slice("tool-".length) : "";
+}
+
+function hasToolCall(messages: UIMessage[], messageId: string, toolCallId: string): boolean {
+  return messages.some(
+    (message) =>
+      message.id === messageId &&
+      message.parts.some((part) => isToolPart(part) && part.toolCallId === toolCallId),
+  );
+}
+
+function hasPendingInteractiveTool(
+  messages: UIMessage[],
+  isInteractiveTool: (name: string) => boolean,
+): boolean {
+  const assistant = [...messages].reverse().find((message) => message.role === "assistant");
+  return (
+    assistant?.parts
+      .filter(isToolPart)
+      .some(
+        (part) => part.state === "input-available" && isInteractiveTool(toolName(part)),
+      ) ?? false
+  );
 }
 
 function setToolOutput(

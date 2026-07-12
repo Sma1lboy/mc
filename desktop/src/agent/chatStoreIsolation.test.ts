@@ -3,6 +3,7 @@ import type { UIMessage } from "ai";
 import type { AgentProviderRunRequest } from "./runCoordinator";
 
 const fakeProviders = vi.hoisted(() => ({
+  localFactoryCalls: [] as string[],
   pending: [] as Array<{
     request: AgentProviderRunRequest;
     finish: (messages: UIMessage[], error?: string) => void;
@@ -46,6 +47,21 @@ vi.mock("./desktopAdapter", () => ({
   })),
 }));
 
+vi.mock("./localRuntimeAdapter", () => ({
+  createLocalRuntimeAgent: vi.fn(async (_mode: string, _hooks: unknown, providerSessionId: string) => {
+    fakeProviders.localFactoryCalls.push(providerSessionId);
+    return {
+      run: (request: AgentProviderRunRequest) =>
+        new Promise<{ messages: UIMessage[]; error?: string }>((resolve) => {
+          fakeProviders.pending.push({
+            request,
+            finish: (messages, error) => resolve({ messages, error }),
+          });
+        }),
+    };
+  }),
+}));
+
 function assistant(id: string, text: string): UIMessage {
   return { id, role: "assistant", parts: [{ type: "text", text }] };
 }
@@ -53,6 +69,21 @@ function assistant(id: string, text: string): UIMessage {
 describe("chat store run isolation", () => {
   beforeEach(() => {
     fakeProviders.pending.length = 0;
+    fakeProviders.localFactoryCalls.length = 0;
+  });
+
+  it("uses the synchronously selected provider while settings persistence catches up", async () => {
+    const store = await import("./chatStore");
+    store.newChat();
+    store.resetAgent("claude-code");
+
+    const running = store.sendMessage("use Claude immediately");
+    await vi.waitFor(() => expect(fakeProviders.localFactoryCalls).toHaveLength(1));
+    expect(fakeProviders.localFactoryCalls[0]).toContain(store.currentChatSessionId());
+    const call = fakeProviders.pending[0];
+    call.finish(call.request.history);
+    await running;
+    store.resetAgent("openrouter");
   });
 
   it("keeps A running while new-chat selects and runs B, then restores A's background result", async () => {

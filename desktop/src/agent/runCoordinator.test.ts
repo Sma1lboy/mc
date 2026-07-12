@@ -232,7 +232,7 @@ describe("AgentRunCoordinator", () => {
     await running;
   });
 
-  it("does not resume OpenRouter while an interactive tool in the same response is pending", async () => {
+  it("keeps OpenRouter waiting and queues messages until every interactive tool is answered", async () => {
     const { coordinator, sessions, automaticCalls } = harness();
     coordinator.openConversation("A", { messages: [], toolContext: null });
     const running = coordinator.sendMessage("A", "inspect then ask");
@@ -255,6 +255,12 @@ describe("AgentRunCoordinator", () => {
           state: "input-available",
           input: { question: "continue?" },
         },
+        {
+          type: "tool-ask_user_question",
+          toolCallId: "interactive-2",
+          state: "input-available",
+          input: { question: "really continue?" },
+        },
       ],
     } as UIMessage;
     call.finish([...call.request.history, mixed]);
@@ -263,9 +269,54 @@ describe("AgentRunCoordinator", () => {
     await vi.waitFor(() => expect(coordinator.getConversation("A").streaming).toBe(false));
     await running;
     expect(sessions.get("A")?.pending).toHaveLength(1);
-    expect(coordinator.getConversation("A").messages.at(-1)?.parts).toEqual([
+    expect(coordinator.getConversation("A").waitingInteractive).toBe(true);
+
+    await coordinator.sendMessage("A", "queued while questions are open");
+    expect(coordinator.getConversation("A").queued).toEqual([
+      "queued while questions are open",
+    ]);
+    expect(sessions.get("A")?.pending).toHaveLength(1);
+
+    expect(
+      coordinator.resolveClientToolOutput(
+        "A",
+        "assistant-mixed",
+        "interactive-1",
+        { selected: ["yes"] },
+      ),
+    ).toBe("waiting");
+    expect(sessions.get("A")?.pending).toHaveLength(1);
+    expect(
+      coordinator.resolveClientToolOutput(
+        "A",
+        "assistant-mixed",
+        "interactive-2",
+        { selected: ["yes"] },
+      ),
+    ).toBe("resume");
+
+    const continuation = coordinator.continueConversation(
+      "A",
+      coordinator.getConversation("A").messages,
+    );
+    await vi.waitFor(() => expect(sessions.get("A")?.pending).toHaveLength(2));
+    const resumed = sessions.get("A")!.pending[1];
+    expect(resumed.request.history.at(-1)?.parts).toEqual([
       expect.objectContaining({ toolCallId: "auto-1", state: "output-available" }),
-      expect.objectContaining({ toolCallId: "interactive-1", state: "input-available" }),
+      expect.objectContaining({ toolCallId: "interactive-1", state: "output-available" }),
+      expect.objectContaining({ toolCallId: "interactive-2", state: "output-available" }),
+    ]);
+    resumed.finish(resumed.request.history);
+    await vi.waitFor(() => expect(sessions.get("A")?.pending).toHaveLength(3));
+    const queued = sessions.get("A")!.pending[2];
+    expect(queued.request.history.at(-1)?.parts).toEqual([
+      { type: "text", text: "queued while questions are open" },
+    ]);
+    queued.finish(queued.request.history);
+    await continuation;
+    expect(coordinator.getConversation("A").waitingInteractive).toBe(false);
+    expect(coordinator.getConversation("A").messages.at(-1)?.parts).toEqual([
+      { type: "text", text: "queued while questions are open" },
     ]);
   });
 

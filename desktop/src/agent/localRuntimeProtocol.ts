@@ -5,14 +5,16 @@ import type { AgentProviderRunRequest, AgentRunBinding } from "./runCoordinator"
 export type LocalRuntimeOutboundMessage =
   | {
       type: "turn";
+      providerSessionId: string;
       conversationId: string;
       runId: string;
       text: string;
       mode: AgentMode;
     }
-  | { type: "abort"; conversationId: string; runId: string }
+  | { type: "abort"; providerSessionId: string; conversationId: string; runId: string }
   | {
       type: "tool_result";
+      providerSessionId: string;
       conversationId: string;
       runId: string;
       toolCallId: string;
@@ -21,6 +23,7 @@ export type LocalRuntimeOutboundMessage =
     }
   | {
       type: "tool_result";
+      providerSessionId: string;
       conversationId: string;
       runId: string;
       toolCallId: string;
@@ -29,16 +32,17 @@ export type LocalRuntimeOutboundMessage =
     };
 
 export type LocalRuntimeInboundMessage =
-  | { type: "update"; conversationId: string; runId: string; message: UIMessage }
+  | { type: "update"; providerSessionId: string; conversationId: string; runId: string; message: UIMessage }
   | {
       type: "tool_call";
+      providerSessionId: string;
       conversationId: string;
       runId: string;
       toolCallId: string;
       name: string;
       args: unknown;
     }
-  | { type: "done"; conversationId: string; runId: string; error?: string }
+  | { type: "done"; providerSessionId: string; conversationId: string; runId: string; error?: string }
   | { type: "host_exit" };
 
 interface ActiveTurn {
@@ -62,8 +66,8 @@ interface LocalRuntimeProtocolOptions {
 export function createLocalRuntimeProtocol(options: LocalRuntimeProtocolOptions) {
   const active = new Map<string, ActiveTurn>();
 
-  function key(conversationId: string, runId: string): string {
-    return `${conversationId}\u0000${runId}`;
+  function key(providerSessionId: string, conversationId: string, runId: string): string {
+    return `${providerSessionId}\u0000${conversationId}\u0000${runId}`;
   }
 
   function newestUserText(history: UIMessage[]): string {
@@ -76,15 +80,16 @@ export function createLocalRuntimeProtocol(options: LocalRuntimeProtocolOptions)
   function run(
     request: AgentProviderRunRequest,
     mode: AgentMode,
+    providerSessionId: string,
   ): Promise<{ messages: UIMessage[]; error?: string }> {
     const { conversationId, runId } = request.binding;
-    const activeKey = key(conversationId, runId);
+    const activeKey = key(providerSessionId, conversationId, runId);
     if (active.has(activeKey)) {
       return Promise.resolve({ messages: request.history, error: "run already active" });
     }
     return new Promise((resolve) => {
       const abort = () => {
-        void options.send({ type: "abort", conversationId, runId });
+        void options.send({ type: "abort", providerSessionId, conversationId, runId });
       };
       request.signal.addEventListener("abort", abort, { once: true });
       const turn: ActiveTurn = {
@@ -103,6 +108,7 @@ export function createLocalRuntimeProtocol(options: LocalRuntimeProtocolOptions)
       void Promise.resolve(
         options.send({
           type: "turn",
+          providerSessionId,
           conversationId,
           runId,
           text: newestUserText(request.history),
@@ -113,7 +119,7 @@ export function createLocalRuntimeProtocol(options: LocalRuntimeProtocolOptions)
   }
 
   function handleToolCall(message: Extract<LocalRuntimeInboundMessage, { type: "tool_call" }>) {
-    const turn = active.get(key(message.conversationId, message.runId));
+    const turn = active.get(key(message.providerSessionId, message.conversationId, message.runId));
     if (!turn) return;
     const execution = options.isInteractiveTool(message.name)
       ? options.waitForInteractiveTool(turn.request.binding, message.name, message.toolCallId)
@@ -126,6 +132,7 @@ export function createLocalRuntimeProtocol(options: LocalRuntimeProtocolOptions)
       (result) =>
         options.send({
           type: "tool_result",
+          providerSessionId: message.providerSessionId,
           conversationId: message.conversationId,
           runId: message.runId,
           toolCallId: message.toolCallId,
@@ -135,6 +142,7 @@ export function createLocalRuntimeProtocol(options: LocalRuntimeProtocolOptions)
       (error) =>
         options.send({
           type: "tool_result",
+          providerSessionId: message.providerSessionId,
           conversationId: message.conversationId,
           runId: message.runId,
           toolCallId: message.toolCallId,
@@ -149,7 +157,7 @@ export function createLocalRuntimeProtocol(options: LocalRuntimeProtocolOptions)
       for (const turn of active.values()) turn.finish("local agent host exited");
       return;
     }
-    const turn = active.get(key(message.conversationId, message.runId));
+    const turn = active.get(key(message.providerSessionId, message.conversationId, message.runId));
     if (!turn) return;
     switch (message.type) {
       case "update":

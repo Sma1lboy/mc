@@ -53,29 +53,31 @@ describe("local runtime protocol", () => {
       waitForInteractiveTool: async () => null,
     });
 
-    const runA = protocol.run(request("A", "run-A", { root: "/A" }, updateA), "modpack");
-    const runB = protocol.run(request("B", "run-B", { root: "/B" }, updateB), "wiki");
+    const runA = protocol.run(request("A", "run-A", { root: "/A" }, updateA), "modpack", "session-A");
+    const runB = protocol.run(request("B", "run-B", { root: "/B" }, updateB), "wiki", "session-B");
     await vi.waitFor(() => expect(sent).toHaveLength(2));
     expect(sent).toContainEqual(expect.objectContaining({
       type: "turn",
+      providerSessionId: "session-A",
       conversationId: "A",
       runId: "run-A",
       mode: "modpack",
     }));
     expect(sent).toContainEqual(expect.objectContaining({
       type: "turn",
+      providerSessionId: "session-B",
       conversationId: "B",
       runId: "run-B",
       mode: "wiki",
     }));
 
     const answerA = assistant("answer-A", "A partial");
-    protocol.handle({ type: "update", conversationId: "A", runId: "run-A", message: answerA });
+    protocol.handle({ type: "update", providerSessionId: "session-A", conversationId: "A", runId: "run-A", message: answerA });
     expect(updateA).toHaveBeenCalledWith(answerA);
     expect(updateB).not.toHaveBeenCalled();
 
-    protocol.handle({ type: "done", conversationId: "B", runId: "run-B" });
-    protocol.handle({ type: "done", conversationId: "A", runId: "run-A" });
+    protocol.handle({ type: "done", providerSessionId: "session-B", conversationId: "B", runId: "run-B" });
+    protocol.handle({ type: "done", providerSessionId: "session-A", conversationId: "A", runId: "run-A" });
     await expect(runA).resolves.toEqual({
       messages: [user("user-A", "A"), answerA],
       error: undefined,
@@ -95,11 +97,12 @@ describe("local runtime protocol", () => {
         new Promise((resolve) => pending.set(toolCallId, resolve)),
     });
     const runRequest = request("A", "run-A", Object.freeze({ root: "/instance-A" }));
-    const running = protocol.run(runRequest, "modpack");
+    const running = protocol.run(runRequest, "modpack", "session-A");
     await vi.waitFor(() => expect(sent).toHaveLength(1));
 
     protocol.handle({
       type: "tool_call",
+      providerSessionId: "session-A",
       conversationId: "A",
       runId: "run-A",
       toolCallId: "auto-1",
@@ -111,6 +114,7 @@ describe("local runtime protocol", () => {
 
     protocol.handle({
       type: "tool_call",
+      providerSessionId: "session-A",
       conversationId: "A",
       runId: "run-A",
       toolCallId: "question-1",
@@ -119,6 +123,7 @@ describe("local runtime protocol", () => {
     });
     protocol.handle({
       type: "tool_call",
+      providerSessionId: "session-A",
       conversationId: "A",
       runId: "run-A",
       toolCallId: "question-2",
@@ -132,6 +137,7 @@ describe("local runtime protocol", () => {
     await vi.waitFor(() =>
       expect(sent).toContainEqual({
         type: "tool_result",
+        providerSessionId: "session-A",
         conversationId: "A",
         runId: "run-A",
         toolCallId: "question-2",
@@ -146,7 +152,7 @@ describe("local runtime protocol", () => {
       toolCallId: "question-1",
     }));
 
-    protocol.handle({ type: "done", conversationId: "A", runId: "run-A" });
+    protocol.handle({ type: "done", providerSessionId: "session-A", conversationId: "A", runId: "run-A" });
     await running;
   });
 });

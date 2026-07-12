@@ -16,6 +16,12 @@ interface PendingAgentRun {
 
 function setup() {
   const sent: Array<Record<string, unknown>> = [];
+  const createdAgents: Array<{
+    conversationId: string;
+    handlers: Record<string, Handler>;
+    pending: PendingAgentRun[];
+    dispose: ReturnType<typeof vi.fn>;
+  }> = [];
   const agents = new Map<
     string,
     { handlers: Record<string, Handler>; pending: PendingAgentRun[]; dispose: ReturnType<typeof vi.fn> }
@@ -25,6 +31,7 @@ function setup() {
     createAgent: (handlers, _options, conversationId) => {
       const pending: PendingAgentRun[] = [];
       const dispose = vi.fn(async () => {});
+      createdAgents.push({ conversationId, handlers, pending, dispose });
       agents.set(conversationId, { handlers, pending, dispose });
       return {
         run: (
@@ -44,7 +51,7 @@ function setup() {
       };
     },
   });
-  return { router, sent, agents };
+  return { router, sent, agents, createdAgents };
 }
 
 function assistant(id: string, text: string): UIMessage {
@@ -52,18 +59,53 @@ function assistant(id: string, text: string): UIMessage {
 }
 
 describe("harness host router", () => {
+  it("starts a fresh Claude session when the provider session id changes", async () => {
+    const { router, sent, createdAgents } = setup();
+    router.handle({
+      type: "turn",
+      providerSessionId: "provider-session-1",
+      conversationId: "A",
+      runId: "run-1",
+      text: "first Claude turn",
+      mode: "modpack",
+    });
+    await vi.waitFor(() => expect(createdAgents).toHaveLength(1));
+    const first = createdAgents[0].pending[0];
+    first.finish(first.history);
+    await vi.waitFor(() =>
+      expect(sent).toContainEqual(expect.objectContaining({ type: "done", runId: "run-1" })),
+    );
+
+    router.handle({
+      type: "turn",
+      providerSessionId: "provider-session-2",
+      conversationId: "A",
+      runId: "run-2",
+      text: "return to Claude after OpenRouter",
+      mode: "modpack",
+    });
+    await vi.waitFor(() => expect(createdAgents).toHaveLength(2));
+    expect(createdAgents[1].pending[0].history).toEqual([
+      expect.objectContaining({
+        role: "user",
+        parts: [{ type: "text", text: "return to Claude after OpenRouter" }],
+      }),
+    ]);
+  });
+
   it("runs A and B concurrently while rejecting overlapping turns only within A", async () => {
     const { router, sent, agents } = setup();
-    router.handle({ type: "turn", conversationId: "A", runId: "run-A", text: "alpha", mode: "modpack" });
-    router.handle({ type: "turn", conversationId: "B", runId: "run-B", text: "bravo", mode: "wiki" });
+    router.handle({ type: "turn", providerSessionId: "session-A", conversationId: "A", runId: "run-A", text: "alpha", mode: "modpack" });
+    router.handle({ type: "turn", providerSessionId: "session-B", conversationId: "B", runId: "run-B", text: "bravo", mode: "wiki" });
     await vi.waitFor(() => expect(agents.size).toBe(2));
     expect(agents.get("A")?.pending).toHaveLength(1);
     expect(agents.get("B")?.pending).toHaveLength(1);
 
-    router.handle({ type: "turn", conversationId: "A", runId: "run-A2", text: "too soon", mode: "wiki" });
+    router.handle({ type: "turn", providerSessionId: "session-A2", conversationId: "A", runId: "run-A2", text: "too soon", mode: "wiki" });
     await vi.waitFor(() =>
       expect(sent).toContainEqual({
         type: "done",
+        providerSessionId: "session-A2",
         conversationId: "A",
         runId: "run-A2",
         error: "turn already running",
@@ -74,6 +116,7 @@ describe("harness host router", () => {
     agents.get("A")!.pending[0].onUpdate(updateA);
     expect(sent).toContainEqual({
       type: "update",
+      providerSessionId: "session-A",
       conversationId: "A",
       runId: "run-A",
       message: updateA,
@@ -87,14 +130,14 @@ describe("harness host router", () => {
     agents.get("B")!.pending[0].finish(agents.get("B")!.pending[0].history);
     agents.get("A")!.pending[0].finish([...agents.get("A")!.pending[0].history, updateA]);
     await vi.waitFor(() =>
-      expect(sent).toContainEqual({ type: "done", conversationId: "A", runId: "run-A" }),
+      expect(sent).toContainEqual({ type: "done", providerSessionId: "session-A", conversationId: "A", runId: "run-A" }),
     );
-    expect(sent).toContainEqual({ type: "done", conversationId: "B", runId: "run-B" });
+    expect(sent).toContainEqual({ type: "done", providerSessionId: "session-B", conversationId: "B", runId: "run-B" });
   });
 
   it("routes same-name tool calls and reverse-order results by real toolCallId", async () => {
     const { router, sent, agents } = setup();
-    router.handle({ type: "turn", conversationId: "A", runId: "run-A", text: "ask twice", mode: "modpack" });
+    router.handle({ type: "turn", providerSessionId: "session-A", conversationId: "A", runId: "run-A", text: "ask twice", mode: "modpack" });
     await vi.waitFor(() => expect(agents.has("A")).toBe(true));
     const handler = agents.get("A")!.handlers.ask_user_question;
 
@@ -102,6 +145,7 @@ describe("harness host router", () => {
     const second = handler({ question: "second" }, { toolCallId: "call-2" });
     expect(sent).toContainEqual({
       type: "tool_call",
+      providerSessionId: "session-A",
       conversationId: "A",
       runId: "run-A",
       toolCallId: "call-1",
@@ -117,6 +161,7 @@ describe("harness host router", () => {
 
     router.handle({
       type: "tool_result",
+      providerSessionId: "session-A",
       conversationId: "A",
       runId: "run-A",
       toolCallId: "call-2",
@@ -126,6 +171,7 @@ describe("harness host router", () => {
     await expect(second).resolves.toEqual({ selected: ["second"] });
     router.handle({
       type: "tool_result",
+      providerSessionId: "session-A",
       conversationId: "A",
       runId: "run-A",
       toolCallId: "call-1",
@@ -137,11 +183,11 @@ describe("harness host router", () => {
 
   it("aborts only the addressed conversation and run", async () => {
     const { router, agents } = setup();
-    router.handle({ type: "turn", conversationId: "A", runId: "run-A", text: "alpha", mode: "modpack" });
-    router.handle({ type: "turn", conversationId: "B", runId: "run-B", text: "bravo", mode: "modpack" });
+    router.handle({ type: "turn", providerSessionId: "session-A", conversationId: "A", runId: "run-A", text: "alpha", mode: "modpack" });
+    router.handle({ type: "turn", providerSessionId: "session-B", conversationId: "B", runId: "run-B", text: "bravo", mode: "modpack" });
     await vi.waitFor(() => expect(agents.size).toBe(2));
 
-    router.handle({ type: "abort", conversationId: "A", runId: "run-A" });
+    router.handle({ type: "abort", providerSessionId: "session-A", conversationId: "A", runId: "run-A" });
     expect(agents.get("A")!.pending[0].signal.aborted).toBe(true);
     expect(agents.get("B")!.pending[0].signal.aborted).toBe(false);
   });
