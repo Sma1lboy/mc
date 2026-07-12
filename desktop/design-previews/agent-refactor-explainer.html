@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MC Launcher · Agent 架构收拢说明</title>
+<style>
+:root {
+  --bg: #0d1015;
+  --panel: #151a22;
+  --panel-2: #1b2230;
+  --panel-3: #222b3b;
+  --line: #2d384d;
+  --text: #edf2f7;
+  --muted: #aab6c7;
+  --dim: #7f8ca0;
+  --accent: #66d19e;
+  --accent-2: #79a7ff;
+  --warn: #ffcc66;
+  --danger: #ff8f8f;
+  --shadow: 0 18px 50px rgba(0, 0, 0, 0.32);
+  --radius: 12px;
+  --radius-sm: 8px;
+  --font: "Inter", "PingFang SC", "Noto Sans SC", system-ui, -apple-system, sans-serif;
+  --mono: "SFMono-Regular", "JetBrains Mono", ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body {
+  font-family: var(--font);
+  color: var(--text);
+  background:
+    radial-gradient(1200px 700px at 20% -10%, rgba(121, 167, 255, 0.14), transparent 60%),
+    radial-gradient(900px 540px at 100% 0%, rgba(102, 209, 158, 0.12), transparent 52%),
+    linear-gradient(180deg, #0b0e13 0%, var(--bg) 100%);
+  padding: 32px 20px 48px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+  width: min(1180px, 100%);
+  margin: 0 auto;
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: 1.4fr 0.9fr;
+  gap: 18px;
+  align-items: stretch;
+  margin-bottom: 18px;
+}
+
+.hero-main,
+.hero-side,
+.card,
+.panel {
+  background: rgba(21, 26, 34, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.hero-main {
+  border-radius: 18px;
+  padding: 28px;
+  min-height: 220px;
+  position: relative;
+  overflow: hidden;
+}
+
+.hero-main::after {
+  content: "";
+  position: absolute;
+  inset: auto -120px -120px auto;
+  width: 280px;
+  height: 280px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(102, 209, 158, 0.18), transparent 70%);
+  pointer-events: none;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.2px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px rgba(102, 209, 158, 0.12);
+}
+
+h1 {
+  margin: 14px 0 10px;
+  font-size: clamp(28px, 4vw, 42px);
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+}
+
+.lead {
+  max-width: 780px;
+  color: var(--muted);
+  line-height: 1.7;
+  font-size: 15px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.chip b { font-weight: 600; }
+.chip .small { color: var(--muted); }
+
+.hero-side {
+  border-radius: 18px;
+  padding: 20px;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.stat {
+  padding: 14px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.03));
+  border: 1px solid rgba(255,255,255,0.05);
+}
+
+.stat .label {
+  color: var(--dim);
+  font-size: 12px;
+}
+
+.stat .value {
+  margin-top: 8px;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.stat .desc {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.card {
+  border-radius: 16px;
+  padding: 18px;
+}
+
+.span-7 { grid-column: span 7; }
+.span-5 { grid-column: span 5; }
+.span-12 { grid-column: 1 / -1; }
+
+.section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.section-title h2 {
+  margin: 0;
+  font-size: 18px;
+  letter-spacing: -0.01em;
+}
+
+.section-title .hint {
+  color: var(--dim);
+  font-size: 12px;
+}
+
+.before-after {
+  display: grid;
+  grid-template-columns: 1fr 24px 1fr;
+  gap: 14px;
+  align-items: stretch;
+}
+
+.box {
+  border-radius: 14px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  min-height: 190px;
+}
+
+.box h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.box p,
+.box li {
+  color: var(--muted);
+  line-height: 1.65;
+  font-size: 13px;
+}
+
+.box ul { margin: 0; padding-left: 18px; }
+
+.arrow {
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.timeline {
+  display: grid;
+  gap: 12px;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.05);
+}
+
+.step .tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-width: 74px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-family: var(--mono);
+  background: rgba(121, 167, 255, 0.12);
+  color: #cfe0ff;
+}
+
+.step .meta {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.diagram {
+  display: grid;
+  grid-template-columns: 1fr 80px 1fr 80px 1fr;
+  gap: 12px;
+  align-items: center;
+}
+
+.node {
+  background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 14px;
+  padding: 16px;
+  min-height: 140px;
+}
+
+.node h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.node .title {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.node p,
+.node li {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.node ul { margin: 8px 0 0; padding-left: 18px; }
+
+.pipe {
+  display: grid;
+  place-items: center;
+  color: var(--accent-2);
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.note {
+  margin-top: 14px;
+  color: var(--dim);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.footer {
+  margin-top: 18px;
+  padding: 16px 18px;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.06);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.footer code {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  background: rgba(255,255,255,0.06);
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+@media (max-width: 960px) {
+  .hero { grid-template-columns: 1fr; }
+  .span-7, .span-5 { grid-column: 1 / -1; }
+  .diagram { grid-template-columns: 1fr; }
+  .pipe { transform: rotate(90deg); }
+  .before-after { grid-template-columns: 1fr; }
+  .arrow { transform: rotate(90deg); }
+}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <div class="hero-main">
+        <div class="eyebrow"><span class="dot"></span><span>Agent 架构收拢说明</span></div>
+        <h1>把工具执行收回到客户端，把脑子留在 agent-core。</h1>
+        <p class="lead">
+          这次改动的核心不是“再写一个 Modrinth API”，而是把整条 agent 工具链改成
+          <b>agent-core 只负责模型 loop + 工具定义</b>，真正的执行全部走 launcher client
+          的 Rust IPC。这样 UI、Claude Code、本地/远端迁移都能复用同一条协议，不会再有两份 truth。
+        </p>
+        <div class="chips">
+          <span class="chip"><b>agent-core</b><span class="small">只留 schema / loop</span></span>
+          <span class="chip"><b>desktop</b><span class="small">统一 dispatch tool call</span></span>
+          <span class="chip"><b>Rust</b><span class="small">single source of truth</span></span>
+          <span class="chip"><b>Claude Code</b><span class="small">stdio bridge 继续复用</span></span>
+        </div>
+      </div>
+
+      <aside class="hero-side">
+        <div class="stat">
+          <div class="label">提交切分</div>
+          <div class="value">3</div>
+          <div class="desc">把一个大提交拆成 agent-core、desktop、Rust 三层，便于 review 和回滚。</div>
+        </div>
+        <div class="stat">
+          <div class="label">重复实现</div>
+          <div class="value">0</div>
+          <div class="desc">Modrinth 搜索 / resolve / build 不再有 TS 侧第二份实现。</div>
+        </div>
+      </aside>
+    </section>
+
+    <section class="grid">
+      <article class="card span-7">
+        <div class="section-title">
+          <h2>前后对比</h2>
+          <div class="hint">我们真正改掉的边界</div>
+        </div>
+        <div class="before-after">
+          <div class="box">
+            <h3>改之前</h3>
+            <ul>
+              <li>TS 里有 executor / mock / modrinth 两套工具执行。</li>
+              <li>agent-core 既定义工具，又夹带执行逻辑。</li>
+              <li>桌面端和本地 runtime 各自维护自己的工具路径。</li>
+              <li>未来移到远端 server 时，重复搬运成本高。</li>
+            </ul>
+          </div>
+          <div class="arrow">→</div>
+          <div class="box">
+            <h3>改之后</h3>
+            <ul>
+              <li>agent-core 只保留 tool schema 和模型 loop。</li>
+              <li>所有工具都视为 client-side tool，`input-available` 后由客户端执行。</li>
+              <li>桌面 UI 通过 Rust IPC 回填 tool output。</li>
+              <li>Claude Code 本地 runtime 通过 stdio bridge 复用同一路径。</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="card span-5">
+        <div class="section-title">
+          <h2>执行链路</h2>
+          <div class="hint">一次 tool call 的生命周期</div>
+        </div>
+        <div class="diagram">
+          <div class="node">
+            <div class="title">agent-core</div>
+            <h3>发出工具调用</h3>
+            <p>模型只看到 tool schema，不知道执行细节。turn 在 `input-available` 停住。</p>
+          </div>
+          <div class="pipe">→</div>
+          <div class="node">
+            <div class="title">desktop client</div>
+            <h3>统一 dispatch</h3>
+            <p>chatStore / localRuntimeAdapter 捕获 tool call，按名字走 Rust IPC 或 UI 交互。</p>
+          </div>
+          <div class="pipe">→</div>
+          <div class="node">
+            <div class="title">Rust daemon</div>
+            <h3>执行并返回结果</h3>
+            <p>Modrinth、实例列表、build 等能力都回到 Rust，结果写回消息后再续跑。</p>
+          </div>
+        </div>
+        <div class="note">这条链路的意义是：以后 agent-core 搬到 server 时，客户端执行侧不需要重做协议，只需换 transport。</div>
+      </article>
+
+      <article class="card span-12">
+        <div class="section-title">
+          <h2>这次具体做了什么</h2>
+          <div class="hint">按层拆开看</div>
+        </div>
+        <div class="diagram" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
+          <div class="node">
+            <div class="title">1. agent-core</div>
+            <h3>把工具改成纯定义</h3>
+            <ul>
+              <li>删掉 `executors/*`，不再在 TS 里写 Modrinth 实现。</li>
+              <li>每个 tool 文件只保留 schema / description。</li>
+              <li>`createModpackAgent(settings)` 只负责模型 loop。</li>
+              <li>本地 Claude Code 仍可通过 bridge handler 代理 tool call。</li>
+            </ul>
+          </div>
+          <div class="node">
+            <div class="title">2. desktop</div>
+            <h3>统一工具分发入口</h3>
+            <ul>
+              <li>新增 `clientToolDispatcher.ts` 作为单一分发器。</li>
+              <li>`chatStore` 自动执行自动工具并把结果 append 回消息。</li>
+              <li>`localRuntimeAdapter` 把 Claude Code 的工具请求接回客户端。</li>
+              <li>交互类工具继续由 UI 组件完成。</li>
+            </ul>
+          </div>
+          <div class="node">
+            <div class="title">3. Rust</div>
+            <h3>保住 truth source</h3>
+            <ul>
+              <li>把 agent 能力重新收束到 Rust IPC 命令。</li>
+              <li>搜索、解析、构建、实例信息都只认 Rust。</li>
+              <li>未来远端 server 只需要换 transport，不需要重写业务。</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="card span-12">
+        <div class="section-title">
+          <h2>提交顺序</h2>
+          <div class="hint">按层提交，便于 review</div>
+        </div>
+        <div class="timeline">
+          <div class="step">
+            <div class="tag">edd3856</div>
+            <div class="meta"><b>Refactor agent-core to client-side tools</b><br/>先把 brain / tool schema / CLI / harness 的边界收干净，删除 TS executor 路线。</div>
+          </div>
+          <div class="step">
+            <div class="tag">0385c45</div>
+            <div class="meta"><b>Wire desktop tool dispatch through Rust IPC</b><br/>再接 desktop 侧的 tool dispatcher、chatStore 自动回填和本地 runtime 代理。</div>
+          </div>
+          <div class="step">
+            <div class="tag">33c21bc</div>
+            <div class="meta"><b>Add Rust agent IPC commands</b><br/>最后把 Rust 的 agent 命令和 runtime 适配补齐，让 launcher 真正能执行这些工具。</div>
+          </div>
+        </div>
+      </article>
+
+      <article class="card span-12">
+        <div class="section-title">
+          <h2>结论</h2>
+          <div class="hint">一句话总结</div>
+        </div>
+        <div class="footer">
+          这次不是把 agent 再“做一遍”，而是把它变成一个更干净的协议层：
+          <code>agent-core</code> 负责推理和工具定义，
+          <code>desktop</code> 负责把 tool call 落到客户端能力，
+          <code>Rust</code> 负责真实执行。
+          这样现在是单一 truth，未来迁到远端 server 也只换 transport，不换心智模型。
+        </div>
+      </article>
+    </section>
+  </div>
+</body>
+</html>

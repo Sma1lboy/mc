@@ -213,7 +213,7 @@ export default function Discover() {
                   onAskAgent={(query) =>
                     openAgentChat(
                       discoverPrompt(query, facets.gameVersions[0] ?? null, facets.loaders[0] ?? null),
-                      { mode: "modpack" },
+                      { mode: "build" },
                     )
                   }
                   categories={facets.categories}

@@ -23,6 +23,7 @@ tauri-plugin-dialog = "2"
 window-vibrancy = "0.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+rusqlite = { version = "0.40.1", features = ["bundled"] }
 # 仅启用用到的 tokio 功能(替代 "full"):运行时 + sync + io(读子进程输出)+ process(管理
 # 游戏子进程)+ fs/time。net/signal 等不需要,缩小二进制。
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "fs", "io-util", "process", "time"] }

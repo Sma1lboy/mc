@@ -21,6 +21,9 @@ vi.mock("../ipc/bindings", () => ({
   commands: {
     getSettings: vi.fn(async () => ({ status: "ok", data: { agent_provider: null } })),
     agentHostStop: vi.fn(async () => ({ status: "ok", data: null })),
+    agentHistoryHydrate: vi.fn(async () => ({ status: "ok", data: [] })),
+    agentHistorySync: vi.fn(async () => ({ status: "ok", data: [] })),
+    agentHistorySave: vi.fn(async () => ({ status: "ok", data: null })),
     agentHistoryPut: vi.fn(async () => ({ status: "ok", data: null })),
     agentHistoryList: vi.fn(async () => ({ status: "ok", data: [] })),
     agentHistoryGet: vi.fn(async () => ({ status: "error", error: "missing" })),

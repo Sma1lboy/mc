@@ -53,22 +53,22 @@ describe("local runtime protocol", () => {
       waitForInteractiveTool: async () => null,
     });
 
-    const runA = protocol.run(request("A", "run-A", { root: "/A" }, updateA), "modpack", "session-A");
-    const runB = protocol.run(request("B", "run-B", { root: "/B" }, updateB), "wiki", "session-B");
+    const runA = protocol.run(request("A", "run-A", { root: "/A" }, updateA), "build", "session-A");
+    const runB = protocol.run(request("B", "run-B", { root: "/B" }, updateB), "instance", "session-B");
     await vi.waitFor(() => expect(sent).toHaveLength(2));
     expect(sent).toContainEqual(expect.objectContaining({
       type: "turn",
       providerSessionId: "session-A",
       conversationId: "A",
       runId: "run-A",
-      mode: "modpack",
+      mode: "build",
     }));
     expect(sent).toContainEqual(expect.objectContaining({
       type: "turn",
       providerSessionId: "session-B",
       conversationId: "B",
       runId: "run-B",
-      mode: "wiki",
+      mode: "instance",
     }));
 
     const answerA = assistant("answer-A", "A partial");
@@ -97,7 +97,7 @@ describe("local runtime protocol", () => {
         new Promise((resolve) => pending.set(toolCallId, resolve)),
     });
     const runRequest = request("A", "run-A", Object.freeze({ root: "/instance-A" }));
-    const running = protocol.run(runRequest, "modpack", "session-A");
+    const running = protocol.run(runRequest, "build", "session-A");
     await vi.waitFor(() => expect(sent).toHaveLength(1));
 
     protocol.handle({

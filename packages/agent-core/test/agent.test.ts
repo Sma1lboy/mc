@@ -1,7 +1,13 @@
 import { describe, it, expect } from "vitest";
 import type { UIMessage } from "ai";
 
-import { buildTools, createModpackAgent, promptForMode, toolSchemas } from "../src/index";
+import {
+  buildTools,
+  createModpackAgent,
+  promptForMode,
+  toolSchemas,
+  toolSchemasForMode,
+} from "../src/index";
 import { startMockServer } from "./fixtures/mockOpenRouter.mjs";
 
 const settings = (baseUrl: string) => ({ apiKey: "test", model: "mock", baseUrl });
@@ -89,7 +95,7 @@ describe("runTurn", () => {
     expect(toolSchemas.wiki_open.safeParse({}).success).toBe(false);
   });
 
-  it("(d) exposes only modpack tools by default", () => {
+  it("(d) exposes the complete build tool profile by default", () => {
     expect(Object.keys(buildTools()).sort()).toEqual([
       "ask_user_question",
       "build_modpack",
@@ -100,17 +106,93 @@ describe("runTurn", () => {
       "search_base_modpacks",
       "search_mods",
       "show_modpack",
+      "validate_modpack_plan",
     ]);
   });
 
-  it("(e) exposes only local wiki tools in wiki mode", () => {
-    expect(Object.keys(buildTools("wiki")).sort()).toEqual(["wiki_open", "wiki_search"]);
+  it("(e) exposes the complete bound-instance tool profile", () => {
+    expect(Object.keys(buildTools("instance")).sort()).toEqual([
+      "ask_user_question",
+      "diagnose_instance",
+      "finish_deep_diagnosis",
+      "mod_get_detail",
+      "resolve_mods",
+      "run_diagnostic_trial",
+      "search_mods",
+      "show_instance_changes",
+      "start_deep_diagnosis",
+      "wiki_open",
+      "wiki_search",
+    ]);
   });
 
-  it("(f) uses a wiki-specific system prompt in wiki mode", () => {
-    const prompt = promptForMode("wiki");
+  it("(f) keeps host-owned instance context out of model tool schemas", () => {
+    const schemas = toolSchemasForMode("instance");
+    expect(schemas.search_mods.safeParse({ query: "performance" }).success).toBe(true);
+    expect(
+      schemas.search_mods.safeParse({
+        query: "performance",
+        mc_version: "1.20.1",
+        loader: "fabric",
+      }).success,
+    ).toBe(false);
+    expect(schemas.resolve_mods.safeParse({ project_ids: ["sodium"] }).success).toBe(true);
+    expect(schemas.diagnose_instance.safeParse({ include_log_tail: true }).success).toBe(true);
+    expect(schemas.diagnose_instance.safeParse({ instance_id: "pack" }).success).toBe(false);
+    expect(schemas.start_deep_diagnosis.safeParse({}).success).toBe(true);
+    expect(schemas.start_deep_diagnosis.safeParse({ root: "/tmp/mc" }).success).toBe(false);
+    expect(
+      schemas.run_diagnostic_trial.safeParse({
+        session_id: "diag-opaque",
+        operations: [
+          { type: "set_memory", memory_mb: 4096 },
+          { type: "set_mod_enabled", file_name: "sodium.jar", enabled: false },
+          { type: "delete_mod", file_name: "duplicate.jar" },
+        ],
+      }).success,
+    ).toBe(true);
+    for (const forbidden of [
+      { type: "install_mod", provider: "modrinth", project_id: "sodium" },
+      { type: "write_file", path: "config/test.toml", content: "x" },
+      { type: "run_command", command: "rm -rf ." },
+      { type: "modify_jar", file_name: "mod.jar", patch: "x" },
+    ]) {
+      expect(
+        schemas.run_diagnostic_trial.safeParse({
+          session_id: "diag-opaque",
+          operations: [forbidden],
+        }).success,
+      ).toBe(false);
+    }
+    expect(
+      schemas.finish_deep_diagnosis.safeParse({ session_id: "diag-opaque" }).success,
+    ).toBe(true);
+    expect(
+      schemas.show_instance_changes.safeParse({
+        summary: "Increase memory",
+        operations: [{ type: "set_memory", memory_mb: 4096 }],
+      }).success,
+    ).toBe(true);
+    expect(
+      schemas.show_instance_changes.safeParse({
+        instance_id: "pack",
+        summary: "Increase memory",
+        operations: [{ type: "set_memory", memory_mb: 4096 }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("(g) uses an operations prompt for the bound instance", () => {
+    const prompt = promptForMode("instance");
     expect(prompt).toContain("wiki_search");
     expect(prompt).toContain("wiki_open");
+    expect(prompt).toContain("diagnose_instance");
+    expect(prompt).toContain("show_instance_changes");
+    expect(prompt).toContain("start_deep_diagnosis");
+    expect(prompt).toContain("run_diagnostic_trial");
+    expect(prompt).toContain("finish_deep_diagnosis");
+    expect(prompt).toContain("explicitly asks for or approves");
+    expect(prompt).toContain("Never modify source code, scripts, arbitrary config text");
     expect(prompt).toContain('kind: "recipe"');
     expect(prompt).toContain("recipe_override");
     expect(prompt).toContain("Do not fill gaps with vanilla/Create/default knowledge");
@@ -120,5 +202,28 @@ describe("runTurn", () => {
     expect(prompt).not.toContain("Cite the document ids");
     expect(prompt).not.toContain("build_modpack");
     expect(prompt).not.toContain("search_base_modpacks");
+    expect(prompt).not.toContain("activate_tools");
+  });
+
+  it("(h) tells the build agent to validate before writing", () => {
+    const prompt = promptForMode("build");
+    expect(prompt).toContain("validate_modpack_plan");
+    expect(prompt).toContain("build_modpack");
+    expect(prompt).not.toContain("diagnose_instance");
+    expect(prompt).not.toContain("show_instance_changes");
+    expect(prompt).not.toContain("activate_tools");
+  });
+
+  it("(i) maps persisted legacy mode names to canonical profiles", () => {
+    expect(Object.keys(buildTools("modpack")).sort()).toEqual(Object.keys(buildTools("build")).sort());
+    expect(Object.keys(buildTools("wiki")).sort()).toEqual(Object.keys(buildTools("instance")).sort());
+    expect(promptForMode("wiki")).toBe(promptForMode("instance"));
+    expect(promptForMode("modpack")).toBe(promptForMode("build"));
+  });
+
+  it("(j) presents a concrete instance remediation card without asking to show it", () => {
+    const prompt = promptForMode("instance");
+    expect(prompt).toContain("Never ask whether to show a confirmation card");
+    expect(prompt).toContain("itself is the confirmation request");
   });
 });

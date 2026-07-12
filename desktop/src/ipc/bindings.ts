@@ -480,6 +480,8 @@ export const commands = {
 	agentToolModGetDetail: (args: ModGetDetailArgs) => typedError<ModGetDetailOutput, string>(__TAURI_INVOKE("agent_tool_mod_get_detail", { args })),
 	/**  Resolve project ids into concrete, download-ready files (walks dependencies). */
 	agentToolResolveMods: (args: ResolveModsArgs) => typedError<ResolveModsOutput, string>(__TAURI_INVOKE("agent_tool_resolve_mods", { args })),
+	/**  Validate the exact selected versions and dependency/conflict graph without writing. */
+	agentToolValidateModpackPlan: (args: ValidateModpackPlanArgs) => typedError<ValidateModpackPlanOutput_Serialize, string>(__TAURI_INVOKE("agent_tool_validate_modpack_plan", { args })),
 	/**
 	 *  Deterministically build + verify a `.mrpack` from a base pack (or scratch) plus
 	 *  extra mods. Writes to disk; the TS loop must gate this behind user confirmation.
@@ -493,7 +495,12 @@ export const commands = {
 	agentToolInstallModpack: (root: string, args: InstallModpackArgs) => typedError<InstallModpackOutput, string>(__TAURI_INVOKE("agent_tool_install_modpack", { root, args })),
 	/**  Read-only lean instance list for the agent (id / name / mc_version / loader). */
 	agentToolListInstances: (root: string) => typedError<ListInstancesOutput, string>(__TAURI_INVOKE("agent_tool_list_instances", { root })),
-	/**  Search the host-injected local wiki corpus for the current installed instance. */
+	/**  Diagnose one host-bound installed instance. The model never supplies root/id. */
+	agentToolDiagnoseInstance: (root: string, id: string, args: DiagnoseInstanceArgs) => typedError<DiagnoseInstanceOutput_Serialize, string>(__TAURI_INVOKE("agent_tool_diagnose_instance", { root, id, args })),
+	agentToolStartDeepDiagnosis: (root: string, id: string) => typedError<StartDeepDiagnosisOutput, string>(__TAURI_INVOKE("agent_tool_start_deep_diagnosis", { root, id })),
+	agentToolRunDiagnosticTrial: (root: string, id: string, args: RunDiagnosticTrialArgs) => typedError<DiagnosticTrialResult, string>(__TAURI_INVOKE("agent_tool_run_diagnostic_trial", { root, id, args })),
+	agentToolFinishDeepDiagnosis: (root: string, id: string, args: FinishDeepDiagnosisArgs) => typedError<FinishDeepDiagnosisOutput, string>(__TAURI_INVOKE("agent_tool_finish_deep_diagnosis", { root, id, args })),
+	/**  Agent wiki tool: full-text search over the instance's local wiki corpus. */
 	agentToolWikiSearch: (root: string, args: WikiSearchArgs) => typedError<WikiSearchOutput_Serialize, string>(__TAURI_INVOKE("agent_tool_wiki_search", { root, args })),
 	/**  Open one wiki chunk returned by `agent_tool_wiki_search`. */
 	agentToolWikiOpen: (root: string, args: WikiOpenArgs) => typedError<WikiOpenOutput_Serialize, string>(__TAURI_INVOKE("agent_tool_wiki_open", { root, args })),
@@ -511,14 +518,9 @@ export const commands = {
 	agentHostStop: () => typedError<null, string>(__TAURI_INVOKE("agent_host_stop")),
 	/**  Detect the locally-installed Claude Code runtime prerequisites (settings UI). */
 	agentRuntimeDetect: () => typedError<LocalRuntimeStatusDto, string>(__TAURI_INVOKE("agent_runtime_detect")),
-	/**  List the signed-in user's archived conversations (heads only, newest first). */
-	agentHistoryList: () => typedError<AgentConversationHead[], string>(__TAURI_INVOKE("agent_history_list")),
-	/**  Fetch one archived conversation's full record, as a JSON string. */
-	agentHistoryGet: (id: string) => typedError<string, string>(__TAURI_INVOKE("agent_history_get", { id })),
-	/**  Upsert one conversation record (JSON string) into the user's cloud history. */
-	agentHistoryPut: (id: string, recordJson: string) => typedError<null, string>(__TAURI_INVOKE("agent_history_put", { id, recordJson })),
-	/**  Delete one archived conversation from the user's cloud history. */
-	agentHistoryDelete: (id: string) => typedError<null, string>(__TAURI_INVOKE("agent_history_delete", { id })),
+	agentHistoryHydrate: () => typedError<string, string>(__TAURI_INVOKE("agent_history_hydrate")),
+	agentHistorySync: () => typedError<string, string>(__TAURI_INVOKE("agent_history_sync")),
+	agentHistorySave: (id: string, recordJson: string) => typedError<null, string>(__TAURI_INVOKE("agent_history_save", { id, recordJson })),
 	/**  是否处于画廊模式(环境变量 `MC_GALLERY` 非空且非 "0")。前端据此决定是否自动跑截图流程。 */
 	galleryEnabled: () => typedError<boolean, string>(__TAURI_INVOKE("gallery_enabled")),
 	/**  抓「main」窗口当前画面到 `<data_dir>/gallery/<name>.png`,返回文件绝对路径。 */
@@ -540,16 +542,6 @@ export type AccountSummary = {
 	selected?: boolean,
 	/**  Whether the account owns Minecraft (Microsoft accounts only). */
 	owns_game?: boolean,
-};
-
-/**
- *  One conversation head in the user's cloud agent history. `updated_at_ms` is
- *  the client's own clock (from the record), used for newest-wins merging.
- */
-export type AgentConversationHead = {
-	id: string,
-	title: string,
-	updated_at_ms: number,
 };
 
 /**
@@ -683,6 +675,40 @@ export type CategoryTag = {
 	project_type: string,
 };
 
+export type CompatibilityIssue = CompatibilityIssue_Serialize | CompatibilityIssue_Deserialize;
+
+export type CompatibilityIssue_Deserialize = {
+	code: string,
+	severity: IssueSeverity,
+	summary: string,
+	subjects?: string[],
+	evidence?: string[],
+	suggested_actions?: SuggestedAction_Deserialize[],
+};
+
+export type CompatibilityIssue_Serialize = {
+	code: string,
+	severity: IssueSeverity,
+	summary: string,
+	subjects?: string[],
+	evidence?: string[],
+	suggested_actions?: SuggestedAction_Serialize[],
+};
+
+export type CompatibilityReport = CompatibilityReport_Serialize | CompatibilityReport_Deserialize;
+
+export type CompatibilityReport_Deserialize = {
+	status: CompatibilityStatus,
+	issues: CompatibilityIssue_Deserialize[],
+};
+
+export type CompatibilityReport_Serialize = {
+	status: CompatibilityStatus,
+	issues: CompatibilityIssue_Serialize[],
+};
+
+export type CompatibilityStatus = "healthy" | "warning" | "blocked";
+
 /**
  *  The device-code prompt shown to the user. `device_code` is the opaque handle
  *  passed back to [`msa_login_poll`]; everything else is for display.
@@ -695,6 +721,45 @@ export type DeviceCodeDto = {
 	expires_in: number,
 };
 
+export type DiagnoseInstanceArgs = {
+	include_log_tail?: boolean,
+};
+
+export type DiagnoseInstanceOutput = DiagnoseInstanceOutput_Serialize | DiagnoseInstanceOutput_Deserialize;
+
+export type DiagnoseInstanceOutput_Deserialize = {
+	instance: InstanceDiagnosticSummary,
+	report: CompatibilityReport_Deserialize,
+	log_tail?: string | null,
+};
+
+export type DiagnoseInstanceOutput_Serialize = {
+	instance: InstanceDiagnosticSummary,
+	report: CompatibilityReport_Serialize,
+	log_tail?: string | null,
+};
+
+export type DiagnosticTrialAnalysis = {
+	category: string,
+	reason: string,
+	matched: string | null,
+	suggestions: string[],
+};
+
+export type DiagnosticTrialOperation = { type: "set_memory"; memory_mb: number } | { type: "set_mod_enabled"; file_name: string; enabled: boolean } | { type: "delete_mod"; file_name: string };
+
+export type DiagnosticTrialOutcome = "stable" | "crashed" | "launch_error";
+
+export type DiagnosticTrialResult = {
+	trial_number: number,
+	outcome: DiagnosticTrialOutcome,
+	exit_code: number | null,
+	elapsed_ms: number,
+	operations: DiagnosticTrialOperation[],
+	log_tail: string,
+	analysis: DiagnosticTrialAnalysis | null,
+};
+
 /**
  *  Modrinth 的 facet 分类法:内容分类 / loader / 游戏版本。前端据此渲染过滤面板。
  *  注意:这些是平台动态数据(分类名直接来自 Modrinth),**不**走 i18n,原样展示。
@@ -703,6 +768,16 @@ export type FacetTagsDto = {
 	categories: CategoryTag[],
 	loaders: LoaderTag[],
 	game_versions: GameVersionTag[],
+};
+
+export type FinishDeepDiagnosisArgs = {
+	session_id: string,
+};
+
+export type FinishDeepDiagnosisOutput = {
+	session_id: string,
+	trials: DiagnosticTrialResult[],
+	cleaned: boolean,
 };
 
 /**  项目画廊里的一张图。 */
@@ -833,6 +908,8 @@ export type InspectBaseModpackArgs = {
 
 export type InspectBaseModpackOutput = {
 	title: string,
+	/**  Exact provider version selected for this target; pass through unchanged. */
+	version_id: string,
 	mc_version: string | null,
 	loader: string | null,
 	mod_count: number,
@@ -966,6 +1043,16 @@ export type InstanceConfig_Serialize = {
 	tags?: string[],
 };
 
+export type InstanceDiagnosticSummary = {
+	id: string,
+	name: string,
+	mc_version: string,
+	loader: string,
+	memory_mb: number,
+	recommended_memory_mb: number,
+	mod_count: number,
+};
+
 /**  实例的整合包来源溯源:它从哪个平台的哪个项目/版本安装而来。 */
 export type InstanceSource = {
 	/**  平台标识(如 `"modrinth"`)。 */
@@ -1015,6 +1102,8 @@ export type InstanceUpdateInfo = {
 	/**  该实例(由整合包安装)是否有比当前来源版本更新的整合包版本(仅 Modrinth 来源可判定)。 */
 	modpack_update: boolean,
 };
+
+export type IssueSeverity = "info" | "warning" | "blocking";
 
 export type ItemIcon = {
 	item_id: string,
@@ -1466,6 +1555,11 @@ export type RootKind =
 /**  Auto-created fallback under the launcher data directory. */
 "default";
 
+export type RunDiagnosticTrialArgs = {
+	session_id: string,
+	operations: DiagnosticTrialOperation[],
+};
+
 /**  一条已保存的多人服务器记录(展示 + 快速进入用)。 */
 export type SavedServer = {
 	/**  显示名(可空 —— UI 用地址兜底)。 */
@@ -1579,6 +1673,27 @@ export type SkinInfo = {
 	state?: string,
 };
 
+export type StartDeepDiagnosisOutput = {
+	session_id: string,
+	baseline: DiagnosticTrialResult,
+	max_trials: number,
+	sandbox_scope: string,
+};
+
+export type SuggestedAction = SuggestedAction_Serialize | SuggestedAction_Deserialize;
+
+export type SuggestedAction_Deserialize = {
+	kind: string,
+	target?: string | null,
+	value?: string | null,
+};
+
+export type SuggestedAction_Serialize = {
+	kind: string,
+	target?: string | null,
+	value?: string | null,
+};
+
 /**  What a sync to a manifest *would* change, computed without touching disk. */
 export type SyncPlan = {
 	/**  Files in the manifest that are missing locally or fail their hash. */
@@ -1648,6 +1763,24 @@ export type UserBrief = {
 	username?: string | null,
 	online?: boolean,
 	activity?: string | null,
+};
+
+export type ValidateModpackPlanArgs = {
+	target: BuildTarget,
+	base_pack?: BuildBasePack | null,
+	extra_mods?: BuildModRef[],
+};
+
+export type ValidateModpackPlanOutput = ValidateModpackPlanOutput_Serialize | ValidateModpackPlanOutput_Deserialize;
+
+export type ValidateModpackPlanOutput_Deserialize = {
+	report: CompatibilityReport_Deserialize,
+	checked_projects: number,
+};
+
+export type ValidateModpackPlanOutput_Serialize = {
+	report: CompatibilityReport_Serialize,
+	checked_projects: number,
 };
 
 /**

@@ -2,9 +2,11 @@ import type { Story, StoryDefault } from "@ladle/react";
 import type { UIMessage } from "ai";
 import { Panel } from "../components";
 import { AskUserOptions } from "./AskUserOptions";
+import { InstanceChangesCard } from "./InstanceChangesCard";
 import { ModpackCard } from "./ModpackCard";
 import { AssistantText, ActivityGroup, ToolChip, type Part, type ToolPart } from "./ChatParts";
 import { MessageList } from "./MessageList";
+import { useChatStore } from "./chatStore";
 
 /* ============================================================================
  * agentChat.stories —— 整合包助手对话 UI 的隔离预览(Ladle)。
@@ -190,6 +192,71 @@ export const PackCardSkipped: Story = () => (
   />
 );
 PackCardSkipped.storyName = "ModpackCard · output-available(已跳过)";
+
+// —— 实例修改确认卡(show_instance_changes client tool)——————————————
+
+function changesPart(over: ToolOver): ToolPart {
+  return {
+    type: "tool-show_instance_changes",
+    toolCallId: "call_changes_1",
+    state: "input-available",
+    ...over,
+  } as unknown as ToolPart;
+}
+
+const INSTANCE_CHANGES_INPUT = {
+  summary: "检测到内存不足和一个与 Forge 不兼容的 Fabric 模组。",
+  operations: [
+    { type: "set_memory", memory_mb: 4096 },
+    { type: "set_mod_enabled", file_name: "fabric-helper-1.2.0.jar", enabled: false },
+    { type: "install_mod", provider: "modrinth", project_id: "embeddium", title: "Embeddium" },
+    { type: "delete_mod", file_name: "duplicate-helper-0.9.0.jar" },
+  ],
+};
+
+export const InstanceChangesPending: Story = () => {
+  useChatStore.setState({
+    toolContext: {
+      mode: "instance",
+      instance: {
+        root: "/games/minecraft",
+        modpackId: "forge-pack",
+        instanceId: "forge-pack",
+        sourcePaths: ["/games/minecraft/versions/forge-pack"],
+        mcVersion: "1.20.1",
+        loader: "forge",
+      },
+    },
+  });
+  return (
+    <InstanceChangesCard
+      msgId="m1"
+      globalStreaming={false}
+      part={changesPart({ input: INSTANCE_CHANGES_INPUT })}
+    />
+  );
+};
+InstanceChangesPending.storyName = "InstanceChangesCard · 待确认";
+
+export const InstanceChangesPartial: Story = () => (
+  <InstanceChangesCard
+    msgId="m1"
+    globalStreaming={false}
+    part={changesPart({
+      state: "output-available",
+      input: INSTANCE_CHANGES_INPUT,
+      output: {
+        applied: false,
+        results: [
+          { type: "set_memory", status: "completed" },
+          { type: "set_mod_enabled", status: "completed" },
+          { type: "install_mod", status: "failed", error: "目标版本没有兼容文件" },
+        ],
+      },
+    })}
+  />
+);
+InstanceChangesPartial.storyName = "InstanceChangesCard · 部分失败";
 
 // —— 工具芯片 —————————————————————————————————————————————————————
 

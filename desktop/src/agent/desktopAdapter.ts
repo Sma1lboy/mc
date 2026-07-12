@@ -18,7 +18,7 @@ async function loadSettings(): Promise<AgentLlmSettings> {
 }
 
 /** Create a desktop-hosted modpack agent (LLM config + Tauri tool backend). */
-export async function createDesktopAgent(mode: AgentMode = "modpack"): Promise<AgentProviderSession> {
+export async function createDesktopAgent(mode: AgentMode = "build"): Promise<AgentProviderSession> {
   const settings = await loadSettings();
   const agent: ModpackAgent = createModpackAgent(settings, { mode });
   return {

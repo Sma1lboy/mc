@@ -235,12 +235,14 @@ export default function InstanceDetail() {
           loader: fmtLoader(i.loader) || t("instance.noLoader"),
         }),
         {
-          mode: "wiki",
-          wiki: {
+          mode: "instance",
+          instance: {
             root,
             modpackId: source?.project_id || i.id,
             instanceId: i.id,
             sourcePaths: [dir],
+            mcVersion: i.mc_version,
+            loader: i.loader,
           },
         },
       );

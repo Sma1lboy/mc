@@ -4,15 +4,26 @@ const TOOL_NAMES = [
   "search_mods",
   "mod_get_detail",
   "resolve_mods",
+  "validate_modpack_plan",
   "build_modpack",
   "list_instances",
   "wiki_search",
   "wiki_open",
+  "diagnose_instance",
+  "start_deep_diagnosis",
+  "run_diagnostic_trial",
+  "finish_deep_diagnosis",
   "ask_user_question",
   "show_modpack",
+  "show_instance_changes",
 ];
 
-const VALID_MODES = new Set(["modpack", "wiki"]);
+const VALID_MODES = new Map([
+  ["build", "build"],
+  ["modpack", "build"],
+  ["instance", "instance"],
+  ["wiki", "instance"],
+]);
 
 /**
  * Pure session router for the line-delimited Claude host protocol.
@@ -24,7 +35,7 @@ export function createHarnessHostRouter({ send, createAgent, model }) {
   const busyConversations = new Set();
 
   function modeFrom(value) {
-    return VALID_MODES.has(value) ? value : "modpack";
+    return VALID_MODES.get(value) ?? "build";
   }
 
   function sendDone(providerSessionId, conversationId, runId, error) {
