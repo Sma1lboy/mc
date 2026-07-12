@@ -18,6 +18,8 @@ export async function unwrap<T>(p: Promise<SpectaResult<T>>): Promise<T> {
 
 export const INTERACTIVE_CLIENT_TOOLS = new Set([
   "ask_user_question",
+  "confirm_modpack_build",
+  "confirm_deep_diagnosis",
   "show_modpack",
   "show_instance_changes",
 ]);
@@ -33,10 +35,8 @@ const AUTO_TOOL_NAMES = new Set([
   "mod_get_detail",
   "resolve_mods",
   "validate_modpack_plan",
-  "build_modpack",
   "list_instances",
   "diagnose_instance",
-  "start_deep_diagnosis",
   "run_diagnostic_trial",
   "finish_deep_diagnosis",
   "wiki_search",
@@ -51,14 +51,12 @@ const MODE_TOOL_NAMES: Record<AgentMode, Set<string>> = {
     "mod_get_detail",
     "resolve_mods",
     "validate_modpack_plan",
-    "build_modpack",
     "list_instances",
   ]),
   instance: new Set([
     "wiki_search",
     "wiki_open",
     "diagnose_instance",
-    "start_deep_diagnosis",
     "run_diagnostic_trial",
     "finish_deep_diagnosis",
     "search_mods",
@@ -86,8 +84,6 @@ export function runLauncherClientTool(
       return unwrap(commands.agentToolResolveMods(targetedResolveArgs(args, context)));
     case "validate_modpack_plan":
       return unwrap(commands.agentToolValidateModpackPlan(args as never));
-    case "build_modpack":
-      return unwrap(commands.agentToolBuildModpack(args as never));
     case "list_instances":
       return unwrap(commands.agentToolListInstances(rootFromAgentContext(context, activeRoot)));
     case "diagnose_instance": {
@@ -97,15 +93,6 @@ export function runLauncherClientTool(
           instance.root || activeRoot(),
           instance.instanceId,
           diagnoseArgs(args),
-        ),
-      );
-    }
-    case "start_deep_diagnosis": {
-      const instance = instanceContext(context);
-      return unwrap(
-        commands.agentToolStartDeepDiagnosis(
-          instance.root || activeRoot(),
-          instance.instanceId,
         ),
       );
     }

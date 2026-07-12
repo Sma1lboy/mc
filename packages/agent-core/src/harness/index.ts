@@ -32,6 +32,8 @@ import { promptForMode } from "../prompt";
 import {
   buildTools,
   ASK_USER_TOOL,
+  CONFIRM_DEEP_DIAGNOSIS_TOOL,
+  CONFIRM_MODPACK_BUILD_TOOL,
   SHOW_INSTANCE_CHANGES_TOOL,
   SHOW_MODPACK_TOOL,
 } from "../tools";
@@ -50,13 +52,19 @@ export { createLocalSandbox } from "./local-sandbox";
 const TEXT_FALLBACK_NOTE = `
 
 ## Local-runtime mode override
-The interactive confirmation tools are NOT available in this session — never call \`ask_user_question\`, \`show_modpack\`, or \`show_instance_changes\`. Instead:
+The interactive confirmation tools are NOT available in this session. Ask for choices and describe proposed actions in concise plain text instead; never claim a build, diagnosis launch, installation, or instance change happened without a tool result.
 - To ask the user a choice, ask in plain text with a short numbered list of options.
-- To present the final pack, describe it in concise markdown (title, mc version, loader, and the built file's output_path if you ran build_modpack) and tell the user to install it from the launcher.
+- To present the final pack, describe the exact plan in concise markdown and explain that this host cannot render the required launcher confirmation card.
 - To propose instance changes, describe the exact operations in concise markdown and ask the user to perform or approve them in the launcher.`;
 
 /** The two tools that require explicit user interaction in the launcher UI. */
-const CLIENT_TOOLS = [ASK_USER_TOOL, SHOW_MODPACK_TOOL, SHOW_INSTANCE_CHANGES_TOOL] as const;
+const CLIENT_TOOLS = [
+  ASK_USER_TOOL,
+  CONFIRM_MODPACK_BUILD_TOOL,
+  CONFIRM_DEEP_DIAGNOSIS_TOOL,
+  SHOW_MODPACK_TOOL,
+  SHOW_INSTANCE_CHANGES_TOOL,
+] as const;
 
 /** Options for the local Claude Code engine. */
 export interface ClaudeCodeEngineOptions {

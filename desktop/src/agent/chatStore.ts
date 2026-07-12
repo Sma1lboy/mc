@@ -64,8 +64,7 @@ interface ChatState {
   toolContext: AgentToolContext | null;
   /**
    * 本地引擎(claude-code)模式下正在等用户作答的交互 toolCallId 集合。
-   * 此时 turn 仍在流式,
-   * 但对应组件必须可交互 —— 见 AskUserOptions / ModpackCard 的 live 判定。
+   * 此时 turn 仍在流式，但对应组件必须可交互。
    */
   pendingLocalToolCallIds: string[];
 }
@@ -309,12 +308,14 @@ export function resolveClientTool(
   toolCallId: string,
   output: unknown,
   echoText?: string,
+  expectedRunId?: string,
 ): void {
   const resolution = coordinator.resolveClientToolOutput(
     conversationId,
     msgId,
     toolCallId,
     output,
+    expectedRunId,
   );
   if (resolution === "local" || resolution === "ignored") return;
   if (resolution === "waiting") {
@@ -328,6 +329,15 @@ export function resolveClientTool(
   void coordinator.continueConversation(conversationId, history).then(() => {
     saveConversation(conversationId);
   });
+}
+
+/** Capture the local run that owns an interactive tool before starting asynchronous IPC. */
+export function captureClientToolRunId(
+  conversationId: string,
+  messageId: string,
+  toolCallId: string,
+): string | undefined {
+  return coordinator.interactiveToolRunId(conversationId, messageId, toolCallId);
 }
 
 /** 提交一次 ask_user 选择:结果 = 所选项,回显一条用户气泡。空选择忽略。 */

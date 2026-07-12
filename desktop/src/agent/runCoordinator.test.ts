@@ -414,4 +414,93 @@ describe("AgentRunCoordinator", () => {
     call.finish(call.request.history);
     await running;
   });
+
+  it("ignores a late interactive result from a cancelled run when the toolCallId is reused", async () => {
+    const { coordinator, sessions } = harness();
+    coordinator.openConversation("A", { messages: [], toolContext: null });
+
+    const cancelled = coordinator.sendMessage("A", "first run");
+    await Promise.resolve();
+    await Promise.resolve();
+    const firstCall = sessions.get("A")!.pending[0];
+    const firstBinding = firstCall.request.binding;
+    const firstToolMessage = {
+      id: "assistant-first",
+      role: "assistant",
+      parts: [{
+        type: "tool-ask_user_question",
+        toolCallId: "reused-tool-id",
+        state: "input-available",
+        input: { question: "first?" },
+      }],
+    } as UIMessage;
+    firstCall.request.onUpdate(firstToolMessage);
+    const firstPending = coordinator.waitForInteractiveTool(
+      firstBinding,
+      "ask_user_question",
+      "reused-tool-id",
+    );
+    coordinator.cancelConversation("A");
+    await expect(firstPending).rejects.toThrow("agent run cancelled");
+    firstCall.finish(firstCall.request.history);
+    await cancelled;
+
+    const replacement = coordinator.sendMessage("A", "replacement run");
+    await Promise.resolve();
+    await Promise.resolve();
+    const secondCall = sessions.get("A")!.pending[1];
+    const secondBinding = secondCall.request.binding;
+    const secondToolMessage = {
+      id: "assistant-second",
+      role: "assistant",
+      parts: [{
+        type: "tool-ask_user_question",
+        toolCallId: "reused-tool-id",
+        state: "input-available",
+        input: { question: "second?" },
+      }],
+    } as UIMessage;
+    secondCall.request.onUpdate(secondToolMessage);
+    const secondPending = coordinator.waitForInteractiveTool(
+      secondBinding,
+      "ask_user_question",
+      "reused-tool-id",
+    );
+    const cancelledRunId = coordinator.interactiveToolRunId(
+      "A",
+      "assistant-first",
+      "reused-tool-id",
+    );
+    expect(cancelledRunId).toBe(firstBinding.runId);
+    expect(
+      coordinator.interactiveToolRunId("A", "assistant-second", "reused-tool-id"),
+    ).toBe(secondBinding.runId);
+
+    expect(
+      coordinator.resolveClientToolOutput(
+        "A",
+        "assistant-first",
+        "reused-tool-id",
+        { selected: ["stale"] },
+        cancelledRunId,
+      ),
+    ).toBe("ignored");
+    expect(
+      coordinator.getConversation("A").messages.find((message) => message.id === "assistant-first")
+        ?.parts[0],
+    ).toMatchObject({ state: "input-available" });
+
+    expect(
+      coordinator.resolveClientToolOutput(
+        "A",
+        "assistant-second",
+        "reused-tool-id",
+        { selected: ["current"] },
+        secondBinding.runId,
+      ),
+    ).toBe("local");
+    await expect(secondPending).resolves.toEqual({ selected: ["current"] });
+    secondCall.finish(secondCall.request.history);
+    await replacement;
+  });
 });

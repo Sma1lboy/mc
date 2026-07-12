@@ -65,16 +65,19 @@ resolution, build, install, and local instance state:
 - `mod_get_detail`
 - `resolve_mods`
 - `validate_modpack_plan`
-- `build_modpack`
+- `confirm_modpack_build` (the launcher executes the build only after the user confirms the card)
 - `list_instances`
 - `diagnose_instance`
+- `confirm_deep_diagnosis`
+- `run_diagnostic_trial`
+- `finish_deep_diagnosis`
 - `ask_user_question`
 - `show_modpack`
 - `show_instance_changes`
 
 The desktop dispatcher lives in `desktop/src/agent/clientToolDispatcher.ts`.
-Interactive tools (`ask_user_question`, `show_modpack`,
-`show_instance_changes`) are resolved by UI components; automatic tools are resolved by IPC commands such as
+Interactive tools (`ask_user_question`, `confirm_modpack_build`,
+`confirm_deep_diagnosis`, `show_modpack`, `show_instance_changes`) are resolved by UI components; automatic tools are resolved by IPC commands such as
 `agent_tool_search_mods`.
 
 The local Claude Code runtime cannot call Tauri IPC directly, so

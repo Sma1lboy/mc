@@ -5,7 +5,7 @@ const sessionIdSchema = z
   .string()
   .min(1)
   .max(128)
-  .describe("Opaque session id returned by start_deep_diagnosis.");
+  .describe("Opaque session id returned after confirm_deep_diagnosis is approved.");
 
 const diagnosticOperationSchema = z.discriminatedUnion("type", [
   z
@@ -29,11 +29,18 @@ const diagnosticOperationSchema = z.discriminatedUnion("type", [
     .strict(),
 ]);
 
-export const startDeepDiagnosis = () =>
+/** Client-side confirmation boundary for the visible diagnostic launch. */
+export const CONFIRM_DEEP_DIAGNOSIS_TOOL = "confirm_deep_diagnosis";
+
+export const confirmDeepDiagnosis = () =>
   tool({
     description:
-      "Create a temporary filesystem copy of the bound instance and run one unchanged, offline, time-bounded baseline launch. Use only after diagnose_instance is insufficient and the user explicitly asks for or approves a visible test launch. This executes installed Mods with normal OS permissions; it is not a hostile-code, OS, or network security sandbox. The launcher injects root and instance id.",
-    inputSchema: z.object({}).strict(),
+      "Show a confirmation card for a visible, offline, time-bounded baseline launch of a temporary instance copy. Call when diagnose_instance is insufficient; the card itself requests approval, so do not ask for separate permission first. This executes installed Mods with normal OS permissions and is not a hostile-code, OS, or network security sandbox. The result is either the started session or { approved: false }.",
+    inputSchema: z
+      .object({
+        reason: z.string().min(1).max(400).describe("Concise reason a test launch is needed."),
+      })
+      .strict(),
   });
 
 export const runDiagnosticTrial = () =>

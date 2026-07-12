@@ -3,11 +3,20 @@ import { Panel, Spinner } from "../components";
 import { t } from "../i18n";
 import { AskUserOptions, ASK_USER_TOOL_TYPE } from "./AskUserOptions";
 import {
+  BuildConfirmationCard,
+  CONFIRM_MODPACK_BUILD_TOOL_TYPE,
+} from "./BuildConfirmationCard";
+import {
+  CONFIRM_DEEP_DIAGNOSIS_TOOL_TYPE,
+  DeepDiagnosisConfirmationCard,
+} from "./DeepDiagnosisConfirmationCard";
+import {
   InstanceChangesCard,
   SHOW_INSTANCE_CHANGES_TOOL_TYPE,
 } from "./InstanceChangesCard";
 import { ModpackCard, SHOW_MODPACK_TOOL_TYPE } from "./ModpackCard";
-import { AssistantText, ActivityGroup, isActivity, isTool } from "./ChatParts";
+import { AssistantText, ActivityGroup, isTool } from "./ChatParts";
+import { layoutMessageParts } from "./messagePartLayout";
 import { chatMessageKeys, chatPartKeys } from "./renderKeys";
 
 /**
@@ -41,23 +50,20 @@ export function MessageRow({
   const lastPart = msg.parts[msg.parts.length - 1];
   const caretVisible = last && streaming && lastPart?.type === "text";
 
-  // 一条消息里所有中间「思考 + 工具调用 + 进度文字」合并成 ONE 折叠块(到最后一个
-  // activity 为止),只把它之后的最终回答文字 / ask_user 卡片展开显示——避免多个折叠块被
-  // 进度文字打断、散成一堆。
-  let lastActivity = -1;
-  for (let i = 0; i < msg.parts.length; i++) {
-    if (isActivity(msg.parts[i])) lastActivity = i;
-  }
   const nodes: React.ReactNode[] = [];
-  if (lastActivity >= 0) {
-    // head:含中间进度文字,一并折进活动块。本条消息还在流式时强制展开,让工具/思考
-    // 实时「流式出来」可见;turn 结束才收起(避免单个工具一完成就瞬间收起、看不到过程)。
-    nodes.push(
-      <ActivityGroup key="act" parts={msg.parts.slice(0, lastActivity + 1)} forceOpen={last && streaming} />,
-    );
-  }
   const partKeys = chatPartKeys(msg.parts);
-  for (let i = lastActivity + 1; i < msg.parts.length; i++) {
+  for (const entry of layoutMessageParts(msg.parts)) {
+    if (entry.kind === "activity") {
+      nodes.push(
+        <ActivityGroup
+          key={`act:${entry.indices[0]}`}
+          parts={entry.indices.map((index) => msg.parts[index])}
+          forceOpen={last && streaming}
+        />,
+      );
+      continue;
+    }
+    const i = entry.index;
     const part = msg.parts[i];
     if (part.type === "text") {
       nodes.push(
@@ -65,6 +71,24 @@ export function MessageRow({
       );
     } else if (isTool(part) && part.type === ASK_USER_TOOL_TYPE) {
       nodes.push(<AskUserOptions key={partKeys[i]} msgId={msg.id} part={part} globalStreaming={streaming} />);
+    } else if (isTool(part) && part.type === CONFIRM_MODPACK_BUILD_TOOL_TYPE) {
+      nodes.push(
+        <BuildConfirmationCard
+          key={partKeys[i]}
+          msgId={msg.id}
+          part={part}
+          globalStreaming={streaming}
+        />,
+      );
+    } else if (isTool(part) && part.type === CONFIRM_DEEP_DIAGNOSIS_TOOL_TYPE) {
+      nodes.push(
+        <DeepDiagnosisConfirmationCard
+          key={partKeys[i]}
+          msgId={msg.id}
+          part={part}
+          globalStreaming={streaming}
+        />,
+      );
     } else if (isTool(part) && part.type === SHOW_MODPACK_TOOL_TYPE) {
       nodes.push(<ModpackCard key={partKeys[i]} msgId={msg.id} part={part} globalStreaming={streaming} />);
     } else if (isTool(part) && part.type === SHOW_INSTANCE_CHANGES_TOOL_TYPE) {

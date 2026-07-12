@@ -59,6 +59,24 @@ function assistant(id: string, text: string): UIMessage {
 }
 
 describe("harness host router", () => {
+  it("exposes confirmation tools instead of privileged action tools", async () => {
+    const { router, createdAgents } = setup();
+    router.handle({
+      type: "turn",
+      providerSessionId: "session-A",
+      conversationId: "A",
+      runId: "run-A",
+      text: "prepare a plan",
+      mode: "modpack",
+    });
+
+    await vi.waitFor(() => expect(createdAgents).toHaveLength(1));
+    expect(createdAgents[0].handlers).toHaveProperty("confirm_modpack_build");
+    expect(createdAgents[0].handlers).toHaveProperty("confirm_deep_diagnosis");
+    expect(createdAgents[0].handlers).not.toHaveProperty("build_modpack");
+    expect(createdAgents[0].handlers).not.toHaveProperty("start_deep_diagnosis");
+  });
+
   it("starts a fresh Claude session when the provider session id changes", async () => {
     const { router, sent, createdAgents } = setup();
     router.handle({

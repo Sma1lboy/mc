@@ -118,12 +118,12 @@ const fixtures = [
       };
       return [
         check(
-          ["start_deep_diagnosis", "run_diagnostic_trial", "finish_deep_diagnosis"].every((name) =>
+          ["confirm_deep_diagnosis", "run_diagnostic_trial", "finish_deep_diagnosis"].every((name) =>
             tools.has(name),
           ),
           "deep-diagnosis lifecycle tools are available",
         ),
-        check(prompt.includes("explicitly asks for or approves"), "prompt requires user approval"),
+        check(prompt.includes("card is the approval request"), "prompt routes approval through the card"),
         check(schemas.run_diagnostic_trial.safeParse(trial).success, "allowlisted trial is valid"),
         check(
           prompt.includes("translate only its exact operations into `show_instance_changes`"),
@@ -168,9 +168,9 @@ const fixtures = [
       const prompt = promptForMode("build");
       return [
         check(tools.has("validate_modpack_plan"), "build validation is available"),
-        check(tools.has("build_modpack"), "build tool is available"),
+        check(tools.has("confirm_modpack_build"), "build confirmation tool is available"),
         check(
-          prompt.indexOf("validate_modpack_plan") < prompt.indexOf("build_modpack"),
+          prompt.indexOf("validate_modpack_plan") < prompt.indexOf("confirm_modpack_build"),
           "prompt introduces validation before build",
         ),
         check(!tools.has("diagnose_instance"), "build profile cannot diagnose an instance"),

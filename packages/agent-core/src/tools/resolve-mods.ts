@@ -4,7 +4,7 @@ import { z } from "zod";
 export const resolveMods = (instanceBound = false) =>
   tool({
     description:
-      "Resolve mod project ids into concrete, download-ready file references for a Minecraft version + loader, pulling in required dependencies. Returns resolved refs (with real version_id, url, hashes), plus anything unresolved or conflicting. The resolved refs are what you pass to build_modpack.",
+      "Resolve mod project ids into concrete, download-ready file references for a Minecraft version + loader, pulling in required dependencies. Returns resolved refs (with real version_id, url, hashes), plus anything unresolved or conflicting. The resolved refs are what you pass to confirm_modpack_build.",
     inputSchema: z
       .object({
         project_ids: z
