@@ -349,10 +349,7 @@ fn rule_matches(rule: &Rule, log: &str) -> Option<&'static str> {
     let any_hit = if rule.any.is_empty() {
         None
     } else {
-        match rule.any.iter().find(|kw| log.contains(**kw)) {
-            Some(kw) => Some(*kw),
-            None => return None,
-        }
+        Some(*rule.any.iter().find(|kw| log.contains(**kw))?)
     };
     // 优先用命中的 any 关键词定位原始行，其次用 all 的最后一个关键词。
     Some(any_hit.unwrap_or_else(|| rule.all.last().copied().unwrap_or("")))
