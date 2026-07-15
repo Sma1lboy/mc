@@ -23,19 +23,17 @@ const EXCLUDED_FILES = new Set([
   "desktop/src/ipc/bindings.ts",
 ]);
 
-const EXCLUDED_DIRECTORIES = new Set([
-  "build",
-  "dist",
-  "node_modules",
-  "ref",
-  "target",
-]);
+const EXCLUDED_DIRECTORY_PREFIXES = [
+  "build/",
+  "dist/",
+  "node_modules/",
+  "ref/",
+  "target/",
+];
 
 function isExcluded(file) {
   if (EXCLUDED_FILES.has(file)) return true;
-
-  const directorySegments = file.split("/").slice(0, -1);
-  return directorySegments.some((segment) => EXCLUDED_DIRECTORIES.has(segment));
+  return EXCLUDED_DIRECTORY_PREFIXES.some((prefix) => file.startsWith(prefix));
 }
 
 function countLines(contents) {
