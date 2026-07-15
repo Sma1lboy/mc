@@ -83,6 +83,9 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
+      - name: Check file line limits
+        run: npm run check:lines
+
       - name: Install dependencies (workspaces)
         run: npm ci
 
