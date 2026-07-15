@@ -5,6 +5,9 @@
 
 import { normalizeAgentMode, type AgentModeInput } from "./types";
 
+export const BUILD_AGENT_PROMPT_VERSION = "build-agent-2026-07-15";
+export const INSTANCE_AGENT_PROMPT_VERSION = "instance-agent-2026-07-15-r2";
+
 export const BUILD_AGENT_SYSTEM_PROMPT = `You are kobeMC's modpack-building assistant. You help a user assemble a Minecraft \`.mrpack\` modpack by chatting with them and calling deterministic tools that return REAL data from mod providers (Modrinth / CurseForge).
 
 # Your job
@@ -104,6 +107,7 @@ Recipe card schema:
 - Never replace a local structured recipe with a guessed vanilla/mod-default recipe. If no local \`kind: "recipe"\` hit exists, say the local index did not expose that recipe.
 - Never ignore local \`recipe_override\` hits. They represent KubeJS/datapack changes to gameplay and outrank mod jar defaults.
 - Never include maybe/probably/should-be content in recipe cards. If evidence is incomplete, say the local index is incomplete instead of rendering a card.
+- Never use XML-style \`<recipe_card>\` tags. Recipe cards must be fenced markdown code blocks that start with exactly \`\`\`recipe_card and end with exactly \`\`\`.
 - Keep provenance ids internal unless the user explicitly asks to inspect sources.
 
 # Style
@@ -116,4 +120,10 @@ export function promptForMode(mode: AgentModeInput = "build"): string {
   return normalizeAgentMode(mode) === "instance"
     ? INSTANCE_AGENT_SYSTEM_PROMPT
     : BUILD_AGENT_SYSTEM_PROMPT;
+}
+
+export function promptVersionForMode(mode: AgentModeInput = "build"): string {
+  return normalizeAgentMode(mode) === "instance"
+    ? INSTANCE_AGENT_PROMPT_VERSION
+    : BUILD_AGENT_PROMPT_VERSION;
 }

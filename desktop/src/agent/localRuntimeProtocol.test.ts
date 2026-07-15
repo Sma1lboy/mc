@@ -76,13 +76,23 @@ describe("local runtime protocol", () => {
     expect(updateA).toHaveBeenCalledWith(answerA);
     expect(updateB).not.toHaveBeenCalled();
 
-    protocol.handle({ type: "done", providerSessionId: "session-B", conversationId: "B", runId: "run-B" });
+    protocol.handle({
+      type: "done",
+      providerSessionId: "session-B",
+      conversationId: "B",
+      runId: "run-B",
+      promptVersion: "instance-agent-test",
+    });
     protocol.handle({ type: "done", providerSessionId: "session-A", conversationId: "A", runId: "run-A" });
     await expect(runA).resolves.toEqual({
       messages: [user("user-A", "A"), answerA],
       error: undefined,
     });
-    await expect(runB).resolves.toEqual({ messages: [user("user-B", "B")], error: undefined });
+    await expect(runB).resolves.toEqual({
+      messages: [user("user-B", "B")],
+      error: undefined,
+      promptVersion: "instance-agent-test",
+    });
   });
 
   it("uses frozen run context and toolCallId for automatic and same-name interactive calls", async () => {

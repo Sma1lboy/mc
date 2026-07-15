@@ -28,7 +28,7 @@ import { createClaudeCode } from "@ai-sdk/harness-claude-code";
 import { readUIMessageStream } from "ai-v7";
 import type { UIMessage } from "ai";
 
-import { promptForMode } from "../prompt";
+import { promptForMode, promptVersionForMode } from "../prompt";
 import {
   buildTools,
   ASK_USER_TOOL,
@@ -90,6 +90,7 @@ export function createClaudeCodeModpackAgent(
   options: ClaudeCodeEngineOptions = {},
 ): ModpackAgent & { dispose: () => Promise<void> } {
   const mode = normalizeAgentMode(options.mode);
+  const promptVersion = promptVersionForMode(mode);
   const toolSet = buildTools(mode);
   for (const [name, impl] of Object.entries(handlers)) {
     if (toolSet[name]) {
@@ -143,7 +144,7 @@ export function createClaudeCodeModpackAgent(
       // ai@7 UIMessage → the ai@6-typed contract; the part shapes we render
       // (text / reasoning / tool-* state machine) are identical.
       mapMessage: (msg) => msg as unknown as UIMessage,
-    });
+    }).then((result) => ({ ...result, promptVersion }));
   }
 
   return {

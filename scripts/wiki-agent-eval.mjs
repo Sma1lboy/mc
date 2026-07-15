@@ -135,7 +135,7 @@ async function main() {
   for (const testCase of selected) {
     const transcript = await runCase(createModpackAgent, args, testCase);
     const verdict = evaluateWikiEvalTranscript(testCase, transcript);
-    results.push({ id: testCase.id, verdict, transcript });
+    results.push({ id: testCase.id, promptVersion: transcript.promptVersion, verdict, transcript });
     if (!args.json) printCaseResult(testCase.id, verdict, transcript);
   }
 
@@ -192,16 +192,18 @@ async function runCase(createModpackAgent, args, testCase) {
   const history = [userMessage(testCase.prompt)];
   const toolCalls = [];
   const errors = [];
+  let promptVersion;
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
     const result = await agent.run(history, () => {});
+    promptVersion = result.promptVersion ?? promptVersion;
     history.splice(0, history.length, ...result.messages);
     if (result.error) errors.push(result.error);
 
     const assistant = history.at(-1);
     const pending = pendingToolParts(assistant);
     if (!pending.length) {
-      return { finalText: textOf(assistant), toolCalls, errors };
+      return { finalText: textOf(assistant), toolCalls, errors, promptVersion };
     }
 
     for (const part of pending) {
@@ -221,7 +223,7 @@ async function runCase(createModpackAgent, args, testCase) {
   }
 
   errors.push(`hit max round limit (${MAX_ROUNDS})`);
-  return { finalText: textOf(history.at(-1)), toolCalls, errors };
+  return { finalText: textOf(history.at(-1)), toolCalls, errors, promptVersion };
 }
 
 function userMessage(text) {

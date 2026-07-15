@@ -24,6 +24,7 @@ export interface WikiEvalTranscript {
   finalText: string;
   toolCalls: WikiEvalToolCall[];
   errors?: string[];
+  promptVersion?: string;
 }
 
 export interface WikiEvalCheckResult {

@@ -21,7 +21,7 @@
 import { ToolLoopAgent, stepCountIs, convertToModelMessages, readUIMessageStream, type UIMessage } from "ai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 
-import { promptForMode } from "./prompt";
+import { promptForMode, promptVersionForMode } from "./prompt";
 import { buildTools } from "./tools";
 import { normalizeAgentMode, type AgentLlmSettings, type AgentModeInput } from "./types";
 
@@ -36,6 +36,7 @@ const MAX_OUTPUT_TOKENS = 2048;
 export interface TurnResult {
   messages: UIMessage[];
   error?: string;
+  promptVersion?: string;
 }
 
 export interface ModpackAgent {
@@ -122,6 +123,7 @@ export function createModpackAgent(
   options: AgentRuntimeOptions = {},
 ): ModpackAgent {
   const mode = normalizeAgentMode(options.mode);
+  const promptVersion = promptVersionForMode(mode);
   const provider = createOpenRouter({ apiKey: settings.apiKey, baseURL: settings.baseUrl });
   const toolSet = buildTools(mode);
   const agent = new ToolLoopAgent({
@@ -151,7 +153,7 @@ export function createModpackAgent(
       },
       readUIMessageStream,
       mapMessage: (msg) => msg as UIMessage,
-    });
+    }).then((result) => ({ ...result, promptVersion }));
   }
 
   return { run };
