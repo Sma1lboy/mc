@@ -1,6 +1,9 @@
 {
   "name": "mc-launcher-workspace",
   "private": true,
+  "scripts": {
+    "check:lines": "node scripts/check-file-lines.mjs"
+  },
   "workspaces": [
     "desktop",
     "packages/*"
