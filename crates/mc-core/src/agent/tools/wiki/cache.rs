@@ -10,9 +10,9 @@ use super::sources::{
     collect_wiki_files, is_wiki_corpus_cache_file, regular_dir, regular_file, relative_slash_path,
     INSTANCE_DATA_DIRS,
 };
-use super::{build_wiki_corpus_from_paths, WikiChunk, WikiCorpus, WikiScope};
+use super::{build_wiki_corpus_from_paths, privacy, WikiChunk, WikiCorpus, WikiScope};
 
-const WIKI_CORPUS_CACHE_VERSION: u32 = 7;
+const WIKI_CORPUS_CACHE_VERSION: u32 = 8;
 pub(super) const WIKI_CORPUS_CACHE_FILE: &str = "wiki-corpus.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,10 +101,15 @@ fn read_wiki_corpus_cache(
     {
         return Ok(None);
     }
+    let mut chunks = cache.chunks;
+    if privacy::finalize_wiki_chunks(&mut chunks, &[instance_dir.to_path_buf()]) {
+        tracing::warn!(path = %cache_path.display(), "discarding unsafe wiki corpus cache");
+        return Ok(None);
+    }
     Ok(Some(WikiCorpus {
         scope: scope.clone(),
         source_count: cache.source_count,
-        chunks: cache.chunks,
+        chunks,
     }))
 }
 

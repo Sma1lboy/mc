@@ -1,10 +1,10 @@
 import type { AgentMode, AgentModeInput } from "@kobemc/agent-core";
 
 export interface AgentWikiContext {
-  root: string;
+  root?: string;
   modpackId: string;
   instanceId: string;
-  sourcePaths: string[];
+  sourcePaths?: string[];
 }
 
 export interface AgentInstanceContext extends AgentWikiContext {

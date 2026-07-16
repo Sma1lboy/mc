@@ -90,12 +90,19 @@ async fn main() {
     let authed: Router<AppState> = Router::new()
         // Publishing a share requires a signed-in user (owner is recorded).
         .route("/v1/instances/share", post(share_instance))
-        .route("/v1/agent/conversations", post(share_conversation))
+        .route(
+            "/v1/agent/conversations",
+            post(share_conversation)
+                .layer(axum::extract::DefaultBodyLimit::max(history::MAX_BYTES)),
+        )
         // Private per-user conversation history (cloud sync for the desktop).
         .route("/v1/agent/history", get(history::list))
         .route(
             "/v1/agent/history/{id}",
-            get(history::get_one).put(history::put_one).delete(history::delete_one),
+            get(history::get_one)
+                .put(history::put_one)
+                .delete(history::delete_one)
+                .layer(axum::extract::DefaultBodyLimit::max(history::MAX_BYTES)),
         )
         // Account linking (bind Microsoft to a kobeMC user; authed).
         .route("/v1/account/link/microsoft", post(account::link_microsoft))
@@ -194,15 +201,23 @@ async fn get_instance(
     s.shares.get(&id).await.map(Json).ok_or(StatusCode::NOT_FOUND)
 }
 
-/// Publish an agent chat transcript (opaque JSON: the UIMessage[] + optional
-/// title/model) and get a public id. Requires a signed-in user (the owner is
-/// recorded on the share). Body is stored as-is; capped at ~1 MiB.
+/// Publish a display-only agent transcript and get a public id. Requires a
+/// signed-in user; the server repeats the core privacy projection before storage.
 async fn share_conversation(
     State(s): State<AppState>,
     user: session::AuthUser,
     Json(payload): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    if serde_json::to_string(&payload).map(|j| j.len()).unwrap_or(usize::MAX) > 1_048_576 {
+    if serde_json::to_string(&payload).map(|j| j.len()).unwrap_or(usize::MAX)
+        > history::MAX_BYTES
+    {
+        return Err(StatusCode::PAYLOAD_TOO_LARGE);
+    }
+    let payload = mc_core::agent::conversation_privacy::project_public_share(&payload)
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    if serde_json::to_string(&payload).map(|j| j.len()).unwrap_or(usize::MAX)
+        > history::MAX_BYTES
+    {
         return Err(StatusCode::PAYLOAD_TOO_LARGE);
     }
     let id = s
@@ -221,5 +236,8 @@ async fn get_conversation(
     State(s): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    s.shares.get_raw(&id).await.map(Json).ok_or(StatusCode::NOT_FOUND)
+    let payload = s.shares.get_raw(&id).await.ok_or(StatusCode::NOT_FOUND)?;
+    mc_core::agent::conversation_privacy::project_public_share(&payload)
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }

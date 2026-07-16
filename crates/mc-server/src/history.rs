@@ -11,10 +11,14 @@ use axum::http::StatusCode;
 use axum::Json;
 use serde::Serialize;
 
+use mc_core::agent::conversation_privacy::{
+    project_conversation_record, sanitize_conversation_text,
+};
+
 use crate::{session, AppState};
 
 /// Payload cap — same 1 MiB as conversation shares.
-const MAX_BYTES: usize = 1_048_576;
+pub(crate) const MAX_BYTES: usize = 1_048_576;
 
 #[derive(Serialize)]
 pub struct ConversationHead {
@@ -38,43 +42,60 @@ pub async fn list(
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(
         rows.into_iter()
-            .map(|(id, title, updated_at_ms)| ConversationHead { id, title, updated_at_ms })
+            .map(|(id, title, updated_at_ms)| ConversationHead {
+                id,
+                title: sanitize_conversation_text(&title),
+                updated_at_ms,
+            })
             .collect(),
     ))
 }
 
-/// Fetch one conversation's full record (the stored JSON, as-is).
+/// Fetch one conversation through the current privacy projection.
 pub async fn get_one(
     State(s): State<AppState>,
     user: session::AuthUser,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let row: Option<(String,)> = sqlx::query_as(
-        "SELECT json FROM agent_conversations WHERE user_id = $1 AND id = $2",
-    )
-    .bind(&user.0)
-    .bind(&id)
-    .fetch_optional(&s.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let row: Option<(String,)> =
+        sqlx::query_as("SELECT json FROM agent_conversations WHERE user_id = $1 AND id = $2")
+            .bind(&user.0)
+            .bind(&id)
+            .fetch_optional(&s.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let (json,) = row.ok_or(StatusCode::NOT_FOUND)?;
-    serde_json::from_str(&json).map(Json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+    let record = serde_json::from_str(&json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    project_conversation_record(&record, Some(&user.0))
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
-/// Upsert one conversation. `title`/`updatedAt` are lifted out of the record for
-/// cheap listing/merging; the record itself is stored opaquely.
+/// Upsert one conversation after enforcing the shared privacy projection.
 pub async fn put_one(
     State(s): State<AppState>,
     user: session::AuthUser,
     Path(id): Path<String>,
     Json(record): Json<serde_json::Value>,
 ) -> Result<StatusCode, StatusCode> {
+    if record.get("id").and_then(serde_json::Value::as_str) != Some(id.as_str()) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let raw_json = serde_json::to_string(&record).map_err(|_| StatusCode::BAD_REQUEST)?;
+    if raw_json.len() > MAX_BYTES {
+        return Err(StatusCode::PAYLOAD_TOO_LARGE);
+    }
+    let record =
+        project_conversation_record(&record, Some(&user.0)).map_err(|_| StatusCode::BAD_REQUEST)?;
     let json = serde_json::to_string(&record).map_err(|_| StatusCode::BAD_REQUEST)?;
     if json.len() > MAX_BYTES {
         return Err(StatusCode::PAYLOAD_TOO_LARGE);
     }
     let title = record.get("title").and_then(|t| t.as_str()).unwrap_or("");
-    let updated_at_ms = record.get("updatedAt").and_then(|t| t.as_i64()).unwrap_or(0);
+    let updated_at_ms = record
+        .get("updatedAt")
+        .and_then(|t| t.as_i64())
+        .unwrap_or(0);
     sqlx::query(
         "INSERT INTO agent_conversations (user_id, id, title, updated_at_ms, json)
          VALUES ($1, $2, $3, $4, $5)
@@ -111,7 +132,9 @@ pub async fn delete_one(
 mod tests {
     #[tokio::test]
     async fn upsert_and_roundtrip() {
-        let Some(pool) = crate::db::test_pool().await else { return };
+        let Some(pool) = crate::db::test_pool().await else {
+            return;
+        };
         sqlx::query("INSERT INTO users (id, name) VALUES ('hist-test-user', 'tester') ON CONFLICT (id) DO NOTHING")
             .execute(&pool)
             .await

@@ -3,6 +3,7 @@ import { Button, toast } from "../components";
 import { commands } from "../ipc/bindings";
 import { t } from "../i18n";
 import { useChatStore } from "./chatStore";
+import { projectMessagesForPublicShare } from "./conversationPrivacy";
 
 /* ============================================================================
  * ShareButton —— 把当前对话发布到 mc-server 换一个公开链接。分享成功后在头部
@@ -25,7 +26,8 @@ export function ShareButton() {
     if (messages.length === 0 || sharing) return;
     setSharing(true);
     try {
-      const res = await commands.agentShareConversation(JSON.stringify({ messages }));
+      const publicMessages = projectMessagesForPublicShare(messages);
+      const res = await commands.agentShareConversation(JSON.stringify({ messages: publicMessages }));
       if (res.status === "error") {
         toast({ type: "error", message: t("agent.shareFailed", { err: res.error }) });
         return;

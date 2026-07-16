@@ -5,7 +5,6 @@
 <title>kobeMC · 整合包助手对话</title>
 <meta name="description" content="kobeMC 整合包助手的一段分享对话(只读)。">
 <link rel="icon" href="/icon.png">
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
   :root {
     --bg:#16170f; --border:#0c0d0a; --panel:#1d1f15; --panel-2:#2a2c20;
@@ -52,6 +51,8 @@
 <header><img src="/icon.png" alt=""><div><h1 id="title">整合包助手对话</h1><div class="sub">kobeMC · 只读分享</div></div></header>
 <main id="conv"><div class="state" id="state">加载中…</div></main>
 <footer>由 <a href="/">kobeMC</a> 分享 · 只读视图</footer>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"></script>
 <script>
   // API base:数据来自 kobemc-api(纯 JSON),本页只负责解析 + 展示。
   const API = "https://kobemc-api.sma1lboy.me";
@@ -70,7 +71,11 @@
   }
   function md(text) {
     const d = el("div", "md");
-    d.innerHTML = window.marked ? marked.parse(text || "") : (text || "");
+    if (window.marked && window.DOMPurify) {
+      d.innerHTML = DOMPurify.sanitize(marked.parse(text || ""), { USE_PROFILES: { html: true } });
+    } else {
+      d.textContent = text || "";
+    }
     return d;
   }
   function render(conv) {
@@ -85,7 +90,7 @@
       const panel = el("div", "panel");
       (m.parts || []).forEach(function (p) {
         if (p.type === "text") panel.appendChild(md(p.text));
-        else if (p.type === "reasoning") { const d = md(p.text); d.classList.add("reasoning"); panel.appendChild(d); }
+        else if (p.type === "reasoning") return;
         else if (p.type === "tool-ask_user_question") {
           const inp = p.input || {};
           if (inp.question) panel.appendChild(el("div", "ask-q", inp.question));

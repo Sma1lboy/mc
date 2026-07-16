@@ -40,6 +40,67 @@ async fn wiki_search_and_open_use_valid_corpus_cache() {
 }
 
 #[tokio::test]
+async fn wiki_cache_rejects_same_version_chunks_that_fail_privacy_finalization() {
+    let dir = temp_dir("wiki-cache-privacy-boundary");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("guide.md"), "The safe guide mentions moonstone.").unwrap();
+
+    prebuild_wiki_corpus_cache(
+        "privacy-pack".to_string(),
+        Some("local-instance".to_string()),
+        &dir,
+    )
+    .await
+    .unwrap();
+    let cache_path = wiki_corpus_cache_path(&dir);
+    let mut cache: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&cache_path).unwrap()).unwrap();
+    cache["chunks"][0]["content"] =
+        serde_json::json!("password=cache-secret-sentinel /Users/alice/private");
+    cache["chunks"][0]["location"] = serde_json::json!("/Users/alice/private/guide.md:1-2");
+    cache["chunks"][0]["provenance"]["uri"] = serde_json::json!("/Users/alice/private/guide.md");
+    std::fs::write(&cache_path, serde_json::to_vec_pretty(&cache).unwrap()).unwrap();
+
+    let leaked = tool_wiki_search(WikiSearchArgs {
+        modpack_id: "privacy-pack".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        query: "cache-secret-sentinel".to_string(),
+        top_k: Some(5),
+        kind: None,
+        target_id: None,
+        ingredient_id: None,
+        include_structured: None,
+    })
+    .await
+    .unwrap();
+    assert!(
+        leaked.hits.is_empty(),
+        "unsafe same-version cache must be rebuilt"
+    );
+
+    let safe = tool_wiki_search(WikiSearchArgs {
+        modpack_id: "privacy-pack".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        query: "moonstone".to_string(),
+        top_k: Some(5),
+        kind: None,
+        target_id: None,
+        ingredient_id: None,
+        include_structured: None,
+    })
+    .await
+    .unwrap();
+    assert_eq!(safe.hits.len(), 1);
+    assert!(!serde_json::to_string(&safe)
+        .unwrap()
+        .contains("/Users/alice"));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
 async fn wiki_refresh_rebuilds_stale_corpus_cache_in_instance_dir() {
     let dir = temp_dir("wiki-refresh-cache");
     std::fs::create_dir_all(&dir).unwrap();
@@ -174,6 +235,60 @@ async fn wiki_fingerprint_ignores_runtime_dirs_and_uses_cache() {
     .await
     .unwrap();
     assert!(volatile.hits.is_empty(), "logs/saves must not be indexed");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn wiki_cache_rebuilds_previous_release_boundary_version() {
+    let dir = temp_dir("wiki-cache-version-boundary");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("guide.md"), "The fresh guide mentions sunstone.").unwrap();
+
+    prebuild_wiki_corpus_cache(
+        "versioned-pack".to_string(),
+        Some("local-instance".to_string()),
+        &dir,
+    )
+    .await
+    .unwrap();
+    let cache_path = wiki_corpus_cache_path(&dir);
+    let mut cache: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&cache_path).unwrap()).unwrap();
+    assert_eq!(cache["version"].as_u64(), Some(8));
+    cache["version"] = serde_json::json!(7);
+    cache["chunks"][0]["content"] = serde_json::json!("old cache secret sentinel");
+    std::fs::write(&cache_path, serde_json::to_vec_pretty(&cache).unwrap()).unwrap();
+
+    let stale = tool_wiki_search(WikiSearchArgs {
+        modpack_id: "versioned-pack".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        query: "old cache secret sentinel".to_string(),
+        top_k: Some(5),
+        kind: None,
+        target_id: None,
+        ingredient_id: None,
+        include_structured: None,
+    })
+    .await
+    .unwrap();
+    assert!(stale.hits.is_empty(), "version 7 cache must be rebuilt");
+
+    let fresh = tool_wiki_search(WikiSearchArgs {
+        modpack_id: "versioned-pack".to_string(),
+        instance_id: Some("local-instance".to_string()),
+        source_paths: vec![dir.to_string_lossy().to_string()],
+        query: "sunstone".to_string(),
+        top_k: Some(5),
+        kind: None,
+        target_id: None,
+        ingredient_id: None,
+        include_structured: None,
+    })
+    .await
+    .unwrap();
+    assert_eq!(fresh.hits.len(), 1);
 
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -99,6 +99,7 @@ fn chunk_from_content(
         source_label: doc.source_label.clone(),
         location: format!("lines {start_line}-{end_line}"),
         content: content.to_string(),
+        provenance: doc.provenance.clone(),
         kind: doc.kind.clone(),
         structured: doc.structured.clone(),
     }

@@ -36,12 +36,13 @@ export function DeepDiagnosisConfirmationCard(props: {
   const live =
     part.state === "input-available" &&
     (!globalStreaming || pendingLocalToolCallIds.includes(part.toolCallId)) &&
-    context !== null &&
+    Boolean(context?.root) &&
     reason.length > 0 &&
     !busy;
 
   const decide = async (approved: boolean): Promise<void> => {
-    if (!live || !context) return;
+    if (!live || !context?.root) return;
+    const boundContext = { ...context, root: context.root };
     const expectedRunId = captureClientToolRunId(
       conversationId,
       props.msgId,
@@ -51,7 +52,7 @@ export function DeepDiagnosisConfirmationCard(props: {
     setError(null);
     try {
       const result = await decideApprovedAction(approved, () =>
-        executeApprovedDeepDiagnosis(context),
+        executeApprovedDeepDiagnosis(boundContext),
       );
       resolveClientTool(
         conversationId,

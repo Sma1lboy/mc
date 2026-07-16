@@ -10,6 +10,7 @@ name = "mc-server"
 path = "src/main.rs"
 
 [dependencies]
+mc-core = { path = "../mc-core", default-features = false }
 axum = { workspace = true }
 tower-http = { workspace = true }
 # axum 的 TcpListener 需要 tokio net;仅本 crate 追加(其它二进制含桌面端不带 net)。

@@ -121,7 +121,7 @@ fn read_single_mod_jar_structured_documents(
         let Some(content) = read_zip_text_by_name(&mut archive, &name) else {
             continue;
         };
-        let uri = format!("{}!{name}", jar_path.display());
+        let uri = format!("{jar_rel}!{name}");
         if let Some(doc) =
             recipes::recipe_document_from_json(&uri, &jar_rel, &name, &content, &labels)
         {
@@ -132,7 +132,7 @@ fn read_single_mod_jar_structured_documents(
         let Some(content) = read_zip_text_by_name(&mut archive, &name) else {
             continue;
         };
-        let uri = format!("{}!{name}", jar_path.display());
+        let uri = format!("{jar_rel}!{name}");
         if let Some(doc) = recipes::tag_document_from_json(&uri, &jar_rel, &name, &content, &labels)
         {
             docs.push(doc);
@@ -142,7 +142,7 @@ fn read_single_mod_jar_structured_documents(
         let Some(content) = read_zip_text_by_name(&mut archive, &name) else {
             continue;
         };
-        let uri = format!("{}!{name}", jar_path.display());
+        let uri = format!("{jar_rel}!{name}");
         if let Some(doc) = recipes::patchouli_document_from_json(&uri, &jar_rel, &name, &content) {
             docs.push(doc);
         }
@@ -178,8 +178,8 @@ fn read_local_data_structured_documents(
         let Some(content) = read_text_file_bounded(&file, WIKI_FILE_MAX_BYTES) else {
             continue;
         };
-        let uri = file.to_string_lossy().to_string();
         let source_rel = relative_slash_path(root, &file);
+        let uri = source_rel.clone();
         if recipes::is_recipe_entry(&entry_name) {
             if let Some(doc) =
                 recipes::recipe_document_from_json(&uri, &source_rel, &entry_name, &content, labels)

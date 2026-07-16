@@ -519,8 +519,8 @@ export const commands = {
 	/**  Detect the locally-installed Claude Code runtime prerequisites (settings UI). */
 	agentRuntimeDetect: () => typedError<LocalRuntimeStatusDto, string>(__TAURI_INVOKE("agent_runtime_detect")),
 	agentHistoryHydrate: () => typedError<string, string>(__TAURI_INVOKE("agent_history_hydrate")),
-	agentHistorySync: () => typedError<string, string>(__TAURI_INVOKE("agent_history_sync")),
-	agentHistorySave: (id: string, recordJson: string) => typedError<null, string>(__TAURI_INVOKE("agent_history_save", { id, recordJson })),
+	agentHistorySync: (ownerId: string) => typedError<string, string>(__TAURI_INVOKE("agent_history_sync", { ownerId })),
+	agentHistorySave: (id: string, recordJson: string, currentOwnerId: string | null) => typedError<null, string>(__TAURI_INVOKE("agent_history_save", { id, recordJson, currentOwnerId })),
 	/**  是否处于画廊模式(环境变量 `MC_GALLERY` 非空且非 "0")。前端据此决定是否自动跑截图流程。 */
 	galleryEnabled: () => typedError<boolean, string>(__TAURI_INVOKE("gallery_enabled")),
 	/**  抓「main」窗口当前画面到 `<data_dir>/gallery/<name>.png`,返回文件绝对路径。 */
@@ -1829,6 +1829,7 @@ export type WikiChunk_Deserialize = {
 	source_label: string,
 	location: string,
 	content: string,
+	provenance: WikiProvenance,
 	kind?: string | null,
 	structured?: JsonValue | null,
 };
@@ -1840,6 +1841,7 @@ export type WikiChunk_Serialize = {
 	source_label: string,
 	location: string,
 	content: string,
+	provenance: WikiProvenance,
 	kind?: string | null,
 	structured?: JsonValue | null,
 };
@@ -1863,6 +1865,15 @@ export type WikiOpenOutput_Serialize = {
 	scope: WikiScope_Serialize,
 	chunk: WikiChunk_Serialize,
 };
+
+export type WikiProvenance = {
+	origin: WikiProvenanceOrigin,
+	trust: WikiTrust,
+	sensitivity: WikiSensitivity,
+	uri: string,
+};
+
+export type WikiProvenanceOrigin = "local_file" | "archive_entry" | "mod_jar" | "generated" | "provider";
 
 export type WikiScope = WikiScope_Serialize | WikiScope_Deserialize;
 
@@ -1901,6 +1912,7 @@ export type WikiSearchHit_Deserialize = {
 	source_label: string,
 	location: string,
 	score: number | null,
+	provenance: WikiProvenance,
 	kind?: string | null,
 	structured?: JsonValue | null,
 };
@@ -1913,6 +1925,7 @@ export type WikiSearchHit_Serialize = {
 	source_label: string,
 	location: string,
 	score: number | null,
+	provenance: WikiProvenance,
 	kind?: string | null,
 	structured?: JsonValue | null,
 };
@@ -1930,6 +1943,10 @@ export type WikiSearchOutput_Serialize = {
 	source_count: number,
 	hits: WikiSearchHit_Serialize[],
 };
+
+export type WikiSensitivity = "public" | "instance_local" | "redacted";
+
+export type WikiTrust = "untrusted";
 
 /**
  *  单个世界的概要信息(供 UI 列表展示)。

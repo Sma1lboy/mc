@@ -347,10 +347,7 @@ impl ServerClient {
     /// Errors if not logged in / the session expired.
     pub async fn me(&self) -> Result<AuthUser> {
         let path = "/v1/auth/get-session";
-        let resp = self.http.get(self.url(path)).send().await?;
-        if !resp.status().is_success() {
-            return Err(CoreError::Auth(format!("会话无效({})", resp.status())));
-        }
+        let resp = self.send_checked(self.http.get(self.url(path)), path).await?;
         let s: SessionResponse = self.parse_json(resp, path).await?;
         Ok(s.user)
     }

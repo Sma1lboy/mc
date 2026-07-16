@@ -14,6 +14,7 @@ import {
 import { DebugTools } from "./DebugTools";
 import { MessageList } from "./MessageList";
 import { ShareButton } from "./ShareButton";
+import { agentModeFromContext } from "./agentContext";
 import "./chat.css";
 
 /**
@@ -76,7 +77,9 @@ export default function ChatPage() {
   const streaming = useChatStore((s) => s.streaming);
   const queued = useChatStore((s) => s.queued);
   const error = useChatStore((s) => s.error);
+  const toolContext = useChatStore((s) => s.toolContext);
   const pendingDraft = useChatStore((s) => s.draft);
+  const isInstanceAgent = agentModeFromContext(toolContext) === "instance";
   const [draft, setDraft] = useState("");
   const listEl = useRef<HTMLDivElement>(null);
   const inputEl = useRef<HTMLTextAreaElement>(null);
@@ -158,6 +161,12 @@ export default function ChatPage() {
           </Button>
         </div>
       </header>
+
+      {isInstanceAgent && (
+        <div className="shrink-0 px-[28px] py-[8px] border-b border-titlebar bg-panel-2 text-[11px] leading-[1.5] text-muted">
+          {t("agent.instancePrivacyNotice")}
+        </div>
+      )}
 
       <div
         ref={listEl}
