@@ -6,7 +6,7 @@ async fn wiki_search_extracts_structured_recipe_documents_from_mod_jars() {
     let mods_dir = dir.join("mods");
     std::fs::create_dir_all(&mods_dir).unwrap();
     std::fs::write(
-        mods_dir.join("create.jar"),
+        mods_dir.join("create.JAR"),
         zip_bytes(&[
             (
                 "assets/create/lang/en_us.json",
@@ -52,6 +52,24 @@ async fn wiki_search_extracts_structured_recipe_documents_from_mod_jars() {
         .expect("recipe JSON inside mod jar should become a structured wiki hit");
     assert!(hit.title.contains("Andesite Casing"));
     assert_eq!(hit.source_label, "generated:recipe");
+    assert_eq!(format!("{:?}", hit.provenance.origin), "ModJar");
+    assert_eq!(format!("{:?}", hit.provenance.trust), "Untrusted");
+    assert_eq!(format!("{:?}", hit.provenance.sensitivity), "Public");
+    assert!(hit
+        .provenance
+        .uri
+        .starts_with("mods/create.JAR!data/create/recipes/"));
+    assert!(!hit
+        .provenance
+        .uri
+        .contains(&dir.to_string_lossy().to_string()));
+    assert_eq!(
+        hit.structured
+            .as_ref()
+            .and_then(|value| value.pointer("/source/uri"))
+            .and_then(|value| value.as_str()),
+        Some("mods/create.JAR!data/create/recipes/crafting/andesite_casing.json")
+    );
     assert_eq!(
         hit.structured
             .as_ref()
@@ -527,6 +545,12 @@ async fn wiki_search_includes_cached_modpack_project_details() {
         .find(|hit| hit.kind.as_deref() == Some("project_doc"))
         .expect("cached project detail should be indexed as a project doc");
     assert_eq!(hit.source_label, "generated:project-doc");
+    assert_eq!(format!("{:?}", hit.provenance.origin), "Provider");
+    assert_eq!(format!("{:?}", hit.provenance.sensitivity), "Public");
+    assert!(hit
+        .provenance
+        .uri
+        .starts_with("provider://modrinth/project/"));
     assert_eq!(
         hit.structured
             .as_ref()

@@ -17,12 +17,17 @@ use crate::error::{CoreError, Result as CoreResult};
 mod cache;
 mod chunk;
 mod ftb;
+mod privacy;
 mod project;
 mod search;
 mod sources;
 mod structured;
 
 pub use cache::{prebuild_wiki_corpus_cache, refresh_wiki_corpus_cache, wiki_corpus_cache_path};
+
+pub(crate) fn sanitize_private_text(content: &str) -> String {
+    privacy::sanitize_private_text(content)
+}
 
 const WIKI_CORPUS_MAX_BYTES: usize = 128 * 1024 * 1024;
 const WIKI_CORPUS_MAX_DOCUMENTS: usize = 50_000;
@@ -58,6 +63,84 @@ impl WikiScope {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum WikiProvenanceOrigin {
+    LocalFile,
+    ArchiveEntry,
+    ModJar,
+    Generated,
+    Provider,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum WikiTrust {
+    Untrusted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum WikiSensitivity {
+    Public,
+    InstanceLocal,
+    Redacted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+pub struct WikiProvenance {
+    pub origin: WikiProvenanceOrigin,
+    pub trust: WikiTrust,
+    pub sensitivity: WikiSensitivity,
+    pub uri: String,
+}
+
+impl WikiProvenance {
+    fn for_document(source_label: &str, uri: &str, structured: Option<&Value>) -> Self {
+        let source_type = structured
+            .and_then(|value| value.pointer("/source/type"))
+            .and_then(Value::as_str);
+        let source_origin = structured
+            .and_then(|value| value.pointer("/source/origin"))
+            .and_then(Value::as_str);
+        let origin = if source_label == "generated:project-doc" || source_origin == Some("provider")
+        {
+            WikiProvenanceOrigin::Provider
+        } else if source_type == Some("mod_jar") || source_origin == Some("mod_jar") {
+            WikiProvenanceOrigin::ModJar
+        } else if uri.starts_with("archive://") {
+            WikiProvenanceOrigin::ArchiveEntry
+        } else if source_type == Some("generated") {
+            WikiProvenanceOrigin::Generated
+        } else if source_origin == Some("local") {
+            WikiProvenanceOrigin::LocalFile
+        } else if source_label.starts_with("generated:") {
+            WikiProvenanceOrigin::Generated
+        } else {
+            WikiProvenanceOrigin::LocalFile
+        };
+        let sensitivity = if matches!(
+            origin,
+            WikiProvenanceOrigin::ModJar | WikiProvenanceOrigin::Provider
+        ) {
+            WikiSensitivity::Public
+        } else {
+            WikiSensitivity::InstanceLocal
+        };
+        let provenance_uri = structured
+            .and_then(|value| value.pointer("/source/uri"))
+            .and_then(Value::as_str)
+            .unwrap_or(uri)
+            .to_string();
+        Self {
+            origin,
+            trust: WikiTrust::Untrusted,
+            sensitivity,
+            uri: provenance_uri,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WikiSourceDocument {
     pub title: String,
@@ -66,10 +149,12 @@ pub struct WikiSourceDocument {
     pub content: String,
     pub kind: Option<String>,
     pub structured: Option<Value>,
+    pub provenance: WikiProvenance,
 }
 
 impl WikiSourceDocument {
     fn text(title: String, source_label: String, uri: String, content: String) -> Self {
+        let provenance = WikiProvenance::for_document(&source_label, &uri, None);
         Self {
             title,
             source_label,
@@ -77,6 +162,7 @@ impl WikiSourceDocument {
             content,
             kind: None,
             structured: None,
+            provenance,
         }
     }
 
@@ -88,6 +174,7 @@ impl WikiSourceDocument {
         kind: impl Into<String>,
         structured: Value,
     ) -> Self {
+        let provenance = WikiProvenance::for_document(&source_label, &uri, Some(&structured));
         Self {
             title,
             source_label,
@@ -95,6 +182,7 @@ impl WikiSourceDocument {
             content,
             kind: Some(kind.into()),
             structured: Some(structured),
+            provenance,
         }
     }
 }
@@ -133,6 +221,7 @@ pub struct WikiChunk {
     pub source_label: String,
     pub location: String,
     pub content: String,
+    pub provenance: WikiProvenance,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -149,6 +238,7 @@ pub struct WikiSearchHit {
     pub source_label: String,
     pub location: String,
     pub score: f32,
+    pub provenance: WikiProvenance,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -192,6 +282,7 @@ impl WikiCorpus {
         source_count: usize,
         mut documents: Vec<WikiSourceDocument>,
     ) -> CoreResult<Self> {
+        privacy::finalize_wiki_documents(&mut documents, &[]);
         documents.sort_by(|a, b| a.uri.cmp(&b.uri));
         let chunks = documents
             .into_iter()
@@ -270,6 +361,7 @@ impl WikiCorpus {
                     source_label: chunk.source_label.clone(),
                     location: chunk.location.clone(),
                     score,
+                    provenance: chunk.provenance.clone(),
                     kind: chunk.kind.clone(),
                     structured: options
                         .include_structured
@@ -416,6 +508,7 @@ async fn build_wiki_corpus_from_paths(
     .await
     .map_err(|err| CoreError::other(format!("wiki corpus build task failed: {err}")))??;
     documents.extend(project::read_project_wiki_documents(&source_paths).await);
+    privacy::finalize_wiki_documents(&mut documents, &source_paths);
     WikiCorpus::from_documents(scope, source_count, documents)
 }
 

@@ -73,7 +73,7 @@ fn kubejs_recipe_documents_from_script(
     labels: &HashMap<String, String>,
 ) -> Vec<WikiSourceDocument> {
     let source_rel = relative_slash_path(root, file);
-    let file_uri = file.to_string_lossy().to_string();
+    let file_uri = source_rel.clone();
     let mut docs = Vec::new();
 
     for (idx, args) in extract_js_call_arguments(content, "event.remove")

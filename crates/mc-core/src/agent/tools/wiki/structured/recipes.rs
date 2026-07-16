@@ -6,6 +6,10 @@ use super::super::chunk::stable_hex;
 use super::super::WikiSourceDocument;
 
 const TAG_STRUCTURED_VALUES_MAX: usize = 128;
+const UNKNOWN_RECIPE_RAW_MAX_BYTES: usize = 8 * 1024;
+const PATCHOULI_TEXT_MAX_ENTRIES: usize = 64;
+const PATCHOULI_TEXT_MAX_BYTES: usize = 16 * 1024;
+const PATCHOULI_TEXT_ENTRY_MAX_BYTES: usize = 2 * 1024;
 
 pub(super) fn labels_from_lang_json(content: &str) -> HashMap<String, String> {
     let Ok(value) = serde_json::from_str::<HashMap<String, String>>(content) else {
@@ -61,7 +65,7 @@ pub(super) fn recipe_document_from_json(
         "pattern": pattern,
         "grid": grid,
         "source": {
-            "origin": "local",
+            "origin": source_origin_for_uri(uri),
             "type": source_type_for_uri(uri),
             "uri": uri,
             "file": source_rel,
@@ -221,7 +225,7 @@ fn ingredient_value(value: &Value, labels: &HashMap<String, String>) -> Value {
         });
     }
     let Some(object) = value.as_object() else {
-        return serde_json::json!({ "kind": "unknown", "raw": value });
+        return serde_json::json!({ "kind": "unknown", "raw": bounded_json_value(value) });
     };
     if let Some(id) = object
         .get("item")
@@ -241,7 +245,20 @@ fn ingredient_value(value: &Value, labels: &HashMap<String, String>) -> Value {
             "label": format!("#{tag}"),
         });
     }
-    serde_json::json!({ "kind": "unknown", "raw": value })
+    serde_json::json!({ "kind": "unknown", "raw": bounded_json_value(value) })
+}
+
+fn bounded_json_value(value: &Value) -> Value {
+    let Ok(serialized) = serde_json::to_string(value) else {
+        return serde_json::json!({ "omitted": true });
+    };
+    if serialized.len() <= UNKNOWN_RECIPE_RAW_MAX_BYTES {
+        return value.clone();
+    }
+    serde_json::json!({
+        "truncated": true,
+        "original_bytes": serialized.len(),
+    })
 }
 
 fn collect_ingredient_terms(value: Option<&Value>) -> Vec<String> {
@@ -310,7 +327,7 @@ pub(super) fn tag_document_from_json(
         "values_truncated": values_truncated,
         "values": structured_values,
         "source": {
-            "origin": "local",
+            "origin": source_origin_for_uri(uri),
             "type": source_type_for_uri(uri),
             "uri": uri,
             "file": source_rel,
@@ -385,12 +402,14 @@ pub(super) fn patchouli_document_from_json(
         .to_string();
     let mut text_lines = Vec::new();
     collect_patchouli_text(&value, &mut text_lines);
+    let (text_lines, text_truncated) = bounded_patchouli_text(text_lines);
     let structured = serde_json::json!({
         "kind": "patchouli_page",
         "title": title,
         "text": text_lines,
+        "text_truncated": text_truncated,
         "source": {
-            "origin": "local",
+            "origin": source_origin_for_uri(uri),
             "type": source_type_for_uri(uri),
             "uri": uri,
             "file": source_rel,
@@ -416,6 +435,35 @@ pub(super) fn patchouli_document_from_json(
         "patchouli_page",
         structured,
     ))
+}
+
+fn bounded_patchouli_text(lines: Vec<String>) -> (Vec<String>, bool) {
+    let original_len = lines.len();
+    let mut out = Vec::new();
+    let mut total_bytes = 0usize;
+    let mut truncated = original_len > PATCHOULI_TEXT_MAX_ENTRIES;
+    for line in lines.into_iter().take(PATCHOULI_TEXT_MAX_ENTRIES) {
+        let line = bounded_text(&line, PATCHOULI_TEXT_ENTRY_MAX_BYTES);
+        if total_bytes.saturating_add(line.len()) > PATCHOULI_TEXT_MAX_BYTES {
+            truncated = true;
+            break;
+        }
+        truncated |= line.ends_with("[TRUNCATED]");
+        total_bytes += line.len();
+        out.push(line);
+    }
+    (out, truncated)
+}
+
+fn bounded_text(text: &str, max_bytes: usize) -> String {
+    if text.len() <= max_bytes {
+        return text.to_string();
+    }
+    let mut end = max_bytes;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}\n[TRUNCATED]", &text[..end])
 }
 
 fn collect_patchouli_text(value: &Value, out: &mut Vec<String>) {
@@ -493,7 +541,16 @@ fn tag_id_from_entry_name(entry_name: &str) -> Option<String> {
     Some(format!("#{namespace}:{path}"))
 }
 
+fn source_origin_for_uri(uri: &str) -> &'static str {
+    if source_type_for_uri(uri) == "mod_jar" {
+        "mod_jar"
+    } else {
+        "local"
+    }
+}
+
 fn source_type_for_uri(uri: &str) -> &'static str {
+    let uri = uri.to_ascii_lowercase();
     if uri.contains(".jar!") {
         "mod_jar"
     } else if uri.contains("/kubejs/") || uri.starts_with("kubejs/") {

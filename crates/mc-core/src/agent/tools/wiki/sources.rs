@@ -6,6 +6,8 @@ use crate::instance::InstanceConfig;
 use crate::version::pack::PackProfile;
 
 use super::cache::WIKI_CORPUS_CACHE_FILE;
+use super::chunk::stable_hex;
+use super::privacy::{finalize_wiki_documents, sanitize_wiki_text};
 use super::{WikiSourceDocument, WIKI_CORPUS_MAX_BYTES, WIKI_CORPUS_MAX_DOCUMENTS};
 
 pub(super) const INSTANCE_DATA_DIRS: &[&str] = &[
@@ -36,7 +38,9 @@ const INSTANCE_DATA_MAX_ENTRIES: usize = 200;
 pub(super) fn read_local_wiki_documents(paths: &[PathBuf]) -> CoreResult<Vec<WikiSourceDocument>> {
     let mut docs = Vec::new();
     let mut total_bytes = 0usize;
+    let namespace_roots = paths.len() > 1;
     for path in paths {
+        let first_doc = docs.len();
         if !path.exists() {
             return Err(CoreError::other(format!(
                 "wiki source path does not exist: {}",
@@ -76,12 +80,16 @@ pub(super) fn read_local_wiki_documents(paths: &[PathBuf]) -> CoreResult<Vec<Wik
                 };
                 push_bounded_doc(
                     &mut docs,
-                    document_from_parts(file.to_string_lossy().to_string(), content),
+                    document_from_file(path, &file, content),
                     &mut total_bytes,
                 );
             }
         }
+        if namespace_roots {
+            namespace_source_documents(&mut docs[first_doc..], path);
+        }
     }
+    finalize_wiki_documents(&mut docs, paths);
     docs.sort_by(|a, b| a.uri.cmp(&b.uri));
     Ok(docs)
 }
@@ -113,10 +121,7 @@ fn push_bounded_doc(
 }
 
 fn generated_instance_data_document(path: &Path) -> CoreResult<Option<WikiSourceDocument>> {
-    let mut lines = vec![
-        "Current modpack instance data".to_string(),
-        format!("Instance directory: {}", path.display()),
-    ];
+    let mut lines = vec!["Current modpack instance data".to_string()];
     let mut has_data = false;
 
     let instance_config_path = path.join("instance.json");
@@ -129,9 +134,6 @@ fn generated_instance_data_document(path: &Path) -> CoreResult<Option<WikiSource
                 lines.push(format!("Instance name: {name}"));
             }
             lines.push(format!("Memory: {} MB", config.memory_mb));
-            if let Some(server) = config.server.filter(|server| !server.trim().is_empty()) {
-                lines.push(format!("Server: {server}"));
-            }
             if !config.tags.is_empty() {
                 lines.push(format!("Tags: {}", config.tags.join(", ")));
             }
@@ -182,14 +184,15 @@ fn generated_instance_data_document(path: &Path) -> CoreResult<Option<WikiSource
     Ok(Some(WikiSourceDocument::structured(
         "Current modpack instance data".to_string(),
         "generated:instance-data".to_string(),
-        format!("generated://instance-data/{}", path.display()),
+        "generated://instance-data".to_string(),
         lines.join("\n"),
         "instance_data",
         serde_json::json!({
             "kind": "instance_data",
             "source": {
                 "origin": "local",
-                "uri": path.display().to_string(),
+                "type": "generated",
+                "uri": "generated://instance-data",
             },
         }),
     )))
@@ -266,7 +269,7 @@ fn collect_wiki_files_inner(root: &Path, path: &Path, files: &mut Vec<PathBuf>) 
         return Ok(());
     }
     if meta.is_file() {
-        if is_wiki_corpus_cache_file(path) {
+        if is_generic_collector_excluded_file(path) {
             return Ok(());
         }
         if is_allowed_wiki_file(path)? {
@@ -303,10 +306,11 @@ fn read_archive_wiki_texts(path: &Path) -> CoreResult<Vec<WikiSourceDocument>> {
         if file.is_dir() {
             continue;
         }
-        let name = file.name().to_string();
-        if !is_allowed_wiki_archive_entry(&name) {
+        let raw_name = file.name();
+        if !is_allowed_wiki_archive_entry(raw_name) {
             continue;
         }
+        let name = raw_name.replace('\\', "/");
         let mut bytes = Vec::new();
         let read = (&mut file)
             .take(WIKI_FILE_MAX_BYTES + 1)
@@ -321,8 +325,15 @@ fn read_archive_wiki_texts(path: &Path) -> CoreResult<Vec<WikiSourceDocument>> {
         let Ok(content) = String::from_utf8(bytes) else {
             continue;
         };
-        docs.push(document_from_parts(
-            format!("{}!{}", path.display(), name),
+        let Some(content) = sanitize_wiki_text(Path::new(&name), &content) else {
+            continue;
+        };
+        let archive_id = stable_hex(&path.to_string_lossy());
+        let uri = format!("archive://{archive_id}/{name}");
+        docs.push(WikiSourceDocument::text(
+            format!("Archive entry: {name}"),
+            format!("archive:{name}"),
+            uri,
             content,
         ));
     }
@@ -330,7 +341,38 @@ fn read_archive_wiki_texts(path: &Path) -> CoreResult<Vec<WikiSourceDocument>> {
     Ok(docs)
 }
 
-fn document_from_parts(uri: String, content: String) -> WikiSourceDocument {
+fn namespace_source_documents(docs: &mut [WikiSourceDocument], root: &Path) {
+    let prefix = format!("source://{}", stable_hex(&root.to_string_lossy()));
+    for doc in docs {
+        namespace_source_location(&mut doc.uri, &prefix);
+        namespace_source_location(&mut doc.provenance.uri, &prefix);
+        if let Some(serde_json::Value::String(uri)) = doc
+            .structured
+            .as_mut()
+            .and_then(|value| value.pointer_mut("/source/uri"))
+        {
+            namespace_source_location(uri, &prefix);
+        }
+    }
+}
+
+fn namespace_source_location(location: &mut String, prefix: &str) {
+    if location.starts_with("archive://") {
+        return;
+    }
+    let suffix = location.replace("://", "/");
+    *location = format!("{prefix}/{}", suffix.trim_start_matches(['/', '\\']));
+}
+
+fn document_from_file(root: &Path, path: &Path, content: String) -> WikiSourceDocument {
+    let uri = if root == path {
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("local-source")
+            .to_string()
+    } else {
+        relative_slash_path(root, path)
+    };
     WikiSourceDocument::text(uri.clone(), uri.clone(), uri, content)
 }
 
@@ -347,7 +389,8 @@ pub(super) fn read_text_file_bounded(path: &Path, max_bytes: u64) -> Option<Stri
     if bytes.len() as u64 > max_bytes {
         return None;
     }
-    String::from_utf8(bytes).ok()
+    let content = String::from_utf8(bytes).ok()?;
+    sanitize_wiki_text(path, &content)
 }
 
 fn is_allowed_wiki_file(path: &Path) -> CoreResult<bool> {
@@ -365,7 +408,17 @@ fn is_allowed_wiki_file(path: &Path) -> CoreResult<bool> {
 }
 
 fn is_allowed_wiki_archive_entry(name: &str) -> bool {
-    if should_skip_virtual_path(name) {
+    let bytes = name.as_bytes();
+    let unsafe_segment = name.split(|ch| ch == '/' || ch == '\\').any(|segment| {
+        segment == ".." || segment.starts_with('~') || segment.as_bytes().get(1) == Some(&b':')
+    });
+    if name.starts_with('/')
+        || name.starts_with('\\')
+        || bytes.get(1) == Some(&b':')
+        || name.contains("://")
+        || unsafe_segment
+        || should_skip_virtual_path(name)
+    {
         return false;
     }
     let Some(ext) = Path::new(name).extension().and_then(|ext| ext.to_str()) else {
@@ -398,7 +451,7 @@ fn should_descend_wiki_dir(root: &Path, path: &Path) -> bool {
 }
 
 pub(super) fn should_skip_virtual_path(path: &str) -> bool {
-    path.split('/')
+    path.split(['/', '\\'])
         .map(|segment| segment.to_ascii_lowercase())
         .any(|segment| should_skip_path_segment(&segment))
 }
@@ -436,6 +489,16 @@ fn allowed_wiki_extension(ext: &str) -> bool {
             | "yaml"
             | "yml"
     )
+}
+
+fn is_generic_collector_excluded_file(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| {
+            name.eq_ignore_ascii_case("instance.json")
+                || name.eq_ignore_ascii_case(WIKI_CORPUS_CACHE_FILE)
+        })
+        .unwrap_or(false)
 }
 
 pub(super) fn is_wiki_corpus_cache_file(path: &Path) -> bool {

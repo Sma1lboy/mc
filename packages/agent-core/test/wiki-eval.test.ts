@@ -93,5 +93,6 @@ describe("wiki eval helpers", () => {
     const cases = JSON.parse(out.stdout) as Array<{ id: string }>;
     expect(cases.map((item) => item.id)).toContain("recipe-card");
     expect(cases.map((item) => item.id)).toContain("removed-recipe");
+    expect(cases.map((item) => item.id)).toContain("prompt-injection");
   });
 });

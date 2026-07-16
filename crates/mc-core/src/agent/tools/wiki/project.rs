@@ -6,12 +6,15 @@ use crate::error::Result as CoreResult;
 use crate::instance::InstanceConfig;
 use crate::modplatform::modrinth::{ModrinthApi, ProjectDetail};
 
+use super::chunk::stable_hex;
 use super::sources::{regular_dir, regular_file};
 use super::WikiSourceDocument;
 
 const WIKI_PROJECT_CACHE_DIR: &str = ".wiki-project-cache";
 const WIKI_PROJECT_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 3600);
 const WIKI_PROJECT_FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
+const WIKI_PROJECT_DESCRIPTION_MAX_BYTES: usize = 4 * 1024;
+const WIKI_PROJECT_BODY_MAX_BYTES: usize = 32 * 1024;
 
 pub(super) async fn read_project_wiki_documents(
     source_paths: &[PathBuf],
@@ -137,15 +140,24 @@ fn project_detail_document(
     project_id: &str,
     detail: ProjectDetail,
 ) -> WikiSourceDocument {
+    let description = bounded_text(&detail.description, WIKI_PROJECT_DESCRIPTION_MAX_BYTES);
+    let body = bounded_text(&detail.body, WIKI_PROJECT_BODY_MAX_BYTES);
+    let source_uri = format!("provider://{provider}/project/{}", stable_hex(project_id));
     let structured = serde_json::json!({
         "kind": "project_doc",
         "provider": provider,
         "project_id": project_id,
         "title": detail.title,
         "slug": detail.slug,
-        "description": detail.description,
-        "body": detail.body,
+        "description": description,
+        "body": body,
+        "body_truncated": detail.body.len() > WIKI_PROJECT_BODY_MAX_BYTES,
         "categories": detail.categories,
+        "source": {
+            "origin": "provider",
+            "type": provider,
+            "uri": source_uri,
+        },
         "links": {
             "source_url": detail.source_url,
             "issues_url": detail.issues_url,
@@ -193,4 +205,15 @@ fn project_detail_document(
         "project_doc",
         structured,
     )
+}
+
+fn bounded_text(text: &str, max_bytes: usize) -> String {
+    if text.len() <= max_bytes {
+        return text.to_string();
+    }
+    let mut end = max_bytes;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}\n[TRUNCATED]", &text[..end])
 }

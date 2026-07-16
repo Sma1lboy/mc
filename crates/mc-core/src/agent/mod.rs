@@ -7,6 +7,7 @@
 
 mod build;
 pub mod compatibility;
+pub mod conversation_privacy;
 pub mod llm;
 pub mod runtime;
 pub mod tools;

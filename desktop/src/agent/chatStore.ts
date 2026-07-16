@@ -15,7 +15,7 @@ import { create } from "zustand";
 import type { UIMessage } from "ai";
 // Type-only import: erased at build, so the host-agnostic brain (and its `ai`
 // dependency) stays out of the main bundle — the TS path is dynamic-imported below.
-import { setCurrentPage, useAppStore, activeRoot } from "../store";
+import { setCurrentPage, useAppStore, activeRoot, kobeUser } from "../store";
 import { commands } from "../ipc/bindings";
 import { t } from "../i18n";
 import {
@@ -131,12 +131,16 @@ export interface ConversationRecord {
   title: string;
   messages: UIMessage[];
   toolContext?: AgentToolContext | null;
+  ownerId?: string | null;
+  privacyVersion?: number;
 }
 
 const CONV_LIMIT = 50;
 
 async function hydrateConversations(): Promise<void> {
-  const stored = await conversationRepository.hydrate();
+  const stored = await conversationRepository.hydrate(
+    kobeUser()?.id ?? null,
+  );
   const current = useChatStore.getState().conversations;
   useChatStore.setState({ conversations: mergeConversationRecords(current, stored) });
 }
@@ -179,10 +183,20 @@ const coordinator = new AgentRunCoordinator({
 });
 
 function contextWithRoot(context: AgentToolContext | null): AgentToolContext {
-  return {
-    ...(context ?? {}),
-    root: context?.root ?? context?.instance?.root ?? context?.wiki?.root ?? activeRoot(),
-  };
+  const boundRoot = context?.root ?? context?.instance?.root ?? context?.wiki?.root;
+  if (context?.instance || context?.wiki) {
+    return {
+      ...(context ?? {}),
+      ...(boundRoot ? { root: boundRoot } : {}),
+      ...(context?.instance
+        ? { instance: { ...context.instance, ...(boundRoot ? { root: boundRoot } : {}) } }
+        : {}),
+      ...(context?.wiki
+        ? { wiki: { ...context.wiki, ...(boundRoot ? { root: boundRoot } : {}) } }
+        : {}),
+    };
+  }
+  return { ...(context ?? {}), root: boundRoot ?? activeRoot() };
 }
 
 coordinator.openConversation(currentConvId, {
@@ -207,6 +221,7 @@ function saveConversation(conversationId: string): void {
   const list = useChatStore.getState().conversations.slice();
   const i = list.findIndex((c) => c.id === conversationId);
   const createdAt = i >= 0 ? list[i].createdAt : now;
+  const currentOwnerId = kobeUser()?.id ?? null;
   const rec: ConversationRecord = {
     id: conversationId,
     createdAt,
@@ -214,11 +229,12 @@ function saveConversation(conversationId: string): void {
     title: firstUserText(messages).slice(0, 60),
     messages,
     toolContext: runtime.toolContext as AgentToolContext | null,
+    ownerId: i >= 0 ? list[i].ownerId ?? null : currentOwnerId,
   };
   if (i >= 0) list[i] = rec;
   else list.unshift(rec);
   useChatStore.setState({ conversations: list.slice(0, CONV_LIMIT) });
-  conversationRepository.save(rec);
+  conversationRepository.save(rec, currentOwnerId);
 }
 
 /* ——— 云端同步 ———
@@ -232,17 +248,23 @@ export async function syncConversations(): Promise<void> {
   if (syncing) return;
   syncing = true;
   try {
-    const records = await conversationRepository.sync();
+    await hydrationPromise;
+    const currentOwnerId = kobeUser()?.id;
+    if (!currentOwnerId) return;
+    const records = await conversationRepository.sync(currentOwnerId);
+    const current = useChatStore.getState().conversations;
     useChatStore.setState({
-      conversations: mergeConversationRecords(useChatStore.getState().conversations, records),
+      conversations: records ?? current.filter((record) =>
+        record.ownerId == null || record.ownerId === currentOwnerId
+      ),
     });
   } finally {
     syncing = false;
   }
 }
 
-// 先恢复 launcher 本地历史，再让登录态同步补齐跨设备记录。
-void hydrateConversations();
+// 先恢复并迁移 launcher 本地历史，再让登录态同步补齐跨设备记录。
+const hydrationPromise = hydrateConversations();
 
 // 登录态变化即同步:启动时已登录(会话恢复)或用户中途登录都会触发一次。
 useAppStore.subscribe(

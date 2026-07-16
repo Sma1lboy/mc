@@ -60,19 +60,20 @@ export function InstanceChangesCard(props: {
     part.state === "input-available" &&
     (!globalStreaming || pendingLocalToolCallIds.includes(part.toolCallId)) &&
     !busy &&
-    context !== null &&
+    Boolean(context?.root) &&
     normalizedPlan.error === undefined &&
     operations.length > 0;
   const resultByIndex = output?.results ?? progress;
 
   const apply = async (): Promise<void> => {
-    if (!live || !context) return;
+    if (!live || !context?.root) return;
+    const boundContext = { ...context, root: context.root };
     setBusy(true);
     const results: OperationResult[] = [];
     for (const [index, operation] of operations.entries()) {
       setRunningIndex(index);
       try {
-        await runOperation(operation, context);
+        await runOperation(operation, boundContext);
         results.push({ type: operation.type, status: "completed" });
       } catch (error) {
         results.push({ type: operation.type, status: "failed", error: String(error) });
@@ -83,7 +84,7 @@ export function InstanceChangesCard(props: {
     }
     setRunningIndex(null);
     if (results.some((result) => result.status === "completed")) {
-      void commands.rebuildInstanceWikiIndex(context.root, context.instanceId);
+      void commands.rebuildInstanceWikiIndex(boundContext.root, boundContext.instanceId);
     }
     resolveClientTool(conversationId, props.msgId, part.toolCallId, {
       applied: results.every((result) => result.status === "completed"),
@@ -199,7 +200,7 @@ export function InstanceChangesCard(props: {
 
 async function runOperation(
   operation: Operation,
-  context: AgentInstanceContext,
+  context: AgentInstanceContext & { root: string },
 ): Promise<void> {
   switch (operation.type) {
     case "set_memory": {

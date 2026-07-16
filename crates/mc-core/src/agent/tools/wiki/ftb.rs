@@ -9,6 +9,8 @@ use super::sources::{read_text_file_bounded, regular_dir, relative_slash_path};
 use super::WikiSourceDocument;
 
 const FTB_QUESTS_FILE_MAX_BYTES: u64 = 1024 * 1024;
+const FTB_RAW_DOCUMENT_MAX_BYTES: usize = 64 * 1024;
+const FTB_RAW_QUEST_MAX_BYTES: usize = 16 * 1024;
 const FTB_QUESTS_DIRS: &[&str] = &[
     "config/ftbquests",
     "defaultconfigs/ftbquests",
@@ -42,7 +44,10 @@ pub(super) fn read_ftb_quest_documents(root: &Path) -> CoreResult<Vec<WikiSource
             format!("FTB Quests: {rel}"),
             "generated:ftb-quests".to_string(),
             format!("generated://ftb-quests/{rel}"),
-            format!("FTB Quests source file: {rel}\n\n{content}"),
+            format!(
+                "FTB Quests source file: {rel}\n\n{}",
+                bounded_text(&content, FTB_RAW_DOCUMENT_MAX_BYTES)
+            ),
         ));
     }
     Ok(docs)
@@ -124,9 +129,10 @@ fn ftb_quest_documents_from_content(rel: &str, content: &str) -> Vec<WikiSourceD
             lines.push(format!("Quest token: {token}"));
         }
 
+        let bounded_raw = bounded_text(&block, FTB_RAW_QUEST_MAX_BYTES);
         lines.push(String::new());
         lines.push("Raw quest source:".to_string());
-        lines.push(block.clone());
+        lines.push(bounded_raw.clone());
 
         docs.push(WikiSourceDocument::structured(
             format!("FTB Quest: {title} ({rel})"),
@@ -143,7 +149,8 @@ fn ftb_quest_documents_from_content(rel: &str, content: &str) -> Vec<WikiSourceD
                     "type": "ftbquests",
                     "uri": rel,
                 },
-                "raw": block,
+                "raw": bounded_raw,
+                "raw_truncated": block.len() > FTB_RAW_QUEST_MAX_BYTES,
             }),
         ));
     }
@@ -248,6 +255,17 @@ fn value_scan_end(text: &str, start: usize) -> usize {
         }
     }
     end
+}
+
+fn bounded_text(text: &str, max_bytes: usize) -> String {
+    if text.len() <= max_bytes {
+        return text.to_string();
+    }
+    let mut end = max_bytes;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}\n[TRUNCATED]", &text[..end])
 }
 
 fn quoted_strings(text: &str) -> Vec<String> {
