@@ -51,7 +51,10 @@ export default function AppShell(): React.ReactElement {
   const ActiveComponent = route.component;
 
   return (
-    <div className="app-shell grid w-screen h-screen text-fg text-[length:var(--fs-base)] overflow-hidden">
+    <div
+      className="app-shell grid w-screen h-screen text-fg text-[length:var(--fs-base)] overflow-hidden"
+      data-testid="app-shell"
+    >
       <Rail />
       <TopBar />
       {/* body:有右栏时两列(1fr 340px),无右栏时单列铺满 */}
@@ -69,6 +72,7 @@ export default function AppShell(): React.ReactElement {
             return (
               <div
                 key={r.page}
+                data-testid={`page-${r.page}`}
                 className={clsx(
                   "w-full h-full min-w-0 min-h-0 overflow-y-auto overflow-x-hidden",
                   { hidden: currentPage !== r.page },
@@ -80,7 +84,10 @@ export default function AppShell(): React.ReactElement {
           })}
           {/* 非常驻页(实例详情等):按需挂载/卸载。 */}
           {!currentIsKeepAlive && (
-            <div className="w-full h-full min-w-0 min-h-0 overflow-y-auto overflow-x-hidden">
+            <div
+              data-testid={`page-${currentPage}`}
+              className="w-full h-full min-w-0 min-h-0 overflow-y-auto overflow-x-hidden"
+            >
               <ActiveComponent />
             </div>
           )}

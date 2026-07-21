@@ -10,6 +10,7 @@ desktop/node_modules
 
 # Ladle (component story explorer) production build output
 desktop/build
+desktop/e2e/artifacts
 
 # Tauri build artifacts
 desktop/src-tauri/target

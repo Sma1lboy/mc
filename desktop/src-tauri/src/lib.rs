@@ -212,51 +212,54 @@ pub fn run() {
         )
         .expect("failed to export typescript bindings");
 
-    tauri::Builder::default()
-        .setup(|app| {
-            commands::initialize_agent_local_history();
-            #[cfg(target_os = "macos")]
-            {
-                use tauri::Manager;
-                use window_vibrancy::{
-                    apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState,
-                };
-                if let Some(win) = app.get_webview_window("main") {
-                    let _ = apply_vibrancy(
-                        &win,
-                        NSVisualEffectMaterial::HudWindow,
-                        Some(NSVisualEffectState::Active),
-                        None,
-                    );
-                }
+    let app = tauri::Builder::default();
+    #[cfg(feature = "e2e")]
+    let app = app
+        .plugin(tauri_plugin_wdio::init())
+        .plugin(tauri_plugin_wdio_webdriver::init());
+
+    app.setup(|app| {
+        commands::initialize_agent_local_history();
+        #[cfg(target_os = "macos")]
+        {
+            use tauri::Manager;
+            use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = apply_vibrancy(
+                    &win,
+                    NSVisualEffectMaterial::HudWindow,
+                    Some(NSVisualEffectState::Active),
+                    None,
+                );
             }
-            #[cfg(target_os = "windows")]
-            {
-                use tauri::Manager;
-                use window_vibrancy::apply_acrylic;
-                if let Some(win) = app.get_webview_window("main") {
-                    let _ = apply_acrylic(&win, Some((18, 18, 22, 160)));
-                }
+        }
+        #[cfg(target_os = "windows")]
+        {
+            use tauri::Manager;
+            use window_vibrancy::apply_acrylic;
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = apply_acrylic(&win, Some((18, 18, 22, 160)));
             }
-            Ok(())
-        })
-        .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_dialog::init())
-        .manage(commands::RunningGames::default())
-        // 流式聊天 agent 的每会话 transcript(rig 原始 transcript 不过 Tauri 边界)。
-        // Shared tool context for the `agent_tool_*` commands (a TS-side agent loop).
-        .manage(commands::AgentToolsState::default())
-        // Host-owned bounded runtime-diagnostic sessions and temporary snapshots.
-        .manage(commands::DeepDiagnosisState::default())
-        // 本地 agent runtime 的 Node 宿主子进程(claude-code 引擎;同一时刻最多一个)。
-        .manage(commands::AgentHostState::default())
-        // EasyTier 联机会话状态(同一时刻最多一个会话)。
-        .manage(commands::LobbyState::default())
-        // Shared mc-server client — kobeMC auth session cookie persists across calls.
-        .manage(commands::kobe_client())
-        .invoke_handler(builder.invoke_handler())
-        .run(tauri::generate_context!())
-        .expect("error while running mc-launcher");
+        }
+        Ok(())
+    })
+    .plugin(tauri_plugin_shell::init())
+    .plugin(tauri_plugin_dialog::init())
+    .manage(commands::RunningGames::default())
+    // 流式聊天 agent 的每会话 transcript(rig 原始 transcript 不过 Tauri 边界)。
+    // Shared tool context for the `agent_tool_*` commands (a TS-side agent loop).
+    .manage(commands::AgentToolsState::default())
+    // Host-owned bounded runtime-diagnostic sessions and temporary snapshots.
+    .manage(commands::DeepDiagnosisState::default())
+    // 本地 agent runtime 的 Node 宿主子进程(claude-code 引擎;同一时刻最多一个)。
+    .manage(commands::AgentHostState::default())
+    // EasyTier 联机会话状态(同一时刻最多一个会话)。
+    .manage(commands::LobbyState::default())
+    // Shared mc-server client — kobeMC auth session cookie persists across calls.
+    .manage(commands::kobe_client())
+    .invoke_handler(builder.invoke_handler())
+    .run(tauri::generate_context!())
+    .expect("error while running mc-launcher");
 }
 
 #[cfg(test)]
