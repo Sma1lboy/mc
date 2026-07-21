@@ -2,10 +2,25 @@
   "name": "mc-launcher-workspace",
   "private": true,
   "scripts": {
-    "check:lines": "node scripts/check-file-lines.mjs"
+    "check:lines": "node scripts/check-file-lines.mjs",
+    "test:e2e:desktop": "npm --prefix desktop run test:e2e"
   },
   "workspaces": [
     "desktop",
     "packages/*"
-  ]
+  ],
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "@wdio/cli": "^9.29.1",
+    "@wdio/local-runner": "^9.29.1",
+    "@wdio/mocha-framework": "^9.29.1",
+    "@wdio/spec-reporter": "^9.29.1",
+    "@wdio/tauri-plugin": "^1.2.0",
+    "@wdio/tauri-service": "^1.2.0"
+  },
+  "overrides": {
+    "@wdio/tauri-service": {
+      "@wdio/native-utils": "2.5.0"
+    }
+  }
 }

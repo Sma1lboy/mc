@@ -10,6 +10,7 @@ export interface NavItemProps {
   active?: boolean;
   onClick?: (e: MouseEvent) => void;
   title?: string;
+  testId?: string;
   /** 图标(内联 SVG,fill=none stroke=currentColor)。 */
   children: ReactNode;
 }
@@ -21,6 +22,7 @@ export function NavItem(props: NavItemProps): React.ReactElement {
       title={props.title}
       aria-label={props.title}
       aria-current={props.active ? "page" : undefined}
+      data-testid={props.testId}
       onClick={(e) => props.onClick?.(e.nativeEvent)}
       className={`inline-flex items-center justify-center h-[42px] w-[42px] rounded-none border-none cursor-pointer transition-[background-color,color,box-shadow] duration-[var(--dur)] ease-app focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
         props.active
