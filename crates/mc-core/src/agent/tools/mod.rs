@@ -16,6 +16,7 @@ mod deep_diagnosis;
 mod diagnose_instance;
 mod inspect_base_modpack;
 mod install_modpack;
+mod intermed;
 mod list_instances;
 mod mod_get_detail;
 mod resolve_mods;
@@ -34,10 +35,13 @@ pub use deep_diagnosis::*;
 #[cfg(test)]
 pub(crate) use diagnose_instance::diagnose_instance_with_total_memory;
 pub use diagnose_instance::{
-    tool_diagnose_instance, DiagnoseInstanceArgs, DiagnoseInstanceOutput, InstanceDiagnosticSummary,
+    tool_diagnose_instance, tool_diagnose_instance_with_intermed, CompatibilityRemediationSummary,
+    DiagnoseInstanceArgs, DiagnoseInstanceOutput, DiagnosisMode, InstanceDiagnosticSummary,
+    StaticAnalysisStatus, StaticAnalysisSummary,
 };
 pub use inspect_base_modpack::*;
 pub use install_modpack::*;
+pub use intermed::IntermedConfig;
 pub use list_instances::*;
 pub use mod_get_detail::*;
 pub use resolve_mods::*;

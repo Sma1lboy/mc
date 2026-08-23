@@ -30,6 +30,14 @@ jobs:
       - name: Test workspace
         run: cargo test --workspace
 
+      - name: Fetch pinned InterMed analyzer
+        run: bash scripts/fetch-intermed.sh x86_64-unknown-linux-gnu
+
+      - name: InterMed diagnosis E2E
+        env:
+          KOBEMC_INTERMED_BIN: ${{ github.workspace }}/desktop/src-tauri/resources/intermed/intermed
+        run: cargo test -p mc-core intermed_release_e2e -- --ignored
+
   bindings:
     name: IPC Bindings (no drift)
     runs-on: ubuntu-latest

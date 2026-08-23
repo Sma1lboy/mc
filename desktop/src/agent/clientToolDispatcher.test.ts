@@ -3,12 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const ipc = vi.hoisted(() => ({
   buildModpack: vi.fn(async () => ({ status: "ok" as const, data: {} })),
   startDeepDiagnosis: vi.fn(async () => ({ status: "ok" as const, data: {} })),
+  diagnoseInstance: vi.fn(async () => ({ status: "ok" as const, data: {} })),
 }));
 
 vi.mock("../ipc/bindings", () => ({
   commands: {
     agentToolBuildModpack: ipc.buildModpack,
     agentToolStartDeepDiagnosis: ipc.startDeepDiagnosis,
+    agentToolDiagnoseInstance: ipc.diagnoseInstance,
   },
 }));
 
@@ -41,5 +43,20 @@ describe("privileged client-tool boundary", () => {
     expect(isAutomaticClientTool("start_deep_diagnosis")).toBe(false);
     expect(() => runLauncherClientTool("start_deep_diagnosis", {}, instanceContext)).toThrow();
     expect(ipc.startDeepDiagnosis).not.toHaveBeenCalled();
+  });
+
+  it("dispatches explicit static remediation without an interactive approval tool", async () => {
+    expect(isAutomaticClientTool("diagnose_instance")).toBe(true);
+
+    await runLauncherClientTool(
+      "diagnose_instance",
+      { mode: "remediate", include_log_tail: false },
+      instanceContext,
+    );
+
+    expect(ipc.diagnoseInstance).toHaveBeenCalledWith("/game", "pack", {
+      include_log_tail: false,
+      mode: "remediate",
+    });
   });
 });

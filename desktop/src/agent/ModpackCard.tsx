@@ -5,6 +5,7 @@ import { commands } from "../ipc/bindings";
 import { activeRoot } from "../store";
 import { rootFromAgentContext } from "./agentContext";
 import { resolveClientTool, useChatStore } from "./chatStore";
+import { closePostInstallCompatibility } from "./postInstallCompatibility";
 
 /* ============================================================================
  * ModpackCard —— 渲染 `show_modpack`(原生 client-side tool)的可安装整合包卡片。
@@ -36,6 +37,11 @@ interface ShowInput {
 interface ShowOutput {
   installed?: boolean;
   instance_id?: string;
+  compatibility?: {
+    static_analysis?: { status?: string } | null;
+    remediation?: { disabled_mods?: string[]; static_compatible?: boolean } | null;
+  };
+  compatibility_error?: string;
 }
 
 export function ModpackCard(props: {
@@ -86,9 +92,13 @@ export function ModpackCard(props: {
           null,
         );
     if (res.status === "ok") {
+      const diagnosis = await closePostInstallCompatibility(root, res.data.instance_id);
       resolveClientTool(conversationId, props.msgId, part.toolCallId, {
         installed: true,
         instance_id: res.data.instance_id,
+        ...(diagnosis.status === "ok"
+          ? { compatibility: diagnosis.data }
+          : { compatibility_error: diagnosis.error }),
       });
     } else {
       setBusy(false);
@@ -119,10 +129,13 @@ export function ModpackCard(props: {
       </div>
 
       {done ? (
-        <div className="text-[12.5px] leading-[1.5] text-sub">
-          {output?.installed
-            ? t("agent.packInstalled", { id: output.instance_id ?? "" })
-            : t("agent.packSkipped")}
+        <div className="flex flex-col gap-[3px] text-[12.5px] leading-[1.5] text-sub">
+          <div>
+            {output?.installed
+              ? t("agent.packInstalled", { id: output.instance_id ?? "" })
+              : t("agent.packSkipped")}
+          </div>
+          {output?.installed && <CompatibilityResult output={output} />}
         </div>
       ) : (
         <div className="flex items-center gap-[8px]">
@@ -150,6 +163,30 @@ export function ModpackCard(props: {
           {t("agent.packInstallFailed", { err: error })}
         </div>
       )}
+    </div>
+  );
+}
+
+function CompatibilityResult(props: { output: ShowOutput }): React.ReactElement {
+  const status = props.output.compatibility?.static_analysis?.status;
+  const disabled = props.output.compatibility?.remediation?.disabled_mods?.length ?? 0;
+  const label = props.output.compatibility_error
+    ? t("agent.packStaticUnavailable")
+    : status === "healthy"
+      ? t("agent.packStaticHealthy")
+      : status === "warning"
+        ? t("agent.packStaticWarning")
+        : status === "blocked"
+          ? t("agent.packStaticBlocked")
+          : status === "incomplete"
+            ? t("agent.packStaticIncomplete")
+            : t("agent.packStaticUnavailable");
+  const tone =
+    status === "healthy" ? "text-accent" : status === "blocked" ? "text-danger-text" : "text-muted";
+  return (
+    <div className={tone}>
+      {label}
+      {disabled > 0 && ` · ${t("agent.packStaticRemediated", { n: String(disabled) })}`}
     </div>
   );
 }

@@ -142,6 +142,8 @@ describe("runTurn", () => {
     ).toBe(false);
     expect(schemas.resolve_mods.safeParse({ project_ids: ["sodium"] }).success).toBe(true);
     expect(schemas.diagnose_instance.safeParse({ include_log_tail: true }).success).toBe(true);
+    expect(schemas.diagnose_instance.safeParse({ mode: "remediate" }).success).toBe(true);
+    expect(schemas.diagnose_instance.safeParse({ mode: "rewrite_mod_code" }).success).toBe(false);
     expect(schemas.diagnose_instance.safeParse({ instance_id: "pack" }).success).toBe(false);
     expect(
       schemas.confirm_deep_diagnosis.safeParse({ reason: "Static diagnosis was inconclusive" })
@@ -194,6 +196,8 @@ describe("runTurn", () => {
     expect(prompt).toContain("wiki_search");
     expect(prompt).toContain("wiki_open");
     expect(prompt).toContain("diagnose_instance");
+    expect(prompt).toContain('mode: "remediate"');
+    expect(prompt).toContain("never describe static compatibility as runtime launch success");
     expect(prompt).toContain("show_instance_changes");
     expect(prompt).toContain("confirm_deep_diagnosis");
     expect(prompt).toContain("run_diagnostic_trial");

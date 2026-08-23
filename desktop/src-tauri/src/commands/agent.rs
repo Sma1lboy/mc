@@ -341,11 +341,14 @@ pub async fn agent_tool_list_instances(root: String) -> CmdResult<ListInstancesO
 #[tauri::command]
 #[specta::specta]
 pub async fn agent_tool_diagnose_instance(
+    app: AppHandle,
     root: String,
     id: String,
     args: DiagnoseInstanceArgs,
 ) -> CmdResult<DiagnoseInstanceOutput> {
-    tool_diagnose_instance(&root_paths(&root), &id, args)
+    let resource_dir = app.path().resource_dir().ok();
+    let intermed = bundled_intermed_config(resource_dir.as_deref());
+    tool_diagnose_instance_with_intermed(&root_paths(&root), &id, args, intermed.as_ref())
         .await
         .map_err(err)
 }

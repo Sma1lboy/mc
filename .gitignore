@@ -20,6 +20,12 @@ desktop/src-tauri/gen
 desktop/src-tauri/resources/easytier/*
 !desktop/src-tauri/resources/easytier/README.md
 
+# Bundled InterMed executable and version stamp. Keep the documentation and
+# upstream license in git; release CI fetches or builds the pinned binary.
+desktop/src-tauri/resources/intermed/*
+!desktop/src-tauri/resources/intermed/README.md
+!desktop/src-tauri/resources/intermed/LICENSE
+
 # Secrets / local env
 .env
 **/.env

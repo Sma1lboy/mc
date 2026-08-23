@@ -18,11 +18,13 @@ use super::fake_provider::{
 use super::{
     apply_diagnostic_operations, create_diagnostic_snapshot, diagnose_instance_with_total_memory,
     prebuild_wiki_corpus_cache, refresh_wiki_corpus_cache, tool_build_modpack,
+    tool_diagnose_instance_with_intermed,
     tool_inspect_base_modpack, tool_mod_get_detail, tool_resolve_mods, tool_search_base_modpacks,
     tool_search_mods, tool_validate_modpack_plan, tool_wiki_open, tool_wiki_search,
     wiki_corpus_cache_path, BuildBasePack, BuildModRef, BuildModpackArgs, BuildTarget,
-    ChatToolsCtx, DiagnoseInstanceArgs, DiagnosticTrialOperation, InspectBaseModpackArgs,
-    LocalPathWikiSource, ModGetDetailArgs, ResolveModsArgs, SearchBaseModpacksArgs, SearchModsArgs,
+    ChatToolsCtx, DiagnoseInstanceArgs, DiagnosisMode, DiagnosticTrialOperation,
+    InspectBaseModpackArgs, IntermedConfig, LocalPathWikiSource, ModGetDetailArgs,
+    ResolveModsArgs, SearchBaseModpacksArgs, SearchModsArgs, StaticAnalysisStatus,
     ValidateModpackPlanArgs, WikiCorpus, WikiOpenArgs, WikiScope, WikiSearchArgs,
 };
 

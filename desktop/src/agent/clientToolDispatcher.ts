@@ -206,6 +206,7 @@ function diagnoseArgs(args: unknown): never {
   const input = objectArgs(args);
   return {
     include_log_tail: input.include_log_tail === true,
+    mode: input.mode === "remediate" ? "remediate" : "inspect",
   } as never;
 }
 

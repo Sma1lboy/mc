@@ -695,6 +695,20 @@ export type CompatibilityIssue_Serialize = {
 	suggested_actions?: SuggestedAction_Serialize[],
 };
 
+export type CompatibilityRemediationSummary = CompatibilityRemediationSummary_Serialize | CompatibilityRemediationSummary_Deserialize;
+
+export type CompatibilityRemediationSummary_Deserialize = {
+	passes: number,
+	static_compatible: boolean,
+	disabled_mods?: string[],
+};
+
+export type CompatibilityRemediationSummary_Serialize = {
+	passes: number,
+	static_compatible: boolean,
+	disabled_mods?: string[],
+};
+
 export type CompatibilityReport = CompatibilityReport_Serialize | CompatibilityReport_Deserialize;
 
 export type CompatibilityReport_Deserialize = {
@@ -723,6 +737,7 @@ export type DeviceCodeDto = {
 
 export type DiagnoseInstanceArgs = {
 	include_log_tail?: boolean,
+	mode?: DiagnosisMode,
 };
 
 export type DiagnoseInstanceOutput = DiagnoseInstanceOutput_Serialize | DiagnoseInstanceOutput_Deserialize;
@@ -730,14 +745,20 @@ export type DiagnoseInstanceOutput = DiagnoseInstanceOutput_Serialize | Diagnose
 export type DiagnoseInstanceOutput_Deserialize = {
 	instance: InstanceDiagnosticSummary,
 	report: CompatibilityReport_Deserialize,
+	static_analysis?: StaticAnalysisSummary_Deserialize | null,
+	remediation?: CompatibilityRemediationSummary_Deserialize | null,
 	log_tail?: string | null,
 };
 
 export type DiagnoseInstanceOutput_Serialize = {
 	instance: InstanceDiagnosticSummary,
 	report: CompatibilityReport_Serialize,
+	static_analysis?: StaticAnalysisSummary_Serialize | null,
+	remediation?: CompatibilityRemediationSummary_Serialize | null,
 	log_tail?: string | null,
 };
+
+export type DiagnosisMode = "inspect" | "remediate";
 
 export type DiagnosticTrialAnalysis = {
 	category: string,
@@ -1678,6 +1699,30 @@ export type StartDeepDiagnosisOutput = {
 	baseline: DiagnosticTrialResult,
 	max_trials: number,
 	sandbox_scope: string,
+};
+
+export type StaticAnalysisStatus = "healthy" | "warning" | "blocked" | "incomplete" | "unavailable";
+
+export type StaticAnalysisSummary = StaticAnalysisSummary_Serialize | StaticAnalysisSummary_Deserialize;
+
+export type StaticAnalysisSummary_Deserialize = {
+	status: StaticAnalysisStatus,
+	scanner: string,
+	tool_version?: string | null,
+	schema?: string | null,
+	findings_total: number,
+	passes: number,
+	message?: string | null,
+};
+
+export type StaticAnalysisSummary_Serialize = {
+	status: StaticAnalysisStatus,
+	scanner: string,
+	tool_version?: string | null,
+	schema?: string | null,
+	findings_total: number,
+	passes: number,
+	message?: string | null,
 };
 
 export type SuggestedAction = SuggestedAction_Serialize | SuggestedAction_Deserialize;

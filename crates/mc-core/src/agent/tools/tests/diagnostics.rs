@@ -240,6 +240,7 @@ fn diagnose_instance_reports_structural_and_log_issues() {
         "forge-pack",
         DiagnoseInstanceArgs {
             include_log_tail: true,
+            mode: DiagnosisMode::Inspect,
         },
         16_384,
     )
@@ -279,6 +280,7 @@ fn diagnose_instance_uses_logs_without_exposing_tail_by_default() {
         "forge-pack",
         DiagnoseInstanceArgs {
             include_log_tail: false,
+            mode: DiagnosisMode::Inspect,
         },
         16_384,
     )
@@ -290,6 +292,81 @@ fn diagnose_instance_uses_logs_without_exposing_tail_by_default() {
         .issues
         .iter()
         .any(|issue| issue.code == "last_launch_crash"));
+
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn intermed_diagnosis_fails_closed_when_scanner_is_unavailable() {
+    let root = temp_dir("intermed-unavailable");
+    let paths = write_diagnostic_instance(&root);
+
+    let output = tool_diagnose_instance_with_intermed(
+        &paths,
+        "forge-pack",
+        DiagnoseInstanceArgs {
+            include_log_tail: false,
+            mode: DiagnosisMode::Inspect,
+        },
+        None,
+    )
+    .await
+    .unwrap();
+
+    let analysis = output.static_analysis.unwrap();
+    assert_eq!(analysis.status, StaticAnalysisStatus::Unavailable);
+    assert_eq!(output.report.status, CompatibilityStatus::Blocked);
+    assert!(output
+        .report
+        .issues
+        .iter()
+        .any(|issue| issue.code == "intermed_unavailable"));
+
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires the pinned InterMed release binary"]
+async fn intermed_release_e2e_remediates_and_rescans() {
+    let binary = std::env::var_os("KOBEMC_INTERMED_BIN")
+        .map(std::path::PathBuf::from)
+        .expect("KOBEMC_INTERMED_BIN must point to the pinned release binary");
+    let root = temp_dir("intermed-release-e2e");
+    let paths = write_diagnostic_instance(&root);
+    let config = IntermedConfig {
+        binary,
+        cache_dir: root.join("intermed-cache"),
+    };
+
+    let output = tool_diagnose_instance_with_intermed(
+        &paths,
+        "forge-pack",
+        DiagnoseInstanceArgs {
+            include_log_tail: false,
+            mode: DiagnosisMode::Remediate,
+        },
+        Some(&config),
+    )
+    .await
+    .unwrap();
+
+    let analysis = output.static_analysis.unwrap();
+    assert!(matches!(
+        analysis.status,
+        StaticAnalysisStatus::Healthy | StaticAnalysisStatus::Warning
+    ));
+    assert!(analysis.passes >= 2);
+    let remediation = output.remediation.unwrap();
+    assert!(remediation.static_compatible);
+    assert_eq!(remediation.disabled_mods.len(), 2);
+    assert!(paths
+        .version_dir("forge-pack")
+        .join("mods/duplicate-one.jar.disabled")
+        .is_file());
+    assert!(paths
+        .version_dir("forge-pack")
+        .join("mods/duplicate-two.jar.disabled")
+        .is_file());
 
     std::fs::remove_dir_all(root).unwrap();
 }

@@ -11,6 +11,7 @@ mod agent;
 mod account;
 mod content;
 mod instance;
+mod intermed;
 mod kobe;
 mod game;
 mod lobby;
@@ -39,7 +40,8 @@ use std::sync::{Arc, Mutex};
 
 use mc_core::agent::tools::{
     apply_diagnostic_operations, cleanup_diagnostic_session, clone_diagnostic_snapshot,
-    create_diagnostic_snapshot, refresh_wiki_corpus_cache, tool_build_modpack, tool_diagnose_instance,
+    create_diagnostic_snapshot, refresh_wiki_corpus_cache, tool_build_modpack,
+    tool_diagnose_instance_with_intermed,
     tool_inspect_base_modpack, tool_install_modpack, tool_list_instances, tool_mod_get_detail,
     tool_resolve_mods, tool_search_base_modpacks, tool_search_mods, tool_validate_modpack_plan,
     tool_wiki_open, tool_wiki_search, BuildModpackArgs, BuildModpackOutput, DiagnoseInstanceArgs,
@@ -61,7 +63,7 @@ use mc_core::types::{
 };
 use mc_core::{auth, java, meta, paths, LAUNCHER_NAME, LAUNCHER_VERSION};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::{oneshot, watch};
 
 type CmdResult<T> = Result<T, String>;
@@ -71,6 +73,7 @@ fn err<E: std::fmt::Display>(e: E) -> String {
 }
 
 use mc_core::paths::{exe_dir, local_data_dir as data_dir};
+use intermed::bundled_intermed_config;
 
 fn default_root() -> PathBuf {
     let roots = paths::discover_roots(&exe_dir(), &data_dir(), &custom_roots());
