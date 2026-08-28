@@ -165,4 +165,159 @@ describe("local runtime protocol", () => {
     protocol.handle({ type: "done", providerSessionId: "session-A", conversationId: "A", runId: "run-A" });
     await running;
   });
+
+  it("settles an aborted turn after a bounded grace period when the host never replies", async () => {
+    vi.useFakeTimers();
+    try {
+      const sent: LocalRuntimeOutboundMessage[] = [];
+      const onUpdate = vi.fn();
+      const protocol = createLocalRuntimeProtocol({
+        send: async (message) => void sent.push(message),
+        isInteractiveTool: () => false,
+        runAutomaticTool: async () => null,
+        waitForInteractiveTool: async () => null,
+        cancellationGraceMs: 25,
+      });
+      const runRequest = request("A", "run-A", null, onUpdate);
+      const running = protocol.run(runRequest, "build", "session-A");
+      let settled = false;
+      void running.then(() => {
+        settled = true;
+      });
+      await Promise.resolve();
+
+      runRequest.binding.abortController.abort();
+      expect(sent).toContainEqual({
+        type: "abort",
+        providerSessionId: "session-A",
+        conversationId: "A",
+        runId: "run-A",
+      });
+      await vi.advanceTimersByTimeAsync(25);
+      await Promise.resolve();
+
+      expect(settled).toBe(true);
+      protocol.handle({
+        type: "update",
+        providerSessionId: "session-A",
+        conversationId: "A",
+        runId: "run-A",
+        message: assistant("late", "ignored"),
+      });
+      expect(onUpdate).not.toHaveBeenCalled();
+      await running;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("deduplicates tool calls and suppresses their result after the run terminates", async () => {
+    const sent: LocalRuntimeOutboundMessage[] = [];
+    let resolveAutomatic!: (result: unknown) => void;
+    const automatic = vi.fn(
+      () => new Promise<unknown>((resolve) => {
+        resolveAutomatic = resolve;
+      }),
+    );
+    const protocol = createLocalRuntimeProtocol({
+      send: async (message) => void sent.push(message),
+      isInteractiveTool: () => false,
+      runAutomaticTool: automatic,
+      waitForInteractiveTool: async () => null,
+    });
+    const running = protocol.run(request("A", "run-A", null), "build", "session-A");
+    await Promise.resolve();
+    const toolCall = {
+      type: "tool_call" as const,
+      providerSessionId: "session-A",
+      conversationId: "A",
+      runId: "run-A",
+      toolCallId: "tool-1",
+      name: "list_instances",
+      args: {},
+    };
+
+    protocol.handle(toolCall);
+    protocol.handle(toolCall);
+    expect(automatic).toHaveBeenCalledTimes(1);
+
+    protocol.handle({
+      type: "done",
+      providerSessionId: "session-A",
+      conversationId: "A",
+      runId: "run-A",
+    });
+    await running;
+    resolveAutomatic({ instances: [] });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(sent.filter((message) => message.type === "tool_result")).toEqual([]);
+  });
+
+  it("cleans up the turn when sending a tool result fails", async () => {
+    const protocol = createLocalRuntimeProtocol({
+      send: async (message) => {
+        if (message.type === "tool_result") throw new Error("tool result pipe closed");
+      },
+      isInteractiveTool: () => false,
+      runAutomaticTool: async () => ({ instances: [] }),
+      waitForInteractiveTool: async () => null,
+    });
+    const running = protocol.run(request("A", "run-A", null), "build", "session-A");
+    await Promise.resolve();
+
+    protocol.handle({
+      type: "tool_call",
+      providerSessionId: "session-A",
+      conversationId: "A",
+      runId: "run-A",
+      toolCallId: "tool-1",
+      name: "list_instances",
+      args: {},
+    });
+
+    await expect(running).resolves.toMatchObject({ error: "tool result pipe closed" });
+  });
+
+  it("converts a synchronous tool failure into one routed error result", async () => {
+    const sent: LocalRuntimeOutboundMessage[] = [];
+    const protocol = createLocalRuntimeProtocol({
+      send: async (message) => void sent.push(message),
+      isInteractiveTool: () => false,
+      runAutomaticTool: () => {
+        throw new Error("tool exploded");
+      },
+      waitForInteractiveTool: async () => null,
+    });
+    const running = protocol.run(request("A", "run-A", null), "build", "session-A");
+    await Promise.resolve();
+
+    expect(() => protocol.handle({
+      type: "tool_call",
+      providerSessionId: "session-A",
+      conversationId: "A",
+      runId: "run-A",
+      toolCallId: "tool-1",
+      name: "list_instances",
+      args: {},
+    })).not.toThrow();
+    await vi.waitFor(() => expect(sent).toContainEqual({
+      type: "tool_result",
+      providerSessionId: "session-A",
+      conversationId: "A",
+      runId: "run-A",
+      toolCallId: "tool-1",
+      ok: false,
+      error: "tool exploded",
+    }));
+
+    protocol.handle({
+      type: "done",
+      providerSessionId: "session-A",
+      conversationId: "A",
+      runId: "run-A",
+    });
+    await running;
+  });
 });

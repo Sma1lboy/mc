@@ -1,6 +1,10 @@
 import type { UIMessage } from "ai";
 import type { AgentMode } from "@kobemc/agent-core";
-import type { AgentProviderRunRequest, AgentRunBinding } from "./runCoordinator";
+import {
+  DEFAULT_CANCELLATION_GRACE_MS,
+  type AgentProviderRunRequest,
+  type AgentRunBinding,
+} from "./runCoordinator";
 
 export type LocalRuntimeOutboundMessage =
   | {
@@ -57,6 +61,8 @@ interface ActiveTurn {
   assistant?: UIMessage;
   finish: (done: { error?: string; promptVersion?: string }) => void;
   removeAbortListener: () => void;
+  cancellationTimer?: ReturnType<typeof setTimeout>;
+  toolCallIds: Set<string>;
 }
 
 interface LocalRuntimeProtocolOptions {
@@ -68,6 +74,7 @@ interface LocalRuntimeProtocolOptions {
     name: string,
     toolCallId: string,
   ) => Promise<unknown>;
+  cancellationGraceMs?: number;
 }
 
 export function createLocalRuntimeProtocol(options: LocalRuntimeProtocolOptions) {
@@ -95,14 +102,27 @@ export function createLocalRuntimeProtocol(options: LocalRuntimeProtocolOptions)
       return Promise.resolve({ messages: request.history, error: "run already active" });
     }
     return new Promise((resolve) => {
+      let turn: ActiveTurn;
+      let abortSent = false;
       const abort = () => {
-        void options.send({ type: "abort", providerSessionId, conversationId, runId });
+        if (abortSent) return;
+        abortSent = true;
+        turn.cancellationTimer = setTimeout(
+          () => turn.finish({}),
+          Math.max(0, options.cancellationGraceMs ?? DEFAULT_CANCELLATION_GRACE_MS),
+        );
+        sendSafely(
+          { type: "abort", providerSessionId, conversationId, runId },
+          () => turn.finish({}),
+        );
       };
       request.signal.addEventListener("abort", abort, { once: true });
-      const turn: ActiveTurn = {
+      turn = {
         request,
         finish: (done) => {
-          if (!active.delete(activeKey)) return;
+          if (active.get(activeKey) !== turn) return;
+          active.delete(activeKey);
+          if (turn.cancellationTimer) clearTimeout(turn.cancellationTimer);
           turn.removeAbortListener();
           resolve({
             messages: turn.assistant ? [...request.history, turn.assistant] : request.history,
@@ -111,36 +131,65 @@ export function createLocalRuntimeProtocol(options: LocalRuntimeProtocolOptions)
           });
         },
         removeAbortListener: () => request.signal.removeEventListener("abort", abort),
+        toolCallIds: new Set(),
       };
       active.set(activeKey, turn);
-      void Promise.resolve(
-        options.send({
+      if (request.signal.aborted) {
+        abort();
+        return;
+      }
+      sendSafely(
+        {
           type: "turn",
           providerSessionId,
           conversationId,
           runId,
           text: newestUserText(request.history),
           mode,
-        }),
-      ).catch((error) =>
-        turn.finish({ error: error instanceof Error ? error.message : String(error) }),
+        },
+        (error) =>
+          turn.finish({ error: error instanceof Error ? error.message : String(error) }),
       );
     });
   }
 
+  function sendSafely(
+    message: LocalRuntimeOutboundMessage,
+    onError: (error: unknown) => void,
+  ): void {
+    try {
+      void Promise.resolve(options.send(message)).catch(onError);
+    } catch (error) {
+      onError(error);
+    }
+  }
+
   function handleToolCall(message: Extract<LocalRuntimeInboundMessage, { type: "tool_call" }>) {
-    const turn = active.get(key(message.providerSessionId, message.conversationId, message.runId));
-    if (!turn) return;
-    const execution = options.isInteractiveTool(message.name)
-      ? options.waitForInteractiveTool(turn.request.binding, message.name, message.toolCallId)
-      : options.runAutomaticTool(
-          message.name,
-          message.args,
-          turn.request.binding.toolContext,
-        );
+    const activeKey = key(message.providerSessionId, message.conversationId, message.runId);
+    const turn = active.get(activeKey);
+    if (!turn || turn.toolCallIds.has(message.toolCallId)) return;
+    turn.toolCallIds.add(message.toolCallId);
+    let execution: Promise<unknown>;
+    try {
+      execution = options.isInteractiveTool(message.name)
+        ? options.waitForInteractiveTool(turn.request.binding, message.name, message.toolCallId)
+        : options.runAutomaticTool(
+            message.name,
+            message.args,
+            turn.request.binding.toolContext,
+          );
+    } catch (error) {
+      execution = Promise.reject(error);
+    }
+    const sendResult = (outbound: LocalRuntimeOutboundMessage) => {
+      if (active.get(activeKey) !== turn || turn.request.signal.aborted) return;
+      sendSafely(outbound, (error) =>
+        turn.finish({ error: error instanceof Error ? error.message : String(error) }),
+      );
+    };
     void execution.then(
       (result) =>
-        options.send({
+        sendResult({
           type: "tool_result",
           providerSessionId: message.providerSessionId,
           conversationId: message.conversationId,
@@ -150,7 +199,7 @@ export function createLocalRuntimeProtocol(options: LocalRuntimeProtocolOptions)
           result,
         }),
       (error) =>
-        options.send({
+        sendResult({
           type: "tool_result",
           providerSessionId: message.providerSessionId,
           conversationId: message.conversationId,

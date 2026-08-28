@@ -1,5 +1,7 @@
 import type { UIMessage } from "ai";
 
+export const DEFAULT_CANCELLATION_GRACE_MS = 1_000;
+
 export interface AgentProviderSession {
   run(
     request: AgentProviderRunRequest,
@@ -59,6 +61,7 @@ interface CoordinatorOptions {
   onSelectedChange?: (state: ConversationRunState) => void;
   makeRunId: () => string;
   makeMessageId: () => string;
+  cancellationGraceMs?: number;
 }
 
 export class AgentRunCoordinator {
@@ -68,6 +71,7 @@ export class AgentRunCoordinator {
   private readonly interactiveResolvers = new Map<string, InteractiveResolver>();
   private readonly interactiveRunOwners = new Map<string, string>();
   private readonly interactiveMessageOwners = new Map<string, string>();
+  private readonly runAbortControllers = new Map<string, AbortController>();
   private selectedId: string | null = null;
 
   constructor(private readonly options: CoordinatorOptions) {}
@@ -145,10 +149,13 @@ export class AgentRunCoordinator {
 
   cancelConversation(conversationId: string): void {
     const run = this.latestRuns.get(conversationId);
-    if (!run || run.status !== "active") return;
-    run.status = "cancelled";
-    run.binding.abortController.abort();
-    this.rejectInteractiveForRun(run, new Error("agent run cancelled"));
+    const abortController = this.runAbortControllers.get(conversationId);
+    if ((!run || run.status !== "active") && !abortController) return;
+    if (run?.status === "active") {
+      run.status = "cancelled";
+      this.rejectInteractiveForRun(run, new Error("agent run cancelled"));
+    }
+    abortController?.abort();
     const state = this.requireConversation(conversationId);
     this.emit(state);
   }
@@ -291,6 +298,8 @@ export class AgentRunCoordinator {
 
   private async runHistory(conversationId: string, initialHistory: UIMessage[]): Promise<void> {
     const state = this.requireConversation(conversationId);
+    const abortController = new AbortController();
+    this.runAbortControllers.set(conversationId, abortController);
     let history = initialHistory;
     state.messages = history;
     state.streaming = true;
@@ -300,10 +309,18 @@ export class AgentRunCoordinator {
 
     let run: RunRecord | null = null;
     try {
-      const providerSession = await this.providerSession(conversationId, state.toolContext);
+      const providerSession = await awaitWithBoundedCancellation(
+        this.providerSession(conversationId, state.toolContext),
+        abortController.signal,
+        this.options.cancellationGraceMs ?? DEFAULT_CANCELLATION_GRACE_MS,
+      );
+      if (providerSession === CANCELLED) {
+        this.providerSessions.delete(conversationId);
+        return;
+      }
+      if (abortController.signal.aborted) return;
       const previous = this.latestRuns.get(conversationId);
       if (previous) previous.status = "superseded";
-      const abortController = new AbortController();
       const binding: AgentRunBinding = Object.freeze({
         conversationId,
         runId: this.options.makeRunId(),
@@ -316,17 +333,22 @@ export class AgentRunCoordinator {
       this.latestRuns.set(conversationId, activeRun);
       while (activeRun.status === "active") {
         const inputHistory = history;
-        const result = await providerSession.run({
-          binding,
-          history: inputHistory,
-          signal: abortController.signal,
-          onUpdate: (assistant) => {
-            if (!canRouteEvent(activeRun.status)) return;
-            state.messages = [...inputHistory, assistant];
-            this.bindInteractiveMessageOwnersFromMessage(activeRun, assistant);
-            this.emit(state);
-          },
-        });
+        const result = await awaitWithBoundedCancellation(
+          providerSession.run({
+            binding,
+            history: inputHistory,
+            signal: abortController.signal,
+            onUpdate: (assistant) => {
+              if (!canRouteEvent(activeRun.status)) return;
+              state.messages = [...inputHistory, assistant];
+              this.bindInteractiveMessageOwnersFromMessage(activeRun, assistant);
+              this.emit(state);
+            },
+          }),
+          abortController.signal,
+          this.options.cancellationGraceMs ?? DEFAULT_CANCELLATION_GRACE_MS,
+        );
+        if (result === CANCELLED) break;
         if (activeRun.status !== "active") break;
         history = result.messages;
         state.messages = history;
@@ -347,6 +369,9 @@ export class AgentRunCoordinator {
       }
       if (!run) this.providerSessions.delete(conversationId);
     } finally {
+      if (this.runAbortControllers.get(conversationId) === abortController) {
+        this.runAbortControllers.delete(conversationId);
+      }
       if (run?.status === "active") run.status = "completed";
       if (!run || this.latestRuns.get(conversationId) === run) {
         state.streaming = false;
@@ -370,11 +395,24 @@ export class AgentRunCoordinator {
     for (const { part, name } of pending) {
       if (run.status !== "active") return { messages: next, action: "done" };
       try {
-        const output = await this.options.runAutomaticTool(
-          name,
-          part.input,
-          run.binding.toolContext,
+        const output = await awaitWithBoundedCancellation(
+          this.options.runAutomaticTool(
+            name,
+            part.input,
+            run.binding.toolContext,
+          ),
+          run.binding.abortController.signal,
+          this.options.cancellationGraceMs ?? DEFAULT_CANCELLATION_GRACE_MS,
         );
+        if (output === CANCELLED) {
+          next = setToolError(
+            next,
+            assistant.id,
+            part.toolCallId,
+            "agent run cancelled",
+          );
+          return { messages: next, action: "done" };
+        }
         next = setToolOutput(next, assistant.id, part.toolCallId, output);
       } catch (error) {
         next = setToolError(
@@ -475,6 +513,45 @@ export class AgentRunCoordinator {
       pendingInteractiveToolCallIds: state.pendingInteractiveToolCallIds.slice(),
     };
   }
+}
+
+const CANCELLED = Symbol("cancelled");
+
+function awaitWithBoundedCancellation<T>(
+  operation: Promise<T>,
+  signal: AbortSignal,
+  graceMs: number,
+): Promise<T | typeof CANCELLED> {
+  return new Promise((resolve, reject) => {
+    let cancellationTimer: ReturnType<typeof setTimeout> | undefined;
+    let settled = false;
+    const cleanup = () => {
+      signal.removeEventListener("abort", onAbort);
+      if (cancellationTimer !== undefined) clearTimeout(cancellationTimer);
+    };
+    const settle = (value: T | typeof CANCELLED) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(value);
+    };
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    const onAbort = () => {
+      if (cancellationTimer !== undefined) return;
+      cancellationTimer = setTimeout(
+        () => settle(CANCELLED),
+        Math.max(0, graceMs),
+      );
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) onAbort();
+    operation.then(settle, fail);
+  });
 }
 
 function interactiveKey(conversationId: string, runId: string, toolCallId: string): string {

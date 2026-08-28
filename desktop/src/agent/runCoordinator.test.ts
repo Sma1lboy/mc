@@ -29,7 +29,10 @@ class DeferredSession implements AgentProviderSession {
   }
 }
 
-function harness() {
+function harness(options: {
+  cancellationGraceMs?: number;
+  runAutomaticTool?: (name: string, input: unknown, context: unknown) => Promise<unknown>;
+} = {}) {
   const sessions = new Map<string, DeferredSession>();
   const states = new Map<string, ConversationRunState>();
   const automaticCalls: Array<{ name: string; input: unknown; context: unknown }> = [];
@@ -45,11 +48,15 @@ function harness() {
     isInteractiveTool: (name) => name === "ask_user_question" || name === "show_modpack",
     runAutomaticTool: async (name, input, context) => {
       automaticCalls.push({ name, input, context });
+      if (options.runAutomaticTool) {
+        return options.runAutomaticTool(name, input, context);
+      }
       return { inspected: true };
     },
     onChange: (state) => states.set(state.id, state),
     makeRunId: () => `run-${++runSeq}`,
     makeMessageId: () => `msg-${++messageSeq}`,
+    cancellationGraceMs: options.cancellationGraceMs,
   });
   return { coordinator, sessions, states, automaticCalls };
 }
@@ -385,6 +392,100 @@ describe("AgentRunCoordinator", () => {
     const nextCall = sessions.get("A")!.pending[1];
     nextCall.finish(nextCall.request.history);
     await cancelled;
+  });
+
+  it("bounds cancellation when a provider ignores abort so the queue can converge", async () => {
+    vi.useFakeTimers();
+    try {
+      const { coordinator, sessions } = harness({ cancellationGraceMs: 25 });
+      coordinator.openConversation("A", { messages: [], toolContext: null });
+
+      const cancelled = coordinator.sendMessage("A", "cancel me");
+      await Promise.resolve();
+      await Promise.resolve();
+      const cancelledCall = sessions.get("A")!.pending[0];
+      coordinator.cancelConversation("A");
+      await coordinator.sendMessage("A", "after cancellation");
+
+      expect(cancelledCall.request.signal.aborted).toBe(true);
+      expect(sessions.get("A")?.pending).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(25);
+      await Promise.resolve();
+
+      expect(sessions.get("A")?.pending).toHaveLength(2);
+      const nextCall = sessions.get("A")!.pending[1];
+      expect(nextCall.request.history.at(-1)).toEqual(
+        message("msg-2", "user", "after cancellation"),
+      );
+      expect(coordinator.getConversation("A").queued).toEqual([]);
+
+      nextCall.finish(nextCall.request.history);
+      await cancelled;
+      cancelledCall.request.onUpdate(
+        message("late-cancelled", "assistant", "must stay ignored"),
+      );
+      expect(coordinator.getConversation("A").messages).not.toContainEqual(
+        message("late-cancelled", "assistant", "must stay ignored"),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("bounds cancellation when an automatic tool ignores abort", async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveTool!: (output: unknown) => void;
+      const { coordinator, sessions, automaticCalls } = harness({
+        cancellationGraceMs: 25,
+        runAutomaticTool: () => new Promise((resolve) => {
+          resolveTool = resolve;
+        }),
+      });
+      coordinator.openConversation("A", { messages: [], toolContext: null });
+
+      const cancelled = coordinator.sendMessage("A", "run a tool");
+      await Promise.resolve();
+      await Promise.resolve();
+      const firstCall = sessions.get("A")!.pending[0];
+      const toolMessage = {
+        id: "assistant-tool",
+        role: "assistant",
+        parts: [{
+          type: "tool-inspect_instance",
+          toolCallId: "tool-1",
+          state: "input-available",
+          input: {},
+        }],
+      } as UIMessage;
+      firstCall.finish([...firstCall.request.history, toolMessage]);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(automaticCalls).toHaveLength(1);
+
+      coordinator.cancelConversation("A");
+      await coordinator.sendMessage("A", "after tool cancellation");
+      await vi.advanceTimersByTimeAsync(25);
+      await Promise.resolve();
+
+      expect(sessions.get("A")?.pending).toHaveLength(2);
+      const nextCall = sessions.get("A")!.pending[1];
+      expect(nextCall.request.history.at(-1)).toEqual(
+        message("msg-2", "user", "after tool cancellation"),
+      );
+      expect(nextCall.request.history.find((entry) => entry.id === "assistant-tool")?.parts[0])
+        .toMatchObject({
+          toolCallId: "tool-1",
+          state: "output-error",
+          errorText: "agent run cancelled",
+        });
+      nextCall.finish(nextCall.request.history);
+      await cancelled;
+      resolveTool({ tooLate: true });
+      await Promise.resolve();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("resolves same-name interactive calls independently by toolCallId", async () => {
