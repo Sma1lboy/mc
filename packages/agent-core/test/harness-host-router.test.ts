@@ -11,6 +11,7 @@ interface PendingAgentRun {
   history: UIMessage[];
   onUpdate: (message: UIMessage) => void;
   signal: AbortSignal;
+  options?: unknown;
   finish: (messages: UIMessage[], error?: string) => void;
 }
 
@@ -41,12 +42,14 @@ function setup(sendOverride?: (message: Record<string, unknown>) => unknown) {
           history: UIMessage[],
           onUpdate: (message: UIMessage) => void,
           signal: AbortSignal,
+          options?: unknown,
         ) =>
           new Promise<{ messages: UIMessage[]; error?: string }>((resolve) => {
             pending.push({
               history,
               onUpdate,
               signal,
+              options,
               finish: (messages, error) => resolve({ messages, error }),
             });
           }),
@@ -62,6 +65,36 @@ function assistant(id: string, text: string): UIMessage {
 }
 
 describe("harness host router", () => {
+  it("passes desktop candidates to agent-core admission instead of injecting them directly", async () => {
+    const { router, agents } = setup();
+    const memory = {
+      identity: { scopeId: 'instance:["/game","pack"]', conversationId: "A" },
+      candidates: [{
+        id: "candidate",
+        scopeId: 'instance:["/game","pack"]',
+        conversationId: "old",
+        visibility: "scope",
+        tier: "recall",
+        memoryKey: "automatic-tool:diagnose_instance",
+        content: "diagnose_instance output: healthy",
+        updatedAt: "2026-08-28T08:00:00.000Z",
+        provenance: { source: "launcher", reference: "conversation=old" },
+      }],
+    };
+    router.handle({
+      type: "turn",
+      providerSessionId: "session-A",
+      conversationId: "A",
+      runId: "run-A",
+      text: "is it healthy?",
+      mode: "instance",
+      memory,
+    });
+
+    await vi.waitFor(() => expect(agents.get("A")?.pending).toHaveLength(1));
+    expect(agents.get("A")?.pending[0].options).toEqual({ memory });
+  });
+
   it("exposes confirmation tools instead of privileged action tools", async () => {
     const { router, createdAgents } = setup();
     router.handle({

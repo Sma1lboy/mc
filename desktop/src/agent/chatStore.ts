@@ -33,6 +33,7 @@ import {
   type ConversationRunState,
 } from "./runCoordinator";
 import { conversationRepository, mergeConversationRecords } from "./conversationRepository";
+import { buildMemoryRecallRequest } from "./memoryRecall";
 
 export type {
   AgentInstanceContext,
@@ -176,6 +177,13 @@ const coordinator = new AgentRunCoordinator({
   onSelectedChange: projectConversation,
   makeRunId: () => `run-${Date.now().toString(36)}-${(runSeq++).toString(36)}`,
   makeMessageId: nextId,
+  recallMemory: ({ conversationId, toolContext }) =>
+    buildMemoryRecallRequest({
+      conversationId,
+      toolContext: toolContext as AgentToolContext | null,
+      records: useChatStore.getState().conversations,
+      isAutomaticTool: isAutomaticClientTool,
+    }),
 });
 
 function contextWithRoot(context: AgentToolContext | null): AgentToolContext {

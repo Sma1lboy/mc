@@ -9,6 +9,7 @@ import type {
   AgentProviderSession,
   AgentRunBinding,
 } from "./runCoordinator";
+import type { MemoryRecallRequest } from "@kobemc/agent-core";
 
 function user(id: string, text: string): UIMessage {
   return { id, role: "user", parts: [{ type: "text", text }] };
@@ -42,6 +43,49 @@ function request(
 }
 
 describe("local runtime protocol", () => {
+  it("includes bounded host candidates in the Claude JSON-line turn", async () => {
+    const sent: LocalRuntimeOutboundMessage[] = [];
+    const protocol = createLocalRuntimeProtocol({
+      send: async (message) => void sent.push(message),
+      isInteractiveTool: () => false,
+      runAutomaticTool: async () => null,
+      waitForInteractiveTool: async () => null,
+    });
+    const recall: MemoryRecallRequest = {
+      identity: { scopeId: 'instance:["/game","pack"]', conversationId: "current" },
+      candidates: [{
+        id: "tool-output:old:0:0",
+        scopeId: 'instance:["/game","pack"]',
+        conversationId: "old",
+        visibility: "scope",
+        tier: "recall",
+        memoryKey: "automatic-tool:diagnose_instance",
+        content: 'diagnose_instance output: {"status":"healthy"}',
+        updatedAt: "2026-08-28T08:00:00.000Z",
+        provenance: {
+          source: "launcher.conversation.automatic_tool_output",
+          reference: "conversation=old;message=a;toolCall=t;tool=diagnose_instance",
+        },
+      }],
+    };
+    const runRequest = Object.assign(
+      request("current", "run-current", { root: "/game" }),
+      { memory: recall },
+    );
+    const running = protocol.run(runRequest, "instance", "session-current");
+
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toEqual(expect.objectContaining({ type: "turn", memory: recall }));
+
+    protocol.handle({
+      type: "done",
+      providerSessionId: "session-current",
+      conversationId: "current",
+      runId: "run-current",
+    });
+    await running;
+  });
+
   it("routes interleaved update and done events to their exact conversation and run", async () => {
     const sent: LocalRuntimeOutboundMessage[] = [];
     const updateA = vi.fn();

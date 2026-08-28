@@ -1,5 +1,6 @@
 import type { UIMessage } from "ai";
 import type { AgentMode } from "@kobemc/agent-core";
+import type { MemoryRecallRequest } from "@kobemc/agent-core";
 import {
   DEFAULT_CANCELLATION_GRACE_MS,
   type AgentProviderRunRequest,
@@ -14,6 +15,7 @@ export type LocalRuntimeOutboundMessage =
       runId: string;
       text: string;
       mode: AgentMode;
+      memory?: MemoryRecallRequest;
     }
   | { type: "abort"; providerSessionId: string; conversationId: string; runId: string }
   | {
@@ -146,6 +148,7 @@ export function createLocalRuntimeProtocol(options: LocalRuntimeProtocolOptions)
           runId,
           text: newestUserText(request.history),
           mode,
+          ...(request.memory ? { memory: request.memory } : {}),
         },
         (error) =>
           turn.finish({ error: error instanceof Error ? error.message : String(error) }),

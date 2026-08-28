@@ -22,6 +22,7 @@ export async function createDesktopAgent(mode: AgentMode = "build"): Promise<Age
   const settings = await loadSettings();
   const agent: ModpackAgent = createModpackAgent(settings, { mode });
   return {
-    run: ({ history, onUpdate, signal }) => agent.run(history, onUpdate, signal),
+    run: ({ history, onUpdate, signal, memory }) =>
+      agent.run(history, onUpdate, signal, memory ? { memory } : undefined),
   };
 }

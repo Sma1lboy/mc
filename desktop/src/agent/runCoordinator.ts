@@ -1,4 +1,5 @@
 import type { UIMessage } from "ai";
+import type { MemoryRecallRequest } from "@kobemc/agent-core";
 
 export const DEFAULT_CANCELLATION_GRACE_MS = 1_000;
 
@@ -21,6 +22,8 @@ export interface AgentProviderRunRequest {
   history: UIMessage[];
   onUpdate: (assistant: UIMessage) => void;
   signal: AbortSignal;
+  /** Bounded host-built candidates; each provider must route these through agent-core admission. */
+  memory?: MemoryRecallRequest;
 }
 
 export interface ConversationRunState {
@@ -62,6 +65,10 @@ interface CoordinatorOptions {
   makeRunId: () => string;
   makeMessageId: () => string;
   cancellationGraceMs?: number;
+  recallMemory?: (input: {
+    conversationId: string;
+    toolContext: unknown;
+  }) => MemoryRecallRequest | undefined;
 }
 
 export class AgentRunCoordinator {
@@ -333,11 +340,16 @@ export class AgentRunCoordinator {
       this.latestRuns.set(conversationId, activeRun);
       while (activeRun.status === "active") {
         const inputHistory = history;
+        const memory = this.options.recallMemory?.({
+          conversationId,
+          toolContext: activeRun.binding.toolContext,
+        });
         const result = await awaitWithBoundedCancellation(
           providerSession.run({
             binding,
             history: inputHistory,
             signal: abortController.signal,
+            ...(memory ? { memory } : {}),
             onUpdate: (assistant) => {
               if (!canRouteEvent(activeRun.status)) return;
               state.messages = [...inputHistory, assistant];

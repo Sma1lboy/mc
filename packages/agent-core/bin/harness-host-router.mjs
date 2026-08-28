@@ -191,6 +191,7 @@ export function createHarnessHostRouter({ send, createAgent, model }) {
           });
         },
         session.abort.signal,
+        message.memory ? { memory: message.memory } : undefined,
       );
       if (!isActiveRun(session, providerSessionId, conversationId, runId)) return;
       session.history = result.messages;

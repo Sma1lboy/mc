@@ -34,7 +34,7 @@ vi.mock("../i18n", () => ({ t: (key: string) => key }));
 
 vi.mock("./clientToolDispatcher", () => ({
   INTERACTIVE_CLIENT_TOOLS: new Set(["ask_user_question", "show_modpack"]),
-  isAutomaticClientTool: () => false,
+  isAutomaticClientTool: (name: string) => name === "diagnose_instance",
   runLauncherClientTool: vi.fn(),
 }));
 
@@ -87,6 +87,63 @@ describe("chat store run isolation", () => {
     call.finish(call.request.history);
     await running;
     store.resetAgent("openrouter");
+  });
+
+  it("offers a prior same-instance automatic output to the next conversation only", async () => {
+    const store = await import("./chatStore");
+    store.newChat();
+    const toolContext = {
+      root: "/game-root",
+      mode: "instance" as const,
+      instance: {
+        root: "/game-root",
+        modpackId: "pack-a",
+        instanceId: "pack-a",
+        sourcePaths: ["/game-root/versions/pack-a"],
+        mcVersion: "1.20.1",
+        loader: "fabric",
+      },
+    };
+    store.useChatStore.setState({
+      conversations: [{
+        id: "prior-conversation",
+        createdAt: 1,
+        updatedAt: 2,
+        title: "prior",
+        toolContext,
+        messages: [{
+          id: "prior-assistant",
+          role: "assistant",
+          parts: [{
+            type: "tool-diagnose_instance",
+            toolCallId: "prior-diagnosis",
+            state: "output-available",
+            input: { mode: "inspect" },
+            output: { status: "healthy" },
+          }],
+        } as UIMessage],
+      }],
+    });
+    store.openAgentChat("check again", toolContext);
+    store.resetAgent("openrouter");
+
+    const running = store.sendMessage("is this instance still healthy?");
+    await vi.waitFor(() => expect(fakeProviders.pending).toHaveLength(1));
+    const call = fakeProviders.pending[0];
+    expect(call.request.memory).toMatchObject({
+      identity: {
+        scopeId: 'instance:["/game-root","pack-a"]',
+        conversationId: call.request.binding.conversationId,
+      },
+      candidates: [{
+        conversationId: "prior-conversation",
+        content: 'diagnose_instance output: {"status":"healthy"}',
+      }],
+    });
+    expect(call.request.memory?.candidates).toHaveLength(1);
+
+    call.finish(call.request.history);
+    await running;
   });
 
   it("keeps A running while new-chat selects and runs B, then restores A's background result", async () => {
