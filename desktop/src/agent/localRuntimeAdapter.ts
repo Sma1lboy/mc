@@ -1,7 +1,7 @@
 // Shared Tauri transport for the sessionized local Claude runtime host.
 // Each provider wrapper supplies a mode, while every run carries immutable
 // conversation/run/context identity through `localRuntimeProtocol`.
-import { listen } from "@tauri-apps/api/event";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { AgentMode } from "@kobemc/agent-core";
 import { commands, type AgentHostEvent } from "../ipc/bindings";
 import type { AgentToolContext } from "./agentContext";
@@ -32,8 +32,18 @@ let protocolPromise: Promise<Protocol> | null = null;
 
 function sharedProtocol(hooks: LocalRuntimeHooks): Promise<Protocol> {
   if (protocolPromise) return protocolPromise;
-  protocolPromise = (async () => {
+  let candidate!: Promise<Protocol>;
+  candidate = (async () => {
     await unwrap(commands.agentHostStart());
+    let disposed = false;
+    let unlisten: UnlistenFn | null = null;
+    const dispose = () => {
+      if (disposed) return;
+      disposed = true;
+      if (protocolPromise === candidate) protocolPromise = null;
+      unlisten?.();
+      unlisten = null;
+    };
     const protocol = createLocalRuntimeProtocol({
       send: (message) =>
         unwrap(commands.agentHostSend(JSON.stringify(message))).then(() => undefined),
@@ -42,19 +52,29 @@ function sharedProtocol(hooks: LocalRuntimeHooks): Promise<Protocol> {
         runLauncherClientTool(name, input, context as AgentToolContext | null),
       waitForInteractiveTool: hooks.waitForInteractiveTool,
     });
-    await listen<AgentHostEvent>("agent-host://event", (event) => {
+    const stopListening = await listen<AgentHostEvent>("agent-host://event", (event) => {
+      if (disposed) return;
       try {
-        protocol.handle(JSON.parse(event.payload.line) as LocalRuntimeInboundMessage);
+        const message = JSON.parse(event.payload.line) as LocalRuntimeInboundMessage;
+        if (message.type === "host_exit") dispose();
+        protocol.handle(message);
       } catch {
         // Host stderr carries diagnostics; malformed/non-JSON stdout is ignored.
       }
     });
+    unlisten = stopListening;
+    if (disposed) {
+      unlisten();
+      unlisten = null;
+      throw new Error("local agent host exited during startup");
+    }
     return protocol;
   })().catch((error) => {
-    protocolPromise = null;
+    if (protocolPromise === candidate) protocolPromise = null;
     throw error;
   });
-  return protocolPromise;
+  protocolPromise = candidate;
+  return candidate;
 }
 
 export async function createLocalRuntimeAgent(
@@ -62,8 +82,11 @@ export async function createLocalRuntimeAgent(
   hooks: LocalRuntimeHooks,
   providerSessionId: string,
 ): Promise<AgentProviderSession> {
-  const protocol = await sharedProtocol(hooks);
+  await sharedProtocol(hooks);
   return {
-    run: (request) => protocol.run(request, mode, providerSessionId),
+    run: async (request) => {
+      const protocol = await sharedProtocol(hooks);
+      return protocol.run(request, mode, providerSessionId);
+    },
   };
 }
