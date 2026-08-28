@@ -4,10 +4,18 @@ import type { AgentProviderRunRequest } from "./runCoordinator";
 
 const fakeProviders = vi.hoisted(() => ({
   localFactoryCalls: [] as string[],
+  runCalls: [] as AgentProviderRunRequest[],
+  autoFinish: false,
   pending: [] as Array<{
     request: AgentProviderRunRequest;
     finish: (messages: UIMessage[], error?: string) => void;
   }>,
+}));
+
+const fakeRepository = vi.hoisted(() => ({
+  save: vi.fn(),
+  hydrate: vi.fn(async () => []),
+  sync: vi.fn(async () => []),
 }));
 
 vi.mock("../store", () => ({
@@ -40,13 +48,16 @@ vi.mock("./clientToolDispatcher", () => ({
 
 vi.mock("./desktopAdapter", () => ({
   createDesktopAgent: vi.fn(async () => ({
-    run: (request: AgentProviderRunRequest) =>
-      new Promise<{ messages: UIMessage[]; error?: string }>((resolve) => {
+    run: (request: AgentProviderRunRequest) => {
+      fakeProviders.runCalls.push(request);
+      if (fakeProviders.autoFinish) return Promise.resolve({ messages: request.history });
+      return new Promise<{ messages: UIMessage[]; error?: string }>((resolve) => {
         fakeProviders.pending.push({
           request,
           finish: (messages, error) => resolve({ messages, error }),
         });
-      }),
+      });
+    },
   })),
 }));
 
@@ -54,15 +65,23 @@ vi.mock("./localRuntimeAdapter", () => ({
   createLocalRuntimeAgent: vi.fn(async (_mode: string, _hooks: unknown, providerSessionId: string) => {
     fakeProviders.localFactoryCalls.push(providerSessionId);
     return {
-      run: (request: AgentProviderRunRequest) =>
-        new Promise<{ messages: UIMessage[]; error?: string }>((resolve) => {
+      run: (request: AgentProviderRunRequest) => {
+        fakeProviders.runCalls.push(request);
+        if (fakeProviders.autoFinish) return Promise.resolve({ messages: request.history });
+        return new Promise<{ messages: UIMessage[]; error?: string }>((resolve) => {
           fakeProviders.pending.push({
             request,
             finish: (messages, error) => resolve({ messages, error }),
           });
-        }),
+        });
+      },
     };
   }),
+}));
+
+vi.mock("./conversationRepository", () => ({
+  conversationRepository: fakeRepository,
+  mergeConversationRecords: (current: unknown[], incoming: unknown[]) => [...current, ...incoming],
 }));
 
 function assistant(id: string, text: string): UIMessage {
@@ -73,6 +92,28 @@ describe("chat store run isolation", () => {
   beforeEach(() => {
     fakeProviders.pending.length = 0;
     fakeProviders.localFactoryCalls.length = 0;
+    fakeProviders.runCalls.length = 0;
+    fakeProviders.autoFinish = false;
+    fakeRepository.save.mockClear();
+  });
+
+  it("rejects oversized input before provider execution or persistence", async () => {
+    const store = await import("./chatStore");
+    store.newChat();
+    store.resetAgent("openrouter");
+    fakeProviders.autoFinish = true;
+    const savesBefore = fakeRepository.save.mock.calls.length;
+
+    await store.sendMessage("x".repeat(65_537));
+
+    expect(fakeProviders.runCalls).toHaveLength(0);
+    expect(fakeRepository.save.mock.calls).toHaveLength(savesBefore);
+    expect(store.useChatStore.getState()).toMatchObject({
+      messages: [],
+      queued: [],
+      streaming: false,
+      error: "agent.inputTooLarge",
+    });
   });
 
   it("uses the synchronously selected provider while settings persistence catches up", async () => {

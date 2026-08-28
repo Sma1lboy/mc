@@ -62,6 +62,38 @@ function harness(options: {
 }
 
 describe("AgentRunCoordinator", () => {
+  it("rejects oversized and structurally invalid input before creating a provider", async () => {
+    const createProviderSession = vi.fn(async (): Promise<AgentProviderSession> => ({
+      run: async (request) => ({ messages: request.history }),
+    }));
+    const states: ConversationRunState[] = [];
+    const coordinator = new AgentRunCoordinator({
+      createProviderSession,
+      isAutomaticTool: () => false,
+      isInteractiveTool: () => false,
+      runAutomaticTool: async () => null,
+      onChange: (state) => states.push(state),
+      makeRunId: () => "run-1",
+      makeMessageId: () => "msg-1",
+    });
+    coordinator.openConversation("A", { messages: [], toolContext: null });
+
+    await coordinator.sendMessage("A", "x".repeat(65_537));
+    expect(coordinator.getConversation("A").error).toBe("agent.inputTooLarge");
+    await coordinator.sendMessage("A", { nested: ["not", "text"] } as never);
+    expect(coordinator.getConversation("A").error).toBe("agent.inputPlainText");
+    expect(coordinator.enqueueMessage("A", "x".repeat(65_537))).toBe(false);
+
+    expect(createProviderSession).not.toHaveBeenCalled();
+    expect(coordinator.getConversation("A")).toMatchObject({
+      messages: [],
+      queued: [],
+      streaming: false,
+      error: "agent.inputTooLarge",
+    });
+    expect(states.some((state) => state.error === "agent.inputPlainText")).toBe(true);
+  });
+
   it("stores provider-session startup failures on the owning conversation", async () => {
     const changes: ConversationRunState[] = [];
     let attempts = 0;
@@ -82,7 +114,7 @@ describe("AgentRunCoordinator", () => {
     });
     coordinator.openConversation("A", { messages: [], toolContext: null });
 
-    await expect(coordinator.sendMessage("A", "hello")).resolves.toBeUndefined();
+    await expect(coordinator.sendMessage("A", "hello")).resolves.toBe(true);
     expect(coordinator.getConversation("A")).toMatchObject({
       streaming: false,
       error: "provider unavailable",

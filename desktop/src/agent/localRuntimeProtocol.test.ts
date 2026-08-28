@@ -43,6 +43,34 @@ function request(
 }
 
 describe("local runtime protocol", () => {
+  it("rejects oversized or malformed user text before the JSON-line send", async () => {
+    const send = vi.fn();
+    const protocol = createLocalRuntimeProtocol({
+      send,
+      isInteractiveTool: () => false,
+      runAutomaticTool: async () => null,
+      waitForInteractiveTool: async () => null,
+    });
+    const oversized = request("oversized", "run-oversized", null);
+    oversized.history = [user("user-oversized", "🙂".repeat(16_385))];
+    const malformed = request("malformed", "run-malformed", null);
+    malformed.history = [{
+      id: "user-malformed",
+      role: "user",
+      parts: [{ type: "text", text: { nested: true } }],
+    } as never];
+
+    await expect(
+      protocol.run(oversized, "build", "session-oversized"),
+    ).resolves.toMatchObject({
+      error: "agent.inputTooLarge",
+    });
+    await expect(
+      protocol.run(malformed, "build", "session-malformed"),
+    ).resolves.toMatchObject({ error: "agent.inputPlainText" });
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it("includes bounded host candidates in the Claude JSON-line turn", async () => {
     const sent: LocalRuntimeOutboundMessage[] = [];
     const protocol = createLocalRuntimeProtocol({

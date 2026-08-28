@@ -288,11 +288,9 @@ export function stopTurn(): void {
  * 发送一条用户消息。空文本忽略;正在流式则入队(本轮结束后按序自动发出),否则立即跑一轮。
  */
 export async function sendMessage(raw: string): Promise<void> {
-  const text = raw.trim();
-  if (!text) return;
   const conversationId = currentConvId;
-  await coordinator.sendMessage(conversationId, text);
-  saveConversation(conversationId);
+  const admitted = await coordinator.sendMessage(conversationId, raw);
+  if (admitted) saveConversation(conversationId);
 }
 
 /** 把一条消息压入待发队列(流式期间的发送落点)。空白忽略。 */

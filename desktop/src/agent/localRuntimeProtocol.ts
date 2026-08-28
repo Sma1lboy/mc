@@ -6,6 +6,12 @@ import {
   type AgentProviderRunRequest,
   type AgentRunBinding,
 } from "./runCoordinator";
+import {
+  admitAgentUserInput,
+  AGENT_USER_INPUT_EMPTY_ERROR,
+  AGENT_USER_INPUT_INVALID_ERROR,
+  type AgentUserInputAdmission,
+} from "./userInput";
 
 export type LocalRuntimeOutboundMessage =
   | {
@@ -86,11 +92,21 @@ export function createLocalRuntimeProtocol(options: LocalRuntimeProtocolOptions)
     return `${providerSessionId}\u0000${conversationId}\u0000${runId}`;
   }
 
-  function newestUserText(history: UIMessage[]): string {
-    const lastUser = [...history].reverse().find((message) => message.role === "user");
-    return (lastUser?.parts ?? [])
-      .map((part) => (part.type === "text" ? part.text : ""))
-      .join("");
+  function newestUserInput(history: unknown): AgentUserInputAdmission {
+    if (!Array.isArray(history)) return admitAgentUserInput(undefined);
+    for (let index = history.length - 1; index >= 0; index -= 1) {
+      const message = history[index] as Partial<UIMessage> | null;
+      if (!message || message.role !== "user") continue;
+      if (!Array.isArray(message.parts) || message.parts.length !== 1) {
+        return { status: "rejected", error: AGENT_USER_INPUT_INVALID_ERROR };
+      }
+      const part = message.parts[0];
+      if (part.type !== "text") {
+        return { status: "rejected", error: AGENT_USER_INPUT_INVALID_ERROR };
+      }
+      return admitAgentUserInput(part.text);
+    }
+    return { status: "rejected", error: AGENT_USER_INPUT_INVALID_ERROR };
   }
 
   function run(
@@ -102,6 +118,13 @@ export function createLocalRuntimeProtocol(options: LocalRuntimeProtocolOptions)
     const activeKey = key(providerSessionId, conversationId, runId);
     if (active.has(activeKey)) {
       return Promise.resolve({ messages: request.history, error: "run already active" });
+    }
+    const admission = newestUserInput(request.history);
+    if (admission.status !== "accepted") {
+      return Promise.resolve({
+        messages: request.history,
+        error: admission.status === "empty" ? AGENT_USER_INPUT_EMPTY_ERROR : admission.error,
+      });
     }
     return new Promise((resolve) => {
       let turn: ActiveTurn;
@@ -146,7 +169,7 @@ export function createLocalRuntimeProtocol(options: LocalRuntimeProtocolOptions)
           providerSessionId,
           conversationId,
           runId,
-          text: newestUserText(request.history),
+          text: admission.text,
           mode,
           ...(request.memory ? { memory: request.memory } : {}),
         },

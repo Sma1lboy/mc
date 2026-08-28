@@ -1,5 +1,6 @@
 import type { UIMessage } from "ai";
 import type { MemoryRecallRequest } from "@kobemc/agent-core";
+import { admitAgentUserInput } from "./userInput";
 
 export const DEFAULT_CANCELLATION_GRACE_MS = 1_000;
 
@@ -128,24 +129,36 @@ export class AgentRunCoordinator {
     this.providerSessions.clear();
   }
 
-  async sendMessage(conversationId: string, raw: string): Promise<void> {
-    const text = raw.trim();
-    if (!text) return;
+  async sendMessage(conversationId: string, raw: unknown): Promise<boolean> {
     const state = this.requireConversation(conversationId);
-    if (state.streaming || state.waitingInteractive) {
-      state.queued.push(text);
+    const admission = admitAgentUserInput(raw);
+    if (admission.status === "empty") return false;
+    if (admission.status === "rejected") {
+      state.error = admission.error;
       this.emit(state);
-      return;
+      return false;
     }
-    await this.runQueuedTurns(conversationId, text);
+    if (state.streaming || state.waitingInteractive) {
+      state.queued.push(admission.text);
+      this.emit(state);
+      return true;
+    }
+    await this.runQueuedTurns(conversationId, admission.text);
+    return true;
   }
 
-  enqueueMessage(conversationId: string, raw: string): void {
-    const text = raw.trim();
-    if (!text) return;
+  enqueueMessage(conversationId: string, raw: unknown): boolean {
     const state = this.requireConversation(conversationId);
-    state.queued.push(text);
+    const admission = admitAgentUserInput(raw);
+    if (admission.status === "empty") return false;
+    if (admission.status === "rejected") {
+      state.error = admission.error;
+      this.emit(state);
+      return false;
+    }
+    state.queued.push(admission.text);
     this.emit(state);
+    return true;
   }
 
   dequeueMessage(conversationId: string, index: number): void {

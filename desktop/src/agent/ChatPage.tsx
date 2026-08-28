@@ -11,6 +11,11 @@ import {
   stopTurn,
   resetAgent,
 } from "./chatStore";
+import {
+  AGENT_USER_INPUT_EMPTY_ERROR,
+  AGENT_USER_INPUT_INVALID_ERROR,
+  AGENT_USER_INPUT_TOO_LARGE_ERROR,
+} from "./userInput";
 import { DebugTools } from "./DebugTools";
 import { MessageList } from "./MessageList";
 import { ShareButton } from "./ShareButton";
@@ -76,6 +81,7 @@ export default function ChatPage() {
   const streaming = useChatStore((s) => s.streaming);
   const queued = useChatStore((s) => s.queued);
   const error = useChatStore((s) => s.error);
+  const visibleError = isUserInputError(error) ? t(error) : error;
   const pendingDraft = useChatStore((s) => s.draft);
   const [draft, setDraft] = useState("");
   const listEl = useRef<HTMLDivElement>(null);
@@ -170,15 +176,20 @@ export default function ChatPage() {
         {messages.length > 0 ? (
           <div className="flex flex-col gap-[18px]">
             <MessageList messages={messages} streaming={streaming} />
-            {error && (
+            {visibleError && (
               <div className="max-w-[85%] px-[10px] py-[7px] rounded-none bg-danger-soft text-danger-text text-[12.5px] leading-[1.5] break-words">
-                {error}
+                {visibleError}
               </div>
             )}
           </div>
         ) : (
-          <div className="h-full flex items-center justify-center">
+          <div className="h-full flex flex-col items-center justify-center gap-[18px]">
             <EmptyState title={t("agent.emptyTitle")} hint={t("agent.emptyHint")} />
+            {visibleError && (
+              <div className="max-w-[85%] px-[10px] py-[7px] rounded-none bg-danger-soft text-danger-text text-[12.5px] leading-[1.5] break-words">
+                {visibleError}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -239,4 +250,10 @@ export default function ChatPage() {
       </div>
     </div>
   );
+}
+
+function isUserInputError(error: string | null): error is string {
+  return error === AGENT_USER_INPUT_INVALID_ERROR ||
+    error === AGENT_USER_INPUT_EMPTY_ERROR ||
+    error === AGENT_USER_INPUT_TOO_LARGE_ERROR;
 }
