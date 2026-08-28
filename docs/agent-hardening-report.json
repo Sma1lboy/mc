@@ -13,6 +13,64 @@
     { "label": "Rove workers", "value": "4", "detail": "独立 worktree，文件范围错开" },
     { "label": "验收策略", "value": "locked", "detail": "worker 不得弱化 evaluator" }
   ],
+  "timeline": [
+    {
+      "time": "01:50",
+      "label": "基线封存",
+      "detail": "d178c99：agent-core 22/22、desktop 51/51、instance eval 9/9。",
+      "status": "verified"
+    },
+    {
+      "time": "01:54",
+      "label": "第一轮隔离注入",
+      "detail": "四个 Rove worktree 分别处理 memory、run、session 与 persistence。",
+      "status": "verified"
+    },
+    {
+      "time": "02:06",
+      "label": "三条故障链进入主线",
+      "detail": "持久化边界、router shutdown 和 bounded cancellation 完成主线 diff 审查与组合回归。",
+      "status": "verified"
+    },
+    {
+      "time": "02:09",
+      "label": "第二轮对抗审计",
+      "detail": "记忆输入边界、组合竞态、host crash 恢复与 native tie-break parity 正在独立复现。",
+      "status": "running"
+    }
+  ],
+  "verification": [
+    {
+      "command": "npm test --workspace @kobemc/agent-core",
+      "result": "25/25",
+      "status": "pass"
+    },
+    {
+      "command": "npm test --workspace desktop",
+      "result": "64/64",
+      "status": "pass"
+    },
+    {
+      "command": "npm run eval:instance --workspace @kobemc/agent-core -- --json",
+      "result": "9/9",
+      "status": "pass"
+    },
+    {
+      "command": "npx tsc --noEmit -p desktop/tsconfig.json",
+      "result": "pass",
+      "status": "pass"
+    },
+    {
+      "command": "npm run build --workspace desktop",
+      "result": "3133 modules",
+      "status": "pass"
+    },
+    {
+      "command": "node scripts/check-agent-hardening-report.mjs",
+      "result": "draft ok",
+      "status": "pass"
+    }
+  ],
   "workstreams": [
     {
       "id": "memory",

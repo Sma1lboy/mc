@@ -15,6 +15,17 @@ const allowedStatuses = new Set(["running", "verified", "rejected", "blocked"]);
 const ids = new Set();
 const taskIds = new Set();
 
+if (!Array.isArray(data.timeline) || data.timeline.length < 3) {
+  errors.push("report must contain an evidence timeline");
+}
+if (!Array.isArray(data.verification) || data.verification.length < 5) {
+  errors.push("report must contain the verification matrix");
+}
+for (const check of data.verification ?? []) {
+  if (!check.command || !check.result) errors.push("verification row is missing command or result");
+  if (sealed && check.status !== "pass") errors.push(`verification failed: ${check.command}`);
+}
+
 if (!Array.isArray(data.workstreams) || data.workstreams.length < 4) {
   errors.push("report must contain at least four workstreams");
 }

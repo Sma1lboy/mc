@@ -107,6 +107,18 @@
     .stream-card code { font-family: var(--mono); font-size: 11px; overflow-wrap: anywhere; }
     .evidence-list { display: grid; gap: 8px; margin: 14px 0 0; padding: 0; list-style: none; }
     .evidence-list li { padding: 9px 11px; background: #edf3f4; border-left: 3px solid var(--lapis); font: 11px/1.45 var(--mono); overflow-wrap: anywhere; }
+    .timeline { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); background: var(--line); gap: 1px; }
+    .timeline-item { min-height: 158px; padding: 18px; background: var(--quartz); }
+    .timeline-item time { font: 800 12px/1 var(--mono); color: var(--copper); }
+    .timeline-item h4 { margin: 18px 0 8px; font: 650 18px/1.1 var(--display); }
+    .timeline-item p { margin: 0; color: var(--muted); font-size: 13px; }
+    .timeline-item[data-status="running"] { box-shadow: inset 0 -4px var(--amber); }
+    .timeline-item[data-status="verified"] { box-shadow: inset 0 -4px var(--moss); }
+    .verification { display: grid; border-top: 1px solid var(--line); }
+    .verification-row { display: grid; grid-template-columns: minmax(0, 1fr) 110px 76px; gap: 16px; align-items: center; padding: 13px 0; border-bottom: 1px solid var(--line); }
+    .verification-row code { font: 11px/1.5 var(--mono); overflow-wrap: anywhere; }
+    .verification-row strong { font: 700 12px/1 var(--mono); }
+    .verification-row span { justify-self: end; color: var(--moss); font: 800 10px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
     .control-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; counter-reset: control; }
     .control { position: relative; min-height: 94px; padding: 19px 19px 19px 54px; background: var(--quartz); border: 1px solid var(--line); }
     .control::before { counter-increment: control; content: counter(control); position: absolute; left: 18px; top: 19px; color: var(--copper); font: 800 14px/1 var(--mono); }
@@ -126,6 +138,7 @@
       .rail-meta { margin-top: 18px; }
       .baseline { grid-template-columns: repeat(2, 1fr); }
       .detail, .streams { grid-template-columns: 1fr; }
+      .timeline { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     @media (max-width: 580px) {
       main { padding: 28px 16px 54px; }
@@ -134,6 +147,9 @@
       .rail nav { grid-template-columns: 1fr 1fr; }
       .hero h2 { font-size: 44px; }
       .baseline, .control-grid { grid-template-columns: 1fr; }
+      .timeline { grid-template-columns: 1fr; }
+      .verification-row { grid-template-columns: 1fr auto; }
+      .verification-row span { grid-column: 2; grid-row: 1; }
       .lane { grid-template-columns: 82px minmax(0, 1fr); }
       .lane-label { padding-left: 12px; }
       .trace { margin-right: 12px; }
@@ -165,6 +181,8 @@
       <nav aria-label="报告导航">
         <a href="#recorder">飞行记录</a>
         <a href="#workstreams">成果工作线</a>
+        <a href="#timeline">批次时间线</a>
+        <a href="#verification">验收命令</a>
         <a href="#control">控制面</a>
         <a href="#sources">设计依据</a>
         <a href="#risks">剩余风险</a>
@@ -186,7 +204,7 @@
 
       <section id="recorder">
         <div class="section-head">
-          <h3>四条隔离轨迹</h3>
+          <h3 id="track-heading">隔离轨迹</h3>
           <p>每个圆点都是一个可审计 checkpoint。选择轨迹查看问题输入、收束规则与证据，而不是只看“任务完成”。</p>
         </div>
         <div class="recorder">
@@ -199,6 +217,16 @@
       <section id="workstreams">
         <div class="section-head"><h3>成果工作线</h3><p>卡片状态只允许 running、verified、rejected 或 blocked；没有“差不多完成”。</p></div>
         <div class="streams" id="streams"></div>
+      </section>
+
+      <section id="timeline">
+        <div class="section-head"><h3>批次时间线</h3><p>按进入主线的证据时刻记录；worker 自述不会自动成为这里的 checkpoint。</p></div>
+        <div class="timeline" id="timeline-list"></div>
+      </section>
+
+      <section id="verification">
+        <div class="section-head"><h3>可复现验收</h3><p>这些命令均由协调分支执行；最终封存会再跑一次完整矩阵。</p></div>
+        <div class="verification" id="verification-list"></div>
       </section>
 
       <section id="control">
@@ -231,6 +259,7 @@
     text("#baseline-commit", REPORT.baselineCommit);
     text("#generated-at", REPORT.generatedAt);
     text("#summary", REPORT.summary);
+    text("#track-heading", `${REPORT.workstreams.length} 条隔离轨迹`);
     text("#status-copy", REPORT.status === "verified" ? "evidence sealed" : "run in progress");
     $("#status-line").dataset.status = REPORT.status;
     $("#baseline").innerHTML = REPORT.baseline.map((item) => `<div class="metric"><span>${escapeHtml(item.label)}</span><strong>${escapeHtml(item.value)}</strong><small>${escapeHtml(item.detail)}</small></div>`).join("");
@@ -245,6 +274,8 @@
     });
     renderDetail(REPORT.workstreams[0].id);
     $("#streams").innerHTML = REPORT.workstreams.map((stream) => `<article class="stream-card"><span class="status-chip ${escapeHtml(stream.status)}">${escapeHtml(stream.status)}</span><h4>${escapeHtml(stream.title)}</h4><p><strong>Before：</strong>${escapeHtml(stream.before)}</p><p><strong>After：</strong>${escapeHtml(stream.after)}</p><p><code>${escapeHtml(stream.taskId)}${stream.commit ? ` · ${escapeHtml(stream.commit)}` : ""}</code></p><ul class="evidence-list">${[...stream.tests, ...stream.artifacts].map((item) => `<li>${escapeHtml(item)}</li>`).join("") || "<li>等待主线复核证据</li>"}</ul></article>`).join("");
+    $("#timeline-list").innerHTML = REPORT.timeline.map((item) => `<article class="timeline-item" data-status="${escapeHtml(item.status)}"><time>${escapeHtml(item.time)} CDT</time><h4>${escapeHtml(item.label)}</h4><p>${escapeHtml(item.detail)}</p></article>`).join("");
+    $("#verification-list").innerHTML = REPORT.verification.map((item) => `<div class="verification-row"><code>${escapeHtml(item.command)}</code><strong>${escapeHtml(item.result)}</strong><span>${escapeHtml(item.status)}</span></div>`).join("");
     $("#control-grid").innerHTML = REPORT.controlPlane.map((item) => `<div class="control"><p>${escapeHtml(item)}</p></div>`).join("");
     $("#source-list").innerHTML = REPORT.sources.map((source) => `<a href="${escapeHtml(source.url)}" target="_blank" rel="noreferrer"><strong>${escapeHtml(source.label)}</strong><span>${escapeHtml(source.url)}</span></a>`).join("");
     $("#risk-list").innerHTML = REPORT.risks.map((risk) => `<div class="risk">${escapeHtml(risk)}</div>`).join("");
