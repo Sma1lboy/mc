@@ -29,6 +29,7 @@ import { readUIMessageStream } from "ai-v7";
 import type { UIMessage } from "ai";
 
 import { promptForMode, promptVersionForMode } from "../prompt";
+import { renderMemoryContext, selectMemoryContext } from "../memory";
 import {
   buildTools,
   ASK_USER_TOOL,
@@ -44,7 +45,12 @@ import {
   type ClientToolHandler,
   type ClientToolHandlers,
 } from "../types";
-import { runUiMessageTurn, type ModpackAgent, type TurnResult } from "../agent";
+import {
+  runUiMessageTurn,
+  type AgentTurnOptions,
+  type ModpackAgent,
+  type TurnResult,
+} from "../agent";
 import { createLocalSandbox } from "./local-sandbox";
 
 export { createLocalSandbox } from "./local-sandbox";
@@ -127,24 +133,35 @@ export function createClaudeCodeModpackAgent(
     history: UIMessage[],
     onUpdate: (assistant: UIMessage) => void,
     signal?: AbortSignal,
+    turnOptions?: AgentTurnOptions,
   ): Promise<TurnResult> {
+    const lastUser = [...history].reverse().find((message) => message.role === "user");
+    const userPrompt = (lastUser?.parts ?? [])
+      .map((part) => (part.type === "text" ? part.text : ""))
+      .join("");
+    const memory = turnOptions?.memory
+      ? selectMemoryContext({
+          ...turnOptions.memory,
+          query: turnOptions.memory.query ?? userPrompt,
+        })
+      : undefined;
+    const memoryContext = memory ? renderMemoryContext(memory) : "";
     return runUiMessageTurn({
       history,
       onUpdate,
       signal,
       start: async () => {
         session ??= await agent.createSession();
-        const lastUser = [...history].reverse().find((m) => m.role === "user");
-        const prompt = (lastUser?.parts ?? [])
-          .map((p) => (p.type === "text" ? p.text : ""))
-          .join("");
+        const prompt = memoryContext
+          ? `${memoryContext}\n\nCurrent user request:\n${userPrompt}`
+          : userPrompt;
         return agent.stream({ session, prompt, abortSignal: signal });
       },
       readUIMessageStream,
       // ai@7 UIMessage → the ai@6-typed contract; the part shapes we render
       // (text / reasoning / tool-* state machine) are identical.
       mapMessage: (msg) => msg as unknown as UIMessage,
-    }).then((result) => ({ ...result, promptVersion }));
+    }).then((result) => ({ ...result, promptVersion, memory }));
   }
 
   return {

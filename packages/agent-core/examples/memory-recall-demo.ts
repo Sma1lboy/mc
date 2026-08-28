@@ -1,0 +1,55 @@
+import { selectMemoryContext } from "../src/index";
+
+const selection = selectMemoryContext({
+  identity: { scopeId: "instance:create-pack", conversationId: "conversation:current" },
+  query: "Why is Minecraft running out of memory?",
+  budget: { maxChars: 240, maxDurableItems: 2, maxRecallItems: 2 },
+  candidates: [
+    {
+      id: "preference-language",
+      scopeId: "instance:create-pack",
+      conversationId: "conversation:setup",
+      visibility: "scope",
+      tier: "durable",
+      memoryKey: "user.language",
+      content: "Explain diagnoses in Chinese.",
+      updatedAt: "2026-08-27T12:00:00.000Z",
+      provenance: { source: "host-profile", reference: "fact:user.language" },
+    },
+    {
+      id: "old-memory-limit",
+      scopeId: "instance:create-pack",
+      conversationId: "conversation:current",
+      visibility: "conversation",
+      tier: "recall",
+      memoryKey: "diagnosis.memory_limit",
+      content: "Minecraft had a 2048 MB memory limit.",
+      updatedAt: "2026-08-27T13:00:00.000Z",
+      provenance: { source: "host-diagnosis", reference: "run:old" },
+    },
+    {
+      id: "corrected-memory-limit",
+      scopeId: "instance:create-pack",
+      conversationId: "conversation:current",
+      visibility: "conversation",
+      tier: "recall",
+      memoryKey: "diagnosis.memory_limit",
+      content: "Correction: Minecraft now has a 4096 MB memory limit.",
+      updatedAt: "2026-08-28T13:00:00.000Z",
+      provenance: { source: "host-diagnosis", reference: "run:latest" },
+    },
+    {
+      id: "foreign-instance",
+      scopeId: "instance:private-pack",
+      conversationId: "conversation:current",
+      visibility: "conversation",
+      tier: "recall",
+      memoryKey: "diagnosis.secret",
+      content: "This content must never cross the scope boundary.",
+      updatedAt: "2026-08-28T14:00:00.000Z",
+      provenance: { source: "host-diagnosis", reference: "run:foreign" },
+    },
+  ],
+});
+
+console.log(JSON.stringify(selection, null, 2));

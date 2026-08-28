@@ -67,6 +67,7 @@ export function startMockServer(opts = {}) {
   const chunks = opts.chunks ?? 8;
   const toolName = opts.toolName ?? "search_base_modpacks";
   const toolArgs = opts.toolArgs ?? { query: "tech" };
+  const requests = [];
 
   const server = http.createServer(async (req, res) => {
     const body = await readBody(req);
@@ -76,6 +77,7 @@ export function startMockServer(opts = {}) {
     } catch {
       /* ignore */
     }
+    requests.push(parsed);
     const msgs = Array.isArray(parsed.messages) ? parsed.messages : [];
     const hadToolResult = msgs.some((m) => m && m.role === "tool");
 
@@ -98,6 +100,7 @@ export function startMockServer(opts = {}) {
       resolve({
         port,
         url: `http://127.0.0.1:${port}/v1`,
+        requests,
         close: () => new Promise((r) => server.close(r)),
       });
     });

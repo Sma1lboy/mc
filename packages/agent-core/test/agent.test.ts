@@ -259,4 +259,41 @@ describe("runTurn", () => {
     expect(promptVersionForMode("instance")).toMatch(/^instance-agent-\d{4}-\d{2}-\d{2}(-r\d+)?$/);
     expect(promptVersionForMode("instance")).not.toBe(promptVersionForMode("build"));
   });
+
+  it("(m) injects selected memory into the model request and returns its audit", async () => {
+    const mock = await startMockServer({ scenario: "text", chunks: 1 });
+    try {
+      const agent = createModpackAgent(settings(mock.url));
+      const result = await agent.run([userMsg("fix memory pressure")], () => {}, undefined, {
+        memory: {
+          identity: { scopeId: "instance-a", conversationId: "conversation-a" },
+          candidates: [
+            {
+              id: "recall-1",
+              scopeId: "instance-a",
+              conversationId: "conversation-a",
+              visibility: "conversation",
+              tier: "recall",
+              memoryKey: "diagnosis.memory",
+              content: "Memory pressure was caused by a 4096 MB limit.",
+              updatedAt: "2026-08-28T06:00:00.000Z",
+              provenance: { source: "host-store", reference: "diagnosis:42" },
+            },
+          ],
+        },
+      });
+
+      expect(result.memory?.recalled.map((item) => item.id)).toEqual(["recall-1"]);
+      expect(result.memory?.decisions).toContainEqual(
+        expect.objectContaining({ candidateId: "recall-1", reason: "included_recall" }),
+      );
+      const sentMessages = mock.requests[0].messages as Array<{ role: string; content: unknown }>;
+      expect(sentMessages[0]).toMatchObject({ role: "system" });
+      const systemContent = JSON.stringify(sentMessages[0].content);
+      expect(systemContent).toContain("diagnosis:42");
+      expect(systemContent).toContain("4096 MB limit");
+    } finally {
+      await mock.close();
+    }
+  });
 });

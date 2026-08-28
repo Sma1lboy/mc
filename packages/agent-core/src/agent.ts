@@ -23,6 +23,12 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 
 import { promptForMode, promptVersionForMode } from "./prompt";
 import { buildTools } from "./tools";
+import {
+  renderMemoryContext,
+  selectMemoryContext,
+  type MemoryRecallRequest,
+  type MemorySelection,
+} from "./memory";
 import { normalizeAgentMode, type AgentLlmSettings, type AgentModeInput } from "./types";
 
 /** Max tool round-trips per turn. */
@@ -37,6 +43,8 @@ export interface TurnResult {
   messages: UIMessage[];
   error?: string;
   promptVersion?: string;
+  /** Host-injected recall audit metadata; agent-core never persists these candidates. */
+  memory?: MemorySelection;
 }
 
 export interface ModpackAgent {
@@ -56,11 +64,16 @@ export interface ModpackAgent {
     history: UIMessage[],
     onUpdate: (assistant: UIMessage) => void,
     signal?: AbortSignal,
+    options?: AgentTurnOptions,
   ): Promise<TurnResult>;
 }
 
 export interface AgentRuntimeOptions {
   mode?: AgentModeInput;
+}
+
+export interface AgentTurnOptions {
+  memory?: MemoryRecallRequest;
 }
 
 interface UIStreamResult<TStream> {
@@ -126,20 +139,32 @@ export function createModpackAgent(
   const promptVersion = promptVersionForMode(mode);
   const provider = createOpenRouter({ apiKey: settings.apiKey, baseURL: settings.baseUrl });
   const toolSet = buildTools(mode);
-  const agent = new ToolLoopAgent({
-    model: provider.chat(settings.model),
-    instructions: promptForMode(mode),
-    tools: toolSet,
-    temperature: TEMPERATURE,
-    maxOutputTokens: MAX_OUTPUT_TOKENS,
-    stopWhen: stepCountIs(MAX_STEPS),
-  });
+  const baseInstructions = promptForMode(mode);
+  const model = provider.chat(settings.model);
+  const createAgent = (instructions: string) =>
+    new ToolLoopAgent({
+      model,
+      instructions,
+      tools: toolSet,
+      temperature: TEMPERATURE,
+      maxOutputTokens: MAX_OUTPUT_TOKENS,
+      stopWhen: stepCountIs(MAX_STEPS),
+    });
+  const agent = createAgent(baseInstructions);
 
   function run(
     history: UIMessage[],
     onUpdate: (assistant: UIMessage) => void,
     signal?: AbortSignal,
+    turnOptions?: AgentTurnOptions,
   ): Promise<TurnResult> {
+    const memory = turnOptions?.memory
+      ? selectMemoryContext({
+          ...turnOptions.memory,
+          query: turnOptions.memory.query ?? newestUserText(history),
+        })
+      : undefined;
+    const memoryContext = memory ? renderMemoryContext(memory) : "";
     return runUiMessageTurn({
       history,
       onUpdate,
@@ -149,14 +174,26 @@ export function createModpackAgent(
           tools: toolSet,
           ignoreIncompleteToolCalls: true,
         });
-        return agent.stream({ prompt: modelMessages, abortSignal: signal });
+        const turnAgent = memoryContext
+          ? createAgent(`${baseInstructions}\n\n${memoryContext}`)
+          : agent;
+        return turnAgent.stream({ prompt: modelMessages, abortSignal: signal });
       },
       readUIMessageStream,
       mapMessage: (msg) => msg as UIMessage,
-    }).then((result) => ({ ...result, promptVersion }));
+    }).then((result) => ({ ...result, promptVersion, memory }));
   }
 
   return { run };
+}
+
+function newestUserText(history: UIMessage[]): string {
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const message = history[index];
+    if (message.role !== "user") continue;
+    return message.parts.map((part) => (part.type === "text" ? part.text : "")).join(" ");
+  }
+  return "";
 }
 
 function errText(e: unknown): string {
