@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="color-scheme" content="light" />
+  <title>Agent 夜间加固飞行记录</title>
+  <style>
+    :root {
+      --basalt: #17242b;
+      --basalt-2: #263840;
+      --frost: #eaf0f2;
+      --quartz: #fafcfc;
+      --ink: #203039;
+      --muted: #64747b;
+      --line: #c8d3d7;
+      --copper: #c06c47;
+      --lapis: #326a9b;
+      --moss: #55745b;
+      --amber: #b9882f;
+      --shadow: 0 18px 55px rgba(23, 36, 43, .12);
+      --display: "Avenir Next", "Segoe UI", sans-serif;
+      --body: Charter, Georgia, serif;
+      --mono: "SFMono-Regular", Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background:
+        linear-gradient(rgba(50, 106, 155, .055) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(50, 106, 155, .055) 1px, transparent 1px),
+        var(--frost);
+      background-size: 24px 24px;
+      color: var(--ink);
+      font-family: var(--body);
+      line-height: 1.55;
+    }
+    a { color: inherit; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    :focus-visible { outline: 3px solid var(--lapis); outline-offset: 3px; }
+    .shell { display: grid; grid-template-columns: 276px minmax(0, 1fr); min-height: 100vh; }
+    .rail {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 26px 22px;
+      background: var(--basalt);
+      color: #f3f7f8;
+      border-right: 8px solid var(--copper);
+      overflow: auto;
+    }
+    .mark { display: flex; align-items: center; gap: 12px; font: 700 13px/1 var(--display); letter-spacing: .08em; text-transform: uppercase; }
+    .mark-cube { width: 28px; height: 28px; transform: rotate(45deg); border: 2px solid #f3f7f8; position: relative; }
+    .mark-cube::after { content: ""; position: absolute; inset: 6px; border: 2px solid var(--copper); }
+    .rail h1 { margin: 44px 0 10px; font: 650 31px/1.05 var(--display); letter-spacing: -.04em; }
+    .rail-sub { color: #b9c7cc; font: 13px/1.5 var(--display); }
+    .status-line { display: flex; align-items: center; gap: 8px; margin: 24px 0; font: 700 11px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+    .pulse { width: 9px; height: 9px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 0 0 rgba(185, 136, 47, .5); animation: pulse 1.8s infinite; }
+    .status-line[data-status="verified"] .pulse { background: #8eba91; animation: none; }
+    .rail nav { display: grid; gap: 7px; margin: 28px 0; }
+    .rail nav a { padding: 9px 10px; border-left: 2px solid #50636b; color: #c4d0d4; text-decoration: none; font: 12px/1.2 var(--display); }
+    .rail nav a:hover { color: white; border-color: var(--copper); }
+    .rail-meta { margin-top: 38px; display: grid; gap: 12px; font: 11px/1.45 var(--mono); color: #91a4ac; overflow-wrap: anywhere; }
+    main { padding: 38px clamp(24px, 5vw, 76px) 76px; min-width: 0; }
+    .hero { max-width: 1180px; margin: 0 auto 42px; }
+    .eyebrow { margin: 0 0 12px; font: 700 11px/1 var(--mono); letter-spacing: .15em; color: var(--lapis); text-transform: uppercase; }
+    .hero h2 { max-width: 900px; margin: 0; font: 650 clamp(42px, 7vw, 86px)/.92 var(--display); letter-spacing: -.065em; color: var(--basalt); }
+    .hero h2 em { color: var(--copper); font-style: normal; }
+    .lede { max-width: 760px; margin: 25px 0 0; font-size: 18px; color: #40535c; }
+    .baseline { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin-top: 34px; background: var(--line); border: 1px solid var(--line); box-shadow: var(--shadow); }
+    .metric { min-height: 118px; padding: 19px; background: var(--quartz); }
+    .metric span { display: block; font: 10px/1 var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+    .metric strong { display: block; margin: 11px 0 5px; font: 650 28px/1 var(--display); color: var(--basalt); }
+    .metric small { font: 12px/1.4 var(--display); color: var(--muted); }
+    section { max-width: 1180px; margin: 0 auto 52px; scroll-margin-top: 24px; }
+    .section-head { display: flex; justify-content: space-between; align-items: end; gap: 24px; margin-bottom: 18px; padding-bottom: 12px; border-bottom: 1px solid #9eb0b7; }
+    .section-head h3 { margin: 0; font: 650 28px/1 var(--display); letter-spacing: -.035em; }
+    .section-head p { max-width: 520px; margin: 0; color: var(--muted); font-size: 14px; }
+    .recorder { position: relative; overflow: hidden; border-radius: 3px; background: var(--basalt); color: white; box-shadow: var(--shadow); }
+    .recorder::before { content: ""; position: absolute; inset: 0; pointer-events: none; background: repeating-linear-gradient(90deg, transparent 0 79px, rgba(255,255,255,.045) 80px); }
+    .recorder-head { display: flex; justify-content: space-between; gap: 16px; padding: 15px 18px; border-bottom: 1px solid #42555d; font: 10px/1.2 var(--mono); color: #91a5ad; letter-spacing: .08em; text-transform: uppercase; }
+    .lanes { padding: 12px 0; }
+    .lane { display: grid; grid-template-columns: 118px minmax(0, 1fr); align-items: center; min-height: 82px; border-bottom: 1px solid rgba(255,255,255,.07); }
+    .lane:last-child { border-bottom: 0; }
+    .lane-label { padding-left: 18px; font: 700 10px/1 var(--mono); letter-spacing: .1em; color: #aabac0; }
+    .trace { position: relative; height: 42px; margin-right: 24px; }
+    .trace-line { position: absolute; left: 0; right: 0; top: 20px; height: 2px; background: #50646d; }
+    .trace-line::before { content: ""; position: absolute; left: 0; top: -1px; width: var(--progress, 48%); height: 4px; background: var(--tone, var(--amber)); }
+    .checkpoint { position: absolute; left: var(--progress, 48%); top: 8px; width: 26px; height: 26px; translate: -50% 0; border: 0; border-radius: 50%; background: var(--tone, var(--amber)); color: var(--basalt); font: 900 12px/1 var(--mono); cursor: pointer; box-shadow: 0 0 0 5px rgba(255,255,255,.08); }
+    .checkpoint:hover { scale: 1.1; }
+    .trace-note { position: absolute; right: 0; top: -3px; max-width: 48%; overflow: hidden; color: #b8c6cb; font: 10px/1.25 var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+    .detail { display: grid; grid-template-columns: 1.05fr .95fr; gap: 1px; background: var(--line); border: 1px solid var(--line); }
+    .detail > div { padding: 23px; background: var(--quartz); }
+    .detail h4 { margin: 0 0 8px; font: 650 22px/1.1 var(--display); }
+    .detail p { margin: 0; color: #4f626a; }
+    .detail-meta { display: grid; gap: 12px; }
+    .detail-row { display: grid; grid-template-columns: 88px 1fr; gap: 12px; font-size: 13px; }
+    .detail-row span { font: 10px/1.4 var(--mono); color: var(--muted); text-transform: uppercase; }
+    .status-chip { display: inline-flex; align-items: center; width: fit-content; padding: 5px 8px; border: 1px solid currentColor; font: 700 10px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--amber); }
+    .status-chip.verified { color: var(--moss); }
+    .status-chip.rejected { color: var(--copper); }
+    .streams { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .stream-card { background: rgba(250,252,252,.84); border: 1px solid var(--line); padding: 20px; box-shadow: 0 8px 25px rgba(23,36,43,.06); }
+    .stream-card h4 { margin: 10px 0 8px; font: 650 20px/1.1 var(--display); }
+    .stream-card p { margin: 6px 0; color: #50636b; font-size: 14px; }
+    .stream-card code { font-family: var(--mono); font-size: 11px; overflow-wrap: anywhere; }
+    .evidence-list { display: grid; gap: 8px; margin: 14px 0 0; padding: 0; list-style: none; }
+    .evidence-list li { padding: 9px 11px; background: #edf3f4; border-left: 3px solid var(--lapis); font: 11px/1.45 var(--mono); overflow-wrap: anywhere; }
+    .control-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; counter-reset: control; }
+    .control { position: relative; min-height: 94px; padding: 19px 19px 19px 54px; background: var(--quartz); border: 1px solid var(--line); }
+    .control::before { counter-increment: control; content: counter(control); position: absolute; left: 18px; top: 19px; color: var(--copper); font: 800 14px/1 var(--mono); }
+    .control p { margin: 0; }
+    .source-list { display: grid; gap: 0; border-top: 1px solid var(--line); }
+    .source-list a { display: grid; grid-template-columns: minmax(160px, .35fr) 1fr; gap: 20px; padding: 13px 0; border-bottom: 1px solid var(--line); text-decoration: none; }
+    .source-list a:hover strong { color: var(--lapis); }
+    .source-list strong { font-family: var(--display); }
+    .source-list span { color: var(--muted); font: 11px/1.5 var(--mono); overflow-wrap: anywhere; }
+    .risk { padding: 14px 16px; border-left: 4px solid var(--copper); background: rgba(250,252,252,.75); margin-bottom: 8px; }
+    footer { max-width: 1180px; margin: 70px auto 0; padding-top: 18px; border-top: 1px solid #9eb0b7; color: var(--muted); font: 11px/1.5 var(--mono); }
+    @keyframes pulse { 70% { box-shadow: 0 0 0 9px rgba(185,136,47,0); } 100% { box-shadow: 0 0 0 0 rgba(185,136,47,0); } }
+    @media (max-width: 900px) {
+      .shell { grid-template-columns: 1fr; }
+      .rail { position: relative; height: auto; border-right: 0; border-bottom: 6px solid var(--copper); }
+      .rail nav { grid-template-columns: repeat(3, 1fr); }
+      .rail-meta { margin-top: 18px; }
+      .baseline { grid-template-columns: repeat(2, 1fr); }
+      .detail, .streams { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 580px) {
+      main { padding: 28px 16px 54px; }
+      .rail { padding: 22px 18px; }
+      .rail h1 { margin-top: 30px; }
+      .rail nav { grid-template-columns: 1fr 1fr; }
+      .hero h2 { font-size: 44px; }
+      .baseline, .control-grid { grid-template-columns: 1fr; }
+      .lane { grid-template-columns: 82px minmax(0, 1fr); }
+      .lane-label { padding-left: 12px; }
+      .trace { margin-right: 12px; }
+      .trace-note { display: none; }
+      .section-head { display: block; }
+      .section-head p { margin-top: 8px; }
+      .source-list a { grid-template-columns: 1fr; gap: 2px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition: none !important; }
+    }
+    @media print {
+      body { background: white; }
+      .shell { display: block; }
+      .rail { position: relative; height: auto; border: 0; }
+      main { padding: 24px; }
+      .checkpoint { box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="rail">
+      <div class="mark"><span class="mark-cube" aria-hidden="true"></span> kobeMC / Agent Lab</div>
+      <h1>夜间加固<br />飞行记录</h1>
+      <p class="rail-sub">把 worker 自述降级为线索，只把主线复核过的 diff、测试与 demo 升级为结论。</p>
+      <div class="status-line" id="status-line"><span class="pulse"></span><span id="status-copy"></span></div>
+      <nav aria-label="报告导航">
+        <a href="#recorder">飞行记录</a>
+        <a href="#workstreams">成果工作线</a>
+        <a href="#control">控制面</a>
+        <a href="#sources">设计依据</a>
+        <a href="#risks">剩余风险</a>
+      </nav>
+      <div class="rail-meta">
+        <div><strong>RUN WINDOW</strong><br /><span id="run-window"></span></div>
+        <div><strong>BRANCH</strong><br /><span id="branch"></span></div>
+        <div><strong>BASELINE</strong><br /><span id="baseline-commit"></span></div>
+        <div><strong>GENERATED</strong><br /><span id="generated-at"></span></div>
+      </div>
+    </aside>
+    <main>
+      <header class="hero">
+        <p class="eyebrow">Overnight reliability dossier</p>
+        <h2>让 Agent 的失败<br />有<em>确定终点</em>。</h2>
+        <p class="lede" id="summary"></p>
+        <div class="baseline" id="baseline"></div>
+      </header>
+
+      <section id="recorder">
+        <div class="section-head">
+          <h3>四条隔离轨迹</h3>
+          <p>每个圆点都是一个可审计 checkpoint。选择轨迹查看问题输入、收束规则与证据，而不是只看“任务完成”。</p>
+        </div>
+        <div class="recorder">
+          <div class="recorder-head"><span>01:50 injection</span><span>08:00 sealed evidence</span></div>
+          <div class="lanes" id="lanes"></div>
+        </div>
+        <div class="detail" id="detail" aria-live="polite"></div>
+      </section>
+
+      <section id="workstreams">
+        <div class="section-head"><h3>成果工作线</h3><p>卡片状态只允许 running、verified、rejected 或 blocked；没有“差不多完成”。</p></div>
+        <div class="streams" id="streams"></div>
+      </section>
+
+      <section id="control">
+        <div class="section-head"><h3>夜间控制面</h3><p>可编辑面、锁定 evaluator 与人工授权边界分开，避免自治循环通过修改规则自证成功。</p></div>
+        <div class="control-grid" id="control-grid"></div>
+      </section>
+
+      <section id="sources">
+        <div class="section-head"><h3>设计依据</h3><p>Letta 用于提取适用机制；实际实现必须继续服从本仓 agent-core、desktop 与 Rust 的所有权边界。</p></div>
+        <div class="source-list" id="source-list"></div>
+      </section>
+
+      <section id="risks">
+        <div class="section-head"><h3>剩余风险</h3><p>风险不会藏在“后续优化”里；未验证或未获授权的部分明确保留。</p></div>
+        <div id="risk-list"></div>
+      </section>
+
+      <footer>Self-contained report · no external scripts, fonts, analytics, or network required · generated from docs/agent-hardening-report.json</footer>
+    </main>
+  </div>
+  <script>
+    const REPORT = {"title":"Agent 夜间加固飞行记录","subtitle":"从失败注入到确定性收束：memory、run、session 与 persistence 的隔离证据","runWindow":"2026-08-28 01:50–08:00 CDT","generatedAt":"2026-08-28 01:58 CDT","branch":"agents-md-instructions-instructi-2","baselineCommit":"d178c99","status":"running","summary":"第一轮四个隔离 Rove worktree 正在执行。当前基线为 agent-core 22/22、desktop 51/51 单测与 9/9 deterministic eval 通过；本页只把经过主线复核的结果标为 verified。","baseline":[{"label":"JS 回归基线","value":"73/73","detail":"agent-core 22 + desktop 51"},{"label":"Instance eval","value":"9/9","detail":"deterministic routing cases"},{"label":"Rove workers","value":"4","detail":"独立 worktree，文件范围错开"},{"label":"验收策略","value":"locked","detail":"worker 不得弱化 evaluator"}],"workstreams":[{"id":"memory","lane":"MEMORY","title":"有界记忆召回","status":"running","taskId":"01M13JB7JBZ6VSW35V70GAEG1D","rootCause":"等待 failing-test 证据","before":"已有会话持久化，但没有独立、可预算、带来源的跨会话召回层。","after":"等待 worker 实现与主线复核。","tests":[],"artifacts":[],"commit":null},{"id":"run","lane":"RUN","title":"运行容错与收束","status":"running","taskId":"01M13JB7MWH6XWGP6K6GAY2F3Z","rootCause":"尚未确认根因；worker 正在注入竞态、send failure 与挂起场景。","before":"基线已有 AbortSignal、队列和 conversation/run binding；仍需对故障注入验证收束。","after":"等待 worker 实现与主线复核。","tests":[],"artifacts":[],"commit":null},{"id":"session","lane":"SESSION","title":"Claude runtime session 隔离","status":"running","taskId":"01M13JB7K61RNYAKZTNX0A4JZN","rootCause":"尚未确认根因；worker 正在验证 stale、duplicate 与 dispose 路由边界。","before":"providerSessionId、conversationId、runId 已参与路由，但尚未完成对 stale/duplicate/dispose 的对抗验收。","after":"等待 worker 实现与主线复核。","tests":[],"artifacts":[],"commit":null},{"id":"persistence","lane":"PERSISTENCE","title":"历史记录污染边界","status":"running","taskId":"01M13JB7M2CQX78YZ5MRM69VT2","rootCause":"当前 parser 仅验证 id 与 messages 数组，等待边界用例确认影响。","before":"损坏、过大或时间字段异常的持久化记录可能进入 merge 路径。","after":"等待 worker 实现与主线复核。","tests":[],"artifacts":[],"commit":null}],"controlPlane":["所有实现工作在 Rove managed worktree 隔离执行。","每个任务先形成 failing test，再实现最小修复并提交 commit。","主线检查真实 diff、复跑 focused/full regression 后才 land。","不 push、不建 PR、不合并默认分支、不部署；08:00 前停止新改动并完成证据封存。"],"sources":[{"label":"Letta Memory & dreaming","url":"https://docs.letta.com/configuration/memory"},{"label":"Letta Conversations","url":"https://docs.letta.com/concepts/conversations"},{"label":"Letta MemFS","url":"https://docs.letta.com/concepts/memfs"},{"label":"Letta Protocol lifecycle","url":"https://docs.letta.com/platform/app-server/protocol-lifecycle"},{"label":"AI SDK Agent memory","url":"https://ai-sdk.dev/docs/agents/memory"}],"risks":["当前页面是运行中快照；只有 status=verified 的工作线代表已整合成果。","外部模型调用不作为核心验收依据，最终证据优先使用 deterministic tests 和本地 demo。","npm audit 在基线安装时报告 9 个依赖漏洞；未自动执行可能带 breaking changes 的 audit fix。"]};
+    const $ = (selector) => document.querySelector(selector);
+    const text = (selector, value) => { $(selector).textContent = value; };
+    const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[ch]);
+    const tone = (status) => status === "verified" ? "var(--moss)" : status === "rejected" || status === "blocked" ? "var(--copper)" : "var(--amber)";
+    const progress = (status) => status === "verified" ? "92%" : status === "rejected" || status === "blocked" ? "68%" : "48%";
+    text("#run-window", REPORT.runWindow);
+    text("#branch", REPORT.branch);
+    text("#baseline-commit", REPORT.baselineCommit);
+    text("#generated-at", REPORT.generatedAt);
+    text("#summary", REPORT.summary);
+    text("#status-copy", REPORT.status === "verified" ? "evidence sealed" : "run in progress");
+    $("#status-line").dataset.status = REPORT.status;
+    $("#baseline").innerHTML = REPORT.baseline.map((item) => `<div class="metric"><span>${escapeHtml(item.label)}</span><strong>${escapeHtml(item.value)}</strong><small>${escapeHtml(item.detail)}</small></div>`).join("");
+    $("#lanes").innerHTML = REPORT.workstreams.map((stream, index) => `<div class="lane"><span class="lane-label">${escapeHtml(stream.lane)}</span><div class="trace" style="--tone:${tone(stream.status)};--progress:${progress(stream.status)}"><span class="trace-line"></span><button class="checkpoint" data-stream="${escapeHtml(stream.id)}" aria-label="查看 ${escapeHtml(stream.title)}">${index + 1}</button><span class="trace-note">${escapeHtml(stream.rootCause)}</span></div></div>`).join("");
+    function renderDetail(id) {
+      const stream = REPORT.workstreams.find((item) => item.id === id) || REPORT.workstreams[0];
+      $("#detail").innerHTML = `<div><span class="status-chip ${escapeHtml(stream.status)}">${escapeHtml(stream.status)}</span><h4>${escapeHtml(stream.title)}</h4><p>${escapeHtml(stream.after)}</p></div><div class="detail-meta"><div class="detail-row"><span>root cause</span><strong>${escapeHtml(stream.rootCause)}</strong></div><div class="detail-row"><span>before</span><div>${escapeHtml(stream.before)}</div></div><div class="detail-row"><span>task</span><code>${escapeHtml(stream.taskId)}</code></div><div class="detail-row"><span>commit</span><code>${escapeHtml(stream.commit || "pending")}</code></div></div>`;
+    }
+    $("#lanes").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-stream]");
+      if (button) renderDetail(button.dataset.stream);
+    });
+    renderDetail(REPORT.workstreams[0].id);
+    $("#streams").innerHTML = REPORT.workstreams.map((stream) => `<article class="stream-card"><span class="status-chip ${escapeHtml(stream.status)}">${escapeHtml(stream.status)}</span><h4>${escapeHtml(stream.title)}</h4><p><strong>Before：</strong>${escapeHtml(stream.before)}</p><p><strong>After：</strong>${escapeHtml(stream.after)}</p><p><code>${escapeHtml(stream.taskId)}${stream.commit ? ` · ${escapeHtml(stream.commit)}` : ""}</code></p><ul class="evidence-list">${[...stream.tests, ...stream.artifacts].map((item) => `<li>${escapeHtml(item)}</li>`).join("") || "<li>等待主线复核证据</li>"}</ul></article>`).join("");
+    $("#control-grid").innerHTML = REPORT.controlPlane.map((item) => `<div class="control"><p>${escapeHtml(item)}</p></div>`).join("");
+    $("#source-list").innerHTML = REPORT.sources.map((source) => `<a href="${escapeHtml(source.url)}" target="_blank" rel="noreferrer"><strong>${escapeHtml(source.label)}</strong><span>${escapeHtml(source.url)}</span></a>`).join("");
+    $("#risk-list").innerHTML = REPORT.risks.map((risk) => `<div class="risk">${escapeHtml(risk)}</div>`).join("");
+  </script>
+</body>
+</html>

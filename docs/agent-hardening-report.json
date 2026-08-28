@@ -1,0 +1,88 @@
+{
+  "title": "Agent 夜间加固飞行记录",
+  "subtitle": "从失败注入到确定性收束：memory、run、session 与 persistence 的隔离证据",
+  "runWindow": "2026-08-28 01:50–08:00 CDT",
+  "generatedAt": "2026-08-28 01:58 CDT",
+  "branch": "agents-md-instructions-instructi-2",
+  "baselineCommit": "d178c99",
+  "status": "running",
+  "summary": "第一轮四个隔离 Rove worktree 正在执行。当前基线为 agent-core 22/22、desktop 51/51 单测与 9/9 deterministic eval 通过；本页只把经过主线复核的结果标为 verified。",
+  "baseline": [
+    { "label": "JS 回归基线", "value": "73/73", "detail": "agent-core 22 + desktop 51" },
+    { "label": "Instance eval", "value": "9/9", "detail": "deterministic routing cases" },
+    { "label": "Rove workers", "value": "4", "detail": "独立 worktree，文件范围错开" },
+    { "label": "验收策略", "value": "locked", "detail": "worker 不得弱化 evaluator" }
+  ],
+  "workstreams": [
+    {
+      "id": "memory",
+      "lane": "MEMORY",
+      "title": "有界记忆召回",
+      "status": "running",
+      "taskId": "01M13JB7JBZ6VSW35V70GAEG1D",
+      "rootCause": "等待 failing-test 证据",
+      "before": "已有会话持久化，但没有独立、可预算、带来源的跨会话召回层。",
+      "after": "等待 worker 实现与主线复核。",
+      "tests": [],
+      "artifacts": [],
+      "commit": null
+    },
+    {
+      "id": "run",
+      "lane": "RUN",
+      "title": "运行容错与收束",
+      "status": "running",
+      "taskId": "01M13JB7MWH6XWGP6K6GAY2F3Z",
+      "rootCause": "尚未确认根因；worker 正在注入竞态、send failure 与挂起场景。",
+      "before": "基线已有 AbortSignal、队列和 conversation/run binding；仍需对故障注入验证收束。",
+      "after": "等待 worker 实现与主线复核。",
+      "tests": [],
+      "artifacts": [],
+      "commit": null
+    },
+    {
+      "id": "session",
+      "lane": "SESSION",
+      "title": "Claude runtime session 隔离",
+      "status": "running",
+      "taskId": "01M13JB7K61RNYAKZTNX0A4JZN",
+      "rootCause": "尚未确认根因；worker 正在验证 stale、duplicate 与 dispose 路由边界。",
+      "before": "providerSessionId、conversationId、runId 已参与路由，但尚未完成对 stale/duplicate/dispose 的对抗验收。",
+      "after": "等待 worker 实现与主线复核。",
+      "tests": [],
+      "artifacts": [],
+      "commit": null
+    },
+    {
+      "id": "persistence",
+      "lane": "PERSISTENCE",
+      "title": "历史记录污染边界",
+      "status": "running",
+      "taskId": "01M13JB7M2CQX78YZ5MRM69VT2",
+      "rootCause": "当前 parser 仅验证 id 与 messages 数组，等待边界用例确认影响。",
+      "before": "损坏、过大或时间字段异常的持久化记录可能进入 merge 路径。",
+      "after": "等待 worker 实现与主线复核。",
+      "tests": [],
+      "artifacts": [],
+      "commit": null
+    }
+  ],
+  "controlPlane": [
+    "所有实现工作在 Rove managed worktree 隔离执行。",
+    "每个任务先形成 failing test，再实现最小修复并提交 commit。",
+    "主线检查真实 diff、复跑 focused/full regression 后才 land。",
+    "不 push、不建 PR、不合并默认分支、不部署；08:00 前停止新改动并完成证据封存。"
+  ],
+  "sources": [
+    { "label": "Letta Memory & dreaming", "url": "https://docs.letta.com/configuration/memory" },
+    { "label": "Letta Conversations", "url": "https://docs.letta.com/concepts/conversations" },
+    { "label": "Letta MemFS", "url": "https://docs.letta.com/concepts/memfs" },
+    { "label": "Letta Protocol lifecycle", "url": "https://docs.letta.com/platform/app-server/protocol-lifecycle" },
+    { "label": "AI SDK Agent memory", "url": "https://ai-sdk.dev/docs/agents/memory" }
+  ],
+  "risks": [
+    "当前页面是运行中快照；只有 status=verified 的工作线代表已整合成果。",
+    "外部模型调用不作为核心验收依据，最终证据优先使用 deterministic tests 和本地 demo。",
+    "npm audit 在基线安装时报告 9 个依赖漏洞；未自动执行可能带 breaking changes 的 audit fix。"
+  ]
+}
