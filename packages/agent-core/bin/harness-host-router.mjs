@@ -33,12 +33,24 @@ const VALID_MODES = new Map([
 export function createHarnessHostRouter({ send, createAgent, model }) {
   const sessions = new Map(); // providerSessionId -> session
   const busyConversations = new Set();
+  let disposed = false;
+  let disposePromise = null;
 
   function modeFrom(value) {
     return VALID_MODES.get(value) ?? "build";
   }
 
+  function isActiveRun(session, providerSessionId, conversationId, runId) {
+    return (
+      !disposed &&
+      sessions.get(providerSessionId) === session &&
+      session.conversationId === conversationId &&
+      session.activeRunId === runId
+    );
+  }
+
   function sendDone(providerSessionId, conversationId, runId, error, promptVersion) {
+    if (disposed) return;
     send({
       type: "done",
       providerSessionId,
@@ -50,6 +62,7 @@ export function createHarnessHostRouter({ send, createAgent, model }) {
   }
 
   function createSession(providerSessionId, conversationId, mode) {
+    if (disposed) throw new Error("router disposed");
     const session = {
       providerSessionId,
       conversationId,
@@ -97,6 +110,9 @@ export function createHarnessHostRouter({ send, createAgent, model }) {
   }
 
   function callTool(session, name, args, toolCallId) {
+    if (disposed) {
+      return Promise.reject(new Error("router disposed"));
+    }
     const runId = session.activeRunId;
     if (!session.running || !runId) {
       return Promise.reject(new Error("tool call has no active run"));
@@ -126,7 +142,7 @@ export function createHarnessHostRouter({ send, createAgent, model }) {
     const providerSessionId = String(message.providerSessionId ?? "");
     const conversationId = String(message.conversationId ?? "");
     const runId = String(message.runId ?? "");
-    if (!providerSessionId || !conversationId || !runId) return;
+    if (disposed || !providerSessionId || !conversationId || !runId) return;
     if (busyConversations.has(conversationId)) {
       sendDone(providerSessionId, conversationId, runId, "turn already running");
       return;
@@ -135,6 +151,7 @@ export function createHarnessHostRouter({ send, createAgent, model }) {
     let session;
     try {
       session = await sessionFor(providerSessionId, conversationId, modeFrom(message.mode));
+      if (disposed) return;
       session.running = true;
       session.activeRunId = runId;
       session.abort = new AbortController();
@@ -148,16 +165,19 @@ export function createHarnessHostRouter({ send, createAgent, model }) {
       ];
       const result = await session.agent.run(
         session.history,
-        (assistant) =>
+        (assistant) => {
+          if (!isActiveRun(session, providerSessionId, conversationId, runId)) return;
           send({
             type: "update",
             providerSessionId,
             conversationId,
             runId,
             message: assistant,
-          }),
+          });
+        },
         session.abort.signal,
       );
+      if (!isActiveRun(session, providerSessionId, conversationId, runId)) return;
       session.history = result.messages;
       sendDone(providerSessionId, conversationId, runId, result.error, result.promptVersion);
     } catch (error) {
@@ -203,6 +223,7 @@ export function createHarnessHostRouter({ send, createAgent, model }) {
   }
 
   function handle(message) {
+    if (disposed) return;
     switch (message?.type) {
       case "turn":
         void runTurn(message);
@@ -216,10 +237,24 @@ export function createHarnessHostRouter({ send, createAgent, model }) {
     }
   }
 
-  async function dispose() {
-    await Promise.all([...sessions.values()].map((session) => session.agent.dispose()));
-    sessions.clear();
-    busyConversations.clear();
+  function dispose() {
+    if (disposePromise) return disposePromise;
+    disposed = true;
+    const closingSessions = [...sessions.values()];
+    for (const session of closingSessions) {
+      session.abort?.abort();
+      for (const pending of session.pendingTools.values()) {
+        pending.reject(new Error("router disposed"));
+      }
+      session.pendingTools.clear();
+    }
+    disposePromise = Promise.all(closingSessions.map((session) => session.agent.dispose())).finally(
+      () => {
+        sessions.clear();
+        busyConversations.clear();
+      },
+    );
+    return disposePromise;
   }
 
   return { handle, dispose };

@@ -209,4 +209,51 @@ describe("harness host router", () => {
     expect(agents.get("A")!.pending[0].signal.aborted).toBe(true);
     expect(agents.get("B")!.pending[0].signal.aborted).toBe(false);
   });
+
+  it("aborts active runs and suppresses their late output during dispose", async () => {
+    const { router, sent, agents } = setup();
+    router.handle({ type: "turn", providerSessionId: "session-A", conversationId: "A", runId: "run-A", text: "alpha", mode: "modpack" });
+    await vi.waitFor(() => expect(agents.has("A")).toBe(true));
+    const run = agents.get("A")!.pending[0];
+
+    await router.dispose();
+    const sentAtDispose = sent.length;
+    expect.soft(run.signal.aborted).toBe(true);
+
+    run.onUpdate(assistant("late-update", "must not escape shutdown"));
+    run.finish(run.history);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(sent.slice(sentAtDispose)).toEqual([]);
+  });
+
+  it("does not start a turn when dispose wins the session setup race", async () => {
+    const { router, sent, createdAgents } = setup();
+    router.handle({ type: "turn", providerSessionId: "session-A", conversationId: "A", runId: "run-A", text: "alpha", mode: "modpack" });
+
+    await router.dispose();
+    await Promise.resolve();
+
+    expect(createdAgents).toHaveLength(1);
+    expect(createdAgents[0].pending).toEqual([]);
+    expect(sent).toEqual([]);
+  });
+
+  it("rejects pending tool calls when their host session is disposed", async () => {
+    const { router, agents } = setup();
+    router.handle({ type: "turn", providerSessionId: "session-A", conversationId: "A", runId: "run-A", text: "ask", mode: "modpack" });
+    await vi.waitFor(() => expect(agents.has("A")).toBe(true));
+    const agent = agents.get("A")!;
+    const rejection = vi.fn();
+    void agent.handlers.ask_user_question(
+      { question: "still there?" },
+      { toolCallId: "call-A" },
+    ).catch(rejection);
+
+    await router.dispose();
+    await Promise.resolve();
+
+    expect(rejection).toHaveBeenCalledWith(expect.objectContaining({ message: "router disposed" }));
+    agent.pending[0].finish(agent.pending[0].history);
+  });
 });
