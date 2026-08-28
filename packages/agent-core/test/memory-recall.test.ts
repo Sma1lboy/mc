@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  MEMORY_INPUT_LIMITS,
   renderMemoryContext,
   selectMemoryContext,
   type MemoryCandidate,
@@ -32,6 +33,135 @@ function select(candidates: MemoryCandidate[], overrides: Partial<MemoryRecallRe
 }
 
 describe("bounded memory recall", () => {
+  it("publishes the conservative runtime admission limits", () => {
+    expect(MEMORY_INPUT_LIMITS).toEqual({
+      maxCandidates: 256,
+      maxContentChars: 4096,
+      maxKeywords: 32,
+      maxKeywordChars: 128,
+      maxQueryChars: 2048,
+      maxIdChars: 256,
+      maxScopeIdChars: 256,
+      maxConversationIdChars: 256,
+      maxMemoryKeyChars: 256,
+      maxUpdatedAtChars: 64,
+      maxProvenanceSourceChars: 128,
+      maxProvenanceReferenceChars: 1024,
+    });
+  });
+
+  it("rejects malformed runtime candidates without throwing and audits exact reasons", () => {
+    const malformed = [
+      null,
+      "primitive",
+      42,
+      {},
+      candidate("bad-tier", { tier: "archive" as MemoryCandidate["tier"] }),
+      candidate("bad-visibility", {
+        visibility: "global" as MemoryCandidate["visibility"],
+      }),
+      candidate("bad-provenance", {
+        provenance: null as unknown as MemoryCandidate["provenance"],
+      }),
+      candidate("bad-keywords-shape", {
+        keywords: "memory" as unknown as readonly string[],
+      }),
+      candidate("bad-keyword-item", {
+        keywords: ["memory", null] as unknown as readonly string[],
+      }),
+    ] as unknown as MemoryCandidate[];
+
+    const forward = selectMemoryContext({ identity, query: "memory", candidates: malformed });
+    const reversed = selectMemoryContext({
+      identity,
+      query: "memory",
+      candidates: [...malformed].reverse(),
+    });
+
+    expect(forward).toEqual(reversed);
+    expect(forward.durable).toEqual([]);
+    expect(forward.recalled).toEqual([]);
+    expect(forward.decisions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ candidateId: "bad-tier", reason: "invalid_tier" }),
+        expect.objectContaining({
+          candidateId: "bad-visibility",
+          reason: "invalid_visibility",
+        }),
+        expect.objectContaining({
+          candidateId: "bad-provenance",
+          reason: "invalid_provenance",
+        }),
+        expect.objectContaining({
+          candidateId: "bad-keywords-shape",
+          reason: "invalid_keywords",
+        }),
+        expect.objectContaining({
+          candidateId: "bad-keyword-item",
+          reason: "invalid_keywords",
+        }),
+      ]),
+    );
+    expect(forward.decisions.filter((item) => item.reason === "invalid_candidate")).toHaveLength(4);
+  });
+
+  it("rejects an oversized candidate array before scanning individual entries", () => {
+    const candidates = Array.from({ length: 257 }, (_, index) =>
+      candidate(`candidate-${String(index).padStart(3, "0")}`),
+    );
+    const selection = selectMemoryContext({ identity, query: "memory", candidates });
+
+    expect(selection.durable).toEqual([]);
+    expect(selection.recalled).toEqual([]);
+    expect(selection.decisions).toEqual([]);
+    expect(selection.inputAudit).toContainEqual({
+      subject: "candidates",
+      outcome: "rejected",
+      reason: "candidate_limit_exceeded",
+      received: 257,
+      accepted: 0,
+    });
+  });
+
+  it("audits deterministic query truncation and rejects oversized candidate text", () => {
+    const candidates = [
+      candidate("content-too-long", { content: "c".repeat(4097) }),
+      candidate("keyword-too-long", { keywords: ["k".repeat(129)] }),
+      candidate("keywords-too-many", {
+        keywords: Array.from({ length: 33 }, (_, index) => `keyword-${index}`),
+      }),
+    ];
+    const query = `memory ${"q".repeat(2049)}`;
+    const forward = selectMemoryContext({ identity, query, candidates });
+    const reversed = selectMemoryContext({ identity, query, candidates: [...candidates].reverse() });
+
+    expect(forward).toEqual(reversed);
+    expect(forward.query).toHaveLength(2048);
+    expect(forward.inputAudit).toContainEqual({
+      subject: "query",
+      outcome: "truncated",
+      reason: "query_limit_exceeded",
+      received: query.length,
+      accepted: 2048,
+    });
+    expect(forward.decisions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          candidateId: "content-too-long",
+          reason: "content_limit_exceeded",
+        }),
+        expect.objectContaining({
+          candidateId: "keyword-too-long",
+          reason: "keyword_limit_exceeded",
+        }),
+        expect.objectContaining({
+          candidateId: "keywords-too-many",
+          reason: "keyword_count_limit_exceeded",
+        }),
+      ]),
+    );
+  });
+
   it("always considers durable facts and query-gates recalled evidence", () => {
     const selection = select([
       candidate("durable", {
@@ -84,6 +214,24 @@ describe("bounded memory recall", () => {
     expect(selection.decisions).toContainEqual(
       expect.objectContaining({ candidateId: "duplicate", reason: "duplicate" }),
     );
+  });
+
+  it("breaks equal identity and timestamp correction ties without input-order dependence", () => {
+    const candidates = [
+      candidate("collision", {
+        memoryKey: "instance.memory_collision",
+        content: "memory alpha",
+      }),
+      candidate("collision", {
+        memoryKey: "instance.memory_collision",
+        content: "memory beta",
+      }),
+    ];
+    const forward = select(candidates);
+    const reversed = select([...candidates].reverse());
+
+    expect(forward).toEqual(reversed);
+    expect(forward.recalled.map((item) => item.content)).toEqual(["memory alpha"]);
   });
 
   it("never crosses scope and requires explicit conversation visibility", () => {

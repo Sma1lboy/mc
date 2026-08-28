@@ -33,6 +33,21 @@ export interface MemoryBudget {
   maxRecallItems: number;
 }
 
+export const MEMORY_INPUT_LIMITS = Object.freeze({
+  maxCandidates: 256,
+  maxContentChars: 4096,
+  maxKeywords: 32,
+  maxKeywordChars: 128,
+  maxQueryChars: 2048,
+  maxIdChars: 256,
+  maxScopeIdChars: 256,
+  maxConversationIdChars: 256,
+  maxMemoryKeyChars: 256,
+  maxUpdatedAtChars: 64,
+  maxProvenanceSourceChars: 128,
+  maxProvenanceReferenceChars: 1024,
+});
+
 export interface MemoryRecallRequest {
   identity: MemoryIdentity;
   candidates: readonly MemoryCandidate[];
@@ -47,6 +62,13 @@ export type MemoryDecisionReason =
   | "scope_mismatch"
   | "conversation_mismatch"
   | "invalid_candidate"
+  | "invalid_tier"
+  | "invalid_visibility"
+  | "invalid_provenance"
+  | "invalid_keywords"
+  | "content_limit_exceeded"
+  | "keyword_limit_exceeded"
+  | "keyword_count_limit_exceeded"
   | "duplicate"
   | "superseded"
   | "no_query_match"
@@ -66,12 +88,29 @@ export interface SelectedMemory extends MemoryCandidate {
   score: number;
 }
 
+export type MemoryInputAuditReason =
+  | "invalid_request"
+  | "invalid_identity"
+  | "invalid_candidates"
+  | "candidate_limit_exceeded"
+  | "invalid_query"
+  | "query_limit_exceeded";
+
+export interface MemoryInputAudit {
+  subject: "request" | "identity" | "candidates" | "query";
+  outcome: "rejected" | "truncated";
+  reason: MemoryInputAuditReason;
+  received: number;
+  accepted: number;
+}
+
 export interface MemorySelection {
   identity: MemoryIdentity;
   query: string;
   durable: SelectedMemory[];
   recalled: SelectedMemory[];
   decisions: MemoryDecision[];
+  inputAudit: MemoryInputAudit[];
   budget: MemoryBudget & {
     selectedChars: number;
     remainingChars: number;
@@ -88,28 +127,76 @@ interface PreparedCandidate {
   candidate: MemoryCandidate;
   updatedMs: number;
   normalizedContent: string;
+  fingerprint: string;
 }
 
 /** Selects context without reading or mutating persistence. */
 export function selectMemoryContext(request: MemoryRecallRequest): MemorySelection {
-  const budget = normalizeBudget(request.budget);
-  const query = normalizeText(request.query ?? "");
+  const rawRequest: unknown = request;
+  if (!isRecord(rawRequest)) {
+    return emptySelection(
+      { scopeId: "", conversationId: "" },
+      "",
+      normalizeBudget(),
+      [inputAudit("request", "invalid_request", 1, 0)],
+    );
+  }
+
+  const budget = normalizeBudget(rawRequest.budget as Partial<MemoryBudget> | undefined);
+  const identity = readIdentity(rawRequest.identity);
+  if (!identity) {
+    return emptySelection(
+      { scopeId: "", conversationId: "" },
+      "",
+      budget,
+      [inputAudit("identity", "invalid_identity", 1, 0)],
+    );
+  }
+
+  const inputAudits: MemoryInputAudit[] = [];
+  const query = readQuery(rawRequest.query, inputAudits);
+  if (!Array.isArray(rawRequest.candidates)) {
+    return emptySelection(
+      identity,
+      query,
+      budget,
+      [...inputAudits, inputAudit("candidates", "invalid_candidates", 0, 0)],
+    );
+  }
+  if (rawRequest.candidates.length > MEMORY_INPUT_LIMITS.maxCandidates) {
+    return emptySelection(
+      identity,
+      query,
+      budget,
+      [
+        ...inputAudits,
+        inputAudit(
+          "candidates",
+          "candidate_limit_exceeded",
+          rawRequest.candidates.length,
+          0,
+        ),
+      ],
+    );
+  }
+
   const decisions: MemoryDecision[] = [];
   const scoped: PreparedCandidate[] = [];
 
-  for (const candidate of request.candidates) {
-    const invalid = invalidCandidate(candidate);
-    if (invalid) {
-      decisions.push(decision(candidate, "invalid_candidate"));
+  for (const rawCandidate of rawRequest.candidates) {
+    const validated = readCandidate(rawCandidate);
+    if (!validated.candidate) {
+      decisions.push(invalidDecision(rawCandidate, validated.reason));
       continue;
     }
-    if (candidate.scopeId !== request.identity.scopeId) {
+    const candidate = validated.candidate;
+    if (candidate.scopeId !== identity.scopeId) {
       decisions.push(decision(candidate, "scope_mismatch"));
       continue;
     }
     if (
       candidate.visibility === "conversation" &&
-      candidate.conversationId !== request.identity.conversationId
+      candidate.conversationId !== identity.conversationId
     ) {
       decisions.push(decision(candidate, "conversation_mismatch"));
       continue;
@@ -118,6 +205,7 @@ export function selectMemoryContext(request: MemoryRecallRequest): MemorySelecti
       candidate,
       updatedMs: Date.parse(candidate.updatedAt),
       normalizedContent: normalizeText(candidate.content),
+      fingerprint: candidateFingerprint(candidate),
     });
   }
 
@@ -168,11 +256,12 @@ export function selectMemoryContext(request: MemoryRecallRequest): MemorySelecti
   }
 
   return {
-    identity: { ...request.identity },
+    identity,
     query,
     durable: selectedDurable,
     recalled: selectedRecall,
     decisions: decisions.sort(compareDecision),
+    inputAudit: inputAudits.sort(compareInputAudit),
     budget: {
       ...budget,
       selectedChars,
@@ -238,17 +327,161 @@ function newestByContent(
   return winners;
 }
 
-function invalidCandidate(candidate: MemoryCandidate): boolean {
-  return (
-    !candidate.id.trim() ||
-    !candidate.scopeId.trim() ||
-    !candidate.conversationId.trim() ||
-    !candidate.memoryKey.trim() ||
-    !candidate.content.trim() ||
-    !candidate.provenance.source.trim() ||
-    !candidate.provenance.reference.trim() ||
-    !Number.isFinite(Date.parse(candidate.updatedAt))
-  );
+function readIdentity(value: unknown): MemoryIdentity | undefined {
+  if (!isRecord(value)) return undefined;
+  const { scopeId, conversationId } = value;
+  if (!boundedText(scopeId, MEMORY_INPUT_LIMITS.maxScopeIdChars)) return undefined;
+  if (!boundedText(conversationId, MEMORY_INPUT_LIMITS.maxConversationIdChars)) {
+    return undefined;
+  }
+  return { scopeId, conversationId };
+}
+
+function readQuery(value: unknown, audits: MemoryInputAudit[]): string {
+  if (value === undefined) return "";
+  if (typeof value !== "string") {
+    audits.push(inputAudit("query", "invalid_query", 1, 0));
+    return "";
+  }
+  const accepted = value.slice(0, MEMORY_INPUT_LIMITS.maxQueryChars);
+  if (value.length > MEMORY_INPUT_LIMITS.maxQueryChars) {
+    audits.push(
+      inputAudit(
+        "query",
+        "query_limit_exceeded",
+        value.length,
+        MEMORY_INPUT_LIMITS.maxQueryChars,
+      ),
+    );
+  }
+  return normalizeText(accepted).slice(0, MEMORY_INPUT_LIMITS.maxQueryChars);
+}
+
+function readCandidate(value: unknown): {
+  candidate?: MemoryCandidate;
+  reason: MemoryDecisionReason;
+} {
+  if (!isRecord(value)) return { reason: "invalid_candidate" };
+  const { id, scopeId, conversationId, tier, visibility, memoryKey, content, updatedAt } = value;
+  if (!boundedText(id, MEMORY_INPUT_LIMITS.maxIdChars)) {
+    return { reason: "invalid_candidate" };
+  }
+  if (!boundedText(scopeId, MEMORY_INPUT_LIMITS.maxScopeIdChars)) {
+    return { reason: "invalid_candidate" };
+  }
+  if (!boundedText(conversationId, MEMORY_INPUT_LIMITS.maxConversationIdChars)) {
+    return { reason: "invalid_candidate" };
+  }
+  if (typeof tier !== "string") return { reason: "invalid_candidate" };
+  if (tier !== "durable" && tier !== "recall") return { reason: "invalid_tier" };
+  if (typeof visibility !== "string") return { reason: "invalid_candidate" };
+  if (visibility !== "scope" && visibility !== "conversation") {
+    return { reason: "invalid_visibility" };
+  }
+  if (!boundedText(memoryKey, MEMORY_INPUT_LIMITS.maxMemoryKeyChars)) {
+    return { reason: "invalid_candidate" };
+  }
+  if (typeof content !== "string") return { reason: "invalid_candidate" };
+  if (content.length > MEMORY_INPUT_LIMITS.maxContentChars) {
+    return { reason: "content_limit_exceeded" };
+  }
+  if (!content.trim()) return { reason: "invalid_candidate" };
+  if (!boundedText(updatedAt, MEMORY_INPUT_LIMITS.maxUpdatedAtChars)) {
+    return { reason: "invalid_candidate" };
+  }
+  if (!Number.isFinite(Date.parse(updatedAt))) return { reason: "invalid_candidate" };
+
+  if (value.provenance === undefined) return { reason: "invalid_candidate" };
+  if (!isRecord(value.provenance)) return { reason: "invalid_provenance" };
+  const { source, reference } = value.provenance;
+  if (!boundedText(source, MEMORY_INPUT_LIMITS.maxProvenanceSourceChars)) {
+    return { reason: "invalid_provenance" };
+  }
+  if (!boundedText(reference, MEMORY_INPUT_LIMITS.maxProvenanceReferenceChars)) {
+    return { reason: "invalid_provenance" };
+  }
+
+  let keywords: string[] | undefined;
+  if (value.keywords !== undefined) {
+    if (!Array.isArray(value.keywords)) return { reason: "invalid_keywords" };
+    if (value.keywords.length > MEMORY_INPUT_LIMITS.maxKeywords) {
+      return { reason: "keyword_count_limit_exceeded" };
+    }
+    keywords = [];
+    for (const keyword of value.keywords) {
+      if (typeof keyword !== "string") return { reason: "invalid_keywords" };
+      if (keyword.length > MEMORY_INPUT_LIMITS.maxKeywordChars) {
+        return { reason: "keyword_limit_exceeded" };
+      }
+      if (!keyword.trim()) return { reason: "invalid_keywords" };
+      keywords.push(keyword);
+    }
+  }
+
+  return {
+    reason: "invalid_candidate",
+    candidate: {
+      id,
+      scopeId,
+      conversationId,
+      tier,
+      visibility,
+      memoryKey,
+      content,
+      updatedAt,
+      provenance: { source, reference },
+      ...(keywords ? { keywords } : {}),
+    },
+  };
+}
+
+function boundedText(value: unknown, maxChars: number): value is string {
+  return typeof value === "string" && value.length <= maxChars && value.trim().length > 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function invalidDecision(value: unknown, reason: MemoryDecisionReason): MemoryDecision {
+  const candidateId =
+    isRecord(value) && boundedText(value.id, MEMORY_INPUT_LIMITS.maxIdChars)
+      ? value.id
+      : `invalid:${value === null ? "null" : Array.isArray(value) ? "array" : typeof value}`;
+  const chars = isRecord(value) && typeof value.content === "string" ? value.content.length : 0;
+  return { candidateId, outcome: "excluded", reason, score: 0, chars };
+}
+
+function inputAudit(
+  subject: MemoryInputAudit["subject"],
+  reason: MemoryInputAuditReason,
+  received: number,
+  accepted: number,
+): MemoryInputAudit {
+  return {
+    subject,
+    outcome: reason === "query_limit_exceeded" ? "truncated" : "rejected",
+    reason,
+    received,
+    accepted,
+  };
+}
+
+function emptySelection(
+  identity: MemoryIdentity,
+  query: string,
+  budget: MemoryBudget,
+  inputAudits: MemoryInputAudit[],
+): MemorySelection {
+  return {
+    identity,
+    query,
+    durable: [],
+    recalled: [],
+    decisions: [],
+    inputAudit: inputAudits.sort(compareInputAudit),
+    budget: { ...budget, selectedChars: 0, remainingChars: budget.maxChars },
+  };
 }
 
 function normalizeBudget(input?: Partial<MemoryBudget>): MemoryBudget {
@@ -299,8 +532,24 @@ function compareRecency(left: PreparedCandidate, right: PreparedCandidate): numb
   return (
     right.updatedMs - left.updatedMs ||
     compareText(left.candidate.memoryKey, right.candidate.memoryKey) ||
-    compareText(left.candidate.id, right.candidate.id)
+    compareText(left.candidate.id, right.candidate.id) ||
+    compareText(left.fingerprint, right.fingerprint)
   );
+}
+
+function candidateFingerprint(candidate: MemoryCandidate): string {
+  return JSON.stringify([
+    candidate.scopeId,
+    candidate.conversationId,
+    candidate.visibility,
+    candidate.tier,
+    candidate.memoryKey,
+    candidate.content,
+    candidate.updatedAt,
+    candidate.provenance.source,
+    candidate.provenance.reference,
+    candidate.keywords ?? [],
+  ]);
 }
 
 function compareRecall(
@@ -321,7 +570,20 @@ function decision(
 
 function compareDecision(left: MemoryDecision, right: MemoryDecision): number {
   return (
-    compareText(left.candidateId, right.candidateId) || compareText(left.reason, right.reason)
+    compareText(left.candidateId, right.candidateId) ||
+    compareText(left.reason, right.reason) ||
+    compareText(left.outcome, right.outcome) ||
+    left.score - right.score ||
+    left.chars - right.chars
+  );
+}
+
+function compareInputAudit(left: MemoryInputAudit, right: MemoryInputAudit): number {
+  return (
+    compareText(left.subject, right.subject) ||
+    compareText(left.reason, right.reason) ||
+    left.received - right.received ||
+    left.accepted - right.accepted
   );
 }
 

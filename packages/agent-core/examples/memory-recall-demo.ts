@@ -1,4 +1,8 @@
-import { selectMemoryContext } from "../src/index";
+import {
+  MEMORY_INPUT_LIMITS,
+  selectMemoryContext,
+  type MemoryCandidate,
+} from "../src/index";
 
 const selection = selectMemoryContext({
   identity: { scopeId: "instance:create-pack", conversationId: "conversation:current" },
@@ -49,7 +53,19 @@ const selection = selectMemoryContext({
       updatedAt: "2026-08-28T14:00:00.000Z",
       provenance: { source: "host-diagnosis", reference: "run:foreign" },
     },
-  ],
+    null,
+    {
+      id: "oversized-content",
+      scopeId: "instance:create-pack",
+      conversationId: "conversation:current",
+      visibility: "conversation",
+      tier: "recall",
+      memoryKey: "diagnosis.oversized",
+      content: "x".repeat(MEMORY_INPUT_LIMITS.maxContentChars + 1),
+      updatedAt: "2026-08-28T14:00:00.000Z",
+      provenance: { source: "host-diagnosis", reference: "run:oversized" },
+    },
+  ] as unknown as MemoryCandidate[],
 });
 
-console.log(JSON.stringify(selection, null, 2));
+console.log(JSON.stringify({ limits: MEMORY_INPUT_LIMITS, ...selection }, null, 2));
