@@ -1,7 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { UIMessage } from "ai";
 import type { AgentToolContext } from "./agentContext";
 import type { ConversationRecord } from "./chatStore";
+import {
+  MAX_CONVERSATION_MESSAGES,
+  MAX_CONVERSATION_RECORDS,
+} from "./conversationHistory";
 import {
   DESKTOP_MEMORY_LIMITS,
   buildMemoryRecallRequest,
@@ -129,6 +133,95 @@ describe("desktop deterministic memory recall candidates", () => {
     })).toBeUndefined();
   });
 
+  it("rejects host, instance, and legacy wiki scope disagreement", () => {
+    const scoped = context("/game", "pack-a");
+    const legacyWiki = {
+      root: "/game",
+      modpackId: "pack-a",
+      instanceId: "pack-a",
+      sourcePaths: ["/game/versions/pack-a"],
+    };
+    expect(buildMemoryRecallRequest({
+      conversationId: "current",
+      toolContext: { ...scoped, wiki: { ...legacyWiki, instanceId: "pack-b" } },
+      records: [],
+      isAutomaticTool: automatic,
+    })).toBeUndefined();
+
+    const request = buildMemoryRecallRequest({
+      conversationId: "current",
+      toolContext: scoped,
+      records: [
+        record("host-root-mismatch", { ...scoped, root: "/other" }, 300, [
+          toolMessage("host-root-tool", "diagnose_instance", { leak: "host" }),
+        ]),
+        record("wiki-mismatch", { ...scoped, wiki: { ...legacyWiki, root: "/other" } }, 200, [
+          toolMessage("wiki-tool", "diagnose_instance", { leak: "wiki" }),
+        ]),
+        record("legacy-exact", { root: "/game", mode: "wiki", wiki: legacyWiki }, 100, [
+          toolMessage("legacy-tool", "diagnose_instance", { accepted: true }),
+        ]),
+      ],
+      isAutomaticTool: automatic,
+    });
+
+    expect(request?.candidates.map((candidate) => candidate.conversationId)).toEqual([
+      "legacy-exact",
+    ]);
+    expect(JSON.stringify(request)).not.toContain("leak");
+  });
+
+  it("consults the automatic allowlist only for final successful tool outputs", () => {
+    const scoped = context("/game", "pack-a");
+    const allow = vi.fn((name: string) => name === "diagnose_instance");
+    const request = buildMemoryRecallRequest({
+      conversationId: "current",
+      toolContext: scoped,
+      records: [record("old", scoped, 100, [
+        toolMessage("valid", "diagnose_instance", { accepted: true }),
+        toolMessage("interactive", "ask_user_question", { secret: true }),
+        toolMessage("error", "wiki_search", { secret: true }, "output-error"),
+        preliminaryToolMessage("preliminary", "wiki_search", { secret: true }),
+      ])],
+      isAutomaticTool: allow,
+    });
+
+    expect(allow.mock.calls.map(([name]) => name)).toEqual([
+      "diagnose_instance",
+      "ask_user_question",
+    ]);
+    expect(request?.candidates).toHaveLength(1);
+    expect(JSON.stringify(request)).not.toContain("secret");
+  });
+
+  it("normalizes nested JSON stably, permits shared children, and rejects cycles", () => {
+    const scoped = context("/game", "pack-a");
+    const shared = { z: 2, a: 1 };
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    const request = buildMemoryRecallRequest({
+      conversationId: "current",
+      toolContext: scoped,
+      records: [record("old", scoped, 100, [
+        toolMessage("shared", "diagnose_instance", {
+          second: shared,
+          missing: undefined,
+          first: shared,
+          array: [undefined, Number.NaN, shared],
+        }),
+        toolMessage("cyclic", "diagnose_instance", cyclic),
+        toolMessage("undefined", "diagnose_instance", undefined),
+      ])],
+      isAutomaticTool: automatic,
+    });
+
+    expect(request?.candidates.map((candidate) => candidate.content)).toEqual([
+      "diagnose_instance output: " +
+        '{"array":[null,null,{"a":1,"z":2}],"first":{"a":1,"z":2},' +
+        '"second":{"a":1,"z":2}}',
+    ]);
+  });
+
   it("deduplicates stable outputs and bounds candidate count and per-item content before transport", () => {
     const scoped = context("/game", "pack-a");
     const records = [
@@ -170,5 +263,113 @@ describe("desktop deterministic memory recall candidates", () => {
       records: [...records].reverse(),
       isAutomaticTool: automatic,
     })).toEqual(request);
+  });
+
+  it("keeps equal-timestamp selection independent of host locale collation", () => {
+    const scoped = context("/game", "pack-a");
+    const records = Array.from(
+      { length: DESKTOP_MEMORY_LIMITS.maxCandidates + 1 },
+      (_, index) => record(`record-${index}`, scoped, 100, [
+        toolMessage(`tool-${index}`, "search_mods", { index }),
+      ]),
+    );
+    const selectedWithOrdering = (direction: 1 | -1): string[] => {
+      const localeCompare = vi.spyOn(String.prototype, "localeCompare").mockImplementation(
+        function compare(this: string, other: string): number {
+          if (this === other) return 0;
+          return this < other ? direction : -direction;
+        },
+      );
+      try {
+        return buildMemoryRecallRequest({
+          conversationId: "current",
+          toolContext: scoped,
+          records,
+          isAutomaticTool: automatic,
+        })?.candidates.map((candidate) => candidate.content) ?? [];
+      } finally {
+        localeCompare.mockRestore();
+      }
+    };
+
+    expect(selectedWithOrdering(1)).toEqual(selectedWithOrdering(-1));
+  });
+
+  it("keeps the newest canonical duplicate and excludes invalid timestamps", () => {
+    const scoped = context("/game", "pack-a");
+    const request = buildMemoryRecallRequest({
+      conversationId: "current",
+      toolContext: scoped,
+      records: [
+        record("older", scoped, 100, [
+          toolMessage("older-tool", "diagnose_instance", { b: 2, a: 1 }),
+        ]),
+        record("newer", scoped, 200, [
+          toolMessage("newer-tool", "diagnose_instance", { a: 1, b: 2 }),
+        ]),
+        record("nan", scoped, Number.NaN, [
+          toolMessage("nan-tool", "diagnose_instance", { invalid: "nan" }),
+        ]),
+        record("out-of-range", scoped, Number.MAX_SAFE_INTEGER, [
+          toolMessage("range-tool", "diagnose_instance", { invalid: "range" }),
+        ]),
+      ],
+      isAutomaticTool: automatic,
+    });
+
+    expect(request?.candidates).toHaveLength(1);
+    expect(request?.candidates[0]).toMatchObject({
+      conversationId: "newer",
+      updatedAt: "1970-01-01T00:00:00.200Z",
+      content: 'diagnose_instance output: {"a":1,"b":2}',
+    });
+    expect(JSON.stringify(request)).not.toContain("invalid");
+  });
+
+  it("truncates Unicode content without leaving an unpaired surrogate", () => {
+    const scoped = context("/game", "pack-a");
+    const request = buildMemoryRecallRequest({
+      conversationId: "current",
+      toolContext: scoped,
+      records: [record("old", scoped, 100, [
+        toolMessage("unicode", "search_mods", "😀".repeat(2_000)),
+      ])],
+      isAutomaticTool: automatic,
+    });
+    const content = request?.candidates[0]?.content ?? "";
+    const suffix = "...[truncated]";
+    const beforeSuffix = content.slice(0, -suffix.length);
+    const lastCodeUnit = beforeSuffix.charCodeAt(beforeSuffix.length - 1);
+
+    expect(content.length).toBeLessThanOrEqual(DESKTOP_MEMORY_LIMITS.maxContentChars);
+    expect(content.endsWith(suffix)).toBe(true);
+    expect(lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff).toBe(false);
+  });
+
+  it("completes bounded work across the maximum persisted record/message envelope", () => {
+    const scoped = context("/game", "pack-a");
+    const allow = vi.fn(() => true);
+    const records = Array.from({ length: MAX_CONVERSATION_RECORDS }, (_, recordIndex) =>
+      record(
+        `record-${recordIndex}`,
+        scoped,
+        recordIndex + 1,
+        Array.from({ length: MAX_CONVERSATION_MESSAGES }, (_, messageIndex) =>
+          toolMessage(
+            `tool-${recordIndex}-${messageIndex}`,
+            "search_mods",
+            { messageIndex, recordIndex },
+          )),
+      ));
+
+    const request = buildMemoryRecallRequest({
+      conversationId: "current",
+      toolContext: scoped,
+      records,
+      isAutomaticTool: allow,
+    });
+
+    expect(allow).toHaveBeenCalledTimes(MAX_CONVERSATION_RECORDS * MAX_CONVERSATION_MESSAGES);
+    expect(request?.candidates).toHaveLength(DESKTOP_MEMORY_LIMITS.maxCandidates);
   });
 });

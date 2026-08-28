@@ -261,7 +261,7 @@ function compareRecency(left: PreparedCandidate, right: PreparedCandidate): numb
     right.updatedAt - left.updatedAt ||
     right.messageIndex - left.messageIndex ||
     right.partIndex - left.partIndex ||
-    left.candidate.provenance.reference.localeCompare(right.candidate.provenance.reference)
+    compareText(left.candidate.provenance.reference, right.candidate.provenance.reference)
   );
 }
 
@@ -273,5 +273,9 @@ function compareRecords(
   left: PersistedConversationRecord,
   right: PersistedConversationRecord,
 ): number {
-  return right.updatedAt - left.updatedAt || left.id.localeCompare(right.id);
+  return right.updatedAt - left.updatedAt || compareText(left.id, right.id);
+}
+
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
