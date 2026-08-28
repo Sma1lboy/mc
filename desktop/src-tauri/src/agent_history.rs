@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
 const CONVERSATION_LIMIT: usize = 50;
 const LEGACY_WEBKIT_MIGRATION: &str = "legacy-webkit-localstorage-v1";
@@ -69,18 +69,24 @@ impl AgentHistoryStore {
             .get("updatedAt")
             .and_then(serde_json::Value::as_i64)
             .unwrap_or_default();
+        let canonical_record_key = canonical_record_key(&record)?;
         let mut conn = self.connection()?;
         let transaction = conn.transaction().map_err(|error| error.to_string())?;
         transaction
             .execute(
-                "INSERT INTO agent_conversations (id, title, updated_at_ms, record_json)
-                 VALUES (?1, ?2, ?3, ?4)
+                "INSERT INTO agent_conversations
+                   (id, title, updated_at_ms, record_json, canonical_record_key)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
                  ON CONFLICT(id) DO UPDATE SET
                    title = excluded.title,
                    updated_at_ms = excluded.updated_at_ms,
-                   record_json = excluded.record_json
-                 WHERE excluded.updated_at_ms >= agent_conversations.updated_at_ms",
-                params![id, title, updated_at_ms, record_json],
+                   record_json = excluded.record_json,
+                   canonical_record_key = excluded.canonical_record_key
+                 WHERE excluded.updated_at_ms > agent_conversations.updated_at_ms
+                    OR (excluded.updated_at_ms = agent_conversations.updated_at_ms
+                        AND excluded.canonical_record_key
+                            > agent_conversations.canonical_record_key)",
+                params![id, title, updated_at_ms, record_json, canonical_record_key],
             )
             .map_err(|error| error.to_string())?;
         transaction
@@ -152,14 +158,16 @@ impl AgentHistoryStore {
     }
 
     fn initialize(&self) -> Result<(), String> {
-        let conn = self.connection()?;
+        let mut conn = self.connection()?;
+        conn.execute_batch("PRAGMA journal_mode = WAL;")
+            .map_err(|error| error.to_string())?;
         conn.execute_batch(
-            "PRAGMA journal_mode = WAL;
-             CREATE TABLE IF NOT EXISTS agent_conversations (
+            "CREATE TABLE IF NOT EXISTS agent_conversations (
                id TEXT PRIMARY KEY NOT NULL,
                title TEXT NOT NULL,
                updated_at_ms INTEGER NOT NULL,
-               record_json TEXT NOT NULL
+               record_json TEXT NOT NULL,
+               canonical_record_key BLOB NOT NULL DEFAULT X''
              );
              CREATE INDEX IF NOT EXISTS agent_conversations_updated_idx
                ON agent_conversations (updated_at_ms DESC, id DESC);
@@ -168,7 +176,63 @@ impl AgentHistoryStore {
                value TEXT NOT NULL
              );",
         )
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+
+        let has_canonical_key = has_canonical_record_key(&conn)?;
+        let needs_backfill = has_canonical_key
+            && conn
+                .query_row(
+                    "SELECT EXISTS (
+                       SELECT 1 FROM agent_conversations
+                       WHERE length(canonical_record_key) = 0
+                     )",
+                    [],
+                    |row| row.get::<_, bool>(0),
+                )
+                .map_err(|error| error.to_string())?;
+        if has_canonical_key && !needs_backfill {
+            return Ok(());
+        }
+
+        let transaction = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
+        if !has_canonical_record_key(&transaction)? {
+            transaction
+                .execute(
+                    "ALTER TABLE agent_conversations
+                     ADD COLUMN canonical_record_key BLOB NOT NULL DEFAULT X''",
+                    [],
+                )
+                .map_err(|error| error.to_string())?;
+        }
+
+        let records = {
+            let mut statement = transaction
+                .prepare(
+                    "SELECT id, record_json FROM agent_conversations
+                     WHERE length(canonical_record_key) = 0",
+                )
+                .map_err(|error| error.to_string())?;
+            let records = statement
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(|error| error.to_string())?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| error.to_string())?;
+            records
+        };
+        for (id, record_json) in records {
+            let record = serde_json::from_str(&record_json).map_err(|error| error.to_string())?;
+            transaction
+                .execute(
+                    "UPDATE agent_conversations SET canonical_record_key = ?1 WHERE id = ?2",
+                    params![canonical_record_key(&record)?, id],
+                )
+                .map_err(|error| error.to_string())?;
+        }
+        transaction.commit().map_err(|error| error.to_string())
     }
 
     fn connection(&self) -> Result<Connection, String> {
@@ -196,6 +260,62 @@ impl AgentHistoryStore {
         .map(|_| ())
         .map_err(|error| error.to_string())
     }
+}
+
+fn has_canonical_record_key(conn: &Connection) -> Result<bool, String> {
+    conn.query_row(
+        "SELECT EXISTS (
+                   SELECT 1 FROM pragma_table_info('agent_conversations')
+                   WHERE name = 'canonical_record_key'
+                 )",
+        [],
+        |row| row.get::<_, bool>(0),
+    )
+    .map_err(|error| error.to_string())
+}
+
+/// Match the frontend's stable whole-record comparison: recursively sort object
+/// keys, serialize JSON, then compare JavaScript UTF-16 code units.
+fn canonical_record_key(record: &serde_json::Value) -> Result<Vec<u8>, String> {
+    let mut json = String::new();
+    write_canonical_json(record, &mut json)?;
+    // Big-endian units make SQLite's bytewise BLOB order match JavaScript's
+    // lexicographic UTF-16 string order, including supplementary characters.
+    Ok(json
+        .encode_utf16()
+        .flat_map(u16::to_be_bytes)
+        .collect::<Vec<_>>())
+}
+
+fn write_canonical_json(value: &serde_json::Value, output: &mut String) -> Result<(), String> {
+    match value {
+        serde_json::Value::Array(values) => {
+            output.push('[');
+            for (index, value) in values.iter().enumerate() {
+                if index > 0 {
+                    output.push(',');
+                }
+                write_canonical_json(value, output)?;
+            }
+            output.push(']');
+        }
+        serde_json::Value::Object(values) => {
+            let mut entries = values.iter().collect::<Vec<_>>();
+            entries.sort_by(|(left, _), (right, _)| left.encode_utf16().cmp(right.encode_utf16()));
+            output.push('{');
+            for (index, (key, value)) in entries.into_iter().enumerate() {
+                if index > 0 {
+                    output.push(',');
+                }
+                output.push_str(&serde_json::to_string(key).map_err(|error| error.to_string())?);
+                output.push(':');
+                write_canonical_json(value, output)?;
+            }
+            output.push('}');
+        }
+        _ => output.push_str(&serde_json::to_string(value).map_err(|error| error.to_string())?),
+    }
+    Ok(())
 }
 
 fn decode_webkit_utf16(bytes: &[u8]) -> Result<String, String> {
