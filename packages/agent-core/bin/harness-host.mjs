@@ -2,9 +2,11 @@
 // Long-lived local Claude runtime host. Rust/Tauri forwards these JSON lines
 // unchanged; `harness-host-router.mjs` owns per-conversation sessions.
 import { register } from "tsx/esm/api";
-import readline from "node:readline";
 import process from "node:process";
-import { createHarnessHostRouter } from "./harness-host-router.mjs";
+import {
+  createHarnessHostLineReader,
+  createHarnessHostRouter,
+} from "./harness-host-router.mjs";
 
 register();
 
@@ -18,24 +20,38 @@ const router = createHarnessHostRouter({
   createAgent: (handlers, options) => createClaudeCodeModpackAgent(handlers, options),
 });
 
-const rl = readline.createInterface({ input: process.stdin });
-rl.on("line", (line) => {
-  let message;
-  try {
-    message = JSON.parse(line);
-  } catch {
-    process.stderr.write(`harness-host: bad line: ${line.slice(0, 200)}\n`);
-    return;
-  }
-  if (message.type === "dispose") {
-    void router.dispose().finally(() => process.exit(0));
-    return;
-  }
-  router.handle(message);
+let stopping = false;
+function stop(code) {
+  if (stopping) return;
+  stopping = true;
+  process.stdin.pause();
+  void router.dispose().finally(() => process.exit(code));
+}
+
+const reader = createHarnessHostLineReader({
+  onMessage: (message) => {
+    if (message?.type === "dispose") {
+      stop(0);
+      return;
+    }
+    router.handle(message);
+  },
+  onBadLine: (line) => process.stderr.write(`harness-host: bad line: ${line}\n`),
+  onFatal: (error) => {
+    process.stderr.write(`harness-host: ${error.code}: ${error.message}\n`);
+    stop(1);
+  },
 });
 
-rl.on("close", () => {
-  void router.dispose().finally(() => process.exit(0));
+process.stdin.on("data", (chunk) => reader.push(chunk));
+process.stdin.on("end", () => {
+  reader.end();
+  if (!stopping) stop(0);
+});
+process.stdin.on("error", (error) => {
+  if (stopping) return;
+  process.stderr.write(`harness-host: stdin error: ${error.message}\n`);
+  stop(1);
 });
 
 process.stderr.write("harness-host: ready\n");

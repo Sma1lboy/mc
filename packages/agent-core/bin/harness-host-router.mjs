@@ -25,6 +25,100 @@ const VALID_MODES = new Map([
   ["wiki", "instance"],
 ]);
 
+export const HARNESS_HOST_TRANSPORT_LIMITS = Object.freeze({
+  maxFrameBytes: 16 * 1024 * 1024,
+  maxJsonDepth: 64,
+});
+
+export class HarnessHostTransportError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = "HarnessHostTransportError";
+    this.code = code;
+  }
+}
+
+function exceedsJsonDepth(frame, maxDepth) {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (const byte of frame) {
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (byte === 0x5c) escaped = true;
+      else if (byte === 0x22) inString = false;
+      continue;
+    }
+    if (byte === 0x22) inString = true;
+    else if (byte === 0x7b || byte === 0x5b) {
+      depth += 1;
+      if (depth > maxDepth) return true;
+    } else if (byte === 0x7d || byte === 0x5d) {
+      depth -= 1;
+    }
+  }
+  return false;
+}
+
+/** Bounded raw-byte reader for the stdin JSON-line transport. */
+export function createHarnessHostLineReader({ onMessage, onBadLine, onFatal }) {
+  const { maxFrameBytes, maxJsonDepth } = HARNESS_HOST_TRANSPORT_LIMITS;
+  let chunks = [];
+  let frameBytes = 0;
+  let failed = false;
+
+  function fatal(code, message) {
+    if (failed) return;
+    failed = true;
+    chunks = [];
+    frameBytes = 0;
+    onFatal(new HarnessHostTransportError(code, message));
+  }
+
+  function processFrame() {
+    let frame = chunks.length === 1 ? chunks[0] : Buffer.concat(chunks, frameBytes);
+    chunks = [];
+    frameBytes = 0;
+    if (frame.at(-1) === 0x0d) frame = frame.subarray(0, -1);
+    if (exceedsJsonDepth(frame, maxJsonDepth)) {
+      fatal("JSON_DEPTH_EXCEEDED", `frame exceeds JSON depth ${maxJsonDepth}`);
+      return;
+    }
+    try {
+      onMessage(JSON.parse(frame.toString("utf8")));
+    } catch {
+      onBadLine(frame.subarray(0, 200).toString("utf8"));
+    }
+  }
+
+  function push(value) {
+    if (failed) return;
+    const buffer = Buffer.isBuffer(value) ? value : Buffer.from(value);
+    let offset = 0;
+    while (offset < buffer.length && !failed) {
+      const newline = buffer.indexOf(0x0a, offset);
+      const end = newline === -1 ? buffer.length : newline;
+      const length = end - offset;
+      if (frameBytes + length > maxFrameBytes) {
+        fatal("FRAME_TOO_LARGE", `frame exceeds ${maxFrameBytes} bytes`);
+        return;
+      }
+      if (length > 0) chunks.push(buffer.subarray(offset, end));
+      frameBytes += length;
+      if (newline === -1) return;
+      processFrame();
+      offset = newline + 1;
+    }
+  }
+
+  function end() {
+    if (failed) return;
+    if (frameBytes > 0) processFrame();
+  }
+
+  return { push, end };
+}
+
 /**
  * Pure session router for the line-delimited Claude host protocol.
  * Provider session ids are epochs: returning to Claude after another provider

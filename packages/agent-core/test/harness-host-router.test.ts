@@ -1,6 +1,16 @@
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import type { UIMessage } from "ai";
-import { createHarnessHostRouter } from "../bin/harness-host-router.mjs";
+import {
+  createHarnessHostLineReader,
+  createHarnessHostRouter,
+  HARNESS_HOST_TRANSPORT_LIMITS,
+} from "../bin/harness-host-router.mjs";
+
+const EXPECTED_MAX_FRAME_BYTES = HARNESS_HOST_TRANSPORT_LIMITS.maxFrameBytes;
+const EXPECTED_MAX_JSON_DEPTH = HARNESS_HOST_TRANSPORT_LIMITS.maxJsonDepth;
 
 type Handler = (
   input: unknown,
@@ -62,6 +72,36 @@ function setup(sendOverride?: (message: Record<string, unknown>) => unknown) {
 
 function assistant(id: string, text: string): UIMessage {
   return { id, role: "assistant", parts: [{ type: "text", text }] };
+}
+
+async function runHarnessHost(input: string): Promise<{
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  stdout: string;
+  stderr: string;
+}> {
+  const host = spawn(
+    process.execPath,
+    [fileURLToPath(new URL("../bin/harness-host.mjs", import.meta.url))],
+    { stdio: ["pipe", "pipe", "pipe"] },
+  );
+  let stdout = "";
+  let stderr = "";
+  host.stdout.setEncoding("utf8");
+  host.stderr.setEncoding("utf8");
+  host.stdout.on("data", (chunk) => { stdout += chunk; });
+  host.stderr.on("data", (chunk) => { stderr += chunk; });
+  host.stdin.on("error", () => {});
+
+  await vi.waitFor(
+    () => expect(stderr).toContain("harness-host: ready"),
+    { timeout: 5_000 },
+  );
+  host.stdin.end(`${input}\n{"type":"dispose"}\n`);
+  const timeout = setTimeout(() => host.kill("SIGKILL"), 10_000);
+  const [code, signal] = await once(host, "exit") as [number | null, NodeJS.Signals | null];
+  clearTimeout(timeout);
+  return { code, signal, stdout, stderr };
 }
 
 describe("harness host router", () => {
@@ -408,5 +448,89 @@ describe("harness host router", () => {
 
     expect(rejection).toHaveBeenCalledWith(expect.objectContaining({ message: "router disposed" }));
     agent.pending[0].finish(agent.pending[0].history);
+  });
+});
+
+describe("harness host JSON-line admission", () => {
+  it("preserves chunked valid frames and memory routing", async () => {
+    const { router, agents } = setup();
+    const fatals: Error[] = [];
+    const badLines: string[] = [];
+    const reader = createHarnessHostLineReader({
+      onMessage: (message) => router.handle(message),
+      onBadLine: (line) => badLines.push(line),
+      onFatal: (error) => fatals.push(error),
+    });
+    const memory = {
+      identity: { scopeId: 'instance:["/game","pack"]', conversationId: "A" },
+      candidates: [],
+    };
+    const frame = JSON.stringify({
+      type: "turn",
+      providerSessionId: "session-A",
+      conversationId: "A",
+      runId: "run-A",
+      text: "remember safely",
+      mode: "instance",
+      memory,
+    });
+
+    reader.push(Buffer.from(frame.slice(0, 17)));
+    reader.push(Buffer.from(`${frame.slice(17)}\r\n`));
+
+    await vi.waitFor(() => expect(agents.get("A")?.pending).toHaveLength(1));
+    expect(agents.get("A")?.pending[0].options).toEqual({ memory });
+    expect({ fatals, badLines }).toEqual({ fatals: [], badLines: [] });
+  });
+
+  it("keeps admitted cancellation isolated across frames", async () => {
+    const { router, agents } = setup();
+    const reader = createHarnessHostLineReader({
+      onMessage: (message) => router.handle(message),
+      onBadLine: vi.fn(),
+      onFatal: vi.fn(),
+    });
+    const turn = (id: string) => JSON.stringify({
+      type: "turn",
+      providerSessionId: `session-${id}`,
+      conversationId: id,
+      runId: `run-${id}`,
+      text: id,
+      mode: "instance",
+    });
+    reader.push(Buffer.from(`${turn("A")}\n${turn("B")}\n`));
+    await vi.waitFor(() => expect(agents.size).toBe(2));
+
+    reader.push(Buffer.from(`${JSON.stringify({
+      type: "abort",
+      providerSessionId: "session-A",
+      conversationId: "A",
+      runId: "run-A",
+    })}\n`));
+
+    expect(agents.get("A")!.pending[0].signal.aborted).toBe(true);
+    expect(agents.get("B")!.pending[0].signal.aborted).toBe(false);
+  });
+
+  it("terminates safely before parsing an oversized memory frame", async () => {
+    const frame = JSON.stringify({
+      type: "turn",
+      memory: { candidates: [{ content: "x".repeat(EXPECTED_MAX_FRAME_BYTES) }] },
+    });
+
+    const result = await runHarnessHost(frame);
+
+    expect(result).toMatchObject({ code: 1, signal: null, stdout: "" });
+    expect(result.stderr).toContain("FRAME_TOO_LARGE");
+  });
+
+  it("terminates safely before parsing excessive JSON nesting", async () => {
+    const nested = `${"[".repeat(EXPECTED_MAX_JSON_DEPTH + 1)}0${"]".repeat(EXPECTED_MAX_JSON_DEPTH + 1)}`;
+    const frame = `{"type":"turn","payload":${nested}}`;
+
+    const result = await runHarnessHost(frame);
+
+    expect(result).toMatchObject({ code: 1, signal: null, stdout: "" });
+    expect(result.stderr).toContain("JSON_DEPTH_EXCEEDED");
   });
 });
