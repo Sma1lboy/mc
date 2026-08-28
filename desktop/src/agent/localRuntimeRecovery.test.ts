@@ -1,8 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UIMessage } from "ai";
 import { createLocalRuntimeAgent } from "./localRuntimeAdapter";
 import {
   AgentRunCoordinator,
+  type AgentProviderRunRequest,
+  type AgentProviderSession,
   type AgentRunBinding,
 } from "./runCoordinator";
 import type {
@@ -17,6 +19,7 @@ const host = vi.hoisted(() => ({
   sends: vi.fn(),
   starts: vi.fn(),
   unlistens: [] as ReturnType<typeof vi.fn>[],
+  interactiveTools: new Set<string>(),
 }));
 
 vi.mock("@tauri-apps/api/event", () => ({
@@ -36,7 +39,7 @@ vi.mock("../ipc/bindings", () => ({
 }));
 
 vi.mock("./clientToolDispatcher", () => ({
-  INTERACTIVE_CLIENT_TOOLS: new Set<string>(),
+  INTERACTIVE_CLIENT_TOOLS: host.interactiveTools,
   runLauncherClientTool: vi.fn(async () => null),
   unwrap: async (promise: Promise<{ status: "ok"; data: unknown } | { status: "error"; error: string }>) => {
     const result = await promise;
@@ -62,12 +65,55 @@ function assistant(id: string, text: string): UIMessage {
   return { id, role: "assistant", parts: [{ type: "text", text }] };
 }
 
+function user(id: string, text: string): UIMessage {
+  return { id, role: "user", parts: [{ type: "text", text }] };
+}
+
+function request(
+  providerSession: AgentProviderSession,
+  conversationId: string,
+  runId: string,
+  text: string,
+  abortController = new AbortController(),
+): AgentProviderRunRequest {
+  const binding: AgentRunBinding = Object.freeze({
+    conversationId,
+    runId,
+    providerSession,
+    toolContext: Object.freeze({ root: `/${conversationId}` }),
+    abortController,
+  });
+  return {
+    binding,
+    history: [user(`user-${runId}`, text)],
+    onUpdate: vi.fn(),
+    signal: abortController.signal,
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+const started = { status: "ok" as const, data: null };
+
 describe("local runtime crash recovery", () => {
   beforeEach(() => {
     host.listeners.length = 0;
     host.unlistens.length = 0;
+    host.interactiveTools.clear();
     host.sends.mockReset().mockResolvedValue({ status: "ok", data: null });
-    host.starts.mockReset().mockResolvedValue({ status: "ok", data: null });
+    host.starts.mockReset().mockResolvedValue(started);
+  });
+
+  afterEach(() => {
+    for (const listener of host.listeners) emit(listener, { type: "host_exit" });
   });
 
   it("ends the crashed turn and starts one fresh host for isolated next turns", async () => {
@@ -180,5 +226,179 @@ describe("local runtime crash recovery", () => {
     expect(coordinator.getConversation("B").messages.at(-1)).toEqual(
       assistant("answer-B", "only B"),
     );
+  });
+
+  it("does not miss a host exit that overlaps startup", async () => {
+    host.starts.mockImplementationOnce(async () => {
+      for (const listener of host.listeners) emit(listener, { type: "host_exit" });
+      return started;
+    });
+
+    await expect(createLocalRuntimeAgent(
+      "build",
+      { waitForInteractiveTool: async () => null },
+      "provider-startup",
+    )).rejects.toThrow("local agent host exited during startup");
+
+    expect(host.starts).toHaveBeenCalledTimes(1);
+    expect(host.sends).not.toHaveBeenCalled();
+
+    await createLocalRuntimeAgent(
+      "build",
+      { waitForInteractiveTool: async () => null },
+      "provider-recovered",
+    );
+    expect(host.starts).toHaveBeenCalledTimes(2);
+  });
+
+  it("shares a rejected start but retries only for a later explicit request", async () => {
+    host.starts.mockRejectedValueOnce(new Error("host start rejected"));
+    const hooks = { waitForInteractiveTool: async () => null };
+
+    const first = createLocalRuntimeAgent("build", hooks, "provider-A");
+    const overlapping = createLocalRuntimeAgent("build", hooks, "provider-B");
+    await expect(Promise.all([first, overlapping])).rejects.toThrow("host start rejected");
+
+    expect(host.starts).toHaveBeenCalledTimes(1);
+    expect(host.sends).not.toHaveBeenCalled();
+
+    await createLocalRuntimeAgent("build", hooks, "provider-C");
+    expect(host.starts).toHaveBeenCalledTimes(2);
+  });
+
+  it("invalidates a dead generation after send rejection without replaying its turn", async () => {
+    const agent = await createLocalRuntimeAgent(
+      "build",
+      { waitForInteractiveTool: async () => null },
+      "provider-A",
+    );
+    host.sends.mockRejectedValueOnce(new Error("host pipe closed"));
+
+    await expect(agent.run(request(agent, "A", "run-failed", "failed once")))
+      .resolves.toMatchObject({ error: "local agent host exited" });
+    expect(host.starts).toHaveBeenCalledTimes(1);
+
+    const later = agent.run(request(agent, "A", "run-later", "later explicit"));
+    await vi.waitFor(() => expect(host.starts).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(outboundTurns()).toHaveLength(2));
+
+    emit(host.listeners.at(-1)!, {
+      type: "done",
+      providerSessionId: "provider-A",
+      conversationId: "A",
+      runId: "run-later",
+    });
+    await later;
+
+    expect(outboundTurns().map((turn) => turn.text)).toEqual([
+      "failed once",
+      "later explicit",
+    ]);
+    expect(host.unlistens[0]).toHaveBeenCalledTimes(1);
+  });
+
+  it("settles every active wrapper when one send proves the shared host dead", async () => {
+    const hooks = { waitForInteractiveTool: async () => null };
+    const agentA = await createLocalRuntimeAgent("build", hooks, "provider-A");
+    const agentB = await createLocalRuntimeAgent("build", hooks, "provider-B");
+    const runningA = agentA.run(request(agentA, "A", "run-A", "alpha"));
+    await vi.waitFor(() => expect(outboundTurns()).toHaveLength(1));
+    host.sends.mockRejectedValueOnce(new Error("shared host pipe closed"));
+
+    let resultA: Awaited<ReturnType<AgentProviderSession["run"]>> | undefined;
+    void runningA.then((result) => { resultA = result; });
+    const resultB = await agentB.run(request(agentB, "B", "run-B", "bravo"));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(resultA).toMatchObject({ error: "local agent host exited" });
+    expect(resultB).toMatchObject({ error: "local agent host exited" });
+    expect(host.starts).toHaveBeenCalledTimes(1);
+  });
+
+  it("settles an aborted turn while a shared host restart is still pending", async () => {
+    const agent = await createLocalRuntimeAgent(
+      "build",
+      { waitForInteractiveTool: async () => null },
+      "provider-A",
+    );
+    emit(host.listeners[0], { type: "host_exit" });
+    const restart = deferred<typeof started>();
+    host.starts.mockImplementationOnce(() => restart.promise);
+    const abortController = new AbortController();
+    const runRequest = request(agent, "A", "run-aborted", "cancel restart", abortController);
+    const running = agent.run(runRequest);
+    await vi.waitFor(() => expect(host.starts).toHaveBeenCalledTimes(2));
+
+    let settled = false;
+    void running.then(() => { settled = true; });
+    abortController.abort();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    try {
+      expect(settled).toBe(true);
+      expect(host.sends).not.toHaveBeenCalled();
+    } finally {
+      restart.resolve(started);
+      await vi.waitFor(() => expect(host.listeners).toHaveLength(2));
+      emit(host.listeners[1], { type: "host_exit" });
+      await running;
+    }
+  });
+
+  it("routes interactive calls through the wrapper that owns the run binding", async () => {
+    host.interactiveTools.add("ask_user_question");
+    const waitA = vi.fn(async () => ({ answer: "A" }));
+    const waitB = vi.fn(async () => ({ answer: "B" }));
+    const agentA = await createLocalRuntimeAgent(
+      "build",
+      { waitForInteractiveTool: waitA },
+      "provider-A",
+    );
+    const agentB = await createLocalRuntimeAgent(
+      "build",
+      { waitForInteractiveTool: waitB },
+      "provider-B",
+    );
+    const requestA = request(agentA, "A", "run-A", "alpha");
+    const requestB = request(agentB, "B", "run-B", "bravo");
+    const runningA = agentA.run(requestA);
+    const runningB = agentB.run(requestB);
+    await vi.waitFor(() => expect(outboundTurns()).toHaveLength(2));
+
+    emit(host.listeners[0], {
+      type: "tool_call",
+      providerSessionId: "provider-B",
+      conversationId: "B",
+      runId: "run-B",
+      toolCallId: "question-B",
+      name: "ask_user_question",
+      args: { question: "B?" },
+    });
+
+    try {
+      expect(waitB).toHaveBeenCalledWith(
+        requestB.binding,
+        "ask_user_question",
+        "question-B",
+      );
+      expect(waitA).not.toHaveBeenCalled();
+    } finally {
+      emit(host.listeners[0], {
+        type: "done",
+        providerSessionId: "provider-A",
+        conversationId: "A",
+        runId: "run-A",
+      });
+      emit(host.listeners[0], {
+        type: "done",
+        providerSessionId: "provider-B",
+        conversationId: "B",
+        runId: "run-B",
+      });
+      await Promise.all([runningA, runningB]);
+    }
   });
 });
