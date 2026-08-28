@@ -353,6 +353,9 @@ export class AgentRunCoordinator {
         history = result.messages;
         state.messages = history;
         state.error = result.error ?? null;
+        if (result.error) {
+          this.rejectInteractiveForRun(activeRun, new Error(result.error));
+        }
         this.emit(state);
         if (result.error) break;
         const processed = await this.processClientTools(activeRun, history);

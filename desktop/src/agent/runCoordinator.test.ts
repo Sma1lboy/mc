@@ -516,6 +516,49 @@ describe("AgentRunCoordinator", () => {
     await running;
   });
 
+  it("rejects in-flight interactive tools when the provider exits", async () => {
+    const { coordinator, sessions } = harness();
+    coordinator.openConversation("A", { messages: [], toolContext: null });
+    const running = coordinator.sendMessage("A", "ask once");
+    await Promise.resolve();
+    await Promise.resolve();
+    const call = sessions.get("A")!.pending[0];
+    const toolMessage = {
+      id: "assistant-tool",
+      role: "assistant",
+      parts: [{
+        type: "tool-ask_user_question",
+        toolCallId: "question-1",
+        state: "input-available",
+        input: { question: "still there?" },
+      }],
+    } as UIMessage;
+    call.request.onUpdate(toolMessage);
+    const pending = coordinator.waitForInteractiveTool(
+      call.request.binding,
+      "ask_user_question",
+      "question-1",
+    );
+    let rejection: unknown;
+    void pending.catch((error) => {
+      rejection = error;
+    });
+
+    call.finish([...call.request.history, toolMessage], "local agent host exited");
+    await running;
+    await Promise.resolve();
+
+    expect(rejection).toEqual(expect.objectContaining({ message: "local agent host exited" }));
+    expect(coordinator.getConversation("A")).toMatchObject({
+      streaming: false,
+      error: "local agent host exited",
+      pendingInteractiveToolCallIds: [],
+    });
+    expect(
+      coordinator.resolveInteractiveTool("A", call.request.binding.runId, "question-1", {}),
+    ).toBe(false);
+  });
+
   it("ignores a late interactive result from a cancelled run when the toolCallId is reused", async () => {
     const { coordinator, sessions } = harness();
     coordinator.openConversation("A", { messages: [], toolContext: null });

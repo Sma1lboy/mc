@@ -14,7 +14,7 @@ interface PendingAgentRun {
   finish: (messages: UIMessage[], error?: string) => void;
 }
 
-function setup() {
+function setup(sendOverride?: (message: Record<string, unknown>) => unknown) {
   const sent: Array<Record<string, unknown>> = [];
   const createdAgents: Array<{
     conversationId: string;
@@ -27,7 +27,10 @@ function setup() {
     { handlers: Record<string, Handler>; pending: PendingAgentRun[]; dispose: ReturnType<typeof vi.fn> }
   >();
   const router = createHarnessHostRouter({
-    send: (message) => sent.push(message),
+    send: (message) => {
+      sent.push(message);
+      return sendOverride?.(message);
+    },
     createAgent: (handlers, _options, conversationId) => {
       const pending: PendingAgentRun[] = [];
       const dispose = vi.fn(async () => {});
@@ -153,6 +156,40 @@ describe("harness host router", () => {
     expect(sent).toContainEqual({ type: "done", providerSessionId: "session-B", conversationId: "B", runId: "run-B" });
   });
 
+  it("does not terminate the active run when its exact turn delivery is duplicated", async () => {
+    const { router, sent, agents } = setup();
+    const turn = {
+      type: "turn",
+      providerSessionId: "session-A",
+      conversationId: "A",
+      runId: "run-A",
+      text: "alpha",
+      mode: "modpack",
+    };
+
+    router.handle(turn);
+    await vi.waitFor(() => expect(agents.get("A")?.pending).toHaveLength(1));
+    router.handle(turn);
+    await Promise.resolve();
+
+    expect(sent).not.toContainEqual(expect.objectContaining({
+      type: "done",
+      providerSessionId: "session-A",
+      conversationId: "A",
+      runId: "run-A",
+    }));
+    expect(agents.get("A")?.pending).toHaveLength(1);
+
+    const active = agents.get("A")!.pending[0];
+    active.finish(active.history);
+    await vi.waitFor(() => expect(sent).toContainEqual({
+      type: "done",
+      providerSessionId: "session-A",
+      conversationId: "A",
+      runId: "run-A",
+    }));
+  });
+
   it("routes same-name tool calls and reverse-order results by real toolCallId", async () => {
     const { router, sent, agents } = setup();
     router.handle({ type: "turn", providerSessionId: "session-A", conversationId: "A", runId: "run-A", text: "ask twice", mode: "modpack" });
@@ -197,6 +234,89 @@ describe("harness host router", () => {
       result: { selected: ["first"] },
     });
     await expect(first).resolves.toEqual({ selected: ["first"] });
+  });
+
+  it("releases a tool identity when sending its call throws", async () => {
+    let failNextToolSend = true;
+    const { router, agents } = setup((message) => {
+      if (message.type === "tool_call" && failNextToolSend) {
+        failNextToolSend = false;
+        throw new Error("tool call pipe closed");
+      }
+    });
+    router.handle({ type: "turn", providerSessionId: "session-A", conversationId: "A", runId: "run-A", text: "ask", mode: "modpack" });
+    await vi.waitFor(() => expect(agents.has("A")).toBe(true));
+    const handler = agents.get("A")!.handlers.ask_user_question;
+
+    await expect(
+      handler({ question: "first attempt" }, { toolCallId: "call-1" }),
+    ).rejects.toThrow("tool call pipe closed");
+
+    const retry = handler({ question: "retry" }, { toolCallId: "call-1" });
+    router.handle({
+      type: "tool_result",
+      providerSessionId: "session-A",
+      conversationId: "A",
+      runId: "run-A",
+      toolCallId: "call-1",
+      ok: true,
+      result: { selected: ["retry"] },
+    });
+    await expect(retry).resolves.toEqual({ selected: ["retry"] });
+  });
+
+  it("releases a tool identity when sending its call rejects", async () => {
+    let failNextToolSend = true;
+    const { router, agents } = setup((message) => {
+      if (message.type === "tool_call" && failNextToolSend) {
+        failNextToolSend = false;
+        return Promise.reject(new Error("tool call pipe rejected"));
+      }
+    });
+    router.handle({ type: "turn", providerSessionId: "session-A", conversationId: "A", runId: "run-A", text: "ask", mode: "modpack" });
+    await vi.waitFor(() => expect(agents.has("A")).toBe(true));
+    const handler = agents.get("A")!.handlers.ask_user_question;
+
+    await expect(
+      handler({ question: "first attempt" }, { toolCallId: "call-1" }),
+    ).rejects.toThrow("tool call pipe rejected");
+
+    const retry = handler({ question: "retry" }, { toolCallId: "call-1" });
+    router.handle({
+      type: "tool_result",
+      providerSessionId: "session-A",
+      conversationId: "A",
+      runId: "run-A",
+      toolCallId: "call-1",
+      ok: true,
+      result: { selected: ["retry"] },
+    });
+    await expect(retry).resolves.toEqual({ selected: ["retry"] });
+  });
+
+  it("does not let simultaneous conversations claim the same provider session", async () => {
+    const { router, sent, agents, createdAgents } = setup();
+    router.handle({ type: "turn", providerSessionId: "shared-session", conversationId: "A", runId: "run-A", text: "alpha", mode: "modpack" });
+    router.handle({ type: "turn", providerSessionId: "shared-session", conversationId: "B", runId: "run-B", text: "bravo", mode: "modpack" });
+
+    await vi.waitFor(() => expect(agents.get("A")?.pending).toHaveLength(1));
+    await vi.waitFor(() => expect(sent).toContainEqual({
+      type: "done",
+      providerSessionId: "shared-session",
+      conversationId: "B",
+      runId: "run-B",
+      error: "provider session belongs to another conversation",
+    }));
+    expect(createdAgents).toHaveLength(1);
+
+    const active = agents.get("A")!.pending[0];
+    active.finish(active.history);
+    await vi.waitFor(() => expect(sent).toContainEqual({
+      type: "done",
+      providerSessionId: "shared-session",
+      conversationId: "A",
+      runId: "run-A",
+    }));
   });
 
   it("aborts only the addressed conversation and run", async () => {

@@ -32,7 +32,7 @@ const VALID_MODES = new Map([
  */
 export function createHarnessHostRouter({ send, createAgent, model }) {
   const sessions = new Map(); // providerSessionId -> session
-  const busyConversations = new Set();
+  const busyConversations = new Map(); // conversationId -> active transport identity
   let disposed = false;
   let disposePromise = null;
 
@@ -125,16 +125,28 @@ export function createHarnessHostRouter({ send, createAgent, model }) {
       return Promise.reject(new Error(`tool call already pending: ${toolCallId}`));
     }
     return new Promise((resolve, reject) => {
-      session.pendingTools.set(key, { resolve, reject });
-      send({
-        type: "tool_call",
-        providerSessionId: session.providerSessionId,
-        conversationId: session.conversationId,
-        runId,
-        toolCallId,
-        name,
-        args,
-      });
+      const pending = { resolve, reject };
+      session.pendingTools.set(key, pending);
+      const failSend = (error) => {
+        if (session.pendingTools.get(key) !== pending) return;
+        session.pendingTools.delete(key);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      };
+      try {
+        void Promise.resolve(
+          send({
+            type: "tool_call",
+            providerSessionId: session.providerSessionId,
+            conversationId: session.conversationId,
+            runId,
+            toolCallId,
+            name,
+            args,
+          }),
+        ).catch(failSend);
+      } catch (error) {
+        failSend(error);
+      }
     });
   }
 
@@ -143,11 +155,14 @@ export function createHarnessHostRouter({ send, createAgent, model }) {
     const conversationId = String(message.conversationId ?? "");
     const runId = String(message.runId ?? "");
     if (disposed || !providerSessionId || !conversationId || !runId) return;
-    if (busyConversations.has(conversationId)) {
+    const busy = busyConversations.get(conversationId);
+    if (busy) {
+      if (busy.providerSessionId === providerSessionId && busy.runId === runId) return;
       sendDone(providerSessionId, conversationId, runId, "turn already running");
       return;
     }
-    busyConversations.add(conversationId);
+    const identity = { providerSessionId, runId };
+    busyConversations.set(conversationId, identity);
     let session;
     try {
       session = await sessionFor(providerSessionId, conversationId, modeFrom(message.mode));
@@ -193,7 +208,9 @@ export function createHarnessHostRouter({ send, createAgent, model }) {
         session.activeRunId = null;
         session.abort = null;
       }
-      busyConversations.delete(conversationId);
+      if (busyConversations.get(conversationId) === identity) {
+        busyConversations.delete(conversationId);
+      }
     }
   }
 
