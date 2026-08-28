@@ -1,16 +1,16 @@
 {
   "title": "Agent 夜间加固飞行记录",
   "subtitle": "从失败注入到确定性收束：memory、run、session 与 persistence 的隔离证据",
-  "runWindow": "2026-08-28 01:50–08:00 CDT",
-  "generatedAt": "2026-08-28 02:06 CDT",
+  "runWindow": "2026-08-28 01:50–08:00；13:27–13:44 resumed CDT",
+  "generatedAt": "2026-08-28 13:44 CDT",
   "branch": "agents-md-instructions-instructi-2",
   "baselineCommit": "d178c99",
-  "status": "running",
-  "summary": "第一轮已有三条故障链通过主线审查与组合回归：agent-core 25/25、desktop 64/64 单测与 9/9 deterministic eval 通过。记忆召回仍在隔离 worker 中执行；本页只把主线复核过的结果标为 verified。",
+  "status": "verified",
+  "summary": "三轮 hardening 已全部进入 Herring：跨会话 memory bridge、确定性持久化、取消与 session 收束、host crash/generation 恢复、用户输入和 JSON-line admission 均有红测与主线复验。最终组合结果为 agent-core 46/46、desktop 90/90、native 7/7、instance eval 9/9。",
   "baseline": [
-    { "label": "当前 JS 回归", "value": "89/89", "detail": "agent-core 25 + desktop 64" },
+    { "label": "当前 JS 回归", "value": "136/136", "detail": "agent-core 46 + desktop 90" },
     { "label": "Instance eval", "value": "9/9", "detail": "deterministic routing cases" },
-    { "label": "Rove workers", "value": "4", "detail": "独立 worktree，文件范围错开" },
+    { "label": "Rove workers", "value": "12", "detail": "三轮独立 worktree，主线逐支复核" },
     { "label": "验收策略", "value": "locked", "detail": "worker 不得弱化 evaluator" }
   ],
   "timeline": [
@@ -35,19 +35,25 @@
     {
       "time": "02:09",
       "label": "第二轮对抗审计",
-      "detail": "记忆输入边界、组合竞态、host crash 恢复与 native tie-break parity 正在独立复现。",
-      "status": "running"
+      "detail": "记忆输入边界、组合竞态、host crash 恢复、native tie-break parity 与 deterministic memory bridge 均完成主线复核。",
+      "status": "verified"
+    },
+    {
+      "time": "13:27",
+      "label": "第三轮封存",
+      "detail": "四个 worktree 以红测确认 prompt admission、JSON-line、locale ordering 与 host generation 缺陷；主线逐支复核后完成 10/10 组合验收。",
+      "status": "verified"
     }
   ],
   "verification": [
     {
       "command": "npm test --workspace @kobemc/agent-core",
-      "result": "25/25",
+      "result": "46/46",
       "status": "pass"
     },
     {
       "command": "npm test --workspace desktop",
-      "result": "64/64",
+      "result": "90/90",
       "status": "pass"
     },
     {
@@ -62,12 +68,17 @@
     },
     {
       "command": "npm run build --workspace desktop",
-      "result": "3133 modules",
+      "result": "3137 modules",
       "status": "pass"
     },
     {
-      "command": "node scripts/check-agent-hardening-report.mjs",
-      "result": "draft ok",
+      "command": "cargo test --manifest-path desktop/src-tauri/Cargo.toml --test agent_history",
+      "result": "7/7",
+      "status": "pass"
+    },
+    {
+      "command": "node scripts/check-agent-hardening-report.mjs --sealed",
+      "result": "sealed ok",
       "status": "pass"
     }
   ],
@@ -76,14 +87,44 @@
       "id": "memory",
       "lane": "MEMORY",
       "title": "有界记忆召回",
-      "status": "running",
+      "status": "verified",
       "taskId": "01M13JB7JBZ6VSW35V70GAEG1D",
-      "rootCause": "等待 failing-test 证据",
-      "before": "已有会话持久化，但没有独立、可预算、带来源的跨会话召回层。",
-      "after": "等待 worker 实现与主线复核。",
-      "tests": [],
-      "artifacts": [],
-      "commit": null
+      "rootCause": "agent-core 只把 UIMessage history 交给模型，没有 host-injected scoped candidate 契约、确定性检索或审计；第一版还把 TypeScript 类型误当成运行时边界，null candidate 会直接抛错。",
+      "before": "没有跨会话 recall；host 若注入未校验候选，可能跨 scope、无界扫描或在字段解引用时崩溃。",
+      "after": "host 继续拥有持久化；agent-core 按 scope/conversation/visibility 选择 durable 与 query recall，执行修正、去重、来源审计和字符/条目预算，并在扫描前限制 256 candidates 与各字段长度。",
+      "tests": [
+        "memory recall focused 11/11",
+        "agent-core 组合回归 41/41",
+        "instance deterministic eval 9/9",
+        "null / 257 candidates / oversized query failing-first"
+      ],
+      "artifacts": [
+        "packages/agent-core/examples/memory-recall-demo.ts",
+        "packages/agent-core/src/memory/recall.ts"
+      ],
+      "commit": "97736a9"
+    },
+    {
+      "id": "memory_bridge",
+      "lane": "MEM-BRIDGE",
+      "title": "确定性记忆生产桥",
+      "status": "verified",
+      "taskId": "01M13KZ5KSC50CRYZ2QGT8H2D8",
+      "rootCause": "召回核心已可接受 host candidates，但当前 desktop provider request 没有候选来源，生产 turn 实际不会触发跨会话 recall。",
+      "before": "memory API 与 demo 可运行，但现有 launcher conversation history 尚未成为可信、同 scope 的候选输入。",
+      "after": "desktop 只从同实例、已完成且由 launcher 自动执行的 tool outputs 生成带 provenance 的 bounded candidates；raw prose、interactive/error/preliminary 输出和不一致 scope 全部 fail closed，并通过 OpenRouter 与 Claude local 两条 provider 路径进入 agent-core admission。",
+      "tests": [
+        "memory/provider/transport focused 24/24",
+        "desktop 组合回归 72/72",
+        "agent-core 组合回归 42/42",
+        "instance deterministic eval 9/9"
+      ],
+      "artifacts": [
+        "desktop/src/agent/memoryRecall.ts",
+        "desktop/src/agent/memoryRecall.test.ts",
+        "desktop/src/agent/desktopAdapter.test.ts"
+      ],
+      "commit": "a59a0ac"
     },
     {
       "id": "run",
@@ -97,7 +138,7 @@
       "tests": [
         "runCoordinator + localRuntimeProtocol 18/18",
         "chatStoreIsolation 3/3",
-        "desktop 组合回归 64/64",
+        "desktop 组合回归 72/72",
         "TypeScript + check:lines"
       ],
       "artifacts": [
@@ -117,7 +158,7 @@
       "after": "dispose 先置终态，再 abort 全部运行、拒绝 pending tool、等待 agent dispose，并通过 session identity + active run gate 丢弃晚到帧。",
       "tests": [
         "harness-host-router focused 8/8",
-        "agent-core 组合回归 25/25",
+        "agent-core 组合回归 42/42",
         "instance deterministic eval 9/9"
       ],
       "artifacts": [
@@ -136,7 +177,7 @@
       "after": "边界限制 envelope 最多 50 条、单条 1 MiB、有效消息 1–500；逐条隔离坏记录，并以 updatedAt 加 canonical whole-record tie-break 确定性合并；非法 save 不跨 IPC。",
       "tests": [
         "conversationHistory + repository focused 12/12",
-        "desktop 组合回归 64/64",
+        "desktop 组合回归 72/72",
         "TypeScript + Vite build + check:lines"
       ],
       "artifacts": [
@@ -144,13 +185,160 @@
         "desktop/src/agent/conversationRepository.test.ts"
       ],
       "commit": "74f0177"
+    },
+    {
+      "id": "lifecycle",
+      "lane": "IDEMPOTENCY",
+      "title": "重复事件与 resolver 收束",
+      "status": "verified",
+      "taskId": "01M13K3CS41JB229MN1W93VFKP",
+      "rootCause": "完全相同的重复 turn 会收到同身份 done(error)，错误终止合法 run；tool_call send 失败会泄漏 pending identity；provider error 后 interactive resolver 仍悬挂。",
+      "before": "transport replay、pipe send failure 与 host error 可留下假终态、永久 duplicate 或非 streaming 但仍 pending 的工具状态。",
+      "after": "相同 transport identity 的重复 turn 幂等忽略；send 同步/异步失败按 resolver token 回滚；provider error 在提交状态前拒绝本 run 的 interactive resolver。",
+      "tests": [
+        "harness router focused 12/12",
+        "desktop lifecycle/isolation focused 22/22",
+        "agent-core 组合回归 41/41",
+        "desktop 组合回归 72/72"
+      ],
+      "artifacts": [
+        "packages/agent-core/test/harness-host-router.test.ts",
+        "desktop/src/agent/runCoordinator.test.ts"
+      ],
+      "commit": "0a8ef75"
+    },
+    {
+      "id": "recovery",
+      "lane": "RECOVERY",
+      "title": "本地 Agent host 崩溃恢复",
+      "status": "verified",
+      "taskId": "01M13K8DSJX0WVN9S24607RQ85",
+      "rootCause": "host_exit 虽终止当前 turn，但 shared Protocol 与 listener generation 被永久缓存，coordinator 又保留 provider wrapper，下一 turn 会继续写入死亡 host。",
+      "before": "Node host 一次崩溃可把整个应用余下生命周期的本地 Agent session 留在不可恢复状态。",
+      "after": "host_exit 原子失效当前 generation、单次 unlisten 并清共享 promise；不重放已失败 turn，下一次显式 turn 并发共享一次 fresh agentHostStart，旧 generation frame 被忽略。",
+      "tests": [
+        "crash recovery + protocol + coordinator focused 20/20",
+        "desktop 组合回归 72/72",
+        "TypeScript + Vite build + check:lines"
+      ],
+      "artifacts": [
+        "desktop/src/agent/localRuntimeRecovery.test.ts"
+      ],
+      "commit": "a8efce0"
+    },
+    {
+      "id": "native_tiebreak",
+      "lane": "NATIVE",
+      "title": "SQLite 同时间戳收束",
+      "status": "verified",
+      "taskId": "01M13KAK2P6GZ86B2XJME7Y2A2",
+      "rootCause": "native upsert 对 equal updatedAt 使用大于等于，异步 save 的最后到达者仍可覆盖，与前端 canonical whole-record tie-break 不一致。",
+      "before": "同一毫秒的两个合法版本按相反写入顺序可能在重启后得到不同记录。",
+      "after": "SQLite 保存 canonical whole-record key，并以 updatedAt 加与 JavaScript UTF-16 一致的 key 比较决定 winner；旧 schema 在打开时回填，反向写入顺序得到同一记录。",
+      "tests": [
+        "native agent_history 7/7",
+        "legacy schema backfill + opposite-order winner",
+        "JavaScript UTF-16 ordering parity",
+        "check:lines + diff"
+      ],
+      "artifacts": [
+        "desktop/src-tauri/src/agent_history.rs",
+        "desktop/src-tauri/tests/agent_history.rs"
+      ],
+      "commit": "6a2e928"
+    },
+    {
+      "id": "prompt_admission",
+      "lane": "INPUT",
+      "title": "用户输入 admission",
+      "status": "verified",
+      "taskId": "01M14T5MKNFC1NVGK21HZCPQ4E",
+      "rootCause": "聊天输入只在 UI/store 层 trim；超长或非字符串形状能在 conversation persistence 的 1 MiB 边界之前进入 coordinator，并可继续触达 provider 创建或 local JSON-line IPC。",
+      "before": "输入验证分散且只覆盖空字符串，没有统一的 runtime shape 与 UTF-8 byte budget；拒绝首条消息时空会话也没有可见错误。",
+      "after": "共享 admission 在复制、provider 创建、IPC send 和 persistence 前按 64 KiB UTF-8 fail closed；只接受单一 text part，正常多行/Unicode 保持原语义，拒绝原因在中英文空会话和已有会话中均可见。",
+      "tests": [
+        "userInput + store + coordinator + protocol focused 29/29",
+        "desktop 组合回归 90/90",
+        "UTF-8 boundary / non-string / multi-part failing-first",
+        "TypeScript + production build + check:lines"
+      ],
+      "artifacts": [
+        "desktop/src/agent/userInput.ts",
+        "desktop/src/agent/userInput.test.ts",
+        "desktop/src/agent/chatStoreIsolation.test.ts"
+      ],
+      "commit": "dbfaa70"
+    },
+    {
+      "id": "jsonline_admission",
+      "lane": "JSON-LINE",
+      "title": "Claude host frame admission",
+      "status": "verified",
+      "taskId": "01M14T5MFRE0N5X4M5JQV2XCJX",
+      "rootCause": "Node readline 会先累积并解码整条 stdin line，再交给 JSON.parse；oversized memory frame 或极深 JSON 因而能在 agent-core admission 之前消耗无界资源。",
+      "before": "session identity、cancellation 与 memory routing 已有测试，但 raw transport 没有 pre-parse byte/depth boundary。",
+      "after": "host 使用 chunk-aware raw-byte reader，在 UTF-8 decode 与 JSON.parse 前限制单 frame 16 MiB、JSON depth 64；fatal frame 终止 generation，同时保留 CRLF、分片、多 frame、memory 与 cancellation 语义。",
+      "tests": [
+        "harness host router focused 17/17",
+        "agent-core 组合回归 46/46",
+        "oversized/deep frame real child-process failing-first",
+        "instance deterministic eval 9/9"
+      ],
+      "artifacts": [
+        "packages/agent-core/bin/harness-host.mjs",
+        "packages/agent-core/bin/harness-host-router.mjs",
+        "packages/agent-core/test/harness-host-router.test.ts"
+      ],
+      "commit": "7e17825"
+    },
+    {
+      "id": "memory_adversarial",
+      "lane": "MEM-AUDIT",
+      "title": "记忆抽取对抗矩阵",
+      "status": "verified",
+      "taskId": "01M14T5MHVAPJGBBAC6SFW0S8G",
+      "rootCause": "equal-timestamp records 与 provenance references 使用 localeCompare 决胜；相同候选集合在不同主机 locale/collation 下可选出不同的八条记忆。",
+      "before": "bridge 已限制 scope、来源与数量，但 tie-break 仍依赖环境；scope disagreement、cycle、Unicode 与最大 envelope 也缺独立攻击矩阵。",
+      "after": "两个 locale-sensitive tie-break 改为直接 code-unit comparator，与 agent-core 和 history normalization 一致；其余攻击面证明 fail closed，25,000 个 bounded tool parts 最终仍只选八条。",
+      "tests": [
+        "memory recall adversarial 10/10",
+        "desktop 组合回归 90/90",
+        "opposite locale ordering failing-first",
+        "scope/allowlist/cycle/Unicode/25k-parts matrix"
+      ],
+      "artifacts": [
+        "desktop/src/agent/memoryRecall.ts",
+        "desktop/src/agent/memoryRecall.test.ts"
+      ],
+      "commit": "27e9d3d"
+    },
+    {
+      "id": "recovery_race",
+      "lane": "GEN-RACE",
+      "title": "Host generation 竞态",
+      "status": "verified",
+      "taskId": "01M14T5MJRWHEKTT02SPZ1MFR3",
+      "rootCause": "listener 在 host start 后注册会漏掉 startup exit；send rejection 不失效 cached generation；restart pending 时 abort 不收束；共享 protocol 还捕获了第一个 wrapper 的 interactive hook，send failure 也会遗留 sibling runs。",
+      "before": "单次 host_exit 后的下一轮重启已工作，但交错 start/send/abort 与多 provider wrapper 仍可能复用死亡 host、永久等待或把交互请求交给错误会话。",
+      "after": "listener 先于 start 建立，send failure 作为 generation-wide host_exit 传播；restart wait 可独立响应 run abort，interactive hooks 按 immutable run binding 选择。失败 turn 不重放，仍只由后续显式 turn 重启。",
+      "tests": [
+        "recovery + protocol integrated 15/15",
+        "desktop 组合回归 90/90",
+        "five deterministic race failures captured red-first",
+        "TypeScript + production build + check:lines"
+      ],
+      "artifacts": [
+        "desktop/src/agent/localRuntimeAdapter.ts",
+        "desktop/src/agent/localRuntimeRecovery.test.ts"
+      ],
+      "commit": "2a568c0"
     }
   ],
   "controlPlane": [
     "所有实现工作在 Rove managed worktree 隔离执行。",
     "每个任务先形成 failing test，再实现最小修复并提交 commit。",
     "主线检查真实 diff、复跑 focused/full regression 后才 land。",
-    "不 push、不建 PR、不合并默认分支、不部署；08:00 前停止新改动并完成证据封存。"
+    "不 push、不建 PR、不合并默认分支、不部署；第三轮四个 scoped commit 已逐支进入 Herring，并由最终 sealed verification 统一复验。"
   ],
   "sources": [
     { "label": "Letta Memory & dreaming", "url": "https://docs.letta.com/configuration/memory" },
@@ -160,8 +348,12 @@
     { "label": "AI SDK Agent memory", "url": "https://ai-sdk.dev/docs/agents/memory" }
   ],
   "risks": [
-    "当前页面是运行中快照；只有 status=verified 的工作线代表已整合成果。",
+    "当前页面是 13:44 CDT 的静态封存快照，不是后续分支状态的持续同步。",
     "外部模型调用不作为核心验收依据，最终证据优先使用 deterministic tests 和本地 demo。",
+    "64 KiB user input 与 16 MiB / depth 64 JSON-line 是当前资源预算，不代表未来 provider 或产品体验的永久上限。",
+    "host_exit 事件不携带进程 generation；延迟的旧 exit 最坏会保守终止新 generation，但不会路由 stale frame 或自动重放失败 turn。",
+    "完全不退出且 send 也不 reject 的卡死 host 仍需要用户 cancellation；本轮没有新增 watchdog。",
+    "Rove worker completion 仍通过 foreground PTY user turn 投递；coordinator 只将报告视为待验证 claim，并禁止 ACK 循环。",
     "npm audit 在基线安装时报告 9 个依赖漏洞；未自动执行可能带 breaking changes 的 audit fix。"
   ]
 }
