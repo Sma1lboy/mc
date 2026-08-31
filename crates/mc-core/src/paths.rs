@@ -15,6 +15,24 @@ use crate::error::{IoResultExt, Result};
 /// If a portable marker (`portable.txt` or `.portable`) sits next to the
 /// executable, data is kept beside the exe so the whole folder is movable;
 /// otherwise it goes to the OS application-data directory.
+#[cfg(feature = "e2e")]
+fn required_e2e_data_dir(value: Option<std::ffi::OsString>) -> PathBuf {
+    let path = value.map(PathBuf::from).unwrap_or_else(|| {
+        panic!("E2E build requires MC_E2E_DATA_DIR; refusing to use launcher data")
+    });
+    assert!(
+        path.is_absolute() && path.is_dir(),
+        "MC_E2E_DATA_DIR must be an existing absolute directory; refusing to use launcher data"
+    );
+    path
+}
+
+#[cfg(feature = "e2e")]
+pub fn resolve_data_dir(_exe_dir: &Path) -> PathBuf {
+    required_e2e_data_dir(std::env::var_os("MC_E2E_DATA_DIR"))
+}
+
+#[cfg(not(feature = "e2e"))]
 pub fn resolve_data_dir(exe_dir: &Path) -> PathBuf {
     if exe_dir.join("portable.txt").exists() || exe_dir.join(".portable").exists() {
         exe_dir.join("launcher-data")
@@ -99,6 +117,12 @@ fn make_root(path: PathBuf, kind: RootKind) -> GameRoot {
 ///
 /// `custom` are user-added paths loaded from settings. Duplicate paths are
 /// collapsed, keeping the highest-priority kind.
+#[cfg(feature = "e2e")]
+pub fn discover_roots(_exe_dir: &Path, data_dir: &Path, _custom: &[PathBuf]) -> Vec<GameRoot> {
+    vec![make_root(data_dir.join(".minecraft"), RootKind::Default)]
+}
+
+#[cfg(not(feature = "e2e"))]
 pub fn discover_roots(exe_dir: &Path, data_dir: &Path, custom: &[PathBuf]) -> Vec<GameRoot> {
     let mut roots: Vec<GameRoot> = Vec::new();
     let mut seen: Vec<PathBuf> = Vec::new();
@@ -232,5 +256,22 @@ mod tests {
         let roots = discover_roots(&tmp, &tmp, &[]);
         assert!(!roots.is_empty());
         assert_eq!(roots.last().unwrap().kind, RootKind::Default);
+    }
+
+    #[cfg(feature = "e2e")]
+    #[test]
+    fn e2e_data_dir_must_be_explicit_and_existing() {
+        let tmp = std::env::temp_dir();
+        assert_eq!(
+            required_e2e_data_dir(Some(tmp.clone().into_os_string())),
+            tmp
+        );
+    }
+
+    #[cfg(feature = "e2e")]
+    #[test]
+    #[should_panic(expected = "E2E build requires MC_E2E_DATA_DIR")]
+    fn e2e_data_dir_fails_closed_when_missing() {
+        let _ = required_e2e_data_dir(None);
     }
 }

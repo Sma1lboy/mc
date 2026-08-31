@@ -114,6 +114,7 @@ export default function Rail(): React.ReactElement {
     <nav
       className="stone [grid-area:rail] w-[64px] h-full flex flex-col items-center border-r-2 border-titlebar pt-[34px] pb-[10px] gap-[6px] box-border"
       aria-label={t("layout.primaryNav")}
+      data-testid="primary-nav"
     >
       {/* 顶部 Logo:草方块 */}
       <button
@@ -132,6 +133,7 @@ export default function Rail(): React.ReactElement {
             key={item.id}
             active={currentPage === item.id}
             title={item.label}
+            testId={`nav-${item.id}`}
             onClick={() => setCurrentPage(item.id)}
           >
             {item.icon()}
@@ -183,6 +185,7 @@ export default function Rail(): React.ReactElement {
         <NavItem
           active={currentPage === "settings"}
           title={t("layout.navSettings")}
+          testId="nav-settings"
           onClick={() => setCurrentPage("settings")}
         >
           <SettingsIcon />
