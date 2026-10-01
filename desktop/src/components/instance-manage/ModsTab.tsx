@@ -103,6 +103,8 @@ export function ModsTab(props: {
                   </div>
                 </div>
 
+                <p className="m-0 text-[12px] leading-[1.6] text-muted">{t("instance.modUpdateScope")}</p>
+
                 {/* 可更新清单(检查后才出现) */}
                 {(updates ?? []).length > 0 && (
                   <div className="flex flex-col gap-[6px] rounded-none bg-panel-2 p-[8px]">
