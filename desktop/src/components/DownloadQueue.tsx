@@ -31,7 +31,7 @@ function DownloadRow({ task }: { task: DownloadTask }) {
       case "done":
         return t("downloads.done");
       case "error":
-        return task.error || t("downloads.failed");
+        return t("downloads.failed");
     }
   })();
 
@@ -61,6 +61,18 @@ function DownloadRow({ task }: { task: DownloadTask }) {
         >
           {statusLabel}
         </div>
+        {task.status === "done" && <p className="m-0 text-[11px] leading-[1.5] text-muted">{t("downloads.doneHint")}</p>}
+        {task.status === "error" && (
+          <div className="text-[11px] leading-[1.5] text-muted">
+            <p className="m-0">{t("downloads.retryHint")}</p>
+            {task.error && (
+              <details>
+                <summary className="cursor-pointer">{t("downloads.errorDetails")}</summary>
+                <p className="m-0 break-words whitespace-pre-wrap">{task.error}</p>
+              </details>
+            )}
+          </div>
+        )}
         {active && (
           // 单条稳定进度条:用 class 在「流动(total 未知)」与「定量」间切换,不换 DOM
           // 元素——避免 total 在阶段切换间瞬时归 0 时反复重建元素导致的闪烁/消失。
@@ -79,7 +91,7 @@ function DownloadRow({ task }: { task: DownloadTask }) {
         <button
           type="button"
           className="shrink-0 w-[22px] h-[22px] grid place-items-center rounded-none border-none bg-transparent text-dim cursor-pointer hover:text-fg hover:bg-panel-2"
-          aria-label={t("downloads.dismiss")}
+          aria-label={t("downloads.dismiss", { title: task.title })}
           onClick={() => dismissDownload(task.id)}
         >
           <Icon name="close" size={12} />
@@ -123,6 +135,7 @@ export function DownloadQueue() {
                 </button>
               )}
             </div>
+            {hasFinished && <p className="px-[6px] m-0 pb-[6px] text-[11px] text-dim">{t("downloads.recordsOnly")}</p>}
             {items.length > 0 ? (
               <div className="flex flex-col gap-[4px]">
                 {items.map((task) => (

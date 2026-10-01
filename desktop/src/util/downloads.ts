@@ -162,6 +162,8 @@ export function fractionOf(task: DownloadTask): number | null {
 
 /** 从队列移除一条(完成 / 失败后用户手动清理)。 */
 export function dismissDownload(id: string) {
+  const task = tasks().find((item) => item.id === id);
+  if (!task || task.status === "queued" || task.status === "active") return;
   jobs.delete(id);
   setTasks((ts) => ts.filter((t) => t.id !== id));
 }
