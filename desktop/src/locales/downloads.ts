@@ -2,10 +2,11 @@
 const dict = {
   zh: {
     title: "下载与安装",
-    empty: "暂无任务。可前往「库」安装游戏,或在「发现」中添加内容。",
+    empty: "暂无任务。可在「发现」中添加整合包。",
     queued: "排队中…",
     installing: "安装中…",
-    done: "安装已完成",
+    done: "任务已完成",
+    doneHint: "如有缺失文件提示,请先完成手动下载。",
     failed: "安装未完成",
     retryHint: "请返回发起安装的页面重试。",
     errorDetails: "查看错误详情",
@@ -15,10 +16,11 @@ const dict = {
   } as Record<string, string>,
   en: {
     title: "Downloads and installs",
-    empty: "No tasks yet. Install a game from Library or add content from Discover.",
+    empty: "No tasks yet. Add a modpack from Discover.",
     queued: "Queued…",
     installing: "Installing…",
-    done: "Installation complete",
+    done: "Task complete",
+    doneHint: "If files are reported missing, finish the manual downloads first.",
     failed: "Installation incomplete",
     retryHint: "Return to the page where you started the install and try again.",
     errorDetails: "View error details",

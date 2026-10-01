@@ -15,7 +15,9 @@ describe("download history actions", () => {
   });
   it("provides translated failure recovery and distinguishes records from installed files", () => {
     for (const lang of ["zh", "en"] as const) {
-      for (const key of ["retryHint", "errorDetails", "recordsOnly"]) expect(dictionary[lang][key]).toBeTruthy();
+      for (const key of ["retryHint", "errorDetails", "recordsOnly", "doneHint"]) expect(dictionary[lang][key]).toBeTruthy();
+      expect(dictionary[lang].empty).not.toMatch(/库|Library/);
+      expect(dictionary[lang].done).not.toMatch(/安装已完成|Installation complete/);
       expect(dictionary[lang].dismiss).toContain("{{ title }}");
     }
   });

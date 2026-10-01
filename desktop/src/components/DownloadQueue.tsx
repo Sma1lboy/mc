@@ -61,6 +61,7 @@ function DownloadRow({ task }: { task: DownloadTask }) {
         >
           {statusLabel}
         </div>
+        {task.status === "done" && <p className="m-0 text-[11px] leading-[1.5] text-muted">{t("downloads.doneHint")}</p>}
         {task.status === "error" && (
           <div className="text-[11px] leading-[1.5] text-muted">
             <p className="m-0">{t("downloads.retryHint")}</p>

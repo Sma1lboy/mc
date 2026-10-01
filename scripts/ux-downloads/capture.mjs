@@ -20,6 +20,8 @@ for (const [phase, root] of [['before', process.env.UX_BASE_DIR], ['after', proc
   await page.getByText('Fixture: Failed modpack',{exact:true}).waitFor();
   if(phase==='after') {
     await page.getByText('安装未完成',{exact:true}).waitFor();
+    await page.getByText('任务已完成',{exact:true}).waitFor();
+    await page.getByText('如有缺失文件提示,请先完成手动下载。',{exact:true}).waitFor();
     await page.getByText('请返回发起安装的页面重试。',{exact:true}).waitFor();
     await page.getByText('查看错误详情',{exact:true}).click();
     await page.getByText('Fixture: HTTP 503 while downloading modpack',{exact:true}).waitFor();
