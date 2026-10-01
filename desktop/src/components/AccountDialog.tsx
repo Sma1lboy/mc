@@ -39,6 +39,9 @@ export function AccountDialog(props: {
   useLang();
   const [step, setStep] = useState<Step>("menu");
   const [device, setDevice] = useState<DeviceCode | null>(null);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [openFailed, setOpenFailed] = useState(false);
+  const msaPending = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [offlineName, setOfflineName] = useState("");
@@ -98,25 +101,42 @@ export function AccountDialog(props: {
     }
   }
 
+  async function copyCode(info: DeviceCode) {
+    try {
+      await navigator.clipboard.writeText(info.user_code);
+      if (!closed.current) setCopyState("copied");
+    } catch {
+      if (!closed.current) setCopyState("failed");
+    }
+  }
+
+  async function openMsaPage(info: DeviceCode) {
+    try {
+      await shellOpen(info.verification_uri);
+      if (!closed.current) setOpenFailed(false);
+    } catch {
+      if (!closed.current) setOpenFailed(true);
+    }
+  }
+
   async function startMsa() {
+    if (msaPending.current) return;
+    msaPending.current = true;
     setStep("msa");
+    setDevice(null);
+    setCopyState("idle");
+    setOpenFailed(false);
     setError(null);
     setBusy(true);
     try {
       const info = await api.msaLoginStart();
+      if (closed.current) return;
       setDevice(info);
-      // 自动复制代码 + 打开微软验证页,省去用户手抄。
-      try {
-        await navigator.clipboard.writeText(info.user_code);
-      } catch {
-        /* 剪贴板不可用时忽略,代码已在弹窗里大字显示 */
-      }
-      try {
-        await shellOpen(info.verification_uri);
-      } catch {
-        /* 打不开浏览器也没关系,地址已显示,用户可手动访问 */
-      }
-      // 阻塞轮询直到用户完成(后端内部按 interval 轮询)。
+      await copyCode(info);
+      if (closed.current) return;
+      await openMsaPage(info);
+      if (closed.current) return;
+      // Backend polling cannot be cancelled by dismissing this dialog.
       const acc = await api.msaLoginPoll(info.device_code, info.interval);
       if (closed.current) return;
       toast({ type: "success", message: t("account.loggedIn", { name: acc.username }) });
@@ -125,7 +145,8 @@ export function AccountDialog(props: {
       if (closed.current) return;
       setError(String(e));
     } finally {
-      setBusy(false);
+      msaPending.current = false;
+      if (!closed.current) setBusy(false);
     }
   }
 
@@ -314,12 +335,21 @@ export function AccountDialog(props: {
                   href={device.verification_uri}
                   onClick={(e) => {
                     e.preventDefault();
-                    shellOpen(device.verification_uri);
+                    void openMsaPage(device);
                   }}
                 >
                   {device.verification_uri}
                 </a>
               </p>
+              <Button type="button" variant="ghost" onClick={() => void copyCode(device)}>
+                {t("account.copyCode")}
+              </Button>
+              {copyState !== "idle" && (
+                <p role="status" className="m-0 text-[12px] text-muted">
+                  {t(copyState === "copied" ? "account.codeCopied" : "account.codeCopyFailed")}
+                </p>
+              )}
+              {openFailed && <p role="status" className="m-0 text-[12px] text-muted">{t("account.pageOpenFailed")}</p>}
               {busy && !error && (
                 <div className="flex flex-col items-center gap-[10px] px-[16px] pb-[16px] pt-[6px] text-muted text-[13px]">
                   <Spinner />
@@ -327,10 +357,20 @@ export function AccountDialog(props: {
                 </div>
               )}
             </>
-          ) : (
+          ) : busy ? (
             <div className="flex flex-col items-center gap-[10px] p-[16px] text-muted text-[13px]">
               <Spinner />
               <span>{t("account.fetchingCode")}</span>
+            </div>
+          ) : null}
+          {error && !busy && (
+            <div className="flex justify-end gap-[10px]">
+              <Button type="button" variant="ghost" onClick={() => { setStep("menu"); setError(null); setDevice(null); }}>
+                {t("account.back")}
+              </Button>
+              <Button type="button" variant="primary" onClick={() => void startMsa()}>
+                {t("account.retryMsa")}
+              </Button>
             </div>
           )}
         </div>
@@ -339,7 +379,7 @@ export function AccountDialog(props: {
       {/* --- 离线用户名 --- */}
       {step === "offline" && (
         <form className="p-[18px] flex flex-col gap-[12px]" onSubmit={submitOffline}>
-          <label htmlFor="account-dialog-offline-name" className="sr-only">
+          <label htmlFor="account-dialog-offline-name" className="text-[12px] text-muted">
             {t("account.offlineNameLabel")}
           </label>
           <input
@@ -358,7 +398,7 @@ export function AccountDialog(props: {
               {t("account.back")}
             </Button>
             <Button type="submit" variant="primary" disabled={busy || !offlineName.trim()}>
-              {busy ? t("account.adding") : t("account.confirm")}
+              {busy ? t("account.adding") : t("account.addOffline")}
             </Button>
           </div>
         </form>
@@ -367,7 +407,9 @@ export function AccountDialog(props: {
       {/* --- 外置登录(Yggdrasil) --- */}
       {step === "yggdrasil" && (
         <form className="p-[18px] flex flex-col gap-[10px]" onSubmit={submitYggdrasil}>
+          <label htmlFor="account-ygg-base" className="text-[12px] text-muted">{t("account.yggBaseLabel")}</label>
           <input
+            id="account-ygg-base"
             className={ACCOUNT_INPUT}
             placeholder={t("account.yggBasePlaceholder")}
             autoComplete="off"
@@ -375,14 +417,18 @@ export function AccountDialog(props: {
             value={ygBase}
             onChange={(e) => setYgBase(e.currentTarget.value)}
           />
+          <label htmlFor="account-ygg-user" className="text-[12px] text-muted">{t("account.yggUserLabel")}</label>
           <input
+            id="account-ygg-user"
             className={ACCOUNT_INPUT}
             placeholder={t("account.yggUserPlaceholder")}
             autoComplete="username"
             value={ygUser}
             onChange={(e) => setYgUser(e.currentTarget.value)}
           />
+          <label htmlFor="account-ygg-pass" className="text-[12px] text-muted">{t("account.yggPassLabel")}</label>
           <input
+            id="account-ygg-pass"
             type="password"
             className={ACCOUNT_INPUT}
             placeholder={t("account.yggPassPlaceholder")}

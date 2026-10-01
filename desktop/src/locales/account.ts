@@ -16,7 +16,7 @@ const dict = {
 
     // 登录方式卡片
     msaTitle: "微软账号",
-    msaDesc: "正版验证,可联机、用正版皮肤",
+    msaDesc: "使用拥有 Minecraft Java 版的微软账号",
     offlineTitle: "离线账号",
     offlineDesc: "仅输入用户名,单机游玩",
     yggdrasilTitle: "外置登录",
@@ -24,7 +24,15 @@ const dict = {
 
     // 微软设备码
     fetchingCode: "正在获取登录代码…",
-    msaInstruction: "已打开微软登录页并复制代码,在页面输入以下代码完成登录:",
+    msaInstruction: "在微软登录页输入以下代码,然后按网页提示完成登录。",
+    copyCode: "复制登录代码",
+    codeCopied: "已复制登录代码",
+    codeCopyFailed: "未能复制。请选中上方代码,手动复制。",
+    pageOpenFailed: "未能打开浏览器。请手动访问上方验证地址。",
+    retryMsa: "重新获取代码",
+    yggBaseLabel: "皮肤站 API 地址",
+    yggUserLabel: "邮箱或用户名",
+    yggPassLabel: "密码",
     verificationUri: "验证地址:",
     waitingAuth: "等待你在浏览器中完成授权…",
 
@@ -39,7 +47,7 @@ const dict = {
 
     // 按钮
     back: "返回",
-    confirm: "确定",
+    addOffline: "添加离线账号",
     adding: "添加中…",
     login: "登录",
     loggingIn: "登录中…",
@@ -53,7 +61,7 @@ const dict = {
 
     // 微软 client_id 错误说明
     msaClientIdError:
-      "微软登录需要你自己的 Azure 应用 client_id(默认的老 ID 已被微软拒绝)。请到 Azure 注册一个「个人 Microsoft 账户」应用并开启「公共客户端流」,把 client_id 写入 ",
+      "此版本的微软登录配置不可用。请从官方发布页检查新版,或向维护者报告下方错误。自行构建时,检查 ",
     msaClientIdErrorMid: " 的 ",
     msaClientIdErrorEnd: ",重启应用后再试。",
 
@@ -86,14 +94,22 @@ const dict = {
     orAddNew: "Or add a new account:",
 
     msaTitle: "Microsoft Account",
-    msaDesc: "Genuine login — multiplayer & official skins",
+    msaDesc: "Use a Microsoft account that owns Minecraft Java Edition",
     offlineTitle: "Offline Account",
     offlineDesc: "Just a username, singleplayer only",
     yggdrasilTitle: "External Login",
     yggdrasilDesc: "Third-party skin sites (LittleSkin, etc.) — authlib-injector auto-injected",
 
     fetchingCode: "Fetching login code…",
-    msaInstruction: "Microsoft login page opened and code copied. Enter the code below to finish:",
+    msaInstruction: "Enter this code on the Microsoft sign-in page, then follow the steps there.",
+    copyCode: "Copy sign-in code",
+    codeCopied: "Sign-in code copied",
+    codeCopyFailed: "Couldn't copy. Select the code above and copy it manually.",
+    pageOpenFailed: "Couldn't open your browser. Visit the verification URL above manually.",
+    retryMsa: "Get a new code",
+    yggBaseLabel: "Skin site API URL",
+    yggUserLabel: "Email or username",
+    yggPassLabel: "Password",
     verificationUri: "Verification URL: ",
     waitingAuth: "Waiting for you to authorize in the browser…",
 
@@ -105,7 +121,7 @@ const dict = {
     yggPassPlaceholder: "Password",
 
     back: "Back",
-    confirm: "OK",
+    addOffline: "Add offline account",
     adding: "Adding…",
     login: "Login",
     loggingIn: "Logging in…",
@@ -117,7 +133,7 @@ const dict = {
     loggedInYggdrasil: "Logged in (external): {{ name }}",
 
     msaClientIdError:
-      "Microsoft login needs your own Azure app client_id (the old default ID is now rejected). Register a “Personal Microsoft account” app on Azure, enable the “public client flow”, and write the client_id into ",
+      "Microsoft sign-in is unavailable in this build. Check the official releases for an update or report the error below to the maintainer. If you built the app yourself, check ",
     msaClientIdErrorMid: " — the ",
     msaClientIdErrorEnd: " field — then restart the app and try again.",
 
