@@ -26,8 +26,16 @@ for (const [phase, root] of [['before', process.env.UX_BASE_DIR], ['after', proc
     if(phase==='after') await page.getByRole('dialog').getByText(/若失败,会永久删除且无法恢复。请先备份。/).waitFor();
     await page.screenshot({path:`${out}/deletion-${view}-${phase}.png`});
     await page.getByRole('button',{name:'取消',exact:true}).click();
-    assert.equal(await page.getByRole('dialog').count(),0);
+    await page.getByRole('dialog').waitFor({state:'hidden'});
+    assert.equal(await page.getByRole('dialog').isVisible(),false);
     assert.equal(await page.evaluate(()=>window.uxDeleteCalls),0);
+    if(view==='world') {
+      await page.getByRole('button',{name:'删除',exact:true}).click();
+      await page.getByRole('dialog').waitFor();
+      await page.keyboard.press('Escape');
+      await page.getByRole('dialog').waitFor({state:'hidden'});
+      assert.equal(await page.evaluate(()=>window.uxDeleteCalls),0);
+    }
   }
   await context.close(); await new Promise(r=>server.close(r));
 }
