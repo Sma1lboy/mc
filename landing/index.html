@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>kobeMC — 从零打造的跨平台 Minecraft 启动器</title>
-<meta name="description" content="kobeMC:Rust 核心 + Tauri v2 的跨平台 Minecraft 启动器。原版 / Fabric / Quilt / Forge / NeoForge 一键启动,Modrinth 集成,微软登录。">
+<meta name="description" content="kobeMC:Rust 核心 + Tauri v2 的跨平台 Minecraft 启动器。安装和启动原版、Fabric、Quilt、Forge、NeoForge,浏览 Modrinth 内容,支持微软登录。">
 <!--
   DESIGN SYSTEM — Blocky Craft(方块工坊),取自 desktop/src/theme/tokens.css 精确值
   底色   : --bg-window #16170f(暖黑) · panel #1d1f15 · titlebar #0c0d0a · 石质纹理 repeating-gradient
@@ -206,59 +206,60 @@
   <img class="hero-block" src="icon.png" alt="" aria-hidden="true">
   <div class="hero-inner">
     <span class="tag">FREE &amp; OPEN SOURCE</span>
-    <h1>下载、装 Mod、<br>进游戏,<br><span class="mc">一步到位</span></h1>
-    <p class="sub">选好版本点一下,剩下的交给 kobeMC —— 游戏文件、Mod 加载器、Java 环境全部<b>自动就绪</b>,你只管开玩。</p>
+    <h1>装好游戏,<br>管理 Mod,<br><span class="mc">开始游玩</span></h1>
+    <p class="sub">选择游戏版本和加载器,kobeMC 帮你下载游戏文件并匹配 Java。安装完成后,在启动器中<b>开始游玩</b>。</p>
     <div class="cta-row">
-      <a class="btn-play" href="#download">▶ PLAY</a>
+      <a class="btn-play" href="#download">下载启动器</a>
       <a class="btn-ghost" href="https://github.com/Sma1lboy/mc">查看源码</a>
     </div>
     <div class="brew">
       <code id="brew-cmd">brew install --cask sma1lboy/tap/kobemc</code>
-      <button onclick="navigator.clipboard.writeText(document.getElementById('brew-cmd').textContent);this.textContent='OK!';setTimeout(()=>this.textContent='COPY',1400)">COPY</button>
+      <button id="copy-brew" type="button" aria-label="复制 Homebrew 安装命令">复制命令</button>
     </div>
+    <p id="copy-status" class="note" role="status" aria-live="polite"></p>
     <p class="note">macOS(Apple Silicon + Intel)· 其他平台见 <a href="https://github.com/Sma1lboy/mc/releases">Releases</a></p>
   </div>
 </div>
 
 <div class="stats">
   <div class="wrap row">
-    <div class="stat"><span class="n">1-CLICK</span><span class="l">安装到启动,全自动</span></div>
+    <div class="stat"><span class="n">INSTALL</span><span class="l">安装、管理、启动游戏</span></div>
     <div class="stat"><span class="n">MODS</span><span class="l">原版 · Fabric · Quilt · Forge · NeoForge 全支持</span></div>
     <div class="stat"><span class="n">FREE</span><span class="l">免费开源,三平台通用</span></div>
-    <div class="stat"><span class="n">CN</span><span class="l">国内下载加速内置</span></div>
+    <div class="stat"><span class="n">CN</span><span class="l">可选国内下载镜像</span></div>
   </div>
 </div>
 
 <section id="features">
   <div class="wrap">
     <span class="sec-kick">FEATURES</span>
-    <h2>你要的,它都会</h2>
-    <p class="sec-sub">从装游戏到玩上 Mod,中间的麻烦事全部替你做完。</p>
+    <h2>从安装到游玩</h2>
+    <p class="sec-sub">在一个启动器里管理游戏版本、Mod 和存档。</p>
     <div class="grid">
       <div class="cell orange">
         <div class="ic"></div>
-        <h3>一键开玩</h3>
-        <p>挑好版本点 PLAY,游戏文件自动下载校验,下完直接进游戏 —— 全程不用你动手。</p>
+        <h3>安装与启动</h3>
+        <p>选择版本,下载并校验游戏文件。安装完成后,选择账号并启动游戏。</p>
       </div>
       <div class="cell">
         <div class="ic"></div>
-        <h3>想玩什么 Mod 都行</h3>
-        <p>Fabric、Quilt、Forge、NeoForge 全都支持,选一个自动装好,不用看教程折腾。</p>
+        <h3>选择合适的加载器</h3>
+        <p>支持 Fabric、Quilt、Forge 和 NeoForge。安装 Mod 时,请匹配游戏版本与加载器。</p>
       </div>
       <div class="cell stone-ic">
         <div class="ic"></div>
-        <h3>Java?不用管</h3>
-        <p>缺什么版本的 Java 它自己发现、自己下载,你甚至不需要知道 Java 是什么。</p>
+        <h3>自动匹配 Java</h3>
+        <p>检测已安装的 Java,按游戏版本匹配运行环境;缺少合适版本时可自动下载。</p>
       </div>
       <div class="cell">
         <div class="ic"></div>
-        <h3>怎么登录都可以</h3>
-        <p>微软正版、离线模式、第三方外置登录,想怎么进就怎么进,多账号随时切换。</p>
+        <h3>选择登录方式</h3>
+        <p>支持微软、离线与外置登录。微软登录需要拥有 Minecraft Java 版;离线账号不能加入正版验证服务器。</p>
       </div>
       <div class="cell orange">
         <div class="ic"></div>
         <h3>Mod 商店内置</h3>
-        <p>直接在启动器里搜 Mod、一键安装,连它依赖的其他 Mod 也一起装好,再也不会缺前置。</p>
+        <p>搜索并安装 Modrinth 上的 Mod,同时解析平台标注的依赖。兼容性取决于游戏版本、加载器和 Mod。</p>
       </div>
       <div class="cell stone-ic">
         <div class="ic"></div>
@@ -273,12 +274,12 @@
       <div class="cell stone-ic">
         <div class="ic"></div>
         <h3>国内也快</h3>
-        <p>内置国内下载加速,不挂工具也能满速下游戏和资源。</p>
+        <p>可在设置中选择国内镜像。实际下载速度取决于网络、镜像服务与资源来源。</p>
       </div>
       <div class="cell orange">
         <div class="ic"></div>
-        <h3>多开不占地方</h3>
-        <p>建多少个游戏实例都行,共用的文件只存一份,硬盘不为重复文件买单。</p>
+        <h3>共享公共游戏文件</h3>
+        <p>多个实例可复用公共游戏文件,减少重复占用。各实例的 Mod、配置与存档仍需磁盘空间。</p>
       </div>
     </div>
   </div>
@@ -292,20 +293,20 @@
       <div class="dl-card mac">
         <span class="os">macOS</span><span class="fmt">.DMG / HOMEBREW</span>
         <p>Apple Silicon 与 Intel 双架构。推荐 Homebrew 安装,更新只要 brew upgrade。</p>
-        <a href="https://github.com/Sma1lboy/mc/releases">GET .DMG</a>
+        <a href="https://github.com/Sma1lboy/mc/releases">查看 macOS 安装包</a>
       </div>
       <div class="dl-card">
         <span class="os">Windows</span><span class="fmt">.MSI</span>
         <p>标准 MSI 安装包,从 GitHub Releases 获取最新版本。</p>
-        <a href="https://github.com/Sma1lboy/mc/releases">GET .MSI</a>
+        <a href="https://github.com/Sma1lboy/mc/releases">查看 Windows 安装包</a>
       </div>
       <div class="dl-card">
         <span class="os">Linux</span><span class="fmt">.APPIMAGE</span>
         <p>AppImage 免安装直接运行,chmod +x 即用。</p>
-        <a href="https://github.com/Sma1lboy/mc/releases">GET .APPIMAGE</a>
+        <a href="https://github.com/Sma1lboy/mc/releases">查看 Linux 安装包</a>
       </div>
     </div>
-    <p class="fine">应用暂未签名:macOS 首次启动若被拦,右键 → 打开,或 <code>xattr -dr com.apple.quarantine "/Applications/kobeMC.app"</code></p>
+    <p class="fine">安装包链接会打开 GitHub Releases,请按系统和芯片选择文件。应用暂未签名;macOS 可能在首次启动时显示安全提示,请先核实下载来源。</p>
   </div>
 </section>
 
@@ -319,5 +320,6 @@
   </div>
 </footer>
 
+<script src="copy-command.js"></script>
 </body>
 </html>
