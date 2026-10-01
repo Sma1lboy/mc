@@ -81,8 +81,8 @@ export function useModsTab(instance: InstanceSummary | null, gated: boolean) {
       const list = await api.checkModUpdates(activeRoot(), inst.id, inst.mc_version, searchLoader ?? "");
       setUpdates(list);
       toast({
-        type: list.length > 0 ? "info" : "success",
-        message: list.length > 0 ? t("instance.foundUpdates", { n: list.length }) : t("instance.allModsUpToDate"),
+        type: "info",
+        message: list.length > 0 ? t("instance.foundUpdates", { n: list.length }) : t("instance.noModUpdatesFound"),
       });
     } catch (e) {
       toast({ type: "error", message: t("instance.checkUpdatesFailed", { err: String(e) }) });

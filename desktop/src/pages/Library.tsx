@@ -290,6 +290,8 @@ export default function Library() {
       </div>
 
       {/* 批量操作条:仅多选模式可见。展示已选数 + 全选/清空 + 删除所选。 */}
+      {!selectMode && instList.length > 0 && <p className="text-[12px] leading-[1.6] text-muted mb-[16px]">{t("library.updatesScope")}</p>}
+
       {selectMode && (
         <Panel variant="raised" className="flex items-center gap-[12px] mb-[16px] px-[14px] py-[10px]">
           <span className="text-[13px] font-medium text-fg">

@@ -34,7 +34,7 @@ export const currentRoot = (): string | null => get().currentRoot;
 
 /** 设置当前根并持久化;根变化后重拉实例列表(切根自动重拉)。 */
 export function setCurrentRoot(path: string | null): void {
-  set({ currentRoot: path });
+  set({ currentRoot: path, updatesByInstance: {} });
   if (typeof window !== "undefined") {
     try {
       if (path) window.localStorage.setItem(ROOT_STORAGE_KEY, path);
@@ -88,14 +88,16 @@ export async function checkAllUpdates(): Promise<void> {
   if (get().checkingUpdates) return;
   set({ checkingUpdates: true });
   try {
-    const list = await api.checkAllUpdates(activeRoot());
+    const root = activeRoot();
+    const list = await api.checkAllUpdates(root);
+    if (root !== activeRoot()) return; // Discard results for a directory the user left.
     const next: Record<string, InstanceUpdateState> = {};
     for (const u of list) {
       next[u.instance_id] = { mods: u.mod_updates, modpack: u.modpack_update };
     }
     set({ updatesByInstance: next });
     toast({
-      type: list.length > 0 ? "info" : "success",
+      type: "info",
       message:
         list.length > 0
           ? t("library.updatesFound", { n: list.length })
