@@ -32,6 +32,8 @@ for (const [phase, root] of [['before', process.env.UX_BASE_DIR], ['after', proc
     if(view==='world') {
       await page.getByRole('button',{name:'删除',exact:true}).click();
       await page.getByRole('dialog').waitFor();
+      await page.getByRole('dialog').getByRole('button',{name:'取消',exact:true}).focus();
+      await page.waitForTimeout(200); // Let Ark install its dismissable-layer listener after reopening.
       await page.keyboard.press('Escape');
       await page.getByRole('dialog').waitFor({state:'hidden'});
       assert.equal(await page.evaluate(()=>window.uxDeleteCalls),0);
