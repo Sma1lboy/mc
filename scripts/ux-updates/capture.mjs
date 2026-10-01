@@ -25,6 +25,7 @@ for (const [phase, root] of [['before', process.env.UX_BASE_DIR], ['after', proc
       assert.equal(await page.getByText(/全部 mod 已是最新|所有实例都已是最新/).count(),0);
       await page.getByText(view==='library' ? /检查 Modrinth 整合包/ : /仅检查 Modrinth 可识别/).waitFor();
     }
+    await page.waitForTimeout(450); // Finish the real toast entrance animation before capture.
     await page.screenshot({path:`${out}/updates-${view}-${phase}.png`});
   }
   await context.close(); await new Promise(r=>server.close(r));
