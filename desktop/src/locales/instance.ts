@@ -65,7 +65,7 @@ const dict = {
     searchModrinth: "搜索 Modrinth({{ version }})",
     deleteResourcePack: "删除资源包",
     deleteFileConfirm: "删除「{{ file }}」?",
-    deleteFileBody: "该文件将从实例目录中永久删除。",
+    deleteFileBody: "将从实例目录删除该文件。先尝试移入回收站;若失败,会永久删除且无法恢复。请先备份。",
 
     // 存档面板
     worldsZipFilter: "存档压缩包",
@@ -96,7 +96,7 @@ const dict = {
     rename: "重命名",
     deleteWorld: "删除存档",
     deleteWorldConfirm: "删除存档「{{ name }}」?",
-    deleteWorldBody: "该世界的游玩进度将被移入回收站。",
+    deleteWorldBody: "将删除该世界及其游玩进度。先尝试移入回收站;若失败,会永久删除且无法恢复。请先备份。",
 
     // 加装核心面板
     fillForgeVersion: "请填写 Forge / NeoForge 版本",
@@ -191,7 +191,7 @@ const dict = {
     // 删除 mod 弹窗
     deleteMod: "删除 Mod",
     deleteModConfirm: "删除「{{ name }}」?",
-    deleteModBody: "该 mod 文件将从实例目录中永久删除。",
+    deleteModBody: "将从实例目录删除该 Mod 文件。先尝试移入回收站;若失败,会永久删除且无法恢复。请先备份。",
 
     // 弹窗标题
     instanceManage: "实例管理",
@@ -208,12 +208,12 @@ const dict = {
     updateAvailable: "有更新 · {{ version }}",
     updateAvailableHint: "整合包有新版本,点击更新",
     updateTitle: "更新整合包",
-    updateBody: "将把整合包更新到 {{ version }}。存档与个人配置会保留;此版本移除的模组会被移入回收站。",
+    updateBody: "将更新到 {{ version }},保留存档与个人配置。被移除的 Mod 会先尝试移入回收站;若失败,会永久删除。更新前请备份。",
     updateChangelog: "更新日志",
     updateNow: "更新到 {{ version }}",
     viewOnModrinth: "在 Modrinth 查看",
     updateSuccess: "已更新到 {{ version }}",
-    updateRemoved: "已清理 {{ count }} 个被移除的文件(移入回收站)",
+    updateRemoved: "已尝试移除 {{ count }} 个旧文件,请核对结果",
     copyInstanceItem: "复制实例",
     rebuildWikiIndex: "重新解析资料索引",
     wikiReindexing: "资料索引解析中…",
@@ -223,8 +223,8 @@ const dict = {
     deleteInstance: "删除实例",
     loading: "载入中…",
     deleteInstanceConfirm: "删除实例「{{ name }}」?",
-    deleteInstanceBodyDetail: "将删除该版本目录,包括其 mods、存档与配置(移入回收站)。",
-    deleteInstanceBodyRow: "将永久删除该版本目录,包括其 mods、存档与配置。此操作不可撤销。",
+    deleteInstanceBodyDetail: "将删除该实例的 Mod、存档与配置。先尝试移入回收站;若失败,会永久删除且无法恢复。请先备份。",
+    deleteInstanceBodyRow: "将删除该实例的 Mod、存档与配置。先尝试移入回收站;若失败,会永久删除且无法恢复。请先备份。",
     stopBeforeCopyDetail: "请先停止运行中的游戏,再复制该实例",
 
     // 实例行菜单
@@ -293,7 +293,7 @@ const dict = {
     searchModrinth: "Search Modrinth ({{ version }})",
     deleteResourcePack: "Delete Resource Pack",
     deleteFileConfirm: "Delete 「{{ file }}」?",
-    deleteFileBody: "This file will be permanently deleted from the instance folder.",
+    deleteFileBody: "This removes the file from the instance. It tries the trash first; if that fails, deletion is permanent and cannot be undone. Back up first.",
 
     worldsZipFilter: "World archive",
     pickWorldZip: "Pick a world .zip",
@@ -323,7 +323,7 @@ const dict = {
     rename: "Rename",
     deleteWorld: "Delete World",
     deleteWorldConfirm: "Delete world 「{{ name }}」?",
-    deleteWorldBody: "This world's progress will be moved to the trash.",
+    deleteWorldBody: "This deletes the world and its progress. It tries the trash first; if that fails, deletion is permanent and cannot be undone. Back up first.",
 
     fillForgeVersion: "Please enter the Forge / NeoForge version",
     preparing: "Preparing…",
@@ -407,7 +407,7 @@ const dict = {
 
     deleteMod: "Delete Mod",
     deleteModConfirm: "Delete 「{{ name }}」?",
-    deleteModBody: "This mod file will be permanently deleted from the instance folder.",
+    deleteModBody: "This removes the mod file from the instance. It tries the trash first; if that fails, deletion is permanent and cannot be undone. Back up first.",
 
     instanceManage: "Instance Management",
 
@@ -422,12 +422,12 @@ const dict = {
     updateAvailable: "Update · {{ version }}",
     updateAvailableHint: "A newer modpack version is available — click to update",
     updateTitle: "Update modpack",
-    updateBody: "This will update the modpack to {{ version }}. Your worlds and personal config are kept; mods removed in this version go to the recycle bin.",
+    updateBody: "Updates to {{ version }} and keeps worlds and personal config. Removed mods go to the trash, or are permanently deleted if that fails. Back up before updating.",
     updateChangelog: "Changelog",
     updateNow: "Update to {{ version }}",
     viewOnModrinth: "View on Modrinth",
     updateSuccess: "Updated to {{ version }}",
-    updateRemoved: "Cleaned up {{ count }} removed file(s) (moved to recycle bin)",
+    updateRemoved: "Attempted to remove {{ count }} old file(s). Check the result.",
     copyInstanceItem: "Copy Instance",
     rebuildWikiIndex: "Rebuild wiki index",
     wikiReindexing: "Rebuilding wiki index…",
@@ -437,8 +437,8 @@ const dict = {
     deleteInstance: "Delete Instance",
     loading: "Loading…",
     deleteInstanceConfirm: "Delete instance 「{{ name }}」?",
-    deleteInstanceBodyDetail: "This will delete the version folder, including its mods, worlds and config (moved to trash).",
-    deleteInstanceBodyRow: "This will permanently delete the version folder, including its mods, worlds and config. This cannot be undone.",
+    deleteInstanceBodyDetail: "This deletes the instance's mods, worlds and config. It tries the trash first; if that fails, deletion is permanent and cannot be undone. Back up first.",
+    deleteInstanceBodyRow: "This deletes the instance's mods, worlds and config. It tries the trash first; if that fails, deletion is permanent and cannot be undone. Back up first.",
     stopBeforeCopyDetail: "Stop the running game before copying this instance",
 
     stop: "Stop",
