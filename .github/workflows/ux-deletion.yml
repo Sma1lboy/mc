@@ -1,0 +1,46 @@
+name: UX deletion acceptance
+on:
+  pull_request:
+    branches: [main]
+    paths: ['desktop/**', 'landing/**', 'scripts/ux-deletion/**', '.github/workflows/ux-deletion.yml']
+permissions:
+  contents: read
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test -w desktop
+      - run: cd desktop && npx tsc --noEmit && node scripts/check-i18n.mjs
+      - run: npm run ladle:build -w desktop
+      - name: Build baseline with the same fixture and real baseline components
+        run: |
+          git worktree add /tmp/ux-baseline 4a1359a7b894651c158d03fe67bb806dc0b36c3f
+          cp desktop/src/components/uxDeletion.stories.tsx /tmp/ux-baseline/desktop/src/components/
+          cd /tmp/ux-baseline
+          npm ci
+          npm run ladle:build -w desktop
+      - run: |
+          npm install --prefix /tmp/ux-tools --no-audit --no-fund playwright@1.51.0
+          /tmp/ux-tools/node_modules/.bin/playwright install --with-deps chromium
+          sudo apt-get install -y fonts-noto-cjk
+      - name: Compare and assert real component behavior
+        env:
+          UX_TOOLS_DIR: /tmp/ux-tools
+          UX_BASE_DIR: /tmp/ux-baseline
+        run: node scripts/ux-deletion/capture.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ux-deletion-evidence-${{ github.event.pull_request.head.sha }}
+          path: ux-evidence
+          if-no-files-found: error
